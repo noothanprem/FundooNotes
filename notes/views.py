@@ -43,7 +43,11 @@ from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
 from django.core.mail import send_mail
 
+from django.conf import settings
+from .tasks import reminder_notification_task
+
 # from notes.tasks import send_feedback_email_task
+
 
 redisobject = RedisOperation()
 redis = redisobject.r
@@ -465,3 +469,14 @@ class ReminderNotification(GenericAPIView):
             print("Email sent successfully")
         else:
             print("number is odd")
+
+class CeleryTasks(GenericAPIView):
+    def get(self,request):
+        user = request.user
+        print(user,"userrr")
+        response = reminder_notification_task.delay(user)
+        print(response,"responseeee")
+        if response['success'] == False:
+            return HttpResponse("Success")
+        else:
+            return HttpResponse("Failed")

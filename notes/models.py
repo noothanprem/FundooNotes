@@ -28,7 +28,7 @@ class Note(models.Model):
     image=models.ImageField(blank=True)
     is_archieve=models.BooleanField(default=False)
     is_trash=models.BooleanField(default=False)
-    reminder = models.DateTimeField(auto_now_add=True,blank=True)
+    reminder = models.DateTimeField(blank=True,null=True)
     pin=models.BooleanField(default=False)
     url=models.URLField(blank=True)
     def __str__(self):

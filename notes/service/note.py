@@ -51,7 +51,7 @@ class NoteOperations:
             """
             getting the data from request
             """
-            pdb.set_trace()
+            #pdb.set_trace()
             data = request.data
             print (data, "request daaaataaaaaaaaa")
 
@@ -407,7 +407,7 @@ class NoteOperations:
 
         """
 
-        pdb.set_trace()
+        #pdb.set_trace()
         user = request.user
         try:
             print (user,"requested userrrrrrrrr")

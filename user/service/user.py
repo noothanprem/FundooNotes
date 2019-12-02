@@ -1,5 +1,7 @@
 from __future__ import unicode_literals
 
+import pdb
+
 from django.core.validators import validate_email
 from user.serializers import UserSerializer, LoginSerializer, ForgotPasswordSerializer, ResetPasswordSerializer, \
     LogoutSerializer
@@ -159,6 +161,7 @@ class UserOperations:
             """
             getting the username and password
             """
+            #pdb.set_trace()
             username = request.data['username']
             password = request.data['password']
 
@@ -250,7 +253,7 @@ class UserOperations:
                 jwt_token = {"token": jwt.encode(payload, "secret", algorithm="HS256").decode('utf-8')}
 
                 token = jwt_token["token"]
-
+                print(token)
                 currentsite = get_current_site(request)
                 subject = "Link to Reset the password"
 
@@ -278,8 +281,9 @@ class UserOperations:
             response = self.smd_response(False, 'Exception occured while sending email', [])
         except DecodeError:
             response = self.smd_response(False, 'Exception occured while generating token', [])
-        except user.DoesNotExist:
+        except User.DoesNotExist:
             response = self.smd_response(False, 'Exception occured while getting the user object', [])
+        return response
 
     def reset_password(self, request, token):
         """
@@ -340,7 +344,7 @@ class UserOperations:
                 response = self.smd_response(False, 'Both the Passwords doesnt match', [])
 
                 return response
-        except user.DoesNotExist:
+        except User.DoesNotExist:
             response = self.smd_response(False, 'Exception occured while accessing the user object', [])
         except DecodeError:
             response = self.smd_response(False, 'Exception occured while generating the token', [])

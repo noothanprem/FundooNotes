@@ -135,7 +135,7 @@ DATABASES = {
         'USER': 'noothan',
         'PASSWORD': 'noothan',
         'HOST': 'localhost',
-        'PORT': '',
+        'PORT': '3306',
     }
 }
 
@@ -198,6 +198,8 @@ CACHES = {
     }
 }
 
+
+
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
 
@@ -235,17 +237,19 @@ TEST_TOKEN = os.getenv('TEST_TOKEN')
 
 STATIC_ROOT = os.path.join(BASE_DIR, "static/")
 
-# CELERY_BROKER_URL = 'amqp://localhost'
+CELERY_BROKER_URL = 'amqp://localhost'
 # CELERY_RESULT_BACKEND = "amqp"
-# CELERY_ACCEPT_CONTENT = ['json']
-# CELERY_TASK_SERIALIZER = 'json'
-# CELERY_AMOP_TASK_RESULT_EXPIRES = 1000
-
-# For RabbitMQ
-BROKER_URL = 'amqp://[ipaddress]'
-CELERY_RESULT_BACKEND = 'amqp://[ipaddress]'
-# Celery Data Format
-CELERY_ACCEPT_CONTENT = ['application/json']
+CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'Asia/Kolkata'
+CELERY_AMOP_TASK_RESULT_EXPIRES = 1000
+
+# # For RabbitMQ
+#BROKER_URL = 'amqp://[ipaddress]'
+# CELERY_RESULT_BACKEND = 'amqp://[ipaddress]'
+# # Celery Data Format
+# CELERY_ACCEPT_CONTENT = ['application/json']
+# CELERY_TASK_SERIALIZER = 'json'
+# CELERY_RESULT_SERIALIZER = 'json'
+# CELERY_TIMEZONE = 'Asia/Kolkata'
+
+CELERY_BROKER_URL = 'amqp://localhost'

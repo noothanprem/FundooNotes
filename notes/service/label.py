@@ -144,16 +144,18 @@ class LabelOperations:
             request_body = request.body
             body_unicode = request_body.decode('utf-8')
             body_unicode_dict = json.loads(body_unicode)
-
+            user_id = user.id
             """
             getting the label with the given id
             """
-            label_object = Label.objects.get(id=label_id, user_id=user.id)
+            label_object = Label.objects.get(id=label_id, user_id=user_id)
+            print(label_object,"label object4tgweghserthrt")
             """
             replacing the label name
             """
-            label_object.name = body_unicode_dict['name']
-
+            name=body_unicode_dict['name']
+            label_object.name =name
+            print(label_object.name,"label object name ")
             label_object.save()
             string_user_id = str(user.id)
             redis.hmset(string_user_id + "label", {label_object.id: label_id})

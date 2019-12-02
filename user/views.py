@@ -44,10 +44,13 @@ class Register(GenericAPIView):
 
     def post(self, request):
         # calling the register_user method in user.py
-        user_registration = userclassobject.register_user(request)
-        print (user_registration, "returned to viewssssssssssssssssssssss")
-        # string_user_registration=str(user_registration)
-        return HttpResponse(json.dumps(user_registration))
+        response = userclassobject.register_user(request)
+        print (response, "returned to viewsssssssssssssssss")
+        if response['success'] == False:
+            return HttpResponse(json.dumps(response),status=400)
+        else:
+            # string_user_registration=str(user_registration)
+            return HttpResponse(json.dumps(response),status=200)
 
 
 # API for login
@@ -56,9 +59,11 @@ class Login(GenericAPIView):
     serializer_class = LoginSerializer
 
     def post(self, request):
-        user_login = userclassobject.login_user(request)
-        print (user_login, "returned to viewssssssssss")
-        return HttpResponse(json.dumps(user_login))
+        response = userclassobject.login_user(request)
+        if response['success'] == False:
+            return HttpResponse(json.dumps(response),status=400)
+        else:
+            return HttpResponse(json.dumps(response),status=200)
 
 
 # API for Forgot Password
@@ -67,9 +72,11 @@ class ForgotPassword(GenericAPIView):
     serializer_class = ForgotPasswordSerializer
 
     def post(self, request):
-        password_forgot = userclassobject.forgot_password(request)
-
-        return HttpResponse(json.dumps(password_forgot))
+        response = userclassobject.forgot_password(request)
+        if response['success'] == False:
+            return HttpResponse(json.dumps(response),status=400)
+        else:
+            return HttpResponse(json.dumps(response),status=200)
 
 
 # API for Reset password
@@ -81,10 +88,12 @@ class ResetPassword(GenericAPIView):
         # getting the token
         token = kwargs['token']
         # calling the reset_password method inside service
-        password_reset = userclassobject.reset_password(request, token)
-
-        print (password_reset)
-        return HttpResponse(json.dumps(password_reset))
+        response = userclassobject.reset_password(request, token)
+        print (response)
+        if response['success'] == False:
+            return HttpResponse(json.dumps(response),status=400)
+        else:
+            return HttpResponse(json.dumps(response),status=200)
 
 
 # API for logout
