@@ -1,4 +1,7 @@
 from __future__ import unicode_literals
+
+import os
+
 from django.shortcuts import render
 
 import logging
@@ -45,7 +48,9 @@ from django.core.mail import send_mail
 
 from django.conf import settings
 from .tasks import reminder_notification_task
-
+from django.contrib.auth import get_user_model
+#from django.utils import timezone
+from datetime import datetime
 # from notes.tasks import send_feedback_email_task
 
 
@@ -456,27 +461,48 @@ class LazyLoadng(GenericAPIView):
         return render(request, 'lazy_loading.html')
 
 
-class ReminderNotification(GenericAPIView):
-    def get(self, request):
-        user = request.user
-        string_user_id = str(user.id)
-        subject = "email for reminder"
-        message = "You have set a reminder at this time"
-        sender = "noothanprem@gmail.com"
-        num = randint(1, 10)
-        if (num % 2 == 0):
-            send_feedback_email_task.delay(subject, message, sender, ["noothan627@gmail.com"])
-            print("Email sent successfully")
-        else:
-            print("number is odd")
+# class ReminderNotification(GenericAPIView):
+#     def get(self, request):
+#         user = request.user
+#         string_user_id = str(user.id)
+#         subject = "email for reminder"
+#         message = "You have set a reminder at this time"
+#         sender = "noothanprem@gmail.com"
+#         num = randint(1, 10)
+#         if (num % 2 == 0):
+#             send_feedback_email_task.delay(subject, message, sender, ["noothan627@gmail.com"])
+#             print("Email sent successfully")
+#         else:
+#             print("number is odd")
 
 class CeleryTasks(GenericAPIView):
+
     def get(self,request):
-        user = request.user
-        print(user,"userrr")
-        response = reminder_notification_task.delay(user)
-        print(response,"responseeee")
-        if response['success'] == False:
-            return HttpResponse("Success")
-        else:
-            return HttpResponse("Failed")
+
+        notes_set = Note.objects.filter(reminder__isnull=False)
+        reminder_list = []
+        initial_time  = timezone.now()
+        end_time = timezone.now() + timezone.timedelta(minutes = 1)
+        print(initial_time,"initial")
+        print(end_time,"end time")
+        for i in range(len(notes_set)):
+            print(notes_set.values()[i]['reminder'])
+            if initial_time < notes_set.values()[i]['reminder'] < end_time:
+                #subject = "tash_check"
+                #sender = os.getenv('EMAIL_HOST_USER')
+                #reciever = os.getenv('EMAILID')
+                #send_mail(subject, reminder_list, sender, [reciever])
+                subject = "Note Reminder"
+                print("Before rendering")
+                message = render_to_string('note_reminder_email.html')
+                print("After rendering")
+                sender = os.getenv('EMAIL_HOST_USER')
+                reciever = os.getenv('EMAILID')
+
+                """
+                sending the mail
+                """
+                send_mail(subject, message, sender, [reciever])
+
+        return HttpResponse("success")
+

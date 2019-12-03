@@ -482,3 +482,8 @@
 [12-02 07:05:37] p3993 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:163} INFO - Label Updated Successfully
 [12-02 07:14:02] p3993 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:163} INFO - Label Updated Successfully
 [12-02 08:02:31] p6481 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:169} INFO - note created successfully
+[12-03 04:20:37] p26456 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-03 06:49:05] p3681 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:169} INFO - note created successfully
+[12-03 06:54:10] p4747 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:169} INFO - note created successfully
+[12-03 07:10:57] p6509 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:169} INFO - note created successfully
+[12-03 07:29:01] p7949 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:169} INFO - note created successfully

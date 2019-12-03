@@ -253,3 +253,5 @@ CELERY_AMOP_TASK_RESULT_EXPIRES = 1000
 # CELERY_TIMEZONE = 'Asia/Kolkata'
 
 CELERY_BROKER_URL = 'amqp://localhost'
+
+USE_TZ = True

@@ -14,7 +14,7 @@ from django.urls import reverse
 
 from .models import Label, Note
 from django.contrib.auth.models import User
-from django.test import Client
+from django.test import client
 
 header = {
     'HTTP_AUTHORIZATION': 'Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNTc1MzUzMjI2LCJqdGkiOiJmY2RjNGMzNDYzM2M0ZjI4YTU2MGU1ZDA0NTFkOTQ5NyIsInVzZXJfaWQiOjN9.ZYu0e4RTjkFOQvoTwuGddS0yhulsC0BjDxBsdcSuQ80'}

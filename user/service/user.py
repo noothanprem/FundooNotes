@@ -189,7 +189,11 @@ class UserOperations:
 
                 ro = RedisOperations()
                 ro.save(token)
+                redis=ro.r
                 user=request.user
+                user_id=user.id
+                redis.set("loginuser",user_id)
+
 
                 response = self.smd_response(True, 'Login Success', [token])
 
