@@ -1,0 +1,1 @@
+ãdEvenv/lib/python3.6/site-packages/macaroonbakery/checkers/_declared.py 2pyXUh

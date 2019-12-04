@@ -1,0 +1,1 @@
+«ÍNvenv/lib64/python3.6/site-packages/django_cron/management/commands/runcrons.py 2pyXQh

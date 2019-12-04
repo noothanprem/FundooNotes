@@ -1,0 +1,1 @@
+¦¸Uvenv/lib/python3.6/site-packages/social_core/tests/backends/test_github_enterprise.py 2pyXôh

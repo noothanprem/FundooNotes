@@ -1,0 +1,1 @@
+ол=venv/lib64/python3.6/site-packages/oauth2_provider/migrations :нлплялрлслтлул

@@ -1,0 +1,1 @@
+баMvenv/lib64/python3.6/site-packages/faker/providers/internet/sv_SE/__init__.py 2pyXh

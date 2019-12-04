@@ -1,0 +1,1 @@
+ฃั/venv/lib64/python3.6/site-packages/gunicorn/app :ขัคัฅัฆั

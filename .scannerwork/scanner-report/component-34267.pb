@@ -1,0 +1,1 @@
+Û‹Nvenv/lib64/python3.6/site-packages/django/core/management/commands/loaddata.py 2pyXàh

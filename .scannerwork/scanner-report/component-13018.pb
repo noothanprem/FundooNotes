@@ -1,0 +1,1 @@
+Úe=venv/lib/python3.6/site-packages/chardet/langcyrillicmodel.py 2pyXÎh

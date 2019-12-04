@@ -1,0 +1,1 @@
+ÔÄHvenv/lib64/python3.6/site-packages/awscli/customizations/sessendemail.py 2pyXrh

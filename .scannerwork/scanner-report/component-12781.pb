@@ -1,0 +1,1 @@
+íc2venv/lib/python3.6/site-packages/requests/certs.py 2pyXh

@@ -1,0 +1,1 @@
+§ÍBvenv/lib64/python3.6/site-packages/django_cron/management/commands :¦Í«Í

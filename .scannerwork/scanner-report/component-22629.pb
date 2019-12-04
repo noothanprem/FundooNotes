@@ -1,0 +1,1 @@
+å°4venv/lib/python3.6/site-packages/werkzeug/_compat.py 2pyXÜh

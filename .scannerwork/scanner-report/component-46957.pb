@@ -1,0 +1,1 @@
+но5venv/lib64/python3.6/site-packages/twisted/names/test :-мооопоросотоуофохоцочо€п‰пЉп‹п

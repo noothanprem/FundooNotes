@@ -1,0 +1,1 @@
+·J6venv/lib/python3.6/site-packages/bs4/tests/__init__.py 2pyXh

@@ -1,0 +1,1 @@
+£G)venv/lib/python3.6/site-packages/httplib2 :¢G¦G

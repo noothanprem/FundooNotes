@@ -1,0 +1,1 @@
+ìîDvenv/lib64/python3.6/site-packages/twisted/names/test/test_client.py 2pyXù	h

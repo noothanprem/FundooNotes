@@ -1,0 +1,1 @@
+Ô[Bvenv/lib/python3.6/site-packages/faker/providers/lorem/__init__.py 2pyXÈh

@@ -1,0 +1,1 @@
+·äDvenv/lib64/python3.6/site-packages/social_django/management/commands :¶ä¸ä

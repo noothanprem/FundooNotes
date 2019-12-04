@@ -1,0 +1,1 @@
+Ú4venv/lib64/python3.6/site-packages/aioredis/sentinel :	ŒÚÚ“Ú

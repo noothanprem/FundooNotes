@@ -1,0 +1,1 @@
+ùªGvenv/lib/python3.6/site-packages/social_core/backends/azuread_tenant.py 2pyXxh

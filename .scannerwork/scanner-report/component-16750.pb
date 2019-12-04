@@ -1,0 +1,1 @@
+î‚1venv/lib/python3.6/site-packages/gi/_constants.py 2pyX0h

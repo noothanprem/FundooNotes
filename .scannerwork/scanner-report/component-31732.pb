@@ -1,0 +1,1 @@
+τχ5venv/lib64/python3.6/site-packages/django/contrib/gis :σχƒψψψΠϋόό ό

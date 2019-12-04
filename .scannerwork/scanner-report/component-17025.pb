@@ -1,0 +1,1 @@
+ÅÖOvenv/lib/python3.6/site-packages/google/protobuf/internal/api_implementation.py 2pyXrh

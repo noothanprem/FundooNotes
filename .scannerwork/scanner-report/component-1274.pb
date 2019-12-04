@@ -1,0 +1,1 @@
+ú	Ivenv/lib/python3.6/site-packages/future/backports/email/_encoded_words.py 2pyXéh

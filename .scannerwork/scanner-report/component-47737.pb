@@ -1,0 +1,1 @@
+ωτAvenv/lib64/python3.6/site-packages/twisted/plugins/cred_memory.py 2pyXGh

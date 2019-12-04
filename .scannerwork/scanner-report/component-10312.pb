@@ -1,0 +1,1 @@
+ÈP.venv/lib/python3.6/site-packages/astroid/brain :8ÇPÉPÊPËPÌPÍPÎPÏPĞPÑPÒPÓPÔPÕPÖP×PØPÙPÚPÛPÜPİPúPûPüPıPşPÿP

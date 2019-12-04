@@ -1,0 +1,1 @@
+Ç«?venv/lib/python3.6/site-packages/twisted/words/im/ircsupport.py 2pyX¦h

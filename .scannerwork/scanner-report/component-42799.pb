@@ -1,0 +1,1 @@
+╞н/venv/lib64/python3.6/site-packages/gi/overrides :╝н╡нЁн╢н╣н╤н╥нбнднен

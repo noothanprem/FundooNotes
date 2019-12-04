@@ -1,0 +1,1 @@
+นอ6venv/lib64/python3.6/site-packages/colorful/widgets.py 2pyX7h

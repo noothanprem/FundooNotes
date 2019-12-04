@@ -1,0 +1,1 @@
+Œ‚8venv/lib64/python3.6/site-packages/botocore/discovery.py 2pyXÉh

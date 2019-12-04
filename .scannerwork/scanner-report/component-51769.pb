@@ -1,0 +1,1 @@
+¹”'venv/lib64/python3.6/site-packages/attr :¸”º”¼”¾”À”Á”Í”Î”Ï”

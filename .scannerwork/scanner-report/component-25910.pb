@@ -1,0 +1,1 @@
+¶ÊKvenv/lib/python3.6/site-packages/cssutils/tests/test_cssstyledeclaration.py 2pyXáh

@@ -1,0 +1,1 @@
+çÍ<venv/lib64/python3.6/site-packages/django_short_url/admin.py 2pyXh

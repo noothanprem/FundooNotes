@@ -1,0 +1,1 @@
+á@;venv/lib/python3.6/site-packages/django/core/cache/backends :à@â@ã@ä@å@æ@ï@

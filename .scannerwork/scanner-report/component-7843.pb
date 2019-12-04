@@ -1,0 +1,1 @@
+£=hvenv/lib/python3.6/site-packages/django/contrib/contenttypes/migrations/0002_remove_content_type_name.py 2pyX(h

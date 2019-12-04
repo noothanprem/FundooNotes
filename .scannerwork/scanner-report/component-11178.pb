@@ -1,0 +1,1 @@
+ªW0venv/lib/python3.6/site-packages/faker/providers :©W

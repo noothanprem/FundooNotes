@@ -1,0 +1,1 @@
+¿dJvenv/lib/python3.6/site-packages/macaroonbakery/bakery/_internal/id_pb2.py 2pyX…h

@@ -1,0 +1,1 @@
+ǒ0venv/lib64/python3.6/site-packages/secretstorage :ƒȒɒʒ˒̒͒

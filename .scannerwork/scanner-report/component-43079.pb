@@ -1,0 +1,1 @@
+ÇÐPvenv/lib64/python3.6/site-packages/google/protobuf/internal/factory_test1_pb2.py 2pyX¿h

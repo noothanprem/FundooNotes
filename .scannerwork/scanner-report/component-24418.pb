@@ -1,0 +1,1 @@
+â¾(venv/lib/python3.6/site-packages/certifi :	á¾ã¾è¾

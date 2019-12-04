@@ -1,0 +1,1 @@
+âúBvenv/lib64/python3.6/site-packages/twisted/scripts/_twistd_unix.py 2pyXÆh

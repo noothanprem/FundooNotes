@@ -1,0 +1,1 @@
+°ÑCvenv/lib64/python3.6/site-packages/celery/worker/consumer/mingle.py 2pyXPh

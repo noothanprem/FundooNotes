@@ -1,0 +1,1 @@
+Ú¬>venv/lib64/python3.6/site-packages/docutils/writers/manpage.py 2pyXŒ	h

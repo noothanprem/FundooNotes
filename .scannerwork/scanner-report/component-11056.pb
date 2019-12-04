@@ -1,0 +1,1 @@
+°V=venv/lib/python3.6/site-packages/faker/providers/person/hu_HU :¯V

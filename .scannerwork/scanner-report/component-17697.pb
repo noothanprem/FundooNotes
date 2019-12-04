@@ -1,0 +1,1 @@
+¡ŠJvenv/lib/python3.6/site-packages/django_inlinecss/templatetags/__init__.py 2pyXh

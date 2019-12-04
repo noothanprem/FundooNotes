@@ -1,0 +1,1 @@
+ıœ3venv/lib64/python3.6/site-packages/sqlparse/filters :üœşœÿœ€‚Š

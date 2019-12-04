@@ -1,0 +1,1 @@
+ήμBvenv/lib64/python3.6/site-packages/django_social_share/__init__.py 2pyXh

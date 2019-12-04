@@ -1,0 +1,1 @@
+º<venv/lib/python3.6/site-packages/reportlab/lib/fontfinder.py 2pyXãh

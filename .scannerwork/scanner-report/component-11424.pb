@@ -1,0 +1,1 @@
+ Y>venv/lib/python3.6/site-packages/faker/providers/address/ko_KR :ŸY

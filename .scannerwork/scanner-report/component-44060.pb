@@ -1,0 +1,1 @@
+œØ6venv/lib64/python3.6/site-packages/msgpack/_version.py 2pyXh

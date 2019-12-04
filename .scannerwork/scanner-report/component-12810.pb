@@ -1,0 +1,1 @@
+Šd6venv/lib/python3.6/site-packages/macaroonbakery/_utils :‰d

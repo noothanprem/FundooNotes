@@ -1,0 +1,1 @@
+êÎHvenv/lib64/python3.6/site-packages/django/db/backends/oracle/compiler.py 2pyX=h

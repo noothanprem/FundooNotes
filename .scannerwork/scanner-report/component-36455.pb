@@ -1,0 +1,1 @@
+çœ1venv/lib64/python3.6/site-packages/furl/compat.py 2pyX&h

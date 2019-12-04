@@ -1,0 +1,1 @@
+ۗ/venv/lib/python3.6/site-packages/isort/hooks.py 2pyX\h

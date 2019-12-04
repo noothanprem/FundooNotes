@@ -1,0 +1,1 @@
+ркKvenv/lib/python3.6/site-packages/twisted/words/protocols/jabber/__init__.py 2pyX	h

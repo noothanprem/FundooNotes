@@ -1,0 +1,1 @@
+º§<venv/lib64/python3.6/site-packages/faker/providers/job/ko_KR :¹§

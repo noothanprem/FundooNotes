@@ -1,0 +1,1 @@
+у5venv/lib/python3.6/site-packages/coreschema/compat.py 2pyX	h

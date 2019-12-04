@@ -1,0 +1,1 @@
+Û°(venv/lib64/python3.6/site-packages/txaio :Ú°Ü°Ý°Þ°é°ê°ë°ì°í°

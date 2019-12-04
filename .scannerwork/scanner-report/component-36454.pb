@@ -1,0 +1,1 @@
+æœ3venv/lib64/python3.6/site-packages/furl/__init__.py 2pyXh

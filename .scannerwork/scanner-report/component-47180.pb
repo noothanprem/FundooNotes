@@ -1,0 +1,1 @@
+ÌðGvenv/lib64/python3.6/site-packages/twisted/internet/_win32serialport.py 2pyX†h

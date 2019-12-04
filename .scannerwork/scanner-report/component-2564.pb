@@ -1,0 +1,1 @@
+„2venv/lib/python3.6/site-packages/openid/urinorm.py 2pyX¢h

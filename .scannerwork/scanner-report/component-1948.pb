@@ -1,0 +1,1 @@
+œ?venv/lib/python3.6/site-packages/reportlab/pdfgen/textobject.py 2pyXãh

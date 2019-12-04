@@ -1,0 +1,1 @@
+¶Ç/venv/lib/python3.6/site-packages/keyring/cli.py 2pyXçh

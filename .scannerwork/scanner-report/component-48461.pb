@@ -1,0 +1,1 @@
+Íú@venv/lib64/python3.6/site-packages/twisted/conch/scripts/cftp.py 2pyX¶h

@@ -1,0 +1,1 @@
+ƒ-Tvenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/spatialite/models.py 2pyXEh

@@ -1,0 +1,1 @@
+ì3venv/lib/python3.6/site-packages/reportlab/platypus :êïğñòóô‚ƒí

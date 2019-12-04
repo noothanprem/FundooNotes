@@ -1,0 +1,1 @@
+é•9venv/lib64/python3.6/site-packages/bs4/tests/test_tree.py 2pyXÏh

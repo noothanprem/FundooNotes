@@ -1,0 +1,1 @@
+´Û[venv/lib64/python3.6/site-packages/reportlab/pdfbase/_fontdata_widths_courierboldoblique.py 2pyXæh

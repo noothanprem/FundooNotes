@@ -1,0 +1,1 @@
+ܫ2venv/lib64/python3.6/site-packages/PIL/FontFile.py 2pyXsh

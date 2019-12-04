@@ -1,0 +1,1 @@
+¼0Qvenv/lib/python3.6/site-packages/django/contrib/gis/gdal/prototypes/generation.py 2pyXŸh

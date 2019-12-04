@@ -1,0 +1,1 @@
+ɑDvenv/lib64/python3.6/site-packages/django_common/management/commands :	ȑʑϑ

@@ -1,0 +1,1 @@
+‚·dvenv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/chardet/langhungarianmodel.py 2pyX‚h

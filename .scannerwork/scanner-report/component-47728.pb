@@ -1,0 +1,1 @@
+πτEvenv/lib64/python3.6/site-packages/twisted/plugins/autobahn_twistd.py 2pyX!h

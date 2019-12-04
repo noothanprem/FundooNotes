@@ -1,0 +1,1 @@
+ÎGvenv/lib/python3.6/site-packages/zope/interface/tests/test_interface.py 2pyXÕh

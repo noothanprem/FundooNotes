@@ -1,0 +1,1 @@
+·2venv/lib/python3.6/site-packages/pymysql/constants :¶¸¹º»¼½Ç

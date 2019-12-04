@@ -1,0 +1,1 @@
+ØG8venv/lib/python3.6/site-packages/provider/oauth2/urls.py 2pyX8h

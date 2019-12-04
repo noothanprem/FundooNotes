@@ -1,0 +1,1 @@
+ó¯Bvenv/lib64/python3.6/site-packages/macaroonbakery/bakery/_internal :ò¯ô¯

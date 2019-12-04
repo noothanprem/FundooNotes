@@ -1,0 +1,1 @@
+ñÐ>venv/lib64/python3.6/site-packages/celery/backends/arangodb.py 2pyXÕh

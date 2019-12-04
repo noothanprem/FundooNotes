@@ -1,0 +1,1 @@
+ºe(venv/lib/python3.6/site-packages/chardet :N¹e»e¼e½e¾e¿eÀeÁeÂeÉeÊeËeÌeÍeÎeÏeĞeÑeÒeÓeÔeÕeÖe×eØeÙeÚeÛeÜeİe†f‡fˆf‰fŠf‹fŒfff

@@ -1,0 +1,1 @@
+Ó0venv/lib64/python3.6/site-packages/openapi_codec :��ēɓ

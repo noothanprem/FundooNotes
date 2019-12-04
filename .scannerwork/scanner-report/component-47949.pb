@@ -1,0 +1,1 @@
+ÍöAvenv/lib64/python3.6/site-packages/twisted/words/test/test_tap.py 2pyXOh

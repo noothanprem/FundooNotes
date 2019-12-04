@@ -1,0 +1,1 @@
+Ð3venv/lib/python3.6/site-packages/hiredis/version.py 2pyXh

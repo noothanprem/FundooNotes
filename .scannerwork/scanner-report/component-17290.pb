@@ -1,0 +1,1 @@
+Š‡Qvenv/lib/python3.6/site-packages/simplejson/tests/test_encode_basestring_ascii.py 2pyX0h

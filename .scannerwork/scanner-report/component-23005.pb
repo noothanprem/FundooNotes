@@ -1,0 +1,1 @@
+Ý³;venv/lib/python3.6/site-packages/rest_framework/settings.py 2pyXüh

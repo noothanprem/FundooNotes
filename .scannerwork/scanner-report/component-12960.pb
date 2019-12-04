@@ -1,0 +1,1 @@
+ e-venv/lib/python3.6/site-packages/django_admin :Ÿe¡e

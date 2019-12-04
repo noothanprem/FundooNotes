@@ -1,0 +1,1 @@
+óR,venv/lib/python3.6/site-packages/faker/utils :òRôRõRöR÷RùR‚S

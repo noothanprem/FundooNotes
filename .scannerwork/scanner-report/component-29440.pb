@@ -1,0 +1,1 @@
+€æ5venv/lib64/python3.6/site-packages/pymysql/cursors.py 2pyX™h

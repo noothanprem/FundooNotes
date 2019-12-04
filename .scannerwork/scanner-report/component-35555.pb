@@ -1,0 +1,1 @@
+ã•2venv/lib64/python3.6/site-packages/bs4/diagnose.py 2pyXáh

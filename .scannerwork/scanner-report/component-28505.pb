@@ -1,0 +1,1 @@
+ыч7venv/lib64/python3.6/site-packages/zope/interface/ro.py 2pyXAh

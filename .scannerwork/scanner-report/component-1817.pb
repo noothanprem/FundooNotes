@@ -1,0 +1,1 @@
+™5venv/lib/python3.6/site-packages/launchpadlib/testing :˜š›¢

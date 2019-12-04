@@ -1,0 +1,1 @@
+Þ[Hvenv/lib/python3.6/site-packages/faker/providers/lorem/he_IL/__init__.py 2pyXh

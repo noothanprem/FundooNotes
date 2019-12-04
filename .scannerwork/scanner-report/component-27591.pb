@@ -1,0 +1,1 @@
+Ç×*venv/lib64/python3.6/site-packages/MySQLdb :Æ×××Ø×Ù×Ú×Û×ä×æ×

@@ -1,0 +1,1 @@
+ô 4venv/lib/python3.6/site-packages/requests_unixsocket :	ó ù ý 

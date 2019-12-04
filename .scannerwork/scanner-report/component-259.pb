@@ -1,0 +1,1 @@
+ƒ4venv/lib/python3.6/site-packages/colorful/widgets.py 2pyX7h

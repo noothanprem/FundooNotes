@@ -1,0 +1,1 @@
+È8venv/lib/python3.6/site-packages/django/db/backends/base :ÇÉÊËÌÍÎØÚ

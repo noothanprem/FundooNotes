@@ -1,0 +1,1 @@
+â>venv/lib/python3.6/site-packages/django/views/generic/dates.py 2pyXÕh

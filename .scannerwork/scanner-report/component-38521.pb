@@ -1,0 +1,1 @@
+ù¬Gvenv/lib64/python3.6/site-packages/docutils/parsers/rst/languages/en.py 2pyXoh

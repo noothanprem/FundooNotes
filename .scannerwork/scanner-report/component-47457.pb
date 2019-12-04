@@ -1,0 +1,1 @@
+бт;venv/lib64/python3.6/site-packages/twisted/application/test :	атвтзт

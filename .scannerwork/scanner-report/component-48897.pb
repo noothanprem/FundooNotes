@@ -1,0 +1,1 @@
+şOvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/filter_backends :ÿı€ş¤ş­şËş

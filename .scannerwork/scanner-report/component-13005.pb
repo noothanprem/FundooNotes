@@ -1,0 +1,1 @@
+Íe6venv/lib/python3.6/site-packages/chardet/utf8prober.py 2pyXSh

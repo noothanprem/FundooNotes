@@ -1,0 +1,1 @@
+ş:venv/lib/python3.6/site-packages/django_cron/backends/lock :ıÿ€‚‚

@@ -1,0 +1,1 @@
+ÉH/venv/lib/python3.6/site-packages/pbr/version.py 2pyXäh

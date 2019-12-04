@@ -1,0 +1,1 @@
+‡Ú*venv/lib64/python3.6/site-packages/hiredis :†ÚˆÚ

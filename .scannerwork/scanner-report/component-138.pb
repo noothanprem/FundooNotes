@@ -1,0 +1,1 @@
+ŠAvenv/lib/python3.6/site-packages/oauth2_provider/views/generic.py 2pyX h

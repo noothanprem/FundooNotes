@@ -1,0 +1,1 @@
+–ç7venv/lib64/python3.6/site-packages/django/views/generic :•ç—ç˜ç™çšç›ç

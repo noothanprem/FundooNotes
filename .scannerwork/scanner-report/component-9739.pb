@@ -1,0 +1,1 @@
+‹LQvenv/lib/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/AuthCraChallenge.py 2pyX7h

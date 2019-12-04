@@ -1,0 +1,1 @@
+ø±Lvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/serializers.py 2pyXh

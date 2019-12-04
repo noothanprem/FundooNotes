@@ -1,0 +1,1 @@
+ÊEAvenv/lib/python3.6/site-packages/django/conf/locale/bn/formats.py 2pyX!h

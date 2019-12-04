@@ -1,0 +1,1 @@
+ý @venv/lib/python3.6/site-packages/requests_unixsocket/adapters.py 2pyX=h

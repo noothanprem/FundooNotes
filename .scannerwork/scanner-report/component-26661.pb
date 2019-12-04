@@ -1,0 +1,1 @@
+¥Ð8venv/lib64/python3.6/site-packages/celery/bin/upgrade.py 2pyXch

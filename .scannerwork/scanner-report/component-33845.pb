@@ -1,0 +1,1 @@
+µˆVvenv/lib64/python3.6/site-packages/django/contrib/admin/static/admin/js/inlines.min.js 2jsXh

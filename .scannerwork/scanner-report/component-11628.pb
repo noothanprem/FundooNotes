@@ -1,0 +1,1 @@
+ìZ>venv/lib/python3.6/site-packages/faker/providers/company/en_US :ëZ

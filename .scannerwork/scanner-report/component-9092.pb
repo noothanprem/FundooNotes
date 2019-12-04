@@ -1,0 +1,1 @@
+„G,venv/lib/python3.6/site-packages/django/urls :‚GƒG…G†G‡GG‘G

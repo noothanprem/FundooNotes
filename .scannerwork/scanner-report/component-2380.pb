@@ -1,0 +1,1 @@
+Ì=venv/lib/python3.6/site-packages/zope/interface/tests/ifoo.py 2pyXh

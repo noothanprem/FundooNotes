@@ -1,0 +1,1 @@
+±J/venv/lib/python3.6/site-packages/bs4/element.py 2pyXÄh

@@ -1,0 +1,1 @@
+­w/venv/lib/python3.6/site-packages/awscli/text.py 2pyXvh

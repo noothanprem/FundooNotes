@@ -1,0 +1,1 @@
+’5venv/lib/python3.6/site-packages/django/utils/text.py 2pyX¡h

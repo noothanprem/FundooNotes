@@ -1,0 +1,1 @@
+—Ó=venv/lib64/python3.6/site-packages/coreapi/codecs/__init__.py 2pyXh

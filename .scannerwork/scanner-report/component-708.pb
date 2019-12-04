@@ -1,0 +1,1 @@
+Ä=venv/lib/python3.6/site-packages/celery/backends/couchbase.py 2pyXuh

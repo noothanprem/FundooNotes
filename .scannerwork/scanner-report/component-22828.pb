@@ -1,0 +1,1 @@
+¬²^venv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_search_multi_match.py 2pyX¾h

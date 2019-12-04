@@ -1,0 +1,1 @@
+як4venv/lib64/python3.6/site-packages/PIL/ImageDraw2.py 2pyXmh

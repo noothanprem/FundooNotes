@@ -1,0 +1,1 @@
+•Œ4venv/lib64/python3.6/site-packages/django/core/cache :”Œ¨Œ

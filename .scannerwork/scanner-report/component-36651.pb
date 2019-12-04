@@ -1,0 +1,1 @@
+«ž6venv/lib64/python3.6/site-packages/faker/utils/text.py 2pyX]h

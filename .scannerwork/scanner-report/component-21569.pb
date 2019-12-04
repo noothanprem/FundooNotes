@@ -1,0 +1,1 @@
+Á¨Fvenv/lib/python3.6/site-packages/twisted/trial/_dist/workercommands.py 2pyX h

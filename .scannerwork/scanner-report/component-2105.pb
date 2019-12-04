@@ -1,0 +1,1 @@
+¹7venv/lib/python3.6/site-packages/reportlab/rl_config.py 2pyX„h

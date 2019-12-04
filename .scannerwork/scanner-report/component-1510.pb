@@ -1,0 +1,1 @@
+æ.venv/lib/python3.6/site-packages/nacl/bindings :åçèéêëìíîïðþ

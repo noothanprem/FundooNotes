@@ -1,0 +1,1 @@
+Ë@Nvenv/lib/python3.6/site-packages/django/core/management/commands/sqlmigrate.py 2pyXBh

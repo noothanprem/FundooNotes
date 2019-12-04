@@ -1,0 +1,1 @@
+­–Gvenv/lib64/python3.6/site-packages/django_redis/compressors/__init__.py 2pyXh

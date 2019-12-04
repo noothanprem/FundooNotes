@@ -1,0 +1,1 @@
+ö±=venv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf :*õ±÷±ø±ù±ú±û±°²±²¼²Ç²È²É²¯³°³

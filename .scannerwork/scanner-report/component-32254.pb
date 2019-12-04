@@ -1,0 +1,1 @@
+þûMvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/prototypes/geom.py 2pyXnh

@@ -1,0 +1,1 @@
+®ÐOvenv/lib64/python3.6/site-packages/google/protobuf/internal/import_test_package :	­Ð¯ÐµÐ

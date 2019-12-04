@@ -1,0 +1,1 @@
+‚=Vvenv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/SelectFilter2.js 2jsX÷h

@@ -1,0 +1,1 @@
+ô,Evenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/mysql :ó,õ,ö,÷,ø,€-

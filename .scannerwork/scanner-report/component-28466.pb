@@ -1,0 +1,1 @@
+≤ﬁ=venv/lib64/python3.6/site-packages/zope/interface/registry.py 2pyXèh

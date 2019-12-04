@@ -1,0 +1,1 @@
+Ú>venv/lib/python3.6/site-packages/django/templatetags/static.py 2pyX¨h

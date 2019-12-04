@@ -1,0 +1,1 @@
+üĞCvenv/lib64/python3.6/site-packages/celery/backends/elasticsearch.py 2pyXh

@@ -1,0 +1,1 @@
+יה3venv/lib64/python3.6/site-packages/pyasn1/codec/cer :	טהלהםה

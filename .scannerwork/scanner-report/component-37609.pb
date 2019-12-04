@@ -1,0 +1,1 @@
+é¥Lvenv/lib64/python3.6/site-packages/faker/providers/company/fa_IR/__init__.py 2pyXÞh

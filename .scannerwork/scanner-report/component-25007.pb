@@ -1,0 +1,1 @@
+¯ÃWvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/webencodings/tests.py 2pyXšh

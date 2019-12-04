@@ -1,0 +1,1 @@
+ò‰=venv/lib64/python3.6/site-packages/elasticsearch_dsl/index.py 2pyX–h

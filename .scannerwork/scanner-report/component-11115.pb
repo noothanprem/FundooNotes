@@ -1,0 +1,1 @@
+ÎVIvenv/lib/python3.6/site-packages/faker/providers/person/lv_LV/__init__.py 2pyX~h

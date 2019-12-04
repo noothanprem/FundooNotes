@@ -1,0 +1,1 @@
+‡²Ovenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/__init__.py 2pyX5h

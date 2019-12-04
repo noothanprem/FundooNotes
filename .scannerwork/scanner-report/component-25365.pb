@@ -1,0 +1,1 @@
+•ÆBvenv/lib/python3.6/site-packages/django_common/management/commands :	”Æ–Æ›Æ

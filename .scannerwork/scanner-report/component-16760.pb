@@ -1,0 +1,1 @@
+ø‚.venv/lib/python3.6/site-packages/gi/repository :÷‚

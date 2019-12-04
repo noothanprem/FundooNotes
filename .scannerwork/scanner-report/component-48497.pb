@@ -1,0 +1,1 @@
+съ7venv/lib64/python3.6/site-packages/twisted/scripts/test :рътъ

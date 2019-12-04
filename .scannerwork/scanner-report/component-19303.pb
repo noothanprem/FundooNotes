@@ -1,0 +1,1 @@
+ç–Cvenv/lib/python3.6/site-packages/botocore/vendored/requests/auth.py 2pyXÕh

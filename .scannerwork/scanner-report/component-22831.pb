@@ -1,0 +1,1 @@
+¯²avenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_functional_suggesters.py 2pyXñh

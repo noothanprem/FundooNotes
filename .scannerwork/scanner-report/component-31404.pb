@@ -1,0 +1,1 @@
+¬υ:venv/lib64/python3.6/site-packages/django/contrib/sessions :«υ­υ®υ―υ°υ±υάχ

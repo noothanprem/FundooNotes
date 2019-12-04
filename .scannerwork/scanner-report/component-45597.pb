@@ -1,0 +1,1 @@
+ù‰Uvenv/lib64/python3.6/site-packages/social_django/migrations/0008_partial_timestamp.py 2pyXh

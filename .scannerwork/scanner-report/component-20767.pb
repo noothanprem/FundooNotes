@@ -1,0 +1,1 @@
+Ÿ¢Cvenv/lib/python3.6/site-packages/twisted/web/test/test_newclient.py 2pyXÜh

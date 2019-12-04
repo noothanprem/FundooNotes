@@ -1,0 +1,1 @@
+ÎêIvenv/lib64/python3.6/site-packages/django/db/backends/sqlite3/creation.py 2pyXch

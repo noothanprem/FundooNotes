@@ -1,0 +1,1 @@
+ÌGvenv/lib/python3.6/site-packages/oauth2_provider/contrib/rest_framework :ËÍÒ

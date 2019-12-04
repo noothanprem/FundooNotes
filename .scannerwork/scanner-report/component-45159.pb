@@ -1,0 +1,1 @@
+çà7venv/lib64/python3.6/site-packages/botocore/endpoint.py 2pyX­h

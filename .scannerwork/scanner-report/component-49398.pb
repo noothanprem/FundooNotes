@@ -1,0 +1,1 @@
+ö5venv/lib64/python3.6/site-packages/virtualenv_support :ù

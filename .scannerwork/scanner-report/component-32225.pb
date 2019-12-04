@@ -1,0 +1,1 @@
+быAvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/raster :аывыгыдылы

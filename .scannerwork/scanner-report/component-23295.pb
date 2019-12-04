@@ -1,0 +1,1 @@
+ÿµ\venv/lib/python3.6/site-packages/rest_framework/static/rest_framework/js/jquery-3.4.1.min.js 2jsXh

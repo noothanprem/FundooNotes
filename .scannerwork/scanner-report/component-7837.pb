@@ -1,0 +1,1 @@
+ù=Gvenv/lib/python3.6/site-packages/django/contrib/contenttypes/migrations :ú=û=£=

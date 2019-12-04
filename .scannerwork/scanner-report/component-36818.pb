@@ -1,0 +1,1 @@
+ҟAvenv/lib64/python3.6/site-packages/faker/providers/internet/cs_CZ :џ

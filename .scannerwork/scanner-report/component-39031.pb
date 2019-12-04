@@ -1,0 +1,1 @@
+÷°5venv/lib64/python3.6/site-packages/chardet/jisfreq.py 2pyXÆh

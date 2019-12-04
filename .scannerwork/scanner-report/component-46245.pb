@@ -1,0 +1,1 @@
+ещ6venv/lib64/python3.6/site-packages/coverage/version.py 2pyX"h

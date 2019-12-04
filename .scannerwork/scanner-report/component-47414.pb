@@ -1,0 +1,1 @@
+¶òIvenv/lib64/python3.6/site-packages/twisted/internet/test/test_resolver.py 2pyXÕh

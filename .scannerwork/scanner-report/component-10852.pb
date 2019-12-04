@@ -1,0 +1,1 @@
+äT?venv/lib/python3.6/site-packages/faker/providers/internet/fr_FR :ãT

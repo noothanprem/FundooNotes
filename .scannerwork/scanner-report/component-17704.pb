@@ -1,0 +1,1 @@
+¨ŠCvenv/lib/python3.6/site-packages/django_inlinecss/tests/__init__.py 2pyXh

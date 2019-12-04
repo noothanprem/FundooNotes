@@ -1,0 +1,1 @@
+è;venv/lib/python3.6/site-packages/reportlab/lib/PyFontify.py 2pyX¡h

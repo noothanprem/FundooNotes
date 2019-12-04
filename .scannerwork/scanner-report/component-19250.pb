@@ -1,0 +1,1 @@
+²–Xvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/big5freq.py 2pyXžh

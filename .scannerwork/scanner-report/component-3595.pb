@@ -1,0 +1,1 @@
+‹<venv/lib/python3.6/site-packages/django/utils/deconstruct.py 2pyX8h

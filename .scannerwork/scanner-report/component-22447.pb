@@ -1,0 +1,1 @@
+¯¯;venv/lib/python3.6/site-packages/twisted/scripts/_twistw.py 2pyX7h

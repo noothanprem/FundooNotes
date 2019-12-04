@@ -1,0 +1,1 @@
+ç©Dvenv/lib/python3.6/site-packages/twisted/trial/test/test_reporter.py 2pyX∫h

@@ -1,0 +1,1 @@
+ʜ5venv/lib/python3.6/site-packages/zmq/sugar/version.py 2pyX1h

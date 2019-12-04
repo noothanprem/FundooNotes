@@ -1,0 +1,1 @@
+øª:venv/lib/python3.6/site-packages/twisted/words/__init__.py 2pyX	h

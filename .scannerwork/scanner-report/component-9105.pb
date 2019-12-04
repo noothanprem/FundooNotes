@@ -1,0 +1,1 @@
+‘G5venv/lib/python3.6/site-packages/django/urls/utils.py 2pyX?h

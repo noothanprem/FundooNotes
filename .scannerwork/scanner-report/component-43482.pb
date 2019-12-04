@@ -1,0 +1,1 @@
+кг<venv/lib64/python3.6/site-packages/kombu/transport/memory.py 2pyXQh

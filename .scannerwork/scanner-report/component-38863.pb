@@ -1,0 +1,1 @@
+Ï¯Hvenv/lib64/python3.6/site-packages/macaroonbakery/tests/test_macaroon.py 2pyXÊh

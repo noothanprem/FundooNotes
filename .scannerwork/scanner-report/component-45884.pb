@@ -1,0 +1,1 @@
+¼æKvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/token_blacklist :»æ½æÍæÎæ

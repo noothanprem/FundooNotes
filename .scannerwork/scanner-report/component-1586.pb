@@ -1,0 +1,1 @@
+²7venv/lib/python3.6/site-packages/MySQLdb/_exceptions.py 2pyXGh

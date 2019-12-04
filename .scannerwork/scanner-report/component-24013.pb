@@ -1,0 +1,1 @@
+Í»:venv/lib/python3.6/site-packages/django_crontab/crontab.py 2pyX°h

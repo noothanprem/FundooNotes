@@ -1,0 +1,1 @@
+š¼Ivenv/lib/python3.6/site-packages/django_extensions/templatetags/widont.py 2pyXBh

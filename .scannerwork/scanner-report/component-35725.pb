@@ -1,0 +1,1 @@
+—>venv/lib64/python3.6/site-packages/autobahn/wamp/cryptosign.py 2pyXäh

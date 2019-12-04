@@ -1,0 +1,1 @@
+²Ó2venv/lib64/python3.6/site-packages/kombu/compat.py 2pyXÖh

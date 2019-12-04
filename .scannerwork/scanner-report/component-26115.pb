@@ -1,0 +1,1 @@
+ƒÌvenv/bin/rst2latex.py 2pyXh

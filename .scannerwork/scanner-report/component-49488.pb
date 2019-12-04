@@ -1,0 +1,1 @@
+ЂQvenv/lib64/python3.6/site-packages/social_core/tests/backends/test_readability.py 2pyX*h

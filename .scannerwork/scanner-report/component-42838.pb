@@ -1,0 +1,1 @@
+÷Œ8venv/lib64/python3.6/site-packages/gi/_propertyhelper.py 2pyXñh

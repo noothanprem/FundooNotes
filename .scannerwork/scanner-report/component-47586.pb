@@ -1,0 +1,1 @@
+âóEvenv/lib64/python3.6/site-packages/twisted/spread/test/test_banana.py 2pyXÊh

@@ -1,0 +1,1 @@
+»ðFvenv/lib64/python3.6/site-packages/django/contrib/flatpages/migrations :¹ðºð

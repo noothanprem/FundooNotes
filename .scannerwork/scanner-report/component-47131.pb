@@ -1,0 +1,1 @@
+›ðNvenv/lib64/python3.6/site-packages/twisted/python/test/deprecatedattributes.py 2pyXh

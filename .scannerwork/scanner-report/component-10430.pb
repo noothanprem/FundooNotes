@@ -1,0 +1,1 @@
+¾Q)venv/lib/python3.6/site-packages/sqlparse :¼Q¿QÀQÁQÂQÃQÄQÅQÆQîQñQ

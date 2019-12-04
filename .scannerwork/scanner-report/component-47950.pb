@@ -1,0 +1,1 @@
+ÎöMvenv/lib64/python3.6/site-packages/twisted/words/test/test_jabberjstrports.py 2pyX%h

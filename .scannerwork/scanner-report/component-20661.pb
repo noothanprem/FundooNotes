@@ -1,0 +1,1 @@
+µ¡,venv/lib/python3.6/site-packages/xdg/util.py 2pyXh

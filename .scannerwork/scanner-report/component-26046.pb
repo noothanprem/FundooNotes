@@ -1,0 +1,1 @@
+¾ËAvenv/lib/python3.6/site-packages/cssutils/css/cssnamespacerule.py 2pyX§h

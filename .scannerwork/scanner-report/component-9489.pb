@@ -1,0 +1,1 @@
+‘J,venv/lib/python3.6/site-packages/corsheaders :J’J“J›JœJJ

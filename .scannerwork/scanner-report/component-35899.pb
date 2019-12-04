@@ -1,0 +1,1 @@
+»˜Ivenv/lib64/python3.6/site-packages/autobahn/wamp/test/test_uri_pattern.py 2pyXÅh

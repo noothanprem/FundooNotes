@@ -1,0 +1,1 @@
+Í,@venv/lib/python3.6/site-packages/django/contrib/gis/shortcuts.py 2pyX)h

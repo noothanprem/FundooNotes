@@ -1,0 +1,1 @@
+¼äGvenv/lib64/python3.6/site-packages/social_django/management/__init__.py 2pyXh

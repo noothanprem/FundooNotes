@@ -1,0 +1,1 @@
+î•Evenv/lib64/python3.6/site-packages/bs4/tests/test_builder_registry.py 2pyX”h

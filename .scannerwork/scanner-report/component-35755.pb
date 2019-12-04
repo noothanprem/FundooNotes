@@ -1,0 +1,1 @@
+«—Kvenv/lib64/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/Register.py 2pyXGh

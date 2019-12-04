@@ -1,0 +1,1 @@
+é¦Jvenv/lib64/python3.6/site-packages/faker/providers/color/pt_BR/__init__.py 2pyXøh

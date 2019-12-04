@@ -1,0 +1,1 @@
+çì.venv/lib64/python3.6/site-packages/xdg/Mime.py 2pyXˆh

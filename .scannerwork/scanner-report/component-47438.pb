@@ -1,0 +1,1 @@
+ÎòAvenv/lib64/python3.6/site-packages/twisted/application/twist/test :	ÍòÏòĞò

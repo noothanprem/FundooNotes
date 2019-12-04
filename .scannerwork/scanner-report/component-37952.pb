@@ -1,0 +1,1 @@
+¿®@venv/lib64/python3.6/site-packages/boto3/resources/collection.py 2pyXèh

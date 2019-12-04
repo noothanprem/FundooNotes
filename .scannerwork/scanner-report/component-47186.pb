@@ -1,0 +1,1 @@
+ТрGvenv/lib64/python3.6/site-packages/twisted/internet/_posixserialport.py 2pyXJh

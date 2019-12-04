@@ -1,0 +1,1 @@
+ˆ-Rvenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/spatialite/base.py 2pyXKh

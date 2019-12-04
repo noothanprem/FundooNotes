@@ -1,0 +1,1 @@
+น่<venv/lib64/python3.6/site-packages/django/middleware/gzip.py 2pyX5h

@@ -1,0 +1,1 @@
+ԗ&venv/lib/python3.6/site-packages/isort :!ӗ՗֗חؗٗڗۗ���

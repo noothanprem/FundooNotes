@@ -1,0 +1,1 @@
+ùÍ3venv/lib64/python3.6/site-packages/keyring/backends :øÍúÍûÍüÍıÍşÍÿÍ€Î‹Î

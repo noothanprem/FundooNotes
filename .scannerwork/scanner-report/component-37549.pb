@@ -1,0 +1,1 @@
+­¥Lvenv/lib64/python3.6/site-packages/faker/providers/address/pt_PT/__init__.py 2pyXáh

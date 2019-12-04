@@ -1,0 +1,1 @@
+ê8venv/lib/python3.6/site-packages/celery/task/__init__.py 2pyX5h

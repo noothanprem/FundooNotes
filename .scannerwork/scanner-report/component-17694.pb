@@ -1,0 +1,1 @@
+Š;venv/lib/python3.6/site-packages/django_inlinecss/models.py 2pyXh

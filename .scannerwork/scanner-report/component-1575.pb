@@ -1,0 +1,1 @@
+§3venv/lib/python3.6/site-packages/MySQLdb/cursors.py 2pyXëh

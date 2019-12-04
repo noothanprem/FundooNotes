@@ -1,0 +1,1 @@
+œA,venv/lib/python3.6/site-packages/django/conf :›AA

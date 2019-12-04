@@ -1,0 +1,1 @@
+֠Bvenv/lib64/python3.6/site-packages/faker/providers/date_time/fr_FR :ՠ

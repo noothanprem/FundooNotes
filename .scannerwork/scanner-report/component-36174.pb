@@ -1,0 +1,1 @@
+Κ1venv/lib64/python3.6/site-packages/xlwt/compat.py 2pyXh

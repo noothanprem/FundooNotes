@@ -1,0 +1,1 @@
+хр8venv/lib64/python3.6/site-packages/simplejson/scanner.py 2pyXVh

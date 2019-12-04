@@ -1,0 +1,1 @@
+ê%Svenv/lib/python3.6/site-packages/django/contrib/flatpages/templatetags/flatpages.py 2pyXdh

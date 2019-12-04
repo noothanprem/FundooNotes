@@ -1,0 +1,1 @@
+Ü-Uvenv/lib/python3.6/site-packages/django/contrib/gis/management/commands/ogrinspect.py 2pyX†h

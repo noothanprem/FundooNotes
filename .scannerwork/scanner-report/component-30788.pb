@@ -1,0 +1,1 @@
+ÄðHvenv/lib64/python3.6/site-packages/django/contrib/flatpages/templatetags :ÃðÅð

@@ -1,0 +1,1 @@
+öJ9venv/lib/python3.6/site-packages/django_redis/compressors :õJ÷JøJùJúJ‚K

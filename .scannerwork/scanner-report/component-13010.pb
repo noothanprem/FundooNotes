@@ -1,0 +1,1 @@
+Òe5venv/lib/python3.6/site-packages/chardet/escprober.py 2pyXfh

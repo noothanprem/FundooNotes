@@ -1,0 +1,1 @@
+õDAvenv/lib/python3.6/site-packages/django/conf/locale/fa/formats.py 2pyXh

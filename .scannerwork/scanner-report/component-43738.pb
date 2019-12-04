@@ -1,0 +1,1 @@
+ке9venv/lib64/python3.6/site-packages/django_inlinecss/tests :	йелеме

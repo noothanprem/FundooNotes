@@ -1,0 +1,1 @@
+æ,venv/lib/python3.6/site-packages/django_cron :åïğñü’‚

@@ -1,0 +1,1 @@
+»:venv/lib/python3.6/site-packages/oauth2_provider/compat.py 2pyXh

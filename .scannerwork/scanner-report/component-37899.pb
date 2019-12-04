@@ -1,0 +1,1 @@
+ã®)venv/lib64/python3.6/site-packages/dotenv :ä®å®é®è®ê®ò®ö®

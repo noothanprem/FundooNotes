@@ -1,0 +1,1 @@
+ÿ‡jvenv/lib64/python3.6/site-packages/django/contrib/admin/static/admin/js/vendor/select2/select2.full.min.js 2jsXh

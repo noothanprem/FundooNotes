@@ -1,0 +1,1 @@
+Ö§Hvenv/lib64/python3.6/site-packages/faker/providers/job/fr_CH/__init__.py 2pyXÉh

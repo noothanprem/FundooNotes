@@ -1,0 +1,1 @@
+ПаPvenv/lib64/python3.6/site-packages/google/protobuf/internal/enum_type_wrapper.py 2pyXZh

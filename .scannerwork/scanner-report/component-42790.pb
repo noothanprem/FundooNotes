@@ -1,0 +1,1 @@
+¦Î5venv/lib64/python3.6/site-packages/gi/_ossighelper.py 2pyXþh

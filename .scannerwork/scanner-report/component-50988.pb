@@ -1,0 +1,1 @@
+¬ŽUvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/idna/uts46data.py 2pyXŽ@h

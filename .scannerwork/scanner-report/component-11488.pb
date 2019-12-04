@@ -1,0 +1,1 @@
+‡YJvenv/lib/python3.6/site-packages/faker/providers/address/id_ID/__init__.py 2pyX¶h

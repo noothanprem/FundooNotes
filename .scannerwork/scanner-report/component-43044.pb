@@ -1,0 +1,1 @@
+¤ÐNvenv/lib64/python3.6/site-packages/google/protobuf/internal/descriptor_test.py 2pyX¸h

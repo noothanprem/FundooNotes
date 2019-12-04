@@ -1,0 +1,1 @@
+¾».venv/lib/python3.6/site-packages/virtualenv.py 2pyXËh

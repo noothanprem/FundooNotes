@@ -1,0 +1,1 @@
+ó/Ovenv/lib/python3.6/site-packages/django/contrib/gis/geos/prototypes/prepared.py 2pyXh

@@ -1,0 +1,1 @@
+шк<venv/lib64/python3.6/site-packages/Crypto/SelfTest/Signature :	чкщкък

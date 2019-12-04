@@ -1,0 +1,1 @@
+¡¯7venv/lib64/python3.6/site-packages/requests/packages.py 2pyXh

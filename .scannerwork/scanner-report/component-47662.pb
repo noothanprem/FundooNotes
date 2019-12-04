@@ -1,0 +1,1 @@
+®ô>venv/lib64/python3.6/site-packages/twisted/trial/test/weird.py 2pyXh

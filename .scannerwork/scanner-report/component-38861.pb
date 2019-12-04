@@ -1,0 +1,1 @@
+Í¯Gvenv/lib64/python3.6/site-packages/macaroonbakery/tests/test_checker.py 2pyX³h

@@ -1,0 +1,1 @@
+¤Ï0venv/lib64/python3.6/site-packages/automat/_test :£Ï¥Ï¦Ï­Ï®Ï¯Ï

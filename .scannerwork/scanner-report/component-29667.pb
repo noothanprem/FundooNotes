@@ -1,0 +1,1 @@
+уч7venv/lib64/python3.6/site-packages/django/utils/tree.py 2pyX}h

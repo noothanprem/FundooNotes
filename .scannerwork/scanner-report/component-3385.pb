@@ -1,0 +1,1 @@
+¹=venv/lib/python3.6/site-packages/pymysql/constants/COMMAND.py 2pyX"h

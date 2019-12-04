@@ -1,0 +1,1 @@
+¾øTvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/spatialite/base.py 2pyXKh

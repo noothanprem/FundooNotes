@@ -1,0 +1,1 @@
+˜Î=venv/lib64/python3.6/site-packages/keyring/util/properties.py 2pyX<h

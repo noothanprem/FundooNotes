@@ -1,0 +1,1 @@
+ı±Cvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests :Kü±ş±ÿ±€²²‚²ƒ²„²…²†²‡²ˆ²‰²Š²‹²Œ²²²¨²ª²«²¬²­²®²¯²

@@ -1,0 +1,1 @@
+¥=<venv/lib/python3.6/site-packages/django/contrib/contenttypes :¤=¦=¯=·?Á?Â?Ã?Ä?

@@ -1,0 +1,1 @@
+ñ8venv/lib/python3.6/site-packages/django_cron/__init__.py 2pyXëh

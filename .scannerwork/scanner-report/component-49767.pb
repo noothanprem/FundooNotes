@@ -1,0 +1,1 @@
+ç„Bvenv/lib64/python3.6/site-packages/social_core/backends/persona.py 2pyX3h

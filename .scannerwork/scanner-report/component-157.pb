@@ -1,0 +1,1 @@
+ùNvenv/lib/python3.6/site-packages/oauth2_provider/migrations/0002_08_updates.py 2pyXh

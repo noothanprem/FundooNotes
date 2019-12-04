@@ -1,0 +1,1 @@
+އGvenv/lib/python3.6/site-packages/kombu/asynchronous/aws/sqs/__init__.py 2pyXh

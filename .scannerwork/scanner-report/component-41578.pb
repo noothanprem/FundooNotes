@@ -1,0 +1,1 @@
+êÄIvenv/lib64/python3.6/site-packages/awscli/customizations/s3/fileformat.py 2pyX†h

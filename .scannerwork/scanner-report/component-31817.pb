@@ -1,0 +1,1 @@
+Éø]venv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/spatialite/introspection.py 2pyXJh

@@ -1,0 +1,1 @@
+теBvenv/lib64/python3.6/site-packages/django_inlinecss/__version__.py 2pyXh

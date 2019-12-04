@@ -1,0 +1,1 @@
+цаCvenv/lib64/python3.6/site-packages/faker/providers/automotive/ar_SA :ха

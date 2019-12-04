@@ -1,0 +1,1 @@
+ˆd5venv/lib/python3.6/site-packages/requests/adapters.py 2pyX–h

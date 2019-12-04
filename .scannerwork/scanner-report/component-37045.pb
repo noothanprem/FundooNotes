@@ -1,0 +1,1 @@
+µ¡Kvenv/lib64/python3.6/site-packages/faker/providers/person/bg_BG/__init__.py 2pyXÕh

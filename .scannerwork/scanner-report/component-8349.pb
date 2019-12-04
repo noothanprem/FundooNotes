@@ -1,0 +1,1 @@
+A8venv/lib/python3.6/site-packages/django/conf/__init__.py 2pyX€h

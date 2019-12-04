@@ -1,0 +1,1 @@
+ä¼\venv/lib/python3.6/site-packages/django_extensions/management/commands/show_template_tags.py 2pyXrh

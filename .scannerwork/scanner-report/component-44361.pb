@@ -1,0 +1,1 @@
+из;venv/lib64/python3.6/site-packages/botocore/errorfactory.py 2pyX`h

@@ -1,0 +1,1 @@
+œ¡Avenv/lib/python3.6/site-packages/django_social_share/templatetags :›¡ž¡

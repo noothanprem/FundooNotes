@@ -1,0 +1,1 @@
+¼ûFvenv/lib64/python3.6/site-packages/django/contrib/gis/geos/geometry.py 2pyXãh

@@ -1,0 +1,1 @@
+ÏG1venv/lib/python3.6/site-packages/provider/urls.py 2pyXh

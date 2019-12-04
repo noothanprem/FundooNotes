@@ -1,0 +1,1 @@
+¦ÍNvenv/lib64/python3.6/site-packages/django_cron/management/commands/__init__.py 2pyXh

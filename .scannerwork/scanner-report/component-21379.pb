@@ -1,0 +1,1 @@
+ƒ§Fvenv/lib/python3.6/site-packages/twisted/internet/test/test_sigchld.py 2pyX~h

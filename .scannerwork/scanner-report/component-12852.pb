@@ -1,0 +1,1 @@
+´dFvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_checkers.py 2pyXãh

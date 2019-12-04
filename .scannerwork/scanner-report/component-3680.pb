@@ -1,0 +1,1 @@
+à;venv/lib/python3.6/site-packages/django/utils/termcolors.py 2pyXØh

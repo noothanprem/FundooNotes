@@ -1,0 +1,1 @@
+èLvenv/lib/python3.6/site-packages/launchpadlib/tests/test_credential_store.py 2pyXÕh

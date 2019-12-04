@@ -1,0 +1,1 @@
+Ýª?venv/lib/python3.6/site-packages/twisted/words/protocols/jabber :!ÜªÞªßªàªáªâªãªïªñªòªôª

@@ -1,0 +1,1 @@
+›Gvenv/lib/python3.6/site-packages/django/db/backends/sqlite3/features.py 2pyX-h

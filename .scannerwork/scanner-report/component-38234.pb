@@ -1,0 +1,1 @@
+Úª5venv/lib64/python3.6/site-packages/PIL/JpegPresets.py 2pyXòh

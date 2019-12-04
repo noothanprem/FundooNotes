@@ -1,0 +1,1 @@
+¹[<venv/lib/python3.6/site-packages/faker/providers/color/ru_RU :¸[

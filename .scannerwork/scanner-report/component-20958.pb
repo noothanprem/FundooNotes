@@ -1,0 +1,1 @@
+ޣ7venv/lib/python3.6/site-packages/twisted/cred/portal.py 2pyX}h

@@ -1,0 +1,1 @@
+û±Jvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/constants.py 2pyXÿh

@@ -1,0 +1,1 @@
+ñöCvenv/lib64/python3.6/site-packages/twisted/words/test/test_xpath.py 2pyX«h

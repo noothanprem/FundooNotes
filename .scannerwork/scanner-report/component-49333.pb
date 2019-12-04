@@ -1,0 +1,1 @@
+µÅJvenv/lib64/python3.6/site-packages/rest_framework/static/rest_framework/js :≥Å¥Å∂Å∑Å∏ÅπÅªÅ

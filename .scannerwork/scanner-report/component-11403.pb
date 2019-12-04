@@ -1,0 +1,1 @@
+‹YJvenv/lib/python3.6/site-packages/faker/providers/address/uk_UA/__init__.py 2pyX±h

@@ -1,0 +1,1 @@
+ךע=venv/lib64/python3.6/site-packages/twisted/application/runner :יעכעלעüע

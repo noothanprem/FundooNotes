@@ -1,0 +1,1 @@
+îú;venv/lib64/python3.6/site-packages/twisted/scripts/trial.py 2pyXôh

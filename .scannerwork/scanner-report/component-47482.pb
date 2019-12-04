@@ -1,0 +1,1 @@
+ътOvenv/lib64/python3.6/site-packages/twisted/application/runner/test/test_exit.py 2pyXih

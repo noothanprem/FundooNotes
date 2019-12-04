@@ -1,0 +1,1 @@
+œÍ9venv/lib64/python3.6/site-packages/django_cron/migrations :	›ÍÍÍ

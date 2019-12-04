@@ -1,0 +1,1 @@
+×Q;venv/lib/python3.6/site-packages/sqlparse/filters/output.py 2pyX}h

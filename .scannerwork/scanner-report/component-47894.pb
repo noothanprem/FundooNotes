@@ -1,0 +1,1 @@
+–öNvenv/lib64/python3.6/site-packages/twisted/words/protocols/jabber/component.py 2pyXÜh

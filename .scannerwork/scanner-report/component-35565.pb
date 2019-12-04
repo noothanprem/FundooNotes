@@ -1,0 +1,1 @@
+í•9venv/lib64/python3.6/site-packages/bs4/tests/test_soup.py 2pyX«h

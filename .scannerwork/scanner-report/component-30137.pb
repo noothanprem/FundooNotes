@@ -1,0 +1,1 @@
+¹ëGvenv/lib64/python3.6/site-packages/django/contrib/humanize/templatetags :¸ëºë

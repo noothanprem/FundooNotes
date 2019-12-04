@@ -1,0 +1,1 @@
+‡∆7venv/lib64/python3.6/site-packages/pymacaroons/utils.py 2pyXÑh

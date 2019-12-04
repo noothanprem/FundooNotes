@@ -1,0 +1,1 @@
+±38venv/lib/python3.6/site-packages/django/contrib/messages :°3²3³3´3¾3¿3À3å3

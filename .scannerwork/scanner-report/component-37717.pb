@@ -1,0 +1,1 @@
+’¶Jvenv/lib64/python3.6/site-packages/faker/providers/color/ar_PS/__init__.py 2pyXùh

@@ -1,0 +1,1 @@
+хаOvenv/lib64/python3.6/site-packages/faker/providers/automotive/ar_SA/__init__.py 2pyXQh

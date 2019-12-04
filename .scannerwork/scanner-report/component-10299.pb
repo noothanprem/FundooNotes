@@ -1,0 +1,1 @@
+»PCvenv/lib/python3.6/site-packages/astroid/interpreter/objectmodel.py 2pyXÙh

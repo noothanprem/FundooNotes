@@ -1,0 +1,1 @@
+í‰;venv/lib/python3.6/site-packages/elasticsearch/transport.py 2pyX‹h

@@ -1,0 +1,1 @@
+½Ô3venv/lib64/python3.6/site-packages/screen/compat.py 2pyX0h

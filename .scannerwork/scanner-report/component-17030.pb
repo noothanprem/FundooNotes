@@ -1,0 +1,1 @@
+†…Kvenv/lib/python3.6/site-packages/google/protobuf/internal/_parameterized.py 2pyX»h

@@ -1,0 +1,1 @@
+“¦Lvenv/lib64/python3.6/site-packages/faker/providers/company/pl_PL/__init__.py 2pyXth

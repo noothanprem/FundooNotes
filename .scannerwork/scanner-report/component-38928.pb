@@ -1,0 +1,1 @@
+ê∞Evenv/lib64/python3.6/site-packages/macaroonbakery/bakery/_identity.py 2pyXh

@@ -1,0 +1,1 @@
+¦õEvenv/lib64/python3.6/site-packages/django/contrib/sessions/migrations :¥õ§õ

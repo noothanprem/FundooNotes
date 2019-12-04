@@ -1,0 +1,1 @@
+¤gFvenv/lib/python3.6/site-packages/macaroonbakery/checkers/_namespace.py 2pyX¦h

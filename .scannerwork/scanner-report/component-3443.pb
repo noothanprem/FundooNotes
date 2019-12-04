@@ -1,0 +1,1 @@
+ó;venv/lib/python3.6/site-packages/rest_framework_jwt/test.py 2pyXh

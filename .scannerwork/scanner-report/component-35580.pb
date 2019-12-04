@@ -1,0 +1,1 @@
+ü•0venv/lib64/python3.6/site-packages/bs4/dammit.py 2pyXèh

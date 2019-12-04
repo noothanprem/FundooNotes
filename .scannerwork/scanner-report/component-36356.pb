@@ -1,0 +1,1 @@
+„œCvenv/lib64/python3.6/site-packages/astroid/brain/brain_mechanize.py 2pyXh

@@ -1,0 +1,1 @@
+Á.venv/lib/python3.6/site-packages/celery/fixups :ÀÂ

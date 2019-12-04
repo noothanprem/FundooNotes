@@ -1,0 +1,1 @@
+½[<venv/lib/python3.6/site-packages/faker/providers/color/fr_FR :¼[

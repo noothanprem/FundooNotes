@@ -1,0 +1,1 @@
+¥Î1venv/lib64/python3.6/site-packages/gi/__init__.py 2pyXµh

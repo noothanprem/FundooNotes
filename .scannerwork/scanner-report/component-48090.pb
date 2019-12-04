@@ -1,0 +1,1 @@
+Ú÷=venv/lib64/python3.6/site-packages/twisted/test/test_iosim.py 2pyXÈh

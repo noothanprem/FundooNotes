@@ -1,0 +1,1 @@
+ÿ6venv/lib/python3.6/site-packages/examples/base/data.py 2pyXh

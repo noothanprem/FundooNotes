@@ -1,0 +1,1 @@
+ñ¥Lvenv/lib64/python3.6/site-packages/faker/providers/company/fi_FI/__init__.py 2pyX6h

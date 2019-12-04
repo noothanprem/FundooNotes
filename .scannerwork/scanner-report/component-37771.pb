@@ -1,0 +1,1 @@
+‹§Jvenv/lib64/python3.6/site-packages/faker/providers/lorem/en_US/__init__.py 2pyXÙh

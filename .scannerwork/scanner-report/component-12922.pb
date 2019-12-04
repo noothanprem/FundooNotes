@@ -1,0 +1,1 @@
+úd@venv/lib/python3.6/site-packages/macaroonbakery/httpbakery/agent :ùdûd

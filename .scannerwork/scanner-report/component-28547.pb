@@ -1,0 +1,1 @@
+Éﬂ6venv/lib64/python3.6/site-packages/openid/yadis/xri.py 2pyX{h

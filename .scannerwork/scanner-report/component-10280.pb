@@ -1,0 +1,1 @@
+¨P(venv/lib/python3.6/site-packages/astroid :2¦P©PªP«P¬P­P®P¯P°P²PµPÃPÄPÅPÆP€QQƒQ„QŸQ Q¡Q¢Q£QÒQ

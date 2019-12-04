@@ -1,0 +1,1 @@
+ÛUIvenv/lib/python3.6/site-packages/faker/providers/person/ko_KR/__init__.py 2pyXÃh

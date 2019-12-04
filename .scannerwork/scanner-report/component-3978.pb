@@ -1,0 +1,1 @@
+ŠOvenv/lib/python3.6/site-packages/django/db/backends/postgresql_psycopg2/base.py 2pyXh

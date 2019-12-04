@@ -1,0 +1,1 @@
+ ®=venv/lib/python3.6/site-packages/twisted/conch/manhole_tap.py 2pyX¦h

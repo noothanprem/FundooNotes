@@ -1,0 +1,1 @@
+ùÇ4venv/lib/python3.6/site-packages/debian/copyright.py 2pyX¼h

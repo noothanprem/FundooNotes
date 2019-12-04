@@ -1,0 +1,1 @@
+ЗаTvenv/lib64/python3.6/site-packages/google/protobuf/internal/file_options_test_pb2.py 2pyXSh

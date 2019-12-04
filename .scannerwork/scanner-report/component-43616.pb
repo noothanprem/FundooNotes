@@ -1,0 +1,1 @@
+‡‘0venv/lib64/python3.6/site-packages/elasticsearch :ﬂ‘·‘‚‘È‘Í‘°’

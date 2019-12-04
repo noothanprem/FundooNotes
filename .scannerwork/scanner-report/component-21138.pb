@@ -1,0 +1,1 @@
+Те;venv/lib/python3.6/site-packages/twisted/python/shortcut.py 2pyXVh

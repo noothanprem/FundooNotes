@@ -1,0 +1,1 @@
+γώGvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/apps.py 2pyXh

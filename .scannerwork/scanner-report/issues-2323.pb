@@ -1,0 +1,375 @@
+†
+pythonS1871dEither merge this branch with the identical one on line "2792" or change one of the implementations. 2
+ÍÍ 3:
+ì
+ËË 3OriginalK
+pythonS1313,Make this IP "2.5.4.3" address configurable. 2
+ÙÙ K
+pythonS1313,Make this IP "2.5.4.4" address configurable. 2
+ıı K
+pythonS1313,Make this IP "2.5.4.5" address configurable. 2
+ˆˆ K
+pythonS1313,Make this IP "2.5.4.6" address configurable. 2
+˜˜ K
+pythonS1313,Make this IP "2.5.4.7" address configurable. 2
+¯¯ K
+pythonS1313,Make this IP "2.5.4.8" address configurable. 2
+˘˘ K
+pythonS1313,Make this IP "2.5.4.9" address configurable. 2
+˙˙ L
+pythonS1313-Make this IP "2.5.4.10" address configurable. 2
+˚˚ L
+pythonS1313-Make this IP "2.5.4.11" address configurable. 2
+¸¸ L
+pythonS1313-Make this IP "2.5.4.12" address configurable. 2
+˝˝ L
+pythonS1313-Make this IP "2.5.4.15" address configurable. 2
+˛˛ L
+pythonS1313-Make this IP "2.5.4.17" address configurable. 2
+ˇˇ L
+pythonS1313-Make this IP "2.5.4.20" address configurable. 2
+ÄÄ L
+pythonS1313-Make this IP "2.5.4.41" address configurable. 2
+ÅÅ L
+pythonS1313-Make this IP "2.5.4.42" address configurable. 2
+ÇÇ L
+pythonS1313-Make this IP "2.5.4.43" address configurable. 2
+ÉÉ L
+pythonS1313-Make this IP "2.5.4.44" address configurable. 2
+ÑÑ L
+pythonS1313-Make this IP "2.5.4.45" address configurable. 2
+ÖÖ L
+pythonS1313-Make this IP "2.5.4.46" address configurable. 2
+ÜÜ L
+pythonS1313-Make this IP "2.5.4.65" address configurable. 2
+áá L
+pythonS1313-Make this IP "2.5.4.97" address configurable. 2
+àà N
+pythonS1313/Make this IP "2.23.133.2" address configurable. 2
+ää N
+pythonS1313/Make this IP "2.23.133.2" address configurable. 2
+ãã N
+pythonS1313/Make this IP "2.23.133.2" address configurable. 2
+åå N
+pythonS1313/Make this IP "2.23.133.2" address configurable. 2
+çç N
+pythonS1313/Make this IP "2.23.133.2" address configurable. 2
+éé N
+pythonS1313/Make this IP "2.23.133.2" address configurable. 2
+èè K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ìì "K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+îî "K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ïï "M
+pythonS1313.Make this IP "1.10.7.20" address configurable. 2
+ôô K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ºº K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ΩΩ M
+pythonS1313.Make this IP "2.5.29.32" address configurable. 2
+‘‘ M
+pythonS1313.Make this IP "2.5.29.37" address configurable. 2
+¯¯ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+˘˘ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+˙˙ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+˚˚ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+¸¸ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+˝˝ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+˛˛ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ˇˇ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ÄÄ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ÅÅ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ÉÉ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ÖÖ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ÜÜ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+àà K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ââ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ãã K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+çç K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+éé K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+êê K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+íí K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ìì K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ïï K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ññ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+óó K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+òò K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+öö K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+õõ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+úú K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ûû K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+°°  K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+¢¢  K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+££  K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+§§ "K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+••  K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+¶¶ "K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ßß  K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+®®  K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+©©  K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+™™  K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+´´  K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+¨¨ !K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+≠≠ !K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ÆÆ !K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ØØ !K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+∞∞ !K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+≤≤  M
+pythonS1313.Make this IP "1.101.3.6" address configurable. 2
+◊◊ M
+pythonS1313.Make this IP "1.101.3.6" address configurable. 2
+ÿÿ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+⁄⁄ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+€€ M
+pythonS1313.Make this IP "1.101.3.8" address configurable. 2
+ﬂﬂ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ÈÈ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ÍÍ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ÎÎ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ÏÏ L
+pythonS1313-Make this IP "2.5.4.52" address configurable. 2
+∞∞ N
+pythonS1313/Make this IP "2.23.133.2" address configurable. 2
+≤≤ N
+pythonS1313/Make this IP "2.23.133.2" address configurable. 2
+≥≥ N
+pythonS1313/Make this IP "2.23.133.2" address configurable. 2
+¥¥ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+∂∂ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+∑∑ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+∏∏ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+ππ K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+∫∫ L
+pythonS1313-Make this IP "2.5.29.9" address configurable. 2
+¸¸ M
+pythonS1313.Make this IP "2.5.29.14" address configurable. 2
+˝˝ M
+pythonS1313.Make this IP "2.5.29.15" address configurable. 2
+˛˛ M
+pythonS1313.Make this IP "2.5.29.16" address configurable. 2
+ˇˇ M
+pythonS1313.Make this IP "2.5.29.17" address configurable. 2
+ÄÄ M
+pythonS1313.Make this IP "2.5.29.18" address configurable. 2
+ÅÅ M
+pythonS1313.Make this IP "2.5.29.19" address configurable. 2
+ÇÇ M
+pythonS1313.Make this IP "2.5.29.30" address configurable. 2
+ÉÉ M
+pythonS1313.Make this IP "2.5.29.31" address configurable. 2
+ÑÑ M
+pythonS1313.Make this IP "2.5.29.32" address configurable. 2
+ÖÖ M
+pythonS1313.Make this IP "2.5.29.33" address configurable. 2
+ÜÜ M
+pythonS1313.Make this IP "2.5.29.35" address configurable. 2
+áá M
+pythonS1313.Make this IP "2.5.29.36" address configurable. 2
+àà M
+pythonS1313.Make this IP "2.5.29.37" address configurable. 2
+ââ M
+pythonS1313.Make this IP "2.5.29.46" address configurable. 2
+ää M
+pythonS1313.Make this IP "2.5.29.54" address configurable. 2
+ãã K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+åå K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+çç K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+èè K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+êê K
+pythonS1313,Make this IP "1.3.6.1" address configurable. 2
+îî !˝
+pythonS3776TRefactor this function to reduce its Cognitive Complexity from 23 to the 15 allowed. )       @2
+’’ :
+ì
+™™ +1:
+ì
+ÈÈ +1:*
+(ì
+ää +2 (incl 1 for nesting):*
+(ì
+ëë +2 (incl 1 for nesting):
+ì
+≠≠ +1:*
+(ì
+üü +2 (incl 1 for nesting):*
+(ì
+ÇÇ +2 (incl 1 for nesting):*
+(ì
+òò +2 (incl 1 for nesting):
+ì
+¥¥ +1:
+ì
+‰‰ 
++1:
+ì
+∞∞ 
++1:*
+(ì
+¥¥ +2 (incl 1 for nesting):*
+(ì
+´´ +2 (incl 1 for nesting):
+ì
+˙˙ +1:*
+(ì
+˚˚ +2 (incl 1 for nesting)⁄
+pythonS3776TRefactor this function to reduce its Cognitive Complexity from 16 to the 15 allowed. )      ?2
+¶¶ :*
+(ì
+©© +2 (incl 1 for nesting):*
+(ì
+™™ +3 (incl 2 for nesting):
+ì
+ßß 
++1:*
+(ì
+¨¨ +4 (incl 3 for nesting):
+ì
+±± +1:*
+(ì
+ÆÆ +5 (incl 4 for nesting)ä
+pythonS3776TRefactor this function to reduce its Cognitive Complexity from 22 to the 15 allowed. )      @2
+∂∂ :*
+(ì
+”” +3 (incl 2 for nesting):
+ì
+∆∆ +1:*
+(ì
+““ +2 (incl 1 for nesting):
+ì
+ºº 
++1:*
+(ì
+¿¿ +3 (incl 2 for nesting):*
+(ì
+√√ +4 (incl 3 for nesting):*
+(ì
+◊◊ +2 (incl 1 for nesting):*
+(ì
+ÃÃ +2 (incl 1 for nesting):*
+(ì
+øø +2 (incl 1 for nesting):*
+(ì
+   +2 (incl 1 for nesting)ı
+pythonS3776TRefactor this function to reduce its Cognitive Complexity from 30 to the 15 allowed. )      .@2
+ÇÇ :
+ì
+ââ 
++1:
+ì
+ëë7 :+1:*
+(ì
+èè +2 (incl 1 for nesting):*
+(ì
+ëë +4 (incl 3 for nesting):
+ì
+ôô +1:*
+(ì
+üü +6 (incl 5 for nesting):*
+(ì
+êê +3 (incl 2 for nesting):*
+(ì
+õõ +3 (incl 2 for nesting):*
+(ì
+úú +4 (incl 3 for nesting):*
+(ì
+ùù +5 (incl 4 for nesting)Ë
+pythonS3776TRefactor this function to reduce its Cognitive Complexity from 25 to the 15 allowed. )      $@2
+öö :*
+(ì
+‘‘* ,+2 (incl 1 for nesting):
+ì
+––  "+1:
+ì
+±± !+1:*
+(ì
+√√ +3 (incl 2 for nesting):*
+(ì
+◊◊ +2 (incl 1 for nesting):
+ì
+«« "+1:
+ì
+µµ 
++1:*
+(ì
+¿¿ +3 (incl 2 for nesting):
+ì
+ÕÕ 
++1:
+ì
+”” +1:*
+(ì
+«« +3 (incl 2 for nesting):*
+(ì
+ªª +2 (incl 1 for nesting):*
+(ì
+∂∂ +2 (incl 1 for nesting):
+ì
+≤≤  #+1:
+ì
+¶¶ 
++1g
+pythonS100IRename method "ca" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∂∂ 

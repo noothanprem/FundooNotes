@@ -1,0 +1,1 @@
+²¨5venv/lib64/python3.6/site-packages/boto3/docs/attr.py 2pyX7h

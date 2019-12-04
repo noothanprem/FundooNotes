@@ -1,0 +1,1 @@
+‹Ovenv/lib/python3.6/site-packages/colorful/static/colorful/jQuery.colorPicker.js 2jsXáh

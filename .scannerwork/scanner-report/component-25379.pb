@@ -1,0 +1,1 @@
+£Æ7venv/lib/python3.6/site-packages/django_common/mixin.py 2pyXh

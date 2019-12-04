@@ -1,0 +1,1 @@
+þKSvenv/lib/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/AuthScramChallenge.py 2pyXGh

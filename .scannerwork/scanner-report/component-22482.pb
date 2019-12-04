@@ -1,0 +1,1 @@
+үFvenv/lib/python3.6/site-packages/twisted/runner/test/test_inetdconf.py 2pyX@h

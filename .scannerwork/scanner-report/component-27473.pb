@@ -1,0 +1,1 @@
+яжGvenv/lib64/python3.6/site-packages/future/moves/tkinter/simpledialog.py 2pyXh

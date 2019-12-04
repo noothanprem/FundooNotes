@@ -1,0 +1,1 @@
+ºZ>venv/lib/python3.6/site-packages/faker/providers/company/sk_SK :¹Z

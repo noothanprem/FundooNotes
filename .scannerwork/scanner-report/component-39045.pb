@@ -1,0 +1,1 @@
+…±8venv/lib64/python3.6/site-packages/chardet/sjisprober.py 2pyX]h

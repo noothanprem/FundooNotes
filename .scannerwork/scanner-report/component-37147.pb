@@ -1,0 +1,1 @@
+›¢Kvenv/lib64/python3.6/site-packages/faker/providers/person/he_IL/__init__.py 2pyXÿ	h

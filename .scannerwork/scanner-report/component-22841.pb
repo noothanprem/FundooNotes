@@ -1,0 +1,1 @@
+¹²Hvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/management :¸²

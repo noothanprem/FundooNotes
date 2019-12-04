@@ -1,0 +1,1 @@
+•Evenv/lib/python3.6/site-packages/launchpadlib/tests/test_launchpad.py 2pyXÆh

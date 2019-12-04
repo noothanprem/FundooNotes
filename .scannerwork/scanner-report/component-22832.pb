@@ -1,0 +1,1 @@
+°²Ivenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/__init__.py 2pyXh

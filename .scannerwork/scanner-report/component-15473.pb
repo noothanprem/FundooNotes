@@ -1,0 +1,1 @@
+ñxQvenv/lib/python3.6/site-packages/awscli/customizations/configservice/subscribe.py 2pyX³h

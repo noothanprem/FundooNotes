@@ -1,0 +1,1 @@
+ÏæDvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/utils.py 2pyX!h

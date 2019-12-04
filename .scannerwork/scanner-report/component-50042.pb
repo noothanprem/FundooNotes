@@ -1,0 +1,1 @@
+ú†Pvenv/lib64/python3.6/site-packages/django_crontab/management/commands/crontab.py 2pyX h

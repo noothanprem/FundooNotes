@@ -1,0 +1,1 @@
+æ/8venv/lib/python3.6/site-packages/django/contrib/gis/geos :å/ç/è/é/ê/ë/í/…0†0‡0ˆ0˜0™0š0

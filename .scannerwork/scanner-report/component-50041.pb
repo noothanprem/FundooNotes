@@ -1,0 +1,1 @@
+ù†Evenv/lib64/python3.6/site-packages/django_crontab/management/commands :ø†ú†

@@ -1,0 +1,1 @@
+ÒQ2venv/lib/python3.6/site-packages/sqlparse/utils.py 2pyX|h

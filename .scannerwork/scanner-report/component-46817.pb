@@ -1,0 +1,1 @@
+·ÌBvenv/lib64/python3.6/site-packages/twisted/web/test/test_static.py 2pyXΩh

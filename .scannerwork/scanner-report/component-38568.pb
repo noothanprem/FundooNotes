@@ -1,0 +1,1 @@
+инBvenv/lib64/python3.6/site-packages/docutils/parsers/rst/directives :знйнкнлнмнннон╣н║н

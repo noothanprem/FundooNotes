@@ -1,0 +1,1 @@
+цуHvenv/lib64/python3.6/site-packages/twisted/trial/_dist/workercommands.py 2pyX h

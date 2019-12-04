@@ -1,0 +1,1 @@
+¼Œ^venv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/cachecontrol/heuristics.py 2pyXˆh

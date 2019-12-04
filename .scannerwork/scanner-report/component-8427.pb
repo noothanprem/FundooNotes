@@ -1,0 +1,1 @@
+ÎABvenv/lib/python3.6/site-packages/django/conf/locale/gd/__init__.py 2pyXh

@@ -1,0 +1,1 @@
+Çç7venv/lib64/python3.6/site-packages/django/utils/text.py 2pyX¡h

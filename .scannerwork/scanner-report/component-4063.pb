@@ -1,0 +1,1 @@
+ßGvenv/lib/python3.6/site-packages/django/db/backends/oracle/functions.py 2pyXh

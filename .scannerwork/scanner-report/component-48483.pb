@@ -1,0 +1,1 @@
+דת2venv/lib64/python3.6/site-packages/twisted/scripts :גתהתותזתמתןת

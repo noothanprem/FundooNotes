@@ -1,0 +1,1 @@
+×£Cvenv/lib/python3.6/site-packages/twisted/names/test/test_rfc1982.py 2pyX½h

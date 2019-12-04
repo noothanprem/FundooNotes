@@ -1,0 +1,1 @@
+À‘Lvenv/lib64/python3.6/site-packages/django_common/templatetags/custom_tags.py 2pyX`h

@@ -1,0 +1,1 @@
+òþ7venv/lib64/python3.6/site-packages/rest_framework/utils :'ñþóþôþõþöþ÷þøþùþúþûþŠÿ‹ÿŒÿ

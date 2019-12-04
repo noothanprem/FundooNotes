@@ -1,0 +1,1 @@
+мо>venv/lib64/python3.6/site-packages/pycparser/ast_transforms.py 2pyXjh

@@ -1,0 +1,1 @@
+·Š9venv/lib/python3.6/site-packages/django_inlinecss/conf.py 2pyX!h

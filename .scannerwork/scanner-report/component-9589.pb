@@ -1,0 +1,1 @@
+õJ@venv/lib/python3.6/site-packages/django_redis/compressors/lz4.py 2pyXh

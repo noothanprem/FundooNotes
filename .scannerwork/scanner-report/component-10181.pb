@@ -1,0 +1,1 @@
+ÅO(venv/lib/python3.6/site-packages/olefile :ÄOÆO

@@ -1,0 +1,1 @@
+ƒ8venv/lib/python3.6/site-packages/gi/overrides/keysyms.py 2pyX6h

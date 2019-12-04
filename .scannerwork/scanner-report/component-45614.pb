@@ -1,0 +1,1 @@
+®ä8venv/lib64/python3.6/site-packages/social_django/urls.py 2pyXh

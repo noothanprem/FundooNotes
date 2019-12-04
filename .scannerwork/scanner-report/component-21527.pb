@@ -1,0 +1,1 @@
+—¨(venv/lib/python3.6/site-packages/twisted :–¨¶¨º©’ªñ«

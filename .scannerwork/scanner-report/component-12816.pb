@@ -1,0 +1,1 @@
+êdCvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_codec.py 2pyX≈h

@@ -1,0 +1,1 @@
+געFvenv/lib64/python3.6/site-packages/django/contrib/redirects/migrations :בעדע

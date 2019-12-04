@@ -1,0 +1,1 @@
+ÁXOvenv/lib/python3.6/site-packages/faker/providers/phone_number/fr_CH/__init__.py 2pyX&h

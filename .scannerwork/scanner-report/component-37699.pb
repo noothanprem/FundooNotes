@@ -1,0 +1,1 @@
+æLvenv/lib64/python3.6/site-packages/faker/providers/company/zh_TW/__init__.py 2pyX(h

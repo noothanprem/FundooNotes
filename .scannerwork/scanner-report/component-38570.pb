@@ -1,0 +1,1 @@
+кнJvenv/lib64/python3.6/site-packages/docutils/parsers/rst/directives/html.py 2pyXWh

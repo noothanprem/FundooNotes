@@ -1,0 +1,1 @@
+Ø‰0venv/lib64/python3.6/site-packages/social_django :*Æ‰±‰≤‰≥‰¥‰µ‰æ‰¡‰¬‰“‰”‰‘‰’‰÷‰

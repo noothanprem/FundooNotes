@@ -1,0 +1,1 @@
+ТаAvenv/lib/python3.6/site-packages/Crypto/SelfTest/Hash/test_SHA.py 2pyXAh

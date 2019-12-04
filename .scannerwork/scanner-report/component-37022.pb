@@ -1,0 +1,1 @@
+û°?venv/lib64/python3.6/site-packages/faker/providers/person/fi_FI :ù°

@@ -1,0 +1,1 @@
+ܴCvenv/lib/python3.6/site-packages/rest_framework/management/commands :۴ݴ

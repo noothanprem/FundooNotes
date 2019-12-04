@@ -1,0 +1,1 @@
+³²Qvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/management/commands :²²´²

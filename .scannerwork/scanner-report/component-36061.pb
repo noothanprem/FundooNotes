@@ -1,0 +1,1 @@
+ݙ;venv/lib64/python3.6/site-packages/autobahn/twisted/testing :ܙ

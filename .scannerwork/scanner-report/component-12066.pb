@@ -1,0 +1,1 @@
+¢^Cvenv/lib/python3.6/site-packages/locust/static/jquery.jqote2.min.js 2jsXh

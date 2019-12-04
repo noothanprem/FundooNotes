@@ -1,0 +1,1 @@
+жсCvenv/lib64/python3.6/site-packages/urllib3/contrib/_securetransport :	усвсьс

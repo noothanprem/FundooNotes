@@ -1,0 +1,1 @@
+ÉúCvenv/lib64/python3.6/site-packages/twisted/conch/scripts/tkconch.py 2pyXËh

@@ -1,0 +1,1 @@
+ª;venv/lib/python3.6/site-packages/twisted/logger/_flatten.py 2pyX³h

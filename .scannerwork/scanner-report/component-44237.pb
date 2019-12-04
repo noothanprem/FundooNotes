@@ -1,0 +1,1 @@
+ÍÙ4venv/lib64/python3.6/site-packages/validate_email.py 2pyXÕh

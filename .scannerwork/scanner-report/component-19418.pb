@@ -1,0 +1,1 @@
+Ú—1venv/lib/python3.6/site-packages/isort/finders.py 2pyXÿh

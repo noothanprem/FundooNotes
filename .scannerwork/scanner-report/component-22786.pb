@@ -1,0 +1,1 @@
+‚²Wvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_pip_helpers.py 2pyXFh

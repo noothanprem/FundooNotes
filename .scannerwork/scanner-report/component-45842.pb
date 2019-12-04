@@ -1,0 +1,1 @@
+’æGvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/settings.py 2pyXKh

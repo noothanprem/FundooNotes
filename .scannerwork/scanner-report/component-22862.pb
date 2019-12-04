@@ -1,0 +1,1 @@
+βTvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/filter_backends/search :ͲϲвѲҲ��

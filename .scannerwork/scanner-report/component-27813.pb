@@ -1,0 +1,1 @@
+¥Ù3venv/lib64/python3.6/site-packages/asgi_redis/tests :	¤Ù¦Ù¬Ù

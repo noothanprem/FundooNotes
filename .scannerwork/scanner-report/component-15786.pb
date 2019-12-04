@@ -1,0 +1,1 @@
+ª{8venv/lib/python3.6/site-packages/pymacaroons/macaroon.py 2pyX–h

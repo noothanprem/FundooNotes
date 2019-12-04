@@ -1,0 +1,1 @@
+íAvenv/lib/python3.6/site-packages/django/db/migrations/__init__.py 2pyXh

@@ -1,0 +1,1 @@
+şÅ7venv/lib/python3.6/site-packages/django_common/tests.py 2pyX'h

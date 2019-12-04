@@ -1,0 +1,1 @@
+í09venv/lib/python3.6/site-packages/django/contrib/gis/admin :ì0î0ï0

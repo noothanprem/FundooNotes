@@ -1,0 +1,1 @@
+ÏWOvenv/lib/python3.6/site-packages/faker/providers/phone_number/fa_IR/__init__.py 2pyXSh

@@ -1,0 +1,1 @@
+об=venv/lib/python3.6/site-packages/django_social_share/views.py 2pyXh

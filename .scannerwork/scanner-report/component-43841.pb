@@ -1,0 +1,1 @@
+аж8venv/lib64/python3.6/site-packages/keyrings/alt/Gnome.py 2pyXuh

@@ -1,0 +1,1 @@
+Ëï=venv/lib64/python3.6/site-packages/twisted/python/versions.py 2pyXh

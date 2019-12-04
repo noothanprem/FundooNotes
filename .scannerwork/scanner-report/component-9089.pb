@@ -1,0 +1,1 @@
+G6venv/lib/python3.6/site-packages/django/test/runner.py 2pyXèh

@@ -1,0 +1,1 @@
+˜»Bvenv/lib/python3.6/site-packages/social_core/backends/atlassian.py 2pyX&h

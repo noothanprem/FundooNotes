@@ -1,0 +1,1 @@
+«°Hvenv/lib64/python3.6/site-packages/macaroonbakery/httpbakery/__init__.py 2pyX8h

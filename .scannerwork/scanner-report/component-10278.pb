@@ -1,0 +1,1 @@
+¦P3venv/lib/python3.6/site-packages/astroid/manager.py 2pyXÈh

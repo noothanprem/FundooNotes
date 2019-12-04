@@ -1,0 +1,1 @@
+Á[8venv/lib/python3.6/site-packages/faker/providers/profile :À[

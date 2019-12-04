@@ -1,0 +1,1 @@
+Å	8venv/lib/python3.6/site-packages/future/standard_library :Ä	

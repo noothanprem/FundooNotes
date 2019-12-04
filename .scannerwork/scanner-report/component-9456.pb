@@ -1,0 +1,1 @@
+ğIMvenv/lib/python3.6/site-packages/django_elasticsearch_dsl/management/commands :ïIñI

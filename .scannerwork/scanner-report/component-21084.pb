@@ -1,0 +1,1 @@
+Ü¤Gvenv/lib/python3.6/site-packages/twisted/python/test/test_components.py 2pyXƒh

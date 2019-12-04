@@ -1,0 +1,1 @@
+ÄúIvenv/lib64/python3.6/site-packages/twisted/conch/test/test_manhole_tap.py 2pyX|h

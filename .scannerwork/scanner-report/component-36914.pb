@@ -1,0 +1,1 @@
+² Bvenv/lib64/python3.6/site-packages/faker/providers/date_time/ko_KR :± 

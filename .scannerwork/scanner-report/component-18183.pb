@@ -1,0 +1,1 @@
+‡Ž7venv/lib/python3.6/site-packages/itsdangerous/signer.py 2pyX´h

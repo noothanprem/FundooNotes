@@ -1,0 +1,1 @@
+ÁTKvenv/lib/python3.6/site-packages/faker/providers/internet/zh_TW/__init__.py 2pyXh

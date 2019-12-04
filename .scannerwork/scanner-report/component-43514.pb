@@ -1,0 +1,1 @@
+úÓ:venv/lib64/python3.6/site-packages/kombu/transport/virtual :	øÓùÓÿÓ

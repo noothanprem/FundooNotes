@@ -1,0 +1,1 @@
+èœ3venv/lib64/python3.6/site-packages/furl/omdict1D.py 2pyXqh

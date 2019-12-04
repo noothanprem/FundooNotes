@@ -1,0 +1,1 @@
+¾UAvenv/lib/python3.6/site-packages/faker/providers/automotive/id_ID :½U

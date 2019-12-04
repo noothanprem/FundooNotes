@@ -1,0 +1,1 @@
+ÎÆ:venv/lib64/python3.6/site-packages/pymacaroons/verifier.py 2pyX€h

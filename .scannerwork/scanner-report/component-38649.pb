@@ -1,0 +1,1 @@
+ù­;venv/lib64/python3.6/site-packages/docutils/languages/de.py 2pyX;h

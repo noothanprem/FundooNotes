@@ -1,0 +1,1 @@
+ä+venv/lib/python3.6/site-packages/celery/app :âãåçéèêëí£§•¶ß®

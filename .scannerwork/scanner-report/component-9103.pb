@@ -1,0 +1,1 @@
+G4venv/lib/python3.6/site-packages/django/urls/conf.py 2pyXNh

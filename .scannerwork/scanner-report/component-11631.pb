@@ -1,0 +1,1 @@
+ÔZJvenv/lib/python3.6/site-packages/faker/providers/company/id_ID/__init__.py 2pyXh

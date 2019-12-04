@@ -1,0 +1,1 @@
+œWAvenv/lib/python3.6/site-packages/faker/providers/user_agent/en_US :›W

@@ -1,0 +1,1 @@
+²Z>venv/lib/python3.6/site-packages/faker/providers/company/es_MX :±Z

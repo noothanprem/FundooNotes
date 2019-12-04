@@ -1,0 +1,1 @@
+›\:venv/lib/python3.6/site-packages/faker/providers/job/en_US :š\

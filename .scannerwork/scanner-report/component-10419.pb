@@ -1,0 +1,1 @@
+³Q-venv/lib/python3.6/site-packages/furl/furl.py 2pyXÂh

@@ -1,0 +1,1 @@
+¤Я0venv/lib/python3.6/site-packages/Crypto/SelfTest :№Яда

@@ -1,0 +1,1 @@
+ñ«2venv/lib/python3.6/site-packages/twisted/plugin.py 2pyX„h

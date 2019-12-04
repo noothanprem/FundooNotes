@@ -1,0 +1,1 @@
+นำ3venv/lib64/python3.6/site-packages/tzlocal/win32.py 2pyXih

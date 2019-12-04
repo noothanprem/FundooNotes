@@ -1,0 +1,1 @@
+‚H8venv/lib/python3.6/site-packages/provider/compat/urls.py 2pyXh

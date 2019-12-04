@@ -1,0 +1,1 @@
+í¸Bvenv/lib/python3.6/site-packages/social_core/backends/bitbucket.py 2pyXfh

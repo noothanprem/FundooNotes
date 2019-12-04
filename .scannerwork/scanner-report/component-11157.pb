@@ -1,0 +1,1 @@
+•WIvenv/lib/python3.6/site-packages/faker/providers/person/es_ES/__init__.py 2pyXh

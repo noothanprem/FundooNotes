@@ -1,0 +1,1 @@
+ ÍSvenv/lib64/python3.6/site-packages/django/db/backends/postgresql_psycopg2/client.py 2pyXh

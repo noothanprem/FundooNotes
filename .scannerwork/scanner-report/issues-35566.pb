@@ -1,0 +1,16 @@
+h
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2YY H
+pythonS1481+Remove the unused local variable "builder". 2tt I
+pythonS1481,Remove the unused local variable "builder1". 2xx L
+pythonS1481-Remove the unused local variable "lacks_one". 2
+ÑÑ P
+pythonS14811Remove the unused local variable "has_the_other". 2
+ÖÖ P
+pythonS14811Remove the unused local variable "has_the_other". 2
+ÅÅ J
+pythonS1481+Remove the unused local variable "has_one". 2
+ÄÄ K
+pythonS1481,Remove the unused local variable "builder2". 2
+íí K
+pythonS1481,Remove the unused local variable "builder1". 2
+ëë 

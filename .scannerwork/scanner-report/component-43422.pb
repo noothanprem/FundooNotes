@@ -1,0 +1,1 @@
+ำ9venv/lib64/python3.6/site-packages/kombu/asynchronous/aws :	ำำคำ

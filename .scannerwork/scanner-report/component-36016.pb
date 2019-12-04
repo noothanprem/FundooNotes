@@ -1,0 +1,1 @@
+°™Fvenv/lib64/python3.6/site-packages/autobahn/websocket/test/__init__.py 2pyXh

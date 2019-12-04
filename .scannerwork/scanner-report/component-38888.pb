@@ -1,0 +1,1 @@
+è¯Jvenv/lib64/python3.6/site-packages/macaroonbakery/tests/test_authorizer.py 2pyX‰h

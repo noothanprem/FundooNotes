@@ -20,6 +20,11 @@ class LabelOperations:
     response = {"success": False,
                 "message": "",
                 "data": []}
+    def smd_response(self,success,message,data):
+        self.response['success'] = success
+        self.response['message'] = message
+        self.response['data'] = []
+        return self.response
     """
     function to create label
     """
@@ -53,28 +58,23 @@ class LabelOperations:
             """
 
             if Label.objects.filter(user_id=user_id, name=name).exists():
-                self.response['message'] = "Label already exists."
 
-                return self.response
+                response = self.smd_response(False, "Label already exists", [])
+                return response
             labelobject = Label.objects.create(name=name, user=userobject)
 
             string_userid = str(user_id)
             redis.hmset(string_userid + "label", {labelobject.id: name})
             logger.info("note is created")
-            """
-            creating label
-            """
 
-            self.response['success'] = True
-            self.response['message'] = "Label created successfully"
-            self.response['data'].append(name)
+            response = self.smd_response(True,"Label created successfully",[name])
             logger.info("Label created successfully")
         except Label.DoesNotExist:
             logger.info("Exception occured while accessing the user")
 
-            self.response['message'] = "Exception occured while accessing the user"
+            response = self.smd_response(False, "Exception occured while accessing the Label", [])
 
-        return self.response
+        return response
 
     """
     function to get the label
@@ -112,15 +112,14 @@ class LabelOperations:
 
             logger.info("labels where fetched from redis")
 
-            self.response['success'] = True
-            self.response['message'] = "Read Operation Successfull"
-            self.response['data'].append(userlabelsstring)
+            response = self.smd_response(True, "Read Operation Successfull", [userlabelsstring])
+            print("Read Operation Successfull")
         except Label.DoesNotExist:
             logger.info("Exception occured while getting the Label")
-
+            print("Exception occured while getting the Label")
             self.response['message'] = "Exception occured while getting the Label"
-
-        return self.response
+            response = self.smd_response(False, "Exception occured while getting the Label", [])
+        return response
 
     def update_label(self, request, label_id):
         """

@@ -1,0 +1,1 @@
+¾”5venv/lib64/python3.6/site-packages/attr/converters.py 2pyXOh

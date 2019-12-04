@@ -1,0 +1,1 @@
+Ú‹*venv/lib/python3.6/site-packages/shortuuid :	Ù‹Û‹à‹

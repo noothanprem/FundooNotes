@@ -1,0 +1,1 @@
+ø„Yvenv/lib/python3.6/site-packages/google/protobuf/internal/import_test_package/__init__.py 2pyX"h

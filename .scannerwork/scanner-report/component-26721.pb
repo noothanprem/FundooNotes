@@ -1,0 +1,1 @@
+са@venv/lib64/python3.6/site-packages/celery/contrib/testing/app.py 2pyXkh

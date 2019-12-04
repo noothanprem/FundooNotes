@@ -1,0 +1,1 @@
+ƒÍUvenv/lib64/python3.6/site-packages/oauth2_provider/contrib/rest_framework/__init__.py 2pyXh

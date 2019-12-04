@@ -1,0 +1,1 @@
+†²Qvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_views.py 2pyXLh

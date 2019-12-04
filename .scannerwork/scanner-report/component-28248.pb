@@ -1,0 +1,1 @@
+им=venv/lib64/python3.6/site-packages/reportlab/graphics/samples :3змймкмлмммнмомпмрмсмтмумѕмїмјмљмќм

@@ -1,0 +1,1 @@
+ƾBvenv/lib/python3.6/site-packages/elasticsearch_dsl/response/hit.py 2pyX%h

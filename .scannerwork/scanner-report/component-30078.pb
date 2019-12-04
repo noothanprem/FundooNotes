@@ -1,0 +1,1 @@
+þêFvenv/lib64/python3.6/site-packages/django/db/backends/base/features.py 2pyXµh

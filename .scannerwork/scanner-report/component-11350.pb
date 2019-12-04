@@ -1,0 +1,1 @@
+ÖXCvenv/lib/python3.6/site-packages/faker/providers/phone_number/lv_LV :ÕX

@@ -1,0 +1,1 @@
+Ð“,venv/lib64/python3.6/site-packages/static.py 2pyXƒh

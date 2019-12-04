@@ -1,0 +1,1 @@
+è+venv/lib/python3.6/site-packages/celery/bin :&çéêëìíîïğñòóôõŠ‹Œ

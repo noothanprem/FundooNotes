@@ -1,0 +1,1 @@
+ì6venv/lib/python3.6/site-packages/celery/bin/migrate.py 2pyXCh

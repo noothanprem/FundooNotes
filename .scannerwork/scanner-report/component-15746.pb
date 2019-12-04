@@ -1,0 +1,1 @@
+Ç{8venv/lib/python3.6/site-packages/pymacaroons/serializers :Å{É{Ñ{Ö{

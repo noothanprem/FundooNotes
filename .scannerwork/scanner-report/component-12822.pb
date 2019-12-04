@@ -1,0 +1,1 @@
+–dGvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_namespace.py 2pyX<h

@@ -1,0 +1,1 @@
+¯½Svenv/lib/python3.6/site-packages/django_extensions/management/technical_response.py 2pyX&h

@@ -1,0 +1,1 @@
+ê»Gvenv/lib/python3.6/site-packages/django_extensions/utils/deprecation.py 2pyX	h

@@ -1,0 +1,1 @@
+цыZvenv/lib64/python3.6/site-packages/Crypto/SelfTest/Random/Fortuna/test_FortunaGenerator.py 2pyXTh

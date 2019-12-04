@@ -1,0 +1,1 @@
+ä?venv/lib/python3.6/site-packages/django/views/generic/detail.py 2pyX«h

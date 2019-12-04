@@ -1,0 +1,1 @@
+ê‡Evenv/lib/python3.6/site-packages/kombu/asynchronous/aws/connection.py 2pyXœh

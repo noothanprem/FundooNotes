@@ -1,0 +1,1 @@
+ƒ{Kvenv/lib/python3.6/site-packages/pymacaroons/serializers/base_serializer.py 2pyXh

@@ -1,0 +1,1 @@
+¯‹Fvenv/lib64/python3.6/site-packages/django/core/serializers/__init__.py 2pyXëh

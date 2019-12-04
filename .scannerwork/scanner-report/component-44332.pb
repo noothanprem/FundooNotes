@@ -1,0 +1,1 @@
+¬ÚIvenv/lib64/python3.6/site-packages/botocore/docs/bcdoc/docstringparser.py 2pyXÉh

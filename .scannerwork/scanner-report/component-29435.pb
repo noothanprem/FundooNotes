@@ -1,0 +1,1 @@
+ûå:venv/lib64/python3.6/site-packages/pymysql/constants/ER.py 2pyXÜh

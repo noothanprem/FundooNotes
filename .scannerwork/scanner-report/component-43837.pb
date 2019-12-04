@@ -1,0 +1,1 @@
+½Ö+venv/lib64/python3.6/site-packages/keyrings :»Ö

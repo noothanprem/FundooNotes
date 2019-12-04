@@ -1,0 +1,1 @@
+³õNvenv/lib64/python3.6/site-packages/django/contrib/sessions/management/commands :²õ

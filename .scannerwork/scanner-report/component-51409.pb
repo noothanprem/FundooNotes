@@ -1,0 +1,1 @@
+ё;venv/lib64/python3.6/site-packages/django_common/management :Б

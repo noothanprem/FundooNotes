@@ -1,0 +1,1 @@
+Þý]venv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_ordering_common.py 2pyXÅh

@@ -1,0 +1,1 @@
+¼P4venv/lib/python3.6/site-packages/astroid/interpreter :»P½P¾P

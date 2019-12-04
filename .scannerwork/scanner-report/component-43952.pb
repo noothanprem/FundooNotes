@@ -1,0 +1,1 @@
+°×Rvenv/lib64/python3.6/site-packages/rest_framework_social_oauth2/oauth2_backends.py 2pyXh

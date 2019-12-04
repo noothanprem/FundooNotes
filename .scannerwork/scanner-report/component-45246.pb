@@ -1,0 +1,1 @@
+¾ágvenv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/urllib3/packages/ordered_dict.py 2pyX„h

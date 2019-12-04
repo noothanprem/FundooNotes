@@ -1,0 +1,1 @@
+äñ;venv/lib64/python3.6/site-packages/django_redis/serializers :âñãñåñçñéñ

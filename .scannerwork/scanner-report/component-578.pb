@@ -1,0 +1,1 @@
+Â@venv/lib/python3.6/site-packages/celery/utils/static/__init__.py 2pyXh

@@ -1,0 +1,1 @@
+ŸšEvenv/lib64/python3.6/site-packages/libfuturize/fixes/fix_metaclass.py 2pyX‡h

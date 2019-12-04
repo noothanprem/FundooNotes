@@ -1,0 +1,1 @@
+¿Cvenv/lib/python3.6/site-packages/django/db/backends/mysql/client.py 2pyX1h

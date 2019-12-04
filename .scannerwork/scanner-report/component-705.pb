@@ -1,0 +1,1 @@
+Á7venv/lib/python3.6/site-packages/celery/backends/rpc.py 2pyXÚh

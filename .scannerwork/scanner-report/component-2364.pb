@@ -1,0 +1,1 @@
+¼=venv/lib/python3.6/site-packages/asn1crypto/_teletex_codec.py 2pyXÌh

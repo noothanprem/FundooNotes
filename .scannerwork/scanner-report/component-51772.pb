@@ -1,0 +1,1 @@
+¼”5venv/lib64/python3.6/site-packages/attr/exceptions.py 2pyX:h

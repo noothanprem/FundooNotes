@@ -1,0 +1,1 @@
+ÒK.venv/lib/python3.6/site-packages/autobahn/wamp : ÑKÓKÖK×KØKÙKÚKÛKÜKÝKÔKîLðL¢M£M¤M

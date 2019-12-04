@@ -1,0 +1,1 @@
+ù7venv/lib/python3.6/site-packages/django_cron/management :ø

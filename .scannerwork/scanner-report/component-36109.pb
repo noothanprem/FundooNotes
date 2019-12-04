@@ -1,0 +1,1 @@
+çöFvenv/lib64/python3.6/site-packages/libfuturize/fixes/fix_basestring.py 2pyXh

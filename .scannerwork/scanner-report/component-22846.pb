@@ -1,0 +1,1 @@
+¾²Dvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/fields :½²¿²À²Á²

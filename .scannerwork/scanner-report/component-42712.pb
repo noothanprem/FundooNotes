@@ -1,0 +1,1 @@
+ØÍ*venv/lib64/python3.6/site-packages/keyring :×ÍÙÍÚÍòÍôÍõÍöÍ÷ÍÎ

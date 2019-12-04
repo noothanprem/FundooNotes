@@ -1,0 +1,1 @@
+çî8venv/lib64/python3.6/site-packages/pbr/tests/testpackage :≠î

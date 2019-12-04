@@ -1,0 +1,1 @@
+¤Ÿ=venv/lib64/python3.6/site-packages/faker/providers/misc/en_US :£Ÿ

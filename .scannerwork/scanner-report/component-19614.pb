@@ -1,0 +1,1 @@
+ž™8venv/lib/python3.6/site-packages/social_django/config.py 2pyXh

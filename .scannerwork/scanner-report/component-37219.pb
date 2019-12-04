@@ -1,0 +1,1 @@
+увIvenv/lib64/python3.6/site-packages/faker/providers/bank/de_AT/__init__.py 2pyXh

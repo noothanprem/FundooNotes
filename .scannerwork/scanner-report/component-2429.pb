@@ -1,0 +1,1 @@
+ı;venv/lib/python3.6/site-packages/zope/interface/registry.py 2pyXh

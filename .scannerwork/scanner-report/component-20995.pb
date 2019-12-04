@@ -1,0 +1,1 @@
+ƒ¤7venv/lib/python3.6/site-packages/twisted/python/text.py 2pyXÑh

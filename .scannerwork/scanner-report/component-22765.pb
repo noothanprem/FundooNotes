@@ -1,0 +1,1 @@
+í±8venv/lib/python3.6/site-packages/django_nine/versions.py 2pyXRh

@@ -1,0 +1,1 @@
+1venv/lib/python3.6/site-packages/django_short_url :œ¦ª§±²

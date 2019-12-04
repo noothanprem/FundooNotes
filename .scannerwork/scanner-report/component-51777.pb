@@ -1,0 +1,1 @@
+Á”3venv/lib64/python3.6/site-packages/attr/__init__.py 2pyXBh

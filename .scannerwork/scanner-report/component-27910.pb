@@ -1,0 +1,1 @@
+†Ú5venv/lib64/python3.6/site-packages/hiredis/version.py 2pyXh

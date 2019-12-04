@@ -1,0 +1,1 @@
+§XIvenv/lib/python3.6/site-packages/faker/providers/phone_number/__init__.py 2pyXh

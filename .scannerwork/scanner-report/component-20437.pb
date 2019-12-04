@@ -1,0 +1,1 @@
+՟Cvenv/lib/python3.6/site-packages/Crypto/SelfTest/Cipher/test_XOR.py 2pyXIh

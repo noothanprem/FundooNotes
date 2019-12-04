@@ -1,0 +1,1 @@
+า-venv/lib64/python3.6/site-packages/simplejson :€าาาา…าฦาวาศาษา

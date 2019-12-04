@@ -1,0 +1,1 @@
+úþ:venv/lib64/python3.6/site-packages/django/contrib/postgres :!øþ‡ÿˆÿ‰ÿŠÿ‹ÿŽÿÀ€Ó€é€ê€

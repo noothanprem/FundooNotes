@@ -1,0 +1,1 @@
+ȑPvenv/lib64/python3.6/site-packages/django_common/management/commands/scaffold.py 2pyX4h

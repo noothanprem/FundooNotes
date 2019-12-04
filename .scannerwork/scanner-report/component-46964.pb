@@ -1,0 +1,1 @@
+ôîCvenv/lib64/python3.6/site-packages/twisted/names/test/test_hosts.py 2pyX‚h

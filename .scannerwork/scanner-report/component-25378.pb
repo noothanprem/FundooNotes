@@ -1,0 +1,1 @@
+¢ÆFvenv/lib/python3.6/site-packages/django_common/static/django_common/js :¡Æ¤Æ

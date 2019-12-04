@@ -1,0 +1,1 @@
+ÕGvenv/lib/python3.6/site-packages/botocore/vendored/requests/__init__.py 2pyXNh

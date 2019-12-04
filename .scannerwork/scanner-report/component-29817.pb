@@ -1,0 +1,1 @@
+щиBvenv/lib64/python3.6/site-packages/django/template/loaders/base.py 2pyX2h

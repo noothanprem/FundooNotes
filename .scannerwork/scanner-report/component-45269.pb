@@ -1,0 +1,1 @@
+’·Xvenv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/chardet/jpcntx.py 2pyX‰h

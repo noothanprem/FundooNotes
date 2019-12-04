@@ -1,0 +1,1 @@
+©Î.venv/lib64/python3.6/site-packages/gi/types.py 2pyXîh

@@ -1,0 +1,1 @@
+ô6venv/lib/python3.6/site-packages/celery/bin/logtool.py 2pyXªh

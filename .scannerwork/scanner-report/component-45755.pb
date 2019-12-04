@@ -1,0 +1,1 @@
+»е5venv/lib64/python3.6/site-packages/hamcrest/core/core :$єејеЅеѕеїеАеБеВеГеДеЕеУе

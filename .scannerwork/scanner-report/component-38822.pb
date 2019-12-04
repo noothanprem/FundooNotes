@@ -1,0 +1,1 @@
+¦¯4venv/lib64/python3.6/site-packages/requests/hooks.py 2pyX#h

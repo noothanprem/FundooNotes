@@ -1,0 +1,1 @@
+¤„Cvenv/lib/python3.6/site-packages/google/protobuf/descriptor_pool.py 2pyX¯h

@@ -1,0 +1,1 @@
+¢²4venv/lib64/python3.6/site-packages/idna/uts46data.py 2pyXŽ@h

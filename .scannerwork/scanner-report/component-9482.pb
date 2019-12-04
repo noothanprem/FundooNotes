@@ -1,0 +1,1 @@
+ŠJ>venv/lib/python3.6/site-packages/django_elasticsearch_dsl/test :‰JŽJ

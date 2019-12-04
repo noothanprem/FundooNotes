@@ -1,0 +1,1 @@
+¸ýUvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_helpers.py 2pyXsh

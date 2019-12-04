@@ -1,0 +1,1 @@
+²ì1venv/lib64/python3.6/site-packages/entrypoints.py 2pyX÷h

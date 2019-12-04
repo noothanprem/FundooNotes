@@ -1,0 +1,1 @@
+ÚרHvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/oracle :ÙרÛרÜרÞרßרארברכר

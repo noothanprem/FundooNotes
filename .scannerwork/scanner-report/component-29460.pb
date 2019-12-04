@@ -1,0 +1,1 @@
+”æAvenv/lib64/python3.6/site-packages/rest_framework_jwt/settings.py 2pyX?h

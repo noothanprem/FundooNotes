@@ -1,0 +1,1 @@
+™Š*venv/lib64/python3.6/site-packages/certifi :	—Š˜ŠŠ

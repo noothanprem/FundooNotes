@@ -1,0 +1,1 @@
+ç3venv/lib/python3.6/site-packages/celery/bin/amqp.py 2pyXıh

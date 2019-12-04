@@ -1,0 +1,1 @@
+Оо1venv/lib/python3.6/site-packages/twisted/conch/ui :	НоПоРо

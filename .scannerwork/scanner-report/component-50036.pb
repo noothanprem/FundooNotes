@@ -1,0 +1,1 @@
+ô†Avenv/lib64/python3.6/site-packages/django_crontab/app_settings.py 2pyX0h

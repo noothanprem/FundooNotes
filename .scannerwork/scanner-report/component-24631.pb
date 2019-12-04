@@ -1,0 +1,1 @@
+·Àovenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/urllib3/contrib/_securetransport/low_level.py 2pyXÛh

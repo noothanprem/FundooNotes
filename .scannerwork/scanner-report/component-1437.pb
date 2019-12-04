@@ -1,0 +1,1 @@
+ùEvenv/lib/python3.6/site-packages/future/moves/tkinter/scrolledtext.py 2pyXh

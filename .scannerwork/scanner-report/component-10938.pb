@@ -1,0 +1,1 @@
+ºUAvenv/lib/python3.6/site-packages/faker/providers/automotive/en_US :¹U

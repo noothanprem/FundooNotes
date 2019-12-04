@@ -1,0 +1,1 @@
+³±:venv/lib/python3.6/site-packages/werkzeug/wrappers/etag.py 2pyX±h

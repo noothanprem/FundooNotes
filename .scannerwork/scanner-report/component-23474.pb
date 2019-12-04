@@ -1,0 +1,1 @@
+²·Cvenv/lib/python3.6/site-packages/social_core/tests/backends/base.py 2pyX™h

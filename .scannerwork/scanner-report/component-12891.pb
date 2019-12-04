@@ -1,0 +1,1 @@
+ÛdCvenv/lib/python3.6/site-packages/macaroonbakery/bakery/_identity.py 2pyXh

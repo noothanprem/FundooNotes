@@ -1,0 +1,1 @@
+¤=Fvenv/lib/python3.6/site-packages/django/contrib/contenttypes/models.py 2pyX²h

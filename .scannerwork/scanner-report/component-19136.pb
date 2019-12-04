@@ -1,0 +1,1 @@
+À•Kvenv/lib/python3.6/site-packages/botocore/vendored/requests/status_codes.py 2pyXZh

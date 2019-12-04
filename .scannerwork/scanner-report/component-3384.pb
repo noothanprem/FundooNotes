@@ -1,0 +1,1 @@
+¸Cvenv/lib/python3.6/site-packages/pymysql/constants/SERVER_STATUS.py 2pyXh

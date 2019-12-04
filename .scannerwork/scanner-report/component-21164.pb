@@ -1,0 +1,1 @@
+¬¥?venv/lib/python3.6/site-packages/twisted/internet/_sslverify.py 2pyX‹h

@@ -1,0 +1,1 @@
+÷œIvenv/lib64/python3.6/site-packages/google/protobuf/descriptor_database.py 2pyXéh

@@ -1,0 +1,1 @@
+„Ž-venv/lib/python3.6/site-packages/itsdangerous :‚ŽƒŽ…Ž†Ž‡ŽˆŽ‰ŽŠŽ‹Ž—Ž

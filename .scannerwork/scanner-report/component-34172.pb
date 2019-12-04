@@ -1,0 +1,1 @@
+üŠ7venv/lib64/python3.6/site-packages/django/core/handlers :ûŠıŠşŠÿŠ

@@ -1,0 +1,1 @@
+¬¾8venv/lib/python3.6/site-packages/django_extensions/admin :	«¾±¾¶¾

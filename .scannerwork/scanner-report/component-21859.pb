@@ -1,0 +1,1 @@
+ãªFvenv/lib/python3.6/site-packages/twisted/words/protocols/jabber/jid.py 2pyXþh

@@ -1,0 +1,1 @@
+‚J4venv/lib/python3.6/site-packages/django_redis/client :·J„J‰JÍJ

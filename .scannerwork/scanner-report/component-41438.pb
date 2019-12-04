@@ -1,0 +1,1 @@
+ﬁ√Gvenv/lib64/python3.6/site-packages/awscli/customizations/servicecatalog :‹√ﬂ√›√‡√·√‚√Ï√Ô√

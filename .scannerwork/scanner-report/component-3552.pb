@@ -1,0 +1,1 @@
+à5venv/lib/python3.6/site-packages/django/views/generic :ßáâãäå

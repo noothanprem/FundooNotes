@@ -1,0 +1,1 @@
+ü‚-venv/lib/python3.6/site-packages/gi/overrides :û‚ı‚ş‚ÿ‚€ƒƒ‚ƒƒƒƒ

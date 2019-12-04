@@ -1,0 +1,1 @@
+·ÖAvenv/lib64/python3.6/site-packages/future/moves/http/cookiejar.py 2pyX	h

@@ -1,0 +1,1 @@
+ܪ5venv/lib64/python3.6/site-packages/PIL/PaletteFile.py 2pyX8h

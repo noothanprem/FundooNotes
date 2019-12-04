@@ -1,0 +1,1 @@
+Ñ;venv/lib/python3.6/site-packages/django/db/models/functions :ÐÒÓÔÕÖß

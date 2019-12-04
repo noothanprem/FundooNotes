@@ -1,0 +1,1 @@
+ÂõCvenv/lib64/python3.6/site-packages/twisted/mail/scripts/mailmail.py 2pyX“h

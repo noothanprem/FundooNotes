@@ -1,0 +1,1 @@
+¥–Zvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/utf8prober.py 2pyXMh

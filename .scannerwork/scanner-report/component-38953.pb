@@ -1,0 +1,1 @@
+©°Kvenv/lib64/python3.6/site-packages/macaroonbakery/httpbakery/_interactor.py 2pyXGh

@@ -1,0 +1,1 @@
+δό4venv/lib64/python3.6/site-packages/werkzeug/wrappers :!βόγόεόζόηόθόιόκόλόμόωό

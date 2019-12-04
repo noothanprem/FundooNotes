@@ -1,0 +1,1 @@
+®Ñ9venv/lib64/python3.6/site-packages/celery/worker/consumer :­Ñ¯Ñ°Ñ±Ñ²Ñ³Ñ´Ñ¿ÑÁÑÂÑ

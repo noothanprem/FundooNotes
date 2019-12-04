@@ -1,0 +1,1 @@
+Ã<cvenv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/vendor/xregexp/xregexp.min.js 2jsXh

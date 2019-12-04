@@ -1,0 +1,1 @@
+Š²\venv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_filtering_common.py 2pyX¡h

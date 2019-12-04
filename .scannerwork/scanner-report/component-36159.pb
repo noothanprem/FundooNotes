@@ -1,0 +1,1 @@
+¿šBvenv/lib64/python3.6/site-packages/libfuturize/fixes/fix_object.py 2pyXh

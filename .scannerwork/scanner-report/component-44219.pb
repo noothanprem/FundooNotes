@@ -1,0 +1,1 @@
+»Ù=venv/lib64/python3.6/site-packages/itsdangerous/serializer.py 2pyXêh

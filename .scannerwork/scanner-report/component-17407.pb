@@ -1,0 +1,1 @@
+ÿ‡4venv/lib/python3.6/site-packages/kombu/connection.py 2pyX‚h

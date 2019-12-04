@@ -1,0 +1,1 @@
+ªXCvenv/lib/python3.6/site-packages/faker/providers/phone_number/bs_BA :©X

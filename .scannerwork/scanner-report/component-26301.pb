@@ -1,0 +1,1 @@
+½Í4venv/lib64/python3.6/site-packages/colorful/forms.py 2pyXh

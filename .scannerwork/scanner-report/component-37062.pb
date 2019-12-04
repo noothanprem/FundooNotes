@@ -1,0 +1,1 @@
+ơ?venv/lib64/python3.6/site-packages/faker/providers/person/tw_GH :š

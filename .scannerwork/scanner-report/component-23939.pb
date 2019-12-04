@@ -1,0 +1,1 @@
+ƒ»Bvenv/lib/python3.6/site-packages/social_core/backends/mailchimp.py 2pyX!h

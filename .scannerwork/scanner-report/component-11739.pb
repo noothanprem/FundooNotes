@@ -1,0 +1,1 @@
+Û[<venv/lib/python3.6/site-packages/faker/providers/lorem/ar_AA :Ú[

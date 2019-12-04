@@ -1,0 +1,1 @@
+Ý7venv/lib/python3.6/site-packages/coreapi/codecs/text.py 2pyXh

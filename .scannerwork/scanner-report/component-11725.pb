@@ -1,0 +1,1 @@
+Í[<venv/lib/python3.6/site-packages/faker/providers/lorem/zh_CN :Ì[

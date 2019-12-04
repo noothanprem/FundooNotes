@@ -1,0 +1,1 @@
+ÊUAvenv/lib/python3.6/site-packages/faker/providers/automotive/ar_JO :ÉU

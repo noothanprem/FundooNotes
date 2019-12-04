@@ -1,0 +1,1 @@
+คั:venv/lib64/python3.6/site-packages/gunicorn/app/wsgiapp.py 2pyXBh

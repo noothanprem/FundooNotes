@@ -1,0 +1,1 @@
+¬<venv/lib/python3.6/site-packages/reportlab/lib/validators.py 2pyXáh

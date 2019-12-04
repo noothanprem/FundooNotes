@@ -1,0 +1,1 @@
+À·[venv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/chardet/euckrfreq.py 2pyX’h

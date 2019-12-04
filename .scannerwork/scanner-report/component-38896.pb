@@ -1,0 +1,1 @@
+ð¯Cvenv/lib64/python3.6/site-packages/macaroonbakery/bakery/_bakery.py 2pyXIh

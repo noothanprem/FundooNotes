@@ -1,0 +1,1 @@
+„0Kvenv/lib/python3.6/site-packages/django/contrib/gis/geos/prototypes/geom.py 2pyXah

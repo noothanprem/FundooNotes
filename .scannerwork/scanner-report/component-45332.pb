@@ -1,0 +1,1 @@
+”âbvenv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/chardet/chardistribution.py 2pyXèh

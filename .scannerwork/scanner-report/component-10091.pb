@@ -1,0 +1,1 @@
+ÎNCvenv/lib/python3.6/site-packages/libfuturize/fixes/fix_metaclass.py 2pyXáh

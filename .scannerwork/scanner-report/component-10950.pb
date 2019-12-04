@@ -1,0 +1,1 @@
+ÆUAvenv/lib/python3.6/site-packages/faker/providers/automotive/en_GB :ÅU

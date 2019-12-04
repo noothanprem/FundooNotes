@@ -1,0 +1,1 @@
+¦­Fvenv/lib64/python3.6/site-packages/docutils/parsers/rst/tableparser.py 2pyX¡h

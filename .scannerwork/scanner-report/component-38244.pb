@@ -1,0 +1,1 @@
+äª8venv/lib64/python3.6/site-packages/PIL/XpmImagePlugin.py 2pyX‚h

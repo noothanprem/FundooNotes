@@ -1,0 +1,1 @@
+ő:venv/lib64/python3.6/site-packages/django_common/compat.py 2pyX"h

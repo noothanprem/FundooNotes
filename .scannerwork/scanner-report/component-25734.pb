@@ -1,0 +1,1 @@
+Ü…%venv/lib/python3.6/site-packages/attr :Ñ…Ö…à…ä…å…ç…ô…ö…õ…

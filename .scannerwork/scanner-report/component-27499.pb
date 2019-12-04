@@ -1,0 +1,1 @@
+ëÖ:venv/lib64/python3.6/site-packages/future/moves/copyreg.py 2pyX	h

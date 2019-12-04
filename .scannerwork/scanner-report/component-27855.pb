@@ -1,0 +1,1 @@
+ÏÙ7venv/lib64/python3.6/site-packages/launchpadlib/testing :ÎÙĞÙÑÙØÙ

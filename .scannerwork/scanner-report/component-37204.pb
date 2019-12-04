@@ -1,0 +1,1 @@
+ԢCvenv/lib64/python3.6/site-packages/faker/providers/user_agent/en_US :Ӣ

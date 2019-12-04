@@ -1,0 +1,1 @@
+ˆDEvenv/lib/python3.6/site-packages/django/conf/locale/es_PR/__init__.py 2pyXh

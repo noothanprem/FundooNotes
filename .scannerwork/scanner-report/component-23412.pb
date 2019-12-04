@@ -1,0 +1,1 @@
+ô¶Evenv/lib/python3.6/site-packages/social_core/tests/backends/legacy.py 2pyX0h

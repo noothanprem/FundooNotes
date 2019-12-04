@@ -1,0 +1,1 @@
+υ@venv/lib/python3.6/site-packages/google/protobuf/any_test_pb2.py 2pyXXh

@@ -1,0 +1,1 @@
+èŒ8venv/lib64/python3.6/site-packages/django/conf/locale/ga :çŒéŒ

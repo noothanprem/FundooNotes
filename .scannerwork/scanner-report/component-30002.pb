@@ -1,0 +1,1 @@
+²ê;venv/lib64/python3.6/site-packages/django/db/backends/dummy :	±ê³ê´ê

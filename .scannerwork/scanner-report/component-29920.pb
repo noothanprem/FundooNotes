@@ -1,0 +1,1 @@
+‡ÈCvenv/lib64/python3.6/site-packages/django/db/models/sql/compiler.py 2pyXÏh

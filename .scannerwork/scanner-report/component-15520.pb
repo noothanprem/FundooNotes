@@ -1,0 +1,1 @@
+ yFvenv/lib/python3.6/site-packages/awscli/customizations/sessendemail.py 2pyXrh

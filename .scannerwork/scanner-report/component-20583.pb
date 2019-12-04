@@ -1,0 +1,1 @@
+ча=venv/lib/python3.6/site-packages/Crypto/Random/OSRNG/posix.py 2pyXWh

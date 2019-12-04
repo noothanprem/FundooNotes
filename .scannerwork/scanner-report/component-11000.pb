@@ -1,0 +1,1 @@
+øU=venv/lib/python3.6/site-packages/faker/providers/person/ar_PS :÷U

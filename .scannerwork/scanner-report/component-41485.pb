@@ -1,0 +1,1 @@
+ÄGvenv/lib64/python3.6/site-packages/awscli/customizations/addexamples.py 2pyX2h

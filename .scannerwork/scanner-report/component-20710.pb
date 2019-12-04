@@ -1,0 +1,1 @@
+æ¡:venv/lib/python3.6/site-packages/twisted/web/_responses.py 2pyXsh

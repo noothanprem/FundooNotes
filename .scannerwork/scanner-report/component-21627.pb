@@ -1,0 +1,1 @@
+û¨?venv/lib/python3.6/site-packages/twisted/trial/test/packages.py 2pyXÅh

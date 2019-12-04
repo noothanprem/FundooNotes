@@ -1,0 +1,1 @@
+…úEvenv/lib64/python3.6/site-packages/twisted/conch/test/test_channel.py 2pyXäh

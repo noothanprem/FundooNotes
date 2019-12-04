@@ -1,0 +1,1 @@
+Ñ‡3venv/lib/python3.6/site-packages/kombu/asynchronous :Ð‡Ú‡Û‡õ‡÷‡

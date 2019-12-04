@@ -1,0 +1,1 @@
+игEvenv/lib64/python3.6/site-packages/faker/providers/phone_number/ar_PS :зг

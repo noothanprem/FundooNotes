@@ -1,0 +1,1 @@
+тк9venv/lib64/python3.6/site-packages/PIL/FtexImagePlugin.py 2pyX_h

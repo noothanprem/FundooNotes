@@ -1,0 +1,1 @@
+иж>venv/lib64/python3.6/site-packages/future/moves/tkinter/ttk.py 2pyXh

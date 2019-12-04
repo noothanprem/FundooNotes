@@ -1,0 +1,1 @@
+Ó€9venv/lib64/python3.6/site-packages/reportlab/rl_config.py 2pyXÑh

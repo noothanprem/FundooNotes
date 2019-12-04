@@ -1,0 +1,1 @@
+³‘<venv/lib64/python3.6/site-packages/django_common/settings.py 2pyXh

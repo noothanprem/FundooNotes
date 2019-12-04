@@ -1,0 +1,1 @@
+Å”Avenv/lib64/python3.6/site-packages/coreapi/transports/__init__.py 2pyX	h

@@ -1,0 +1,1 @@
+ò†0venv/lib64/python3.6/site-packages/virtualenv.py 2pyXËh

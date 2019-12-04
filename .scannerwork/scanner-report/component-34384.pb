@@ -1,0 +1,1 @@
+Ќ.venv/lib64/python3.6/site-packages/django/conf :όь

@@ -1,0 +1,1 @@
+Ç{2venv/lib/python3.6/site-packages/cffi/pkgconfig.py 2pyXzh

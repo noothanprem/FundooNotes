@@ -1,0 +1,1 @@
+Çè)venv/lib64/python3.6/site-packages/django :	Æè˜é™é

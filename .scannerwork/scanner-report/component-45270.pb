@@ -1,0 +1,1 @@
+Öá\venv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/chardet/big5prober.py 2pyX+h

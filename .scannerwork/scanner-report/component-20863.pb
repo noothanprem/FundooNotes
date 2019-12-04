@@ -1,0 +1,1 @@
+ÿ¢2venv/lib/python3.6/site-packages/twisted/persisted :ş¢€££‚£‰£‹£

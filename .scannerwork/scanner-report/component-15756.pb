@@ -1,0 +1,1 @@
+Œ{Qvenv/lib/python3.6/site-packages/pymacaroons/caveat_delegates/base_third_party.py 2pyX)h

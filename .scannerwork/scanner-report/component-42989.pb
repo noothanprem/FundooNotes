@@ -1,0 +1,1 @@
+МоCvenv/lib64/python3.6/site-packages/google/protobuf/text_encoding.py 2pyXlh

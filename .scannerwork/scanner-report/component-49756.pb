@@ -1,0 +1,1 @@
+܄Hvenv/lib64/python3.6/site-packages/social_core/backends/professionali.py 2pyX8h

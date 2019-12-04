@@ -1,0 +1,1 @@
+ùCvenv/lib/python3.6/site-packages/celery/worker/consumer/__init__.py 2pyXh

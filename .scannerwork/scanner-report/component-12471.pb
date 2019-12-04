@@ -1,0 +1,1 @@
+·a?venv/lib/python3.6/site-packages/docutils/parsers/rst/languages :4¶a¸a¹aºa»a¼a½a¾a¿aÀaÁaÂaÃaÄaÅaÆaÇaÈaÉaÊaËaÌaÍaÎaêaëa

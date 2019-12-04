@@ -1,0 +1,1 @@
+Ü•[venv/lib/python3.6/site-packages/botocore/vendored/requests/packages/urllib3/poolmanager.py 2pyX™h

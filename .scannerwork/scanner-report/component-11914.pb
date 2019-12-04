@@ -1,0 +1,1 @@
+Š]8venv/lib/python3.6/site-packages/boto3/resources/base.py 2pyX•h

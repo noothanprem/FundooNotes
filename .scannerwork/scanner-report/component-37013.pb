@@ -1,0 +1,1 @@
+ï°Kvenv/lib64/python3.6/site-packages/faker/providers/person/uk_UA/__init__.py 2pyXùh

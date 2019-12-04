@@ -1,0 +1,1 @@
+ª¸Mvenv/lib/python3.6/site-packages/social_core/tests/backends/test_atlassian.py 2pyXAh

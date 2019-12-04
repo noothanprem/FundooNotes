@@ -1,0 +1,1 @@
+¼êWvenv/lib64/python3.6/site-packages/django/db/backends/postgresql_psycopg2/operations.py 2pyXh

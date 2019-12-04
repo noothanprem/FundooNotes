@@ -1,0 +1,1 @@
+‚üFvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/envelope.py 2pyX³h

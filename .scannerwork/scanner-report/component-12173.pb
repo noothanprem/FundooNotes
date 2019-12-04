@@ -1,0 +1,1 @@
+ç_8venv/lib/python3.6/site-packages/PIL/PixarImagePlugin.py 2pyXHh

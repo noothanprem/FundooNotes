@@ -1,0 +1,1 @@
+ Ú6venv/lib64/python3.6/site-packages/botocore/docs/bcdoc :ŸÚ¡Ú¢Ú£Ú¤Ú¬Ú

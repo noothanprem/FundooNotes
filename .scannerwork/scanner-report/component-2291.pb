@@ -1,0 +1,1 @@
+ó@venv/lib/python3.6/site-packages/reportlab/platypus/paragraph.py 2pyXìh

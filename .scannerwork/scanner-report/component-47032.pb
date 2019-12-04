@@ -1,0 +1,1 @@
+¸ïDvenv/lib64/python3.6/site-packages/twisted/python/_textattributes.py 2pyXÁh

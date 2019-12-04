@@ -1,0 +1,1 @@
+ԆDvenv/lib64/python3.6/site-packages/social_core/backends/battlenet.py 2pyX3h

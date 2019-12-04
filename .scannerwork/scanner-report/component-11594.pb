@@ -1,0 +1,1 @@
+ÊZ>venv/lib/python3.6/site-packages/faker/providers/company/bg_BG :ÉZ

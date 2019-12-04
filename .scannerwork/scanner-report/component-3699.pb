@@ -1,0 +1,1 @@
+ó2venv/lib/python3.6/site-packages/django/middleware :òôõö÷øù„…

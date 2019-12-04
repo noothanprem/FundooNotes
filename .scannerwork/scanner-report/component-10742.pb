@@ -1,0 +1,1 @@
+öS?venv/lib/python3.6/site-packages/faker/providers/internet/uk_UA :õS

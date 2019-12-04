@@ -1,0 +1,1 @@
+ŠŒEvenv/lib64/python3.6/site-packages/django/core/management/__init__.py 2pyXþh

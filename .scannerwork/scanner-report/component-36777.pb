@@ -1,0 +1,1 @@
+©ŸMvenv/lib64/python3.6/site-packages/faker/providers/internet/fa_IR/__init__.py 2pyXh

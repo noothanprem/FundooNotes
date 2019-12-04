@@ -1,0 +1,1 @@
+è¢=venv/lib64/python3.6/site-packages/faker/providers/bank/it_IT :ç¢

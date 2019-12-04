@@ -1,0 +1,1 @@
+Ĉ8venv/lib/python3.6/site-packages/kombu/transport/virtual :	ÈňɈ

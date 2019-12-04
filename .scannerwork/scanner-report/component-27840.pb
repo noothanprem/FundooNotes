@@ -1,0 +1,1 @@
+¿Ÿ<venv/lib64/python3.6/site-packages/launchpadlib/launchpad.py 2pyXÚh

@@ -1,0 +1,1 @@
+Ö×:venv/lib64/python3.6/site-packages/MySQLdb/constants/ER.py 2pyXºh

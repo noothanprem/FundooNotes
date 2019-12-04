@@ -1,0 +1,1 @@
+ìÔ=venv/lib64/python3.6/site-packages/elasticsearch/client/xpack :-ëÔíÔîÔïÔðÔñÔòÔóÔôÔõÔöÔ÷ÔøÔùÔŠÕ

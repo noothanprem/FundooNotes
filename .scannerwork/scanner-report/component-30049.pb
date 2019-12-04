@@ -1,0 +1,1 @@
+бк;venv/lib64/python3.6/site-packages/django/db/backends/mysql :аквкгкдкекжкзкикфкхк

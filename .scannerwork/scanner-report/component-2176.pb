@@ -1,0 +1,1 @@
+€Cvenv/lib/python3.6/site-packages/reportlab/graphics/testdrawings.py 2pyX©h

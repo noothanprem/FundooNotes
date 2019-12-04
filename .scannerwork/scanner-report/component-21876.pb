@@ -1,0 +1,1 @@
+ôªRvenv/lib/python3.6/site-packages/twisted/words/protocols/jabber/xmpp_stringprep.py 2pyXõh

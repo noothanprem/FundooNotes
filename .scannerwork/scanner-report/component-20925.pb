@@ -1,0 +1,1 @@
+½£Cvenv/lib/python3.6/site-packages/twisted/names/test/test_resolve.py 2pyX'h

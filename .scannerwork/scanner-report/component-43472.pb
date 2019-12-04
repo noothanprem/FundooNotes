@@ -1,0 +1,1 @@
+ÐÓ9venv/lib64/python3.6/site-packages/kombu/transport/SQS.py 2pyX¼h

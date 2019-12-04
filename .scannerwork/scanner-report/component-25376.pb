@@ -1,0 +1,1 @@
+ Æ<venv/lib/python3.6/site-packages/django_common/classmaker.py 2pyXAh

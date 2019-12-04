@@ -1,0 +1,1 @@
+¢ó@venv/lib64/python3.6/site-packages/twisted/protocols/memcache.py 2pyXÿh

@@ -1,0 +1,1 @@
+Ê¡2venv/lib/python3.6/site-packages/xdg/MenuEditor.py 2pyX€h

@@ -1,0 +1,1 @@
+™KDvenv/lib/python3.6/site-packages/libpasteurize/fixes/fix_newstyle.py 2pyX"h

@@ -1,0 +1,1 @@
+Å{Kvenv/lib/python3.6/site-packages/pymacaroons/serializers/json_serializer.py 2pyX∂h

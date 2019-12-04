@@ -1,0 +1,1 @@
+ÖPGvenv/lib/python3.6/site-packages/astroid/brain/brain_namedtuple_enum.py 2pyX¹h

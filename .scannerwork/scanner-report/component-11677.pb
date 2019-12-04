@@ -1,0 +1,1 @@
+ù[<venv/lib/python3.6/site-packages/faker/providers/color/uk_UA :ú[

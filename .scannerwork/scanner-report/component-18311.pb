@@ -1,0 +1,1 @@
+‡8venv/lib/python3.6/site-packages/botocore/docs/client.py 2pyXrh

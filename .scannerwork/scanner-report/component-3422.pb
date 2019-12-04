@@ -1,0 +1,1 @@
+Þ3venv/lib/python3.6/site-packages/pymysql/charset.py 2pyXÕh

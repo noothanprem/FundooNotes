@@ -1,0 +1,1 @@
+Æ¯Evenv/lib64/python3.6/site-packages/macaroonbakery/tests/test_codec.py 2pyXÅh

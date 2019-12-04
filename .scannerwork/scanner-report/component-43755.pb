@@ -1,0 +1,1 @@
+ые;venv/lib64/python3.6/site-packages/django_inlinecss/conf.py 2pyX!h

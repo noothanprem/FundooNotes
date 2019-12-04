@@ -1,0 +1,1 @@
+ £8venv/lib/python3.6/site-packages/twisted/names/common.py 2pyX€h

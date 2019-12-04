@@ -1,0 +1,1 @@
+ײת8venv/lib64/python3.6/site-packages/twisted/conch/insults :ױת׳ת״תÙתאת

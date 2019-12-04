@@ -1,0 +1,1 @@
+š{8venv/lib/python3.6/site-packages/pymacaroons/verifier.py 2pyX€h

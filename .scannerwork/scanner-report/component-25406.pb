@@ -1,0 +1,1 @@
+¾Æ2venv/lib/python3.6/site-packages/lazy_object_proxy :¿ÆÀÆÁÆÂÆÊÆËÆ

@@ -1,0 +1,1 @@
+¼[Hvenv/lib/python3.6/site-packages/faker/providers/color/fr_FR/__init__.py 2pyXœh

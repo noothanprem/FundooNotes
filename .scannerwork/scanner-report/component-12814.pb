@@ -1,0 +1,1 @@
+éd5venv/lib/python3.6/site-packages/macaroonbakery/tests :&çdèdêdëdídìdîdïdñdódòdôdödõdúd±d≥d¥dµd

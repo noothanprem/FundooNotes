@@ -1,0 +1,1 @@
+éc<venv/lib/python3.6/site-packages/requests/_internal_utils.py 2pyX+h

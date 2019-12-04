@@ -1,0 +1,1 @@
+дыIvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/raster/base.py 2pyXLh

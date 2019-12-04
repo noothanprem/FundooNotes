@@ -1,0 +1,1 @@
+Ã+venv/lib/python3.6/site-packages/markupsafe :ÂÄÆÇ

@@ -1,0 +1,1 @@
+∆Avenv/lib/python3.6/site-packages/celery/backends/elasticsearch.py 2pyXèh

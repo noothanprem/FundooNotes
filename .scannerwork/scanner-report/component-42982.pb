@@ -1,0 +1,1 @@
+æÏ>venv/lib64/python3.6/site-packages/google/protobuf/type_pb2.py 2pyXžh

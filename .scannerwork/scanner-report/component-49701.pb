@@ -1,0 +1,1 @@
+¥„Fvenv/lib64/python3.6/site-packages/social_core/backends/azuread_b2c.py 2pyXÅh

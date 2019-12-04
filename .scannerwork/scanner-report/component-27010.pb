@@ -1,0 +1,1 @@
+Ç”5venv/lib64/python3.6/site-packages/coreapi/transports :	Å”É”Ñ”

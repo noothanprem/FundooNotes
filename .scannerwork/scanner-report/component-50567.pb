@@ -1,0 +1,1 @@
+‡‹Pvenv/lib64/python3.6/site-packages/oauthlib/oauth2/rfc6749/endpoints/metadata.py 2pyXóh

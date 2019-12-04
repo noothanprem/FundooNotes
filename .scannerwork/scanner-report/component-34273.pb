@@ -1,0 +1,1 @@
+á‹Tvenv/lib64/python3.6/site-packages/django/core/management/commands/makemigrations.py 2pyX¸h

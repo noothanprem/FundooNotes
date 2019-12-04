@@ -1,0 +1,1 @@
+ˆñBvenv/lib64/python3.6/site-packages/twisted/internet/gtk2reactor.py 2pyXzh

@@ -1,0 +1,1 @@
+зт;venv/lib64/python3.6/site-packages/django/contrib/redirects :жтйтктяфЂх

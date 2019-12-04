@@ -1,0 +1,1 @@
+ØÄNvenv/lib64/python3.6/site-packages/awscli/customizations/configure/addmodel.py 2pyXyh

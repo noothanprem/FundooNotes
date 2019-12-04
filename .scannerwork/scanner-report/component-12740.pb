@@ -1,0 +1,1 @@
+Äc+venv/lib/python3.6/site-packages/flask/json :ÃcÈc

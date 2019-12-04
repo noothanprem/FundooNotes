@@ -1,0 +1,1 @@
+ª°<venv/lib64/python3.6/site-packages/macaroonbakery/httpbakery :©°«°¬°­°´°µ°½°

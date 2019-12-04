@@ -1,0 +1,1 @@
+цо1venv/lib64/python3.6/site-packages/text_unidecode :до

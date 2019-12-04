@@ -1,0 +1,1 @@
+ðöGvenv/lib64/python3.6/site-packages/twisted/words/test/test_jabberjid.py 2pyXãh

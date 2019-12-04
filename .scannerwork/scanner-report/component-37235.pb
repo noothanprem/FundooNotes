@@ -1,0 +1,1 @@
+ó¢=venv/lib64/python3.6/site-packages/faker/providers/bank/no_NO :ð¢

@@ -1,0 +1,1 @@
+úÈ2venv/lib/python3.6/site-packages/django_models_ext :øÈûÈùÈüÈƒÉ

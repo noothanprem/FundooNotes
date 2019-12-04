@@ -1,0 +1,1 @@
+æ›9venv/lib64/python3.6/site-packages/astroid/__pkginfo__.py 2pyX:h

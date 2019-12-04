@@ -1,0 +1,1 @@
+°›Ivenv/lib64/python3.6/site-packages/wadllib/tests/data/data-types-wadl.xml 2xmlXh

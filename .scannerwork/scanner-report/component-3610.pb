@@ -1,0 +1,1 @@
+š;venv/lib/python3.6/site-packages/django/utils/autoreload.py 2pyXÜh

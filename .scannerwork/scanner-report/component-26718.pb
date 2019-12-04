@@ -1,0 +1,1 @@
+оа9venv/lib64/python3.6/site-packages/celery/contrib/testing :напарасатаща

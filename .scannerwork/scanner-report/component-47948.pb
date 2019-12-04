@@ -1,0 +1,1 @@
+ÌöMvenv/lib64/python3.6/site-packages/twisted/words/test/test_jabbercomponent.py 2pyX¹h

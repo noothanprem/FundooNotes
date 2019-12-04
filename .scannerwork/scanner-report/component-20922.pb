@@ -1,0 +1,1 @@
+º£Bvenv/lib/python3.6/site-packages/twisted/names/test/test_server.py 2pyXó	h

@@ -1,0 +1,1 @@
+£ˆVvenv/lib64/python3.6/site-packages/django_extensions/management/commands/shell_plus.py 2pyX§h

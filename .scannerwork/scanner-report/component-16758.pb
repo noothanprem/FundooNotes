@@ -1,0 +1,1 @@
+ö‚3venv/lib/python3.6/site-packages/gi/_gtktemplate.py 2pyXéh

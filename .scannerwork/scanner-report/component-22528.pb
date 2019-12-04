@@ -1,0 +1,1 @@
+€°0venv/lib/python3.6/site-packages/ecdsa/curves.py 2pyX/h

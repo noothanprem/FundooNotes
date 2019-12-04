@@ -1,0 +1,1 @@
+ьз<venv/lib/python3.6/site-packages/twisted/protocols/finger.py 2pyX+h

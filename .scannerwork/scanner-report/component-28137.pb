@@ -1,0 +1,1 @@
+È€Tvenv/lib64/python3.6/site-packages/reportlab/pdfbase/_fontdata_widths_timesitalic.py 2pyXÊh

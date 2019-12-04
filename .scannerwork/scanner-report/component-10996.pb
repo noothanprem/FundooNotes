@@ -1,0 +1,1 @@
+ÙU=venv/lib/python3.6/site-packages/faker/providers/person/ko_KR :ÛU

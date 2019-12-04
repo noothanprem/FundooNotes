@@ -1,0 +1,1 @@
+øz,venv/lib/python3.6/site-packages/pymacaroons :÷z™{š{ª{«{¬{

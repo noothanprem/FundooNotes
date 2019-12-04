@@ -1,0 +1,1 @@
+˜I*venv/lib/python3.6/site-packages/pbr/hooks :—I™IšI›IœI¤I

@@ -1,0 +1,1 @@
+Ú•;venv/lib64/python3.6/site-packages/bs4/builder/_html5lib.py 2pyXÈh

@@ -1,0 +1,1 @@
+â¦Jvenv/lib64/python3.6/site-packages/faker/providers/color/en_US/__init__.py 2pyXh

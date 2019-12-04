@@ -1,0 +1,1 @@
+Í4venv/lib/python3.6/site-packages/openid/yadis/xri.py 2pyX{h

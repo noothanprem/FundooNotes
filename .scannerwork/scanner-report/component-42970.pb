@@ -1,0 +1,1 @@
+ÚÏDvenv/lib64/python3.6/site-packages/google/protobuf/descriptor_pb2.py 2pyX¶h

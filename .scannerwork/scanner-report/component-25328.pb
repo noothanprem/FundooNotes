@@ -1,0 +1,1 @@
+ğÅ.venv/lib/python3.6/site-packages/testresources :ïÅ

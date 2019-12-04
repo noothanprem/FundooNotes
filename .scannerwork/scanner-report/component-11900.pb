@@ -1,0 +1,1 @@
+ü\3venv/lib/python3.6/site-packages/boto3/docs/attr.py 2pyX7h

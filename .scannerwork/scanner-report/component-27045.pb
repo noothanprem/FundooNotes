@@ -1,0 +1,1 @@
+¥Ó4venv/lib64/python3.6/site-packages/coreapi/client.py 2pyX³h

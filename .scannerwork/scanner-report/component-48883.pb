@@ -1,0 +1,1 @@
+óýFvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/fields :òýôýõýöý

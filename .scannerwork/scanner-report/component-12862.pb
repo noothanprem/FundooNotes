@@ -1,0 +1,1 @@
+¾d@venv/lib/python3.6/site-packages/macaroonbakery/bakery/_internal :½d¿d

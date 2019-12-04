@@ -1,0 +1,1 @@
+ö‡Vvenv/lib64/python3.6/site-packages/django/contrib/admin/static/admin/js/vendor/xregexp :õ‡÷‡

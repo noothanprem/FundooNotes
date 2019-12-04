@@ -1,0 +1,1 @@
+ÎLvenv/lib/python3.6/site-packages/django/db/backends/postgresql/operations.py 2pyXùh

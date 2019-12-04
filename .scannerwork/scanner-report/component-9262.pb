@@ -1,0 +1,1 @@
+®H>venv/lib/python3.6/site-packages/jeepney/integrate/blocking.py 2pyXmh

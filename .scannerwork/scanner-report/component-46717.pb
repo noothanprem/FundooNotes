@@ -1,0 +1,1 @@
+ύμ4venv/lib64/python3.6/site-packages/xdg/Exceptions.py 2pyX4h

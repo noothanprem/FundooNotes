@@ -1,0 +1,1 @@
+´òLvenv/lib64/python3.6/site-packages/twisted/internet/test/test_win32events.py 2pyXÈh

@@ -1,0 +1,1 @@
+á\venv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/urllib3/exceptions.py 2pyXªh

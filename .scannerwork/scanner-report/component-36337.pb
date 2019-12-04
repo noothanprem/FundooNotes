@@ -1,0 +1,1 @@
+ñ›6venv/lib64/python3.6/site-packages/astroid/interpreter :	ð›ò›ó›

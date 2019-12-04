@@ -1,0 +1,1 @@
+суMvenv/lib64/python3.6/site-packages/django_inlinecss/templatetags/inlinecss.py 2pyX/h

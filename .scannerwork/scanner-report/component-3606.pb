@@ -1,0 +1,1 @@
+–4venv/lib/python3.6/site-packages/django/utils/six.py 2pyXóh

@@ -1,0 +1,1 @@
+ËYOvenv/lib/python3.6/site-packages/faker/providers/phone_number/tw_GH/__init__.py 2pyXh

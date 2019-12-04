@@ -1,0 +1,1 @@
+Ң=venv/lib64/python3.6/site-packages/faker/providers/user_agent :Ѣ

@@ -1,0 +1,1 @@
+Ô„4venv/lib64/python3.6/site-packages/amqp/transport.py 2pyX–h

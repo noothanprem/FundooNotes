@@ -1,0 +1,1 @@
+¿ôCvenv/lib64/python3.6/site-packages/twisted/trial/test/moduleself.py 2pyXh

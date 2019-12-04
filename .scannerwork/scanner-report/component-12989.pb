@@ -1,0 +1,1 @@
+½e;venv/lib/python3.6/site-packages/chardet/langhebrewmodel.py 2pyXÉh

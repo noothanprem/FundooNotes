@@ -1,0 +1,1 @@
+ŒZ>venv/lib/python3.6/site-packages/faker/providers/address/pl_PL :ÚY

@@ -1,0 +1,1 @@
+чн=venv/lib/python3.6/site-packages/twisted/test/myrebuilder1.py 2pyXh

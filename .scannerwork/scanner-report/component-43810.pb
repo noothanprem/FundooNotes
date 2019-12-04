@@ -1,0 +1,1 @@
+¢Ö:venv/lib64/python3.6/site-packages/colorama/ansitowin32.py 2pyXíh

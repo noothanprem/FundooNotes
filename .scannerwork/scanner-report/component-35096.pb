@@ -1,0 +1,1 @@
+˜’?venv/lib64/python3.6/site-packages/django/conf/urls/__init__.py 2pyXh

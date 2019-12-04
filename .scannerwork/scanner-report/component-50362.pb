@@ -1,0 +1,1 @@
+º‰cvenv/lib64/python3.6/site-packages/django_extensions/static/django_extensions/js/jquery.bgiframe.js 2jsX(h

@@ -1,0 +1,1 @@
+êI9venv/lib/python3.6/site-packages/django_elasticsearch_dsl :éIëIìIíIîIøIùIúIûIˆJJ

@@ -1,0 +1,1 @@
+Æd@venv/lib/python3.6/site-packages/macaroonbakery/bakery/_error.py 2pyXNh

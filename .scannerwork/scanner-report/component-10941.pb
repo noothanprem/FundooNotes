@@ -1,0 +1,1 @@
+½UMvenv/lib/python3.6/site-packages/faker/providers/automotive/id_ID/__init__.py 2pyXh

@@ -1,0 +1,1 @@
+³	Gvenv/lib/python3.6/site-packages/future/backports/urllib/robotparser.py 2pyXÔh

@@ -1,0 +1,1 @@
+ú∆Evenv/lib/python3.6/site-packages/django_common/management/__init__.py 2pyXh

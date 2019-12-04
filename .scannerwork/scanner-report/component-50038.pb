@@ -1,0 +1,1 @@
+ö†;venv/lib64/python3.6/site-packages/django_crontab/models.py 2pyXh

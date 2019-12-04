@@ -1,0 +1,1 @@
+‘ÕYvenv/lib64/python3.6/site-packages/django_short_url/migrations/0002_auto_20180107_2226.py 2pyXh

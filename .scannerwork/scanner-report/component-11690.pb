@@ -1,0 +1,1 @@
+ª[Hvenv/lib/python3.6/site-packages/faker/providers/color/hr_HR/__init__.py 2pyX h

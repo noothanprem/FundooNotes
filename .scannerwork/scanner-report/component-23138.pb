@@ -1,0 +1,1 @@
+â´:venv/lib/python3.6/site-packages/rest_framework/management :á´

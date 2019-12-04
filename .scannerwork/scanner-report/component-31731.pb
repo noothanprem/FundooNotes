@@ -1,0 +1,1 @@
+Û˜>venv/lib64/python3.6/site-packages/django/contrib/gis/feeds.py 2pyXçh

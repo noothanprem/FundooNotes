@@ -1,0 +1,1 @@
+êCvenv/lib/python3.6/site-packages/django_cron/migrations/__init__.py 2pyXh

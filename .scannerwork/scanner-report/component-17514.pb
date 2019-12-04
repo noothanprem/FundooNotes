@@ -1,0 +1,1 @@
+êˆ1venv/lib/python3.6/site-packages/click/_compat.py 2pyXÀh

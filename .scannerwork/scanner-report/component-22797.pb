@@ -1,0 +1,1 @@
+ç≤Kvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/base.py 2pyXPh

@@ -1,0 +1,1 @@
+±‘<venv/lib64/python3.6/site-packages/django_common/scaffold.py 2pyXöh

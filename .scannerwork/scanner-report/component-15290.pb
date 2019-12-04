@@ -1,0 +1,1 @@
+ºw4venv/lib/python3.6/site-packages/awscli/completer.py 2pyX“h

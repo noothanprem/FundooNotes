@@ -1,0 +1,1 @@
+¸w0venv/lib/python3.6/site-packages/awscli/table.py 2pyX¡h

@@ -1,0 +1,1 @@
+©J;venv/lib/python3.6/site-packages/bs4/builder/_htmlparser.py 2pyXçh

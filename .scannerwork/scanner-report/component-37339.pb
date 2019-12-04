@@ -1,0 +1,1 @@
+ۣQvenv/lib64/python3.6/site-packages/faker/providers/phone_number/no_NO/__init__.py 2pyXh

@@ -1,0 +1,1 @@
+Ú°6venv/lib64/python3.6/site-packages/txaio/interfaces.py 2pyX¸h

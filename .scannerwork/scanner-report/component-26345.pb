@@ -1,0 +1,1 @@
+้อ/venv/lib64/python3.6/site-packages/braces/views :่อ๊อ๋อ์อํอ๕อ

@@ -1,0 +1,1 @@
+๊ง<venv/lib64/python3.6/site-packages/faker/providers/job/zh_TW :้ง

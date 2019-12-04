@@ -1,0 +1,1 @@
+Îª6venv/lib64/python3.6/site-packages/PIL/ImagePalette.py 2pyXÙh

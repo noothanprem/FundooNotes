@@ -1,0 +1,1 @@
+Šç7venv/lib64/python3.6/site-packages/django/views/csrf.py 2pyX›h

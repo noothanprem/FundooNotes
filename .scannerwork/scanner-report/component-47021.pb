@@ -1,0 +1,1 @@
+няEvenv/lib64/python3.6/site-packages/twisted/cred/test/test_cramauth.py 2pyXZh

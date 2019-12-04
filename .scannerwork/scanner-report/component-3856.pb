@@ -1,0 +1,1 @@
+ê<venv/lib/python3.6/site-packages/django/db/models/manager.py 2pyX h

@@ -1,0 +1,1 @@
+ĻCvenv/lib/python3.6/site-packages/django_crontab/management/commands :ûŻ

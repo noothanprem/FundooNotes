@@ -1,0 +1,1 @@
+ă+venv/lib/python3.6/site-packages/coreschema :ÃЃу҃�

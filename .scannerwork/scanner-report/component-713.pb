@@ -1,0 +1,1 @@
+ÉCvenv/lib/python3.6/site-packages/celery/backends/database/models.py 2pyXMh

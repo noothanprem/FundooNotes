@@ -1,0 +1,1 @@
+թ;venv/lib64/python3.6/site-packages/locust/static/vintage.js 2jsX#h

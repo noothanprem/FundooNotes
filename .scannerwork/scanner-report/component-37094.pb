@@ -1,0 +1,1 @@
+æ¡?venv/lib64/python3.6/site-packages/faker/providers/person/hu_HU :å¡

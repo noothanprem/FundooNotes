@@ -1,0 +1,1 @@
+Šß;venv/lib64/python3.6/site-packages/openid/yadis/discover.py 2pyXªh

@@ -1,0 +1,1 @@
+…–\venv/lib/python3.6/site-packages/botocore/vendored/requests/packages/urllib3/util/timeout.py 2pyXñh

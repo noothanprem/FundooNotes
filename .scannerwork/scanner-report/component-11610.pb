@@ -1,0 +1,1 @@
+ÚZ>venv/lib/python3.6/site-packages/faker/providers/company/hu_HU :ÙZ

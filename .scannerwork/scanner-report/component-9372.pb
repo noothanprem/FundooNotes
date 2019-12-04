@@ -1,0 +1,1 @@
+œI2venv/lib/python3.6/site-packages/pbr/hooks/base.py 2pyX#h

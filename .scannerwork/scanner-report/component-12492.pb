@@ -1,0 +1,1 @@
+ÌaEvenv/lib/python3.6/site-packages/docutils/parsers/rst/languages/fa.py 2pyXgh

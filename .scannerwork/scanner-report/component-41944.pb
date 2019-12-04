@@ -1,0 +1,1 @@
+ØÇ\venv/lib64/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lang :'×ÇÚÇÛÇÜÇİÇŞÇßÇàÇáÇâÇãÇäÇåÇ

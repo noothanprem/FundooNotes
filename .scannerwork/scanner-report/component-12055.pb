@@ -1,0 +1,1 @@
+ó^.venv/lib/python3.6/site-packages/locust/static :ñ^ù^û^ü^†^°^¢^

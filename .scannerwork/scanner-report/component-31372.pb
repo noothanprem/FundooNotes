@@ -1,0 +1,1 @@
+ŒõQvenv/lib64/python3.6/site-packages/django/contrib/staticfiles/management/commands :	‹õõ’õ

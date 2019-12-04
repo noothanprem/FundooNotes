@@ -1,0 +1,1 @@
+êªEvenv/lib/python3.6/site-packages/social_core/backends/openstackdev.py 2pyX0h

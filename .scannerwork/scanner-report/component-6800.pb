@@ -1,0 +1,1 @@
+ê5Hvenv/lib/python3.6/site-packages/django/contrib/postgres/fields/jsonb.py 2pyXªh

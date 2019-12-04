@@ -1,0 +1,1 @@
+ü¯Hvenv/lib64/python3.6/site-packages/macaroonbakery/bakery/_third_party.py 2pyX:h

@@ -1,0 +1,1 @@
+Ó@@venv/lib/python3.6/site-packages/django/core/management/color.py 2pyXJh

@@ -1,0 +1,1 @@
+брAvenv/lib64/python3.6/site-packages/twisted/internet/serialport.py 2pyXZh

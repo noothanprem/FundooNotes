@@ -1,0 +1,1 @@
+Œž4venv/lib/python3.6/site-packages/coverage/results.py 2pyX¢h

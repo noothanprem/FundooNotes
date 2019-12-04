@@ -1,0 +1,1 @@
+áY>venv/lib/python3.6/site-packages/faker/providers/address/id_ID :àY

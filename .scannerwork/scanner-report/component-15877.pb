@@ -1,0 +1,1 @@
+Ö|Yvenv/lib/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lib :Ñ|Ü|á|à|â|ä|ã|å|ç|é|è|ê|ë|í|

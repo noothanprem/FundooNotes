@@ -1,0 +1,1 @@
+Ç\0venv/lib/python3.6/site-packages/faker/compat.py 2pyXh

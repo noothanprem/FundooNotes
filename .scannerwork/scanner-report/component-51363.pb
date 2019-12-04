@@ -1,0 +1,1 @@
+£‘<venv/lib64/python3.6/site-packages/testresources/__init__.py 2pyX´h

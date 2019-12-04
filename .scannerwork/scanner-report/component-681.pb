@@ -1,0 +1,1 @@
+©7venv/lib/python3.6/site-packages/celery/contrib/testing :¨ª«¬­µ

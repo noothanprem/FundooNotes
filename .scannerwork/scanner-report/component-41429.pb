@@ -1,0 +1,1 @@
+ÕÃAvenv/lib64/python3.6/site-packages/awscli/customizations/gamelift :	ÔÃÖÃ×Ã

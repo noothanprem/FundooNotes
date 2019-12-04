@@ -1,0 +1,1 @@
+Ûx>venv/lib/python3.6/site-packages/awscli/customizations/history :ÚxÜxİxŞxßxèxéx

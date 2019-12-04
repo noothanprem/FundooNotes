@@ -1,0 +1,1 @@
+ÞÆ:venv/lib64/python3.6/site-packages/pymacaroons/macaroon.py 2pyX–h

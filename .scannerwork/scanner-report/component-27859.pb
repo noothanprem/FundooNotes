@@ -1,0 +1,1 @@
+сы=venv/lib64/python3.6/site-packages/launchpadlib/testing/tests :рывы

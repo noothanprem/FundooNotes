@@ -1,0 +1,1 @@
+°æwvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/migrations/0002_outstandingtoken_jti_hex.py 2pyXh

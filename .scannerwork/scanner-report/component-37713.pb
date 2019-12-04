@@ -1,0 +1,1 @@
+Ñ¦Jvenv/lib64/python3.6/site-packages/faker/providers/color/uk_UA/__init__.py 2pyXÛh

@@ -1,0 +1,1 @@
+¦Š7venv/lib/python3.6/site-packages/django_inlinecss/tests :	¥Š§Š¨Š

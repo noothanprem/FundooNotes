@@ -1,0 +1,1 @@
+á,Avenv/lib/python3.6/site-packages/django/contrib/gis/db/models/sql :à,â,

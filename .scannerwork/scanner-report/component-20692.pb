@@ -1,0 +1,1 @@
+Ô¡:venv/lib/python3.6/site-packages/twisted/web/_newclient.py 2pyXóh

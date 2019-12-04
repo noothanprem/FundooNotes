@@ -1,0 +1,1 @@
+¯H2venv/lib/python3.6/site-packages/jeepney/integrate :®H°H¶H·H

@@ -1,0 +1,1 @@
+ɩ6venv/lib64/python3.6/site-packages/locust/exception.py 2pyX%h

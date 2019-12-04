@@ -1,0 +1,1 @@
+Ü?Avenv/lib/python3.6/site-packages/django/core/checks/compatibility :Û?

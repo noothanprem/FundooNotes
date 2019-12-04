@@ -1,0 +1,1 @@
+êŒgvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/treebuilders/etree_lxml.py 2pyXïh

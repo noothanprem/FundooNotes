@@ -1,0 +1,1 @@
+½¨Fvenv/lib/python3.6/site-packages/twisted/trial/_dist/workerreporter.py 2pyX›h

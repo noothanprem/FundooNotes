@@ -1,0 +1,1 @@
+èç`venv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/treeadapters/sax.py 2pyX3h

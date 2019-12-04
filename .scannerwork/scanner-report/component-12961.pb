@@ -1,0 +1,1 @@
+¡e8venv/lib/python3.6/site-packages/django_admin/djadmin.py 2pyXØh

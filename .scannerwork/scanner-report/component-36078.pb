@@ -1,0 +1,1 @@
+î™@venv/lib64/python3.6/site-packages/autobahn/twisted/forwarder.py 2pyXƒh

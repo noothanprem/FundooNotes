@@ -1,0 +1,1 @@
+феGvenv/lib64/python3.6/site-packages/awscli/customizations/cloudformation :еегехеиейерете

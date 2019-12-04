@@ -1,0 +1,1 @@
+®‡4venv/lib/python3.6/site-packages/kombu/utils/text.py 2pyXHh

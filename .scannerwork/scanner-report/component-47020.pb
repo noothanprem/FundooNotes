@@ -1,0 +1,1 @@
+¬ïAvenv/lib64/python3.6/site-packages/twisted/cred/test/test_cred.py 2pyXºh

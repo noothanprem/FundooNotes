@@ -1,0 +1,1 @@
+®êJvenv/lib64/python3.6/site-packages/django/db/backends/postgresql/client.py 2pyXHh

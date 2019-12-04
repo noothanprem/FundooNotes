@@ -1,0 +1,1 @@
+ظ@venv/lib/python3.6/site-packages/social_core/backends/untappd.py 2pyXph

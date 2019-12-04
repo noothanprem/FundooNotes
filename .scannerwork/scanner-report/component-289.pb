@@ -1,0 +1,1 @@
+¡Hvenv/lib/python3.6/site-packages/django_short_url/migrations/__init__.py 2pyXh

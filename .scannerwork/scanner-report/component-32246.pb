@@ -1,0 +1,1 @@
+цыQvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/prototypes/__init__.py 2pyXh

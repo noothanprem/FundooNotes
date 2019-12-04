@@ -1,0 +1,1 @@
+ñË2venv/lib64/python3.6/site-packages/gevent/resolver :ğËóË÷ËúËûË

@@ -1,0 +1,1 @@
+®Ö4venv/lib64/python3.6/site-packages/future/moves/html :	­Ö°Ö±Ö

@@ -1,0 +1,1 @@
+‘Û<venv/lib64/python3.6/site-packages/twisted/spread/flavors.py 2pyXÉh

@@ -1,0 +1,1 @@
+Ì<dvenv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/vendor/select2/select2.full.js 2jsX¥2h

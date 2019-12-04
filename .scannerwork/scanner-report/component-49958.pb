@@ -1,0 +1,1 @@
+¦†Bvenv/lib64/python3.6/site-packages/social_core/backends/open_id.py 2pyXˆh

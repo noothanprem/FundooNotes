@@ -1,0 +1,1 @@
+ÅG2venv/lib/python3.6/site-packages/pexpect/screen.py 2pyX°h

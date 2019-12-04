@@ -1,0 +1,1 @@
+ϊVvenv/lib64/python3.6/site-packages/oauthlib/oauth1/rfc5849/endpoints/pre_configured.py 2pyXh

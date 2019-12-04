@@ -1,0 +1,1 @@
+°ª9venv/lib64/python3.6/site-packages/PIL/MpegImagePlugin.py 2pyXVh

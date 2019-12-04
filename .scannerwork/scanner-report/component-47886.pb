@@ -1,0 +1,1 @@
+ö0venv/lib64/python3.6/site-packages/twisted/words :Œöö¬ö¼ö¾öÆö

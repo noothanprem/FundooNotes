@@ -1,0 +1,1 @@
+ñ7@venv/lib/python3.6/site-packages/django/contrib/admin/migrations :ð7ò7ó7ô7

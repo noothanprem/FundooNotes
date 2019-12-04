@@ -1,0 +1,1 @@
+Ïé:venv/lib64/python3.6/site-packages/django/db/models/fields :ÎéĞéÑéÒéÓéÔéŞéßé

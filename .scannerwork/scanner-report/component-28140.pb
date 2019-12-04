@@ -1,0 +1,1 @@
+Ï€Vvenv/lib64/python3.6/site-packages/reportlab/pdfbase/_fontdata_widths_helveticabold.py 2pyXÊh

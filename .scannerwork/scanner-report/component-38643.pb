@@ -1,0 +1,1 @@
+ó­;venv/lib64/python3.6/site-packages/docutils/languages/ja.py 2pyX>h

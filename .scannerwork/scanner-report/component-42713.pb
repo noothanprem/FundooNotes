@@ -1,0 +1,1 @@
+ым:venv/lib64/python3.6/site-packages/keyring/devpi_client.py 2pyXh

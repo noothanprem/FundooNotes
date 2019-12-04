@@ -1,0 +1,1 @@
+¬ÞAvenv/lib64/python3.6/site-packages/zope/interface/tests/idummy.py 2pyXh

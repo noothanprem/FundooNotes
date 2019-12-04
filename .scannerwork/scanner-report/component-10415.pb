@@ -1,0 +1,1 @@
+¯Q/venv/lib/python3.6/site-packages/furl/common.py 2pyXh

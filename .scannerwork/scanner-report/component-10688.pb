@@ -1,0 +1,1 @@
+ÀS:venv/lib/python3.6/site-packages/faker/providers/ssn/fr_CH :¿S

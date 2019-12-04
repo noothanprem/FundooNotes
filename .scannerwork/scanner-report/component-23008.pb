@@ -1,0 +1,1 @@
+à³:venv/lib/python3.6/site-packages/rest_framework/reverse.py 2pyXCh

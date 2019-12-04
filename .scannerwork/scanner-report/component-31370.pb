@@ -1,0 +1,1 @@
+ŠõIvenv/lib64/python3.6/site-packages/django/contrib/staticfiles/__init__.py 2pyXh

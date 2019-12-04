@@ -1,0 +1,1 @@
+Æ€=venv/lib/python3.6/site-packages/gevent/resolver/dnspython.py 2pyX—h

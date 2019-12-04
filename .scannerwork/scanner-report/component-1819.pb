@@ -1,0 +1,1 @@
+›Bvenv/lib/python3.6/site-packages/launchpadlib/testing/resources.py 2pyX8h

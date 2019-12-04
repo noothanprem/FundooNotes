@@ -1,0 +1,1 @@
+ĞìCvenv/lib64/python3.6/site-packages/django_social_share/templatetags :ÏìÑì

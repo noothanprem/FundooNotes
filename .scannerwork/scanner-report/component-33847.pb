@@ -1,0 +1,1 @@
+·ˆSvenv/lib64/python3.6/site-packages/django/contrib/admin/static/admin/js/collapse.js 2jsX8h

@@ -1,0 +1,1 @@
+Ð?,venv/lib/python3.6/site-packages/django/core :Ï?Ñ?Ò?Ó?ö?…@ŒA

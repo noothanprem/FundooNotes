@@ -1,0 +1,1 @@
+—8venv/lib/python3.6/site-packages/MySQLdb/constants/CR.py 2pyXhh

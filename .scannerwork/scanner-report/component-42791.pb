@@ -1,0 +1,1 @@
+§Î0venv/lib64/python3.6/site-packages/gi/_option.py 2pyXðh

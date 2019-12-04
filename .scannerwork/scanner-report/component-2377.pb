@@ -1,0 +1,1 @@
+É<venv/lib/python3.6/site-packages/zope/interface/interface.py 2pyXËh

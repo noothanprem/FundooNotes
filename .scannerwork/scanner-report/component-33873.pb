@@ -1,0 +1,1 @@
+шYvenv/lib64/python3.6/site-packages/django/contrib/contenttypes/migrations/0001_initial.py 2pyX#h

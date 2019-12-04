@@ -1,0 +1,1 @@
+òç8venv/lib64/python3.6/site-packages/django/conf/locale/hu :óçôç

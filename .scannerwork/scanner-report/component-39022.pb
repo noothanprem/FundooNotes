@@ -1,0 +1,1 @@
+î°7venv/lib64/python3.6/site-packages/chardet/euckrfreq.py 2pyXÄh

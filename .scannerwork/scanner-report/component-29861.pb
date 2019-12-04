@@ -1,0 +1,1 @@
+¥éAvenv/lib64/python3.6/site-packages/django/db/migrations/loader.py 2pyXÅh

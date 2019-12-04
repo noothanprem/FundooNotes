@@ -1,0 +1,1 @@
+ÿ Ovenv/lib64/python3.6/site-packages/faker/providers/automotive/ar_JO/__init__.py 2pyX,h

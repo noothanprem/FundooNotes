@@ -1,0 +1,1 @@
+¢®9venv/lib/python3.6/site-packages/twisted/conch/manhole.py 2pyX’h

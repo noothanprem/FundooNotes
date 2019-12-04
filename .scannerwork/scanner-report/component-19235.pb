@@ -1,0 +1,1 @@
+£–^venv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/langgreekmodel.py 2pyXâh

@@ -1,0 +1,1 @@
+çíDvenv/lib64/python3.6/site-packages/twisted/web/test/test_template.py 2pyX¼h

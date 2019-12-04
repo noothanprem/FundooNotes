@@ -1,0 +1,1 @@
+Îó1venv/lib64/python3.6/site-packages/twisted/spread :ÍóÏóĞóÑóÒóÓóÔóÕó

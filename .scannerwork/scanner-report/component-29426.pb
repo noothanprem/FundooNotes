@@ -1,0 +1,1 @@
+теBvenv/lib64/python3.6/site-packages/pymysql/constants/FIELD_TYPE.py 2pyX"h

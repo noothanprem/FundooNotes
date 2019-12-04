@@ -1,0 +1,1 @@
+ÝÐDvenv/lib64/python3.6/site-packages/celery/contrib/testing/manager.py 2pyXÏh

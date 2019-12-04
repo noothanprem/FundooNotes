@@ -1,0 +1,1 @@
+š;venv/lib/python3.6/site-packages/django/db/backends/sqlite3 :™›œŸ©ª

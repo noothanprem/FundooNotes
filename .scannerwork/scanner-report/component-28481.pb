@@ -1,0 +1,1 @@
+ÁÞAvenv/lib64/python3.6/site-packages/zope/interface/declarations.py 2pyX¢h

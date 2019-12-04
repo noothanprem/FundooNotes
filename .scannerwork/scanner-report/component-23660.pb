@@ -1,0 +1,1 @@
+ì¸Dvenv/lib/python3.6/site-packages/social_core/backends/readability.py 2pyX$h

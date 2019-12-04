@@ -1,0 +1,1 @@
+݇;venv/lib/python3.6/site-packages/kombu/asynchronous/aws/sqs :܇އ߇��

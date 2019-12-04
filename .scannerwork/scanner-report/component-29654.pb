@@ -1,0 +1,1 @@
+Öç;venv/lib64/python3.6/site-packages/django/utils/translation :Õç×çØçÝçàç

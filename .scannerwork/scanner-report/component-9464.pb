@@ -1,0 +1,1 @@
+øIDvenv/lib/python3.6/site-packages/django_elasticsearch_dsl/indices.py 2pyXh

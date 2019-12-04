@@ -1,0 +1,1 @@
+«-Nvenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/oracle/base.py 2pyXh

@@ -1,0 +1,1 @@
+Ñ¥@venv/lib/python3.6/site-packages/twisted/internet/_win32stdio.py 2pyX†h

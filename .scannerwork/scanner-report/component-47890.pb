@@ -1,0 +1,1 @@
+’öAvenv/lib64/python3.6/site-packages/twisted/words/protocols/jabber :!‘ö“ö”ö•ö–ö—ö˜ö¥ö¦ö§ö¨ö

@@ -1,0 +1,1 @@
+¯¡.venv/lib/python3.6/site-packages/xdg/Locale.py 2pyXPh

@@ -1,0 +1,1 @@
+Šf<venv/lib/python3.6/site-packages/chardet/chardistribution.py 2pyXêh

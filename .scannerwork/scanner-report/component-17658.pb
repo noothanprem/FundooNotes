@@ -1,0 +1,1 @@
+ú‰Avenv/lib/python3.6/site-packages/elasticsearch/connection/base.py 2pyX¤h

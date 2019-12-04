@@ -1,0 +1,1 @@
+£6venv/lib/python3.6/site-packages/MySQLdb/converters.py 2pyXh

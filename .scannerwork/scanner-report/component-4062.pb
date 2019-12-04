@@ -1,0 +1,1 @@
+ÞFvenv/lib/python3.6/site-packages/django/db/backends/oracle/features.py 2pyXHh

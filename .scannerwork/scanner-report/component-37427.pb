@@ -1,0 +1,1 @@
+³¤Qvenv/lib64/python3.6/site-packages/faker/providers/phone_number/ja_JP/__init__.py 2pyXh

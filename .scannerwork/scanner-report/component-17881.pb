@@ -1,0 +1,1 @@
+Ù‹3venv/lib/python3.6/site-packages/shortuuid/tests.py 2pyX¶h

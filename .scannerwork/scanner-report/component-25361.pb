@@ -1,0 +1,1 @@
+‘Æ8venv/lib/python3.6/site-packages/django_common/compat.py 2pyX"h

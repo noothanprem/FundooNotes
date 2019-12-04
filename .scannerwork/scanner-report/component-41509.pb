@@ -1,0 +1,1 @@
+¥ÄFvenv/lib64/python3.6/site-packages/awscli/customizations/configservice :£Ä¤Ä¦Ä§Ä¨Ä

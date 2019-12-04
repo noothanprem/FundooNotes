@@ -1,0 +1,1 @@
+ú7venv/lib/python3.6/site-packages/celery/worker/consumer :ùûüışÿ‹Œ§

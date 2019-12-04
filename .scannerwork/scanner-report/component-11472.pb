@@ -1,0 +1,1 @@
+ÐY>venv/lib/python3.6/site-packages/faker/providers/address/no_NO :ÏY

@@ -1,0 +1,1 @@
+чаIvenv/lib64/python3.6/site-packages/botocore/vendored/requests/__init__.py 2pyXNh

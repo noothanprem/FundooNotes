@@ -1,0 +1,1 @@
+ùCvenv/lib/python3.6/site-packages/zope/interface/tests/ifoo_other.py 2pyXh

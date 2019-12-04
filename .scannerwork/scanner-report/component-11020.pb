@@ -1,0 +1,1 @@
+ŒV=venv/lib/python3.6/site-packages/faker/providers/person/it_IT :‹V

@@ -1,0 +1,1 @@
+„ÅBvenv/lib64/python3.6/site-packages/rest_framework/documentation.py 2pyXUh

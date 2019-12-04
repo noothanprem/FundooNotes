@@ -1,0 +1,1 @@
+°0Gvenv/lib/python3.6/site-packages/django/contrib/gis/gdal/raster/base.py 2pyXLh

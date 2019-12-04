@@ -1,0 +1,1 @@
+ı√Pvenv/lib64/python3.6/site-packages/awscli/customizations/cloudtrail/subscribe.py 2pyXÂh

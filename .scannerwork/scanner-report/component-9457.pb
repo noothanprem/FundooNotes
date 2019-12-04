@@ -1,0 +1,1 @@
+ÒI]venv/lib/python3.6/site-packages/django_elasticsearch_dsl/management/commands/search_index.py 2pyXåh

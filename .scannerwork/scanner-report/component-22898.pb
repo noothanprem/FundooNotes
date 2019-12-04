@@ -1,0 +1,1 @@
+ò²Wvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/filter_backends/suggester :	ð²ñ²ö²

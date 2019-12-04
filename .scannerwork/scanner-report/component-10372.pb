@@ -1,0 +1,1 @@
+„Q8venv/lib/python3.6/site-packages/astroid/scoped_nodes.py 2pyXïh

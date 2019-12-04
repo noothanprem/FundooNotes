@@ -1,0 +1,1 @@
+Œ»@venv/lib/python3.6/site-packages/social_core/backends/cognito.py 2pyX4h

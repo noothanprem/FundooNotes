@@ -1,0 +1,1 @@
+คั=venv/lib64/python3.6/site-packages/celery/backends/couchdb.py 2pyXih

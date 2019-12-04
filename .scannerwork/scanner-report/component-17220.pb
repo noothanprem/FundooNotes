@@ -1,0 +1,1 @@
+Ć+venv/lib/python3.6/site-packages/constantly :	ÆņƆ

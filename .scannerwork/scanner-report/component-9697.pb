@@ -1,0 +1,1 @@
+áK=venv/lib/python3.6/site-packages/autobahn/wamp/gen/wamp/proto :|àKâKãKäKåKæKçKèKéKêKëKìKíKîKïKğKñKòKóKôKõKöK÷KøKùKúKûKüKıKşKÿK€LL‚LƒL„L…L†L‡LˆL‰LŠL‹LŒLLLLL‘LĞLÒLÓLÔLÕLÖL×LØLÙLÚLÛLàLøM

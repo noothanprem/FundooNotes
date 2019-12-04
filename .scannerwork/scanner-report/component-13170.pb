@@ -1,0 +1,1 @@
+òf'venv/lib/python3.6/site-packages/awscli :0ñf¬w­w®w¯w°w±w´wµw¶w·w¸w¹wºw»w¼wÖwõwÖz×zØzÚzÙzÛz

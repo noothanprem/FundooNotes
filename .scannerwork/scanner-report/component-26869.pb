@@ -1,0 +1,1 @@
+ı—:venv/lib64/python3.6/site-packages/celery/fixups/django.py 2pyXÃh

@@ -1,0 +1,1 @@
+ĕEvenv/lib/python3.6/site-packages/botocore/vendored/requests/compat.py 2pyX?h

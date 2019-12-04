@@ -1,0 +1,1 @@
+çﬁGvenv/lib64/python3.6/site-packages/zope/interface/tests/test_adapter.py 2pyXåh

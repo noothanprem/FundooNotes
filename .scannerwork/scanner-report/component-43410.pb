@@ -1,0 +1,1 @@
+í”=venv/lib64/python3.6/site-packages/kombu/asynchronous/aws/sqs :ë”ì”î”ô”ú”

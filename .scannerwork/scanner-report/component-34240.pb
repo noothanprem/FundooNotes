@@ -1,0 +1,1 @@
+À‹Fvenv/lib64/python3.6/site-packages/django/core/mail/backends/locmem.py 2pyXh

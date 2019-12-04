@@ -1,0 +1,1 @@
+óœ+venv/lib64/python3.6/site-packages/sqlparse :!òœôœõœöœ÷œøœùœúœûœ¢£

@@ -1,0 +1,1 @@
+äw:venv/lib/python3.6/site-packages/awscli/customizations/emr ::ãwåwæwçwèwéwêwëwìwíwîwïwğwñwòwówôwöw÷wøwùwúwûwüwıwœxxx‰y

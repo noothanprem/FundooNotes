@@ -1,0 +1,1 @@
+мв0venv/lib64/python3.6/site-packages/kombu/five.py 2pyX	h

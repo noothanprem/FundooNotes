@@ -1,0 +1,1 @@
+ô’Nvenv/lib64/python3.6/site-packages/requests_oauthlib/compliance_fixes/slack.py 2pyX&h

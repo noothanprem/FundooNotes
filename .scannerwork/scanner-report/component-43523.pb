@@ -1,0 +1,1 @@
+É‘4venv/lib64/python3.6/site-packages/kombu/resource.py 2pyXÔh

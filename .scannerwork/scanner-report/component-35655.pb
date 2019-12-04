@@ -1,0 +1,1 @@
+Ç–6venv/lib64/python3.6/site-packages/libpasteurize/fixes :EÆ–É–Ê–Ë–Ì–Í–Î–Ï–Ð–Ñ–Ò–Ó–Ô–í–î–ï–ð–ñ–ò–ó–ô–õ–ö–

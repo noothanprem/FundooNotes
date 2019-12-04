@@ -1,0 +1,1 @@
+þ£<venv/lib/python3.6/site-packages/twisted/python/_oldstyle.py 2pyXdh

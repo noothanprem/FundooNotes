@@ -1,0 +1,1 @@
+ù±Vvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/elasticsearch_helpers.py 2pyX*h

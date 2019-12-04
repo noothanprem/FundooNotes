@@ -1,0 +1,1 @@
+ò÷Ivenv/lib64/python3.6/site-packages/django/contrib/gis/utils/ogrinspect.py 2pyXîh

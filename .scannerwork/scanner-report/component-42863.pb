@@ -1,0 +1,1 @@
+Он=venv/lib64/python3.6/site-packages/more_itertools/__init__.py 2pyXh

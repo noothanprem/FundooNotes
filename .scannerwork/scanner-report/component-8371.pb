@@ -1,0 +1,1 @@
+³A6venv/lib/python3.6/site-packages/django/conf/locale/ga :²A´A

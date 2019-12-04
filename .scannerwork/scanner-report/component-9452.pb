@@ -1,0 +1,1 @@
+ÏIGvenv/lib/python3.6/site-packages/django_elasticsearch_dsl/registries.py 2pyXqh

@@ -1,0 +1,1 @@
+ýÒ6venv/lib64/python3.6/site-packages/coreapi/document.py 2pyX·h

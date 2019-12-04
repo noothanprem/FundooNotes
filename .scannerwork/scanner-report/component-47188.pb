@@ -1,0 +1,1 @@
+Ôð>venv/lib64/python3.6/site-packages/twisted/internet/inotify.py 2pyX¤h

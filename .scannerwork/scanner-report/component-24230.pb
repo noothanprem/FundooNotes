@@ -1,0 +1,1 @@
+¦½Tvenv/lib/python3.6/site-packages/django_extensions/management/commands/pipchecker.py 2pyXºh

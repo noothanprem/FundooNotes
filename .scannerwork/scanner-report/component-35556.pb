@@ -1,0 +1,1 @@
+ä•&venv/lib64/python3.6/site-packages/bs4 :ã•æ•ø•ú•û•ü•„–

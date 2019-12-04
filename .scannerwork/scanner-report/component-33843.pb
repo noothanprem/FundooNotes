@@ -1,0 +1,1 @@
+³ˆZvenv/lib64/python3.6/site-packages/django/contrib/admin/static/admin/js/prepopulate.min.js 2jsXh

@@ -1,0 +1,1 @@
+é‚0venv/lib/python3.6/site-packages/keyring/core.py 2pyX¾h

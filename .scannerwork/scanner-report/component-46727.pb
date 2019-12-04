@@ -1,0 +1,1 @@
+‡í<venv/lib64/python3.6/site-packages/twisted/web/_newclient.py 2pyXóh

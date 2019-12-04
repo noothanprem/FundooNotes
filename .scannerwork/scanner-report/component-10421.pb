@@ -1,0 +1,1 @@
+µQ4venv/lib/python3.6/site-packages/furl/__version__.py 2pyXh

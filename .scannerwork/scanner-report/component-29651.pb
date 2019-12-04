@@ -1,0 +1,1 @@
+Óç:venv/lib64/python3.6/site-packages/django/utils/archive.py 2pyXäh

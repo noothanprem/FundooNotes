@@ -1,0 +1,1 @@
+™°Gvenv/lib64/python3.6/site-packages/macaroonbakery/checkers/_checkers.py 2pyXúh

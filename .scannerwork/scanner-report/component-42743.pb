@@ -1,0 +1,1 @@
+÷Í9venv/lib64/python3.6/site-packages/keyring/credentials.py 2pyX=h

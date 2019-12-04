@@ -1,0 +1,1 @@
+ÉQ3venv/lib/python3.6/site-packages/astroid/objects.py 2pyXõh

@@ -1,0 +1,1 @@
+œyFvenv/lib/python3.6/site-packages/awscli/customizations/s3/syncstrategy :Œy–y—y“y”y€y

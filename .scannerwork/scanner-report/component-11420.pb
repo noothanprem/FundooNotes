@@ -1,0 +1,1 @@
+œY>venv/lib/python3.6/site-packages/faker/providers/address/sl_SI :›Y

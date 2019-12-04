@@ -1,0 +1,1 @@
+¬”Bvenv/lib64/python3.6/site-packages/django_models_ext/basemodels.py 2pyXh

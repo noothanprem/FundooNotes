@@ -1,0 +1,1 @@
+æÚ>venv/lib64/python3.6/site-packages/reportlab/lib/randomtext.py 2pyX¾h

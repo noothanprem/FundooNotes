@@ -1,0 +1,1 @@
+²8Bvenv/lib/python3.6/site-packages/django/contrib/admin/templatetags :±8³8´8µ8¶8·8À8

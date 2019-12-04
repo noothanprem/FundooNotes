@@ -1,0 +1,1 @@
+é/Avenv/lib/python3.6/site-packages/django/contrib/gis/geos/error.py 2pyXh

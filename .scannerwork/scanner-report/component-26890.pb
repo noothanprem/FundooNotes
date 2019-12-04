@@ -1,0 +1,1 @@
+ä“5venv/lib64/python3.6/site-packages/celery/concurrency :â“ã“ç“é“è“ê“ô“

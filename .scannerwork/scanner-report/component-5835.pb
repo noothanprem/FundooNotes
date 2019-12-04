@@ -1,0 +1,1 @@
+Ë-Pvenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/postgis/const.py 2pyX,h

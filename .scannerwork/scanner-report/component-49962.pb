@@ -1,0 +1,1 @@
+ª†Cvenv/lib64/python3.6/site-packages/social_core/backends/linkedin.py 2pyX‚h

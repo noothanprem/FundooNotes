@@ -1,0 +1,1 @@
+Á<venv/lib/python3.6/site-packages/reportlab/lib/formatters.py 2pyXnh

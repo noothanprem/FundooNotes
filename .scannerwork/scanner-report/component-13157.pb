@@ -1,0 +1,1 @@
+åf1venv/lib/python3.6/site-packages/idna/idnadata.py 2pyX¼h

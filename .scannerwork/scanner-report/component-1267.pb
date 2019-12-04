@@ -1,0 +1,1 @@
+ó	Gvenv/lib/python3.6/site-packages/future/backports/email/mime/message.py 2pyX%h

@@ -1,0 +1,1 @@
+þ§4venv/lib64/python3.6/site-packages/faker/__main__.py 2pyXh

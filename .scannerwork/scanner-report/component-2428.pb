@@ -1,0 +1,1 @@
+ü:venv/lib/python3.6/site-packages/zope/interface/adapter.py 2pyXÉh

@@ -1,0 +1,1 @@
+¸J7venv/lib/python3.6/site-packages/bs4/tests/test_soup.py 2pyX«h

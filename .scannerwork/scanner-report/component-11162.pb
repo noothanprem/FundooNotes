@@ -1,0 +1,1 @@
+šW;venv/lib/python3.6/site-packages/faker/providers/user_agent :™W

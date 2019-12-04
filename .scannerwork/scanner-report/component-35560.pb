@@ -1,0 +1,1 @@
+è•,venv/lib64/python3.6/site-packages/bs4/tests :ç•é•ê•ë•ì•í•î•ï•

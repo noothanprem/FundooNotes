@@ -1,0 +1,1 @@
+·“:venv/lib64/python3.6/site-packages/provider/compat/urls.py 2pyXh

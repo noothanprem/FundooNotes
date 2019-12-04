@@ -1,0 +1,1 @@
+×‹Mvenv/lib64/python3.6/site-packages/django/core/management/commands/migrate.py 2pyXîh

@@ -1,0 +1,1 @@
+ë˜Rvenv/lib/python3.6/site-packages/social_django/migrations/0002_add_related_name.py 2pyX!h

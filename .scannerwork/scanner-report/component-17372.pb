@@ -1,0 +1,1 @@
+Ü‡Dvenv/lib/python3.6/site-packages/kombu/asynchronous/aws/sqs/queue.py 2pyXƒh

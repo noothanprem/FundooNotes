@@ -1,0 +1,1 @@
+ùKQvenv/lib/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/AuthScramRequest.py 2pyX'h

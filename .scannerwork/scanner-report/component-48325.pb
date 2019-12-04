@@ -1,0 +1,1 @@
+Åù>venv/lib64/python3.6/site-packages/twisted/conch/ui/tkvt100.py 2pyXËh

@@ -1,0 +1,1 @@
+Œã4venv/lib64/python3.6/site-packages/isort/settings.py 2pyXåh

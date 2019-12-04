@@ -1,0 +1,1 @@
+Å[Jvenv/lib/python3.6/site-packages/faker/providers/company/pt_BR/__init__.py 2pyXnh

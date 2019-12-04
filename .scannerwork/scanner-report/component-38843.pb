@@ -1,0 +1,1 @@
+»¯3venv/lib64/python3.6/site-packages/requests/auth.py 2pyX²h

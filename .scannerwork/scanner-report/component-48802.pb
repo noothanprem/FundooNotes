@@ -1,0 +1,1 @@
+¢ý:venv/lib64/python3.6/site-packages/django_nine/versions.py 2pyXRh

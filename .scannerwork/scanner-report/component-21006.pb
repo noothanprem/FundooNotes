@@ -1,0 +1,1 @@
+Ž¤9venv/lib/python3.6/site-packages/twisted/python/compat.py 2pyX¡h

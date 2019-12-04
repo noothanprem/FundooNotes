@@ -1,0 +1,1 @@
+Åa9venv/lib/python3.6/site-packages/docutils/writers/latex2e :Éa

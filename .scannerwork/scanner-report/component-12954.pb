@@ -1,0 +1,1 @@
+še:venv/lib/python3.6/site-packages/django_admin/templatetags :™e›e

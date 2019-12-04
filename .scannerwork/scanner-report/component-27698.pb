@@ -1,0 +1,1 @@
+Ви:venv/lib64/python3.6/site-packages/execnet/rsync_remote.py 2pyXsh

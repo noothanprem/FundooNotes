@@ -1,0 +1,1 @@
+É@Kvenv/lib/python3.6/site-packages/django/core/management/commands/dbshell.py 2pyX h

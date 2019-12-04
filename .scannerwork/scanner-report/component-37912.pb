@@ -1,0 +1,1 @@
+˜¨1venv/lib64/python3.6/site-packages/dotenv/main.py 2pyXœh

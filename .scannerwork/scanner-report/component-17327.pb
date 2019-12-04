@@ -1,0 +1,1 @@
+¯‡7venv/lib/python3.6/site-packages/kombu/utils/eventio.py 2pyXËh

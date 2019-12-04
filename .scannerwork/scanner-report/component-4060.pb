@@ -1,0 +1,1 @@
+Ü:venv/lib/python3.6/site-packages/django/db/backends/oracle :ÛÝÞßàáâãäòóô

@@ -1,0 +1,1 @@
+Бо;venv/lib64/python3.6/site-packages/zope/interface/verify.py 2pyX|h

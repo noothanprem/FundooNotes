@@ -1,0 +1,1 @@
+ǞHvenv/lib64/python3.6/site-packages/faker/providers/ssn/ko_KR/__init__.py 2pyX	h

@@ -1,0 +1,1 @@
+‡Ã:venv/lib64/python3.6/site-packages/oauth2_provider/urls.py 2pyX h

@@ -1,0 +1,1 @@
+ÄQ3venv/lib/python3.6/site-packages/sqlparse/compat.py 2pyX.h

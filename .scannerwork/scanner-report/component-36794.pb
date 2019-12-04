@@ -1,0 +1,1 @@
+ºŸAvenv/lib64/python3.6/site-packages/faker/providers/internet/fi_FI :¹Ÿ

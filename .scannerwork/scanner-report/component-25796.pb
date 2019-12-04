@@ -1,0 +1,1 @@
+ди5venv/lib/python3.6/site-packages/cssutils/settings.py 2pyXh

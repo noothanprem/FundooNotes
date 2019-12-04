@@ -1,0 +1,1 @@
+ˆeFvenv/lib/python3.6/site-packages/macaroonbakery/httpbakery/_browser.py 2pyX[h

@@ -1,0 +1,1 @@
+тсHvenv/lib64/python3.6/site-packages/urllib3/contrib/_appengine_environ.py 2pyX%h

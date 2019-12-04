@@ -1,0 +1,1 @@
+ç7venv/lib/python3.6/site-packages/future/moves/winreg.py 2pyX	h

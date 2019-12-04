@@ -1,0 +1,1 @@
+Ë¡4venv/lib/python3.6/site-packages/xdg/DesktopEntry.py 2pyX¢h

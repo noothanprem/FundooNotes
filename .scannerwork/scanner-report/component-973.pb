@@ -1,0 +1,1 @@
+Í;venv/lib/python3.6/site-packages/coreapi/transports/http.py 2pyX…h

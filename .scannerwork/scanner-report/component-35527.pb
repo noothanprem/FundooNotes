@@ -1,0 +1,1 @@
+Ç•<venv/lib64/python3.6/site-packages/corsheaders/middleware.py 2pyX²h

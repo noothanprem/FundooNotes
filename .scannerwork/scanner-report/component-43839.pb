@@ -1,0 +1,1 @@
+¿Ö:venv/lib64/python3.6/site-packages/keyrings/alt/Windows.py 2pyXÉh

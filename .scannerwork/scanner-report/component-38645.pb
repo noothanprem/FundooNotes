@@ -1,0 +1,1 @@
+õ­;venv/lib64/python3.6/site-packages/docutils/languages/he.py 2pyX=h

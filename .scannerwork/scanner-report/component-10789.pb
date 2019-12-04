@@ -1,0 +1,1 @@
+¥TKvenv/lib/python3.6/site-packages/faker/providers/internet/hu_HU/__init__.py 2pyX#h

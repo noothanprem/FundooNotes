@@ -1,0 +1,1 @@
+·MAvenv/lib/python3.6/site-packages/autobahn/websocket/interfaces.py 2pyX∆h

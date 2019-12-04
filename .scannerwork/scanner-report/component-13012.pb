@@ -1,0 +1,1 @@
+Ôe>venv/lib/python3.6/site-packages/chardet/langhungarianmodel.py 2pyXâh

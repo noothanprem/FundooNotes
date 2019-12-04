@@ -1,0 +1,1 @@
+²™Uvenv/lib/python3.6/site-packages/hamcrest/library/text/isequal_ignoring_whitespace.py 2pyX:h

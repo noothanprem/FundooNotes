@@ -1,0 +1,1 @@
+›Ë>venv/lib/python3.6/site-packages/cssutils/css/cssproperties.py 2pyX{h

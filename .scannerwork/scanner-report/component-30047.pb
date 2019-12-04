@@ -1,0 +1,1 @@
+ßêNvenv/lib64/python3.6/site-packages/django/db/backends/sqlite3/introspection.py 2pyX³h

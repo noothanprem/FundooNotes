@@ -1,0 +1,1 @@
+¾ŸAvenv/lib64/python3.6/site-packages/faker/providers/internet/sl_SI :½Ÿ

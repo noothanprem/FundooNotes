@@ -1,0 +1,1 @@
+þ¶Pvenv/lib/python3.6/site-packages/social_core/tests/backends/test_mapmyfitness.py 2pyXŸh

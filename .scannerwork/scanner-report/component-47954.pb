@@ -1,0 +1,1 @@
+ÒöRvenv/lib64/python3.6/site-packages/twisted/words/test/test_jabbersaslmechanisms.py 2pyX¤h

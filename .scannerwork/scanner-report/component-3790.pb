@@ -1,0 +1,1 @@
+Î4venv/lib/python3.6/site-packages/django/templatetags :ÍÏÐÑÒÚ

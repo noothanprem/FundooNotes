@@ -1,0 +1,1 @@
+ã]Cvenv/lib/python3.6/site-packages/storages/backends/azure_storage.py 2pyXÌh

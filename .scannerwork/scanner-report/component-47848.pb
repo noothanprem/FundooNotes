@@ -1,0 +1,1 @@
+θυ<venv/lib64/python3.6/site-packages/twisted/logger/_format.py 2pyX¦h

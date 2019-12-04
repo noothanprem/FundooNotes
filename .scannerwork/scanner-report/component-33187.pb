@@ -1,0 +1,1 @@
+£ƒ7venv/lib64/python3.6/site-packages/django/contrib/admin :-¢ƒ¤ƒ®ƒ¯ƒ±ƒ²ƒöƒ÷ƒøƒËˆÌˆÍˆÎˆÏˆÐˆ

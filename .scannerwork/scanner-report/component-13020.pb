@@ -1,0 +1,1 @@
+Üe7venv/lib/python3.6/site-packages/chardet/cp949prober.py 2pyX2h

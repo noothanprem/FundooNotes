@@ -1,0 +1,1 @@
+§_1venv/lib/python3.6/site-packages/PIL/ImageGrab.py 2pyXQh

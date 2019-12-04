@@ -1,0 +1,1 @@
+õEvenv/lib64/python3.6/site-packages/django/contrib/staticfiles/urls.py 2pyXh

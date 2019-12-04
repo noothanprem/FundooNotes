@@ -1,0 +1,1 @@
+бсIvenv/lib64/python3.6/site-packages/twisted/internet/test/modulehelpers.py 2pyXDh

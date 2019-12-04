@@ -1,0 +1,1 @@
+Kvenv/lib64/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/AuthMode.py 2pyX	h

@@ -1,0 +1,1 @@
+∫ù;venv/lib64/python3.6/site-packages/channels/testing/http.py 2pyX9h

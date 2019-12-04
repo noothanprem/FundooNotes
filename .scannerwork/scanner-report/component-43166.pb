@@ -1,0 +1,1 @@
+ั+venv/lib64/python3.6/site-packages/gunicorn :-ั ักัซัญัภัมัยัÛัÜัÝั๎ั๏ั๐ั๗ั

@@ -1,0 +1,1 @@
+ьн4venv/lib64/python3.6/site-packages/gi/pygtkcompat.py 2pyXh

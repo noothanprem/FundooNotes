@@ -1,0 +1,1 @@
+Üð@venv/lib64/python3.6/site-packages/twisted/internet/_resolver.py 2pyX˜h

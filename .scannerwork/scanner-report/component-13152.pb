@@ -1,0 +1,1 @@
+àf%venv/lib/python3.6/site-packages/idna :ßfáfâfãfäfåfïfðf

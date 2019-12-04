@@ -1,0 +1,1 @@
+ŸyKvenv/lib/python3.6/site-packages/awscli/customizations/cloudsearchdomain.py 2pyXh

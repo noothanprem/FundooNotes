@@ -1,0 +1,1 @@
+ۋ6venv/lib/python3.6/site-packages/shortuuid/__init__.py 2pyXh

@@ -1,0 +1,1 @@
+²ýEvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/tests :K±ý³ý´ýµý¶ý·ý¸ý¹ýºý»ý¼ý½ý¾ý¿ýÀýÁýÂýÃýÞýßýàýáýâýãýäý

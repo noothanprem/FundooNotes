@@ -17,7 +17,7 @@ from django.contrib.auth.models import User
 from django.test import client
 
 header = {
-    'HTTP_AUTHORIZATION': 'Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNTc1MzUzMjI2LCJqdGkiOiJmY2RjNGMzNDYzM2M0ZjI4YTU2MGU1ZDA0NTFkOTQ5NyIsInVzZXJfaWQiOjN9.ZYu0e4RTjkFOQvoTwuGddS0yhulsC0BjDxBsdcSuQ80'}
+    'HTTP_AUTHORIZATION': 'Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNTc1NjMzMzIyLCJqdGkiOiI2MzE3NTI5Mzk3ZGE0OTMxYjFmYWNlNzRiN2I0YWJmNiIsInVzZXJfaWQiOjN9.g2MxwZtku38dZWL45xWDntim3LQe657U3ABXoXgYzSk'}
 # headers = {
 #    'Content_Type': "application/json",
 #    'Authorization': "TEST_TOKEN"

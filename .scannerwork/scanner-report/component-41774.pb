@@ -1,0 +1,1 @@
+®Æ6venv/lib64/python3.6/site-packages/pymacaroons/binders :	­Æ¯Æ°Æ

@@ -1,0 +1,1 @@
+ğZ>venv/lib/python3.6/site-packages/faker/providers/company/id_ID :ïZ

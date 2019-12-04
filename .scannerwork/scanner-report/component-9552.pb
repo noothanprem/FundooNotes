@@ -1,0 +1,1 @@
+ÐJ3venv/lib/python3.6/site-packages/bs4/check_block.py 2pyXh

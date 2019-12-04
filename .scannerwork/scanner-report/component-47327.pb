@@ -1,0 +1,1 @@
+ясKvenv/lib64/python3.6/site-packages/twisted/internet/test/test_serialport.py 2pyXIh

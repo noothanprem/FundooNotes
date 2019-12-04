@@ -1,0 +1,1 @@
+şÒ*venv/lib64/python3.6/site-packages/coreapi :ıÒÿÒ€Ó‰Ó‘Ó¥Ó¦Ó

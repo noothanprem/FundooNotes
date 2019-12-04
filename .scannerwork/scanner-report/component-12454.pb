@@ -1,0 +1,1 @@
+¦a?venv/lib/python3.6/site-packages/docutils/writers/_html_base.py 2pyX‡h

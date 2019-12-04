@@ -1,0 +1,1 @@
+è‡Gvenv/lib64/python3.6/site-packages/django/contrib/admin/static/admin/js :<ç‡é‡ê‡ë‡ì‡í‡î‡ï‡ð‡ñ‡ò‡ó‡ô‡±ˆ²ˆ³ˆ´ˆµˆ¶ˆ·ˆ

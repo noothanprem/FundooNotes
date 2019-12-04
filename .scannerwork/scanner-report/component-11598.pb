@@ -1,0 +1,1 @@
+ÎZ>venv/lib/python3.6/site-packages/faker/providers/company/cs_CZ :ÍZ

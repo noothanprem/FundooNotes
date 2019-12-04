@@ -1,0 +1,1 @@
+úAvenv/lib/python3.6/site-packages/django/views/decorators/cache.py 2pyX0h

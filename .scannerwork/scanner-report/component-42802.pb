@@ -1,0 +1,1 @@
+²Î:venv/lib64/python3.6/site-packages/gi/overrides/GObject.py 2pyXÜh

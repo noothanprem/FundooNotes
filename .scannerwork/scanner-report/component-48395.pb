@@ -1,0 +1,1 @@
+‹úEvenv/lib64/python3.6/site-packages/twisted/conch/test/test_manhole.py 2pyXâh

@@ -1,0 +1,1 @@
+—dEvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_checker.py 2pyX³h

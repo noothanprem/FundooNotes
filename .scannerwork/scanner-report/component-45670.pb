@@ -1,0 +1,1 @@
+ждIvenv/lib64/python3.6/site-packages/hamcrest/library/text/stringmatches.py 2pyX)h

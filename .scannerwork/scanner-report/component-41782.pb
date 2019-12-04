@@ -1,0 +1,1 @@
+¶Æ:venv/lib64/python3.6/site-packages/pymacaroons/serializers :µÆ·Æ¸Æ¹Æ

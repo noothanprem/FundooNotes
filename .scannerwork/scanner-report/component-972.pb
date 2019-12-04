@@ -1,0 +1,1 @@
+Ì3venv/lib/python3.6/site-packages/coreapi/transports :ËÍÎ

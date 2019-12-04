@@ -1,0 +1,1 @@
+ë£Bvenv/lib/python3.6/site-packages/twisted/cred/test/test_strcred.py 2pyXíh

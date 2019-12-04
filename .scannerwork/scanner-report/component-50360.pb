@@ -1,0 +1,1 @@
+¸‰Pvenv/lib64/python3.6/site-packages/django_extensions/static/django_extensions/js :	·‰¹‰º‰

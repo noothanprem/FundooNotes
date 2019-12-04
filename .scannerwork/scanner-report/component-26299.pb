@@ -1,0 +1,1 @@
+»Í5venv/lib64/python3.6/site-packages/colorful/models.py 2pyXh

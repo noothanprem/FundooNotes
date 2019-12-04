@@ -1,0 +1,1 @@
+ÂðEvenv/lib64/python3.6/site-packages/django/contrib/flatpages/models.py 2pyX)h

@@ -1,0 +1,1 @@
+ƴavenv/lib/python3.6/site-packages/rest_framework/authtoken/management/commands/drf_create_token.py 2pyX.h

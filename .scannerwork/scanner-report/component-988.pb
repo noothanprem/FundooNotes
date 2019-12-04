@@ -1,0 +1,1 @@
+Ü0venv/lib/python3.6/site-packages/coreapi/auth.py 2pyXFh

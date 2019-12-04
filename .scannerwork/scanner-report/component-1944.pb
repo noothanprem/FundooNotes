@@ -1,0 +1,1 @@
+˜:venv/lib/python3.6/site-packages/s3transfer/subscribers.py 2pyX`h

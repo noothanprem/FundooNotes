@@ -1,0 +1,1 @@
+ǝ3venv/lib64/python3.6/site-packages/channels/generic :	Ɲȝ͝

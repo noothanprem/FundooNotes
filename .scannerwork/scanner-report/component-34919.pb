@@ -1,0 +1,1 @@
+ç=venv/lib64/python3.6/site-packages/django/conf/locale/sr_Latn :æè

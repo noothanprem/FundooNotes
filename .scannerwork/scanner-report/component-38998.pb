@@ -1,0 +1,1 @@
+Ö°:venv/lib64/python3.6/site-packages/django_admin/djadmin.py 2pyXØh

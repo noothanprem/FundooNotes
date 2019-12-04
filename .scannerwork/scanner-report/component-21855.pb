@@ -1,0 +1,1 @@
+ßªHvenv/lib/python3.6/site-packages/twisted/words/protocols/jabber/error.py 2pyXÌh

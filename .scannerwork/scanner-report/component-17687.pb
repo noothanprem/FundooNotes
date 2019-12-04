@@ -1,0 +1,1 @@
+—Š/venv/lib/python3.6/site-packages/channels_redis :–Š›Š

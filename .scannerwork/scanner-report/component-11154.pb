@@ -1,0 +1,1 @@
+’W=venv/lib/python3.6/site-packages/faker/providers/person/ja_JP :‘W

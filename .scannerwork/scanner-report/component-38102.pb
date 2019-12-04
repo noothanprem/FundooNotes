@@ -1,0 +1,1 @@
+Ö©:venv/lib64/python3.6/site-packages/locust/static/locust.js 2jsX®h

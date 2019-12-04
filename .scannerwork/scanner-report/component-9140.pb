@@ -1,0 +1,1 @@
+´G0venv/lib/python3.6/site-packages/pexpect/ANSI.py 2pyXàh

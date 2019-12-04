@@ -1,0 +1,1 @@
+‡WCvenv/lib/python3.6/site-packages/faker/providers/phone_number/fi_FI :ﬂW

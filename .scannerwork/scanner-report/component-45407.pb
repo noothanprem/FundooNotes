@@ -1,0 +1,1 @@
+пт9venv/lib64/python3.6/site-packages/jwt/contrib/algorithms :	отртст

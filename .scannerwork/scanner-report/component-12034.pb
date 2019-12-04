@@ -1,0 +1,1 @@
+Ç^'venv/lib/python3.6/site-packages/locust :Å^ç^î^ï^Æ^º^Ω^‹^›^ﬁ^ﬂ^

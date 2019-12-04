@@ -1,0 +1,1 @@
+ù@venv/lib/python3.6/site-packages/django/views/decorators/vary.py 2pyX*h

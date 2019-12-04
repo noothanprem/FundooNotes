@@ -1,0 +1,1 @@
+ìì3venv/lib64/python3.6/site-packages/xdg/IconTheme.py 2pyX´h

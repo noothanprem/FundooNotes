@@ -1,0 +1,1 @@
+κτDvenv/lib64/python3.6/site-packages/twisted/trial/test/mockdoctest.py 2pyXgh

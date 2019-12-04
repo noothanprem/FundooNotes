@@ -1,0 +1,1 @@
+š¹Avenv/lib/python3.6/site-packages/social_core/backends/dribbble.py 2pyX?h

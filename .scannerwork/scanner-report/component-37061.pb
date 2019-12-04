@@ -1,0 +1,1 @@
+Å¡Kvenv/lib64/python3.6/site-packages/faker/providers/person/tw_GH/__init__.py 2pyXÕh

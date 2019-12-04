@@ -1,0 +1,1 @@
+ O3venv/lib/python3.6/site-packages/xlwt/ExcelMagic.py 2pyXßh

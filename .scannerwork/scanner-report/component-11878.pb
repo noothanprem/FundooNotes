@@ -1,0 +1,1 @@
+æ\:venv/lib/python3.6/site-packages/boto3/docs/subresource.py 2pyXqh

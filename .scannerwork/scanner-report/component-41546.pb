@@ -1,0 +1,1 @@
+йд<venv/lib64/python3.6/site-packages/awscli/customizations/ecs :идкдлдмд

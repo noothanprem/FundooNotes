@@ -1,0 +1,1 @@
+É¨=venv/lib64/python3.6/site-packages/boto3/resources/factory.py 2pyXœh

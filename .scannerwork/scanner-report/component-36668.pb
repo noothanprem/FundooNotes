@@ -1,0 +1,1 @@
+¼žAvenv/lib64/python3.6/site-packages/faker/providers/currency/en_US :»ž

@@ -1,0 +1,1 @@
+²ÑEvenv/lib64/python3.6/site-packages/celery/worker/consumer/consumer.py 2pyXØh

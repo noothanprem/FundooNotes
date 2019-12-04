@@ -1,0 +1,1 @@
+ІAvenv/lib64/python3.6/site-packages/social_core/backends/fitbit.py 2pyXDh

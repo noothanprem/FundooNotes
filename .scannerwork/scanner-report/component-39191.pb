@@ -1,0 +1,1 @@
+—²3venv/lib64/python3.6/site-packages/idna/__init__.py 2pyXh

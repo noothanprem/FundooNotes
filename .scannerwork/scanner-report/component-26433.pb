@@ -1,0 +1,1 @@
+анAvenv/lib64/python3.6/site-packages/cryptography/hazmat/primitives :юнбнннХнЫн┐о┘о├о

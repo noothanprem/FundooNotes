@@ -1,0 +1,1 @@
+ò‡Qvenv/lib64/python3.6/site-packages/django/contrib/admin/static/admin/js/urlify.js 2jsXÄh

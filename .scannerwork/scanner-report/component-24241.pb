@@ -1,0 +1,1 @@
+±½Hvenv/lib/python3.6/site-packages/django_extensions/management/signals.py 2pyXh

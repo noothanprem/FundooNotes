@@ -1,0 +1,1 @@
+óa@venv/lib/python3.6/site-packages/docutils/parsers/rst/directives :òaôaõaöa÷aøaùa„b…b

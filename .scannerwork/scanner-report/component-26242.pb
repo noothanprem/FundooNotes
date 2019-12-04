@@ -1,0 +1,1 @@
+‚ÍIvenv/lib64/python3.6/site-packages/oauth2_provider/contrib/rest_framework :	ÍƒÍˆÍ

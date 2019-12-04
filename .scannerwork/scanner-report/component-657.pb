@@ -1,0 +1,1 @@
+ë,venv/lib/python3.6/site-packages/celery/task :êí

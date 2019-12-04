@@ -1,0 +1,1 @@
+‘´Hvenv/lib/python3.6/site-packages/rest_framework/templates/rest_framework :˜´

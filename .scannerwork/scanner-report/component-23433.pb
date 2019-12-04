@@ -1,0 +1,1 @@
+‰·Ovenv/lib/python3.6/site-packages/social_core/tests/backends/test_azuread_b2c.py 2pyX˜h

@@ -1,0 +1,1 @@
+нчDvenv/lib64/python3.6/site-packages/zope/interface/common/__init__.py 2pyXh

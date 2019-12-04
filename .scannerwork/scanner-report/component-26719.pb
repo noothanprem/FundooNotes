@@ -1,0 +1,1 @@
+паBvenv/lib64/python3.6/site-packages/celery/contrib/testing/mocks.py 2pyXbh

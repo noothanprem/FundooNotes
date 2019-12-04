@@ -1,0 +1,1 @@
+Æ,:venv/lib/python3.6/site-packages/django/contrib/gis/geoip2 :Å,Ç,È,

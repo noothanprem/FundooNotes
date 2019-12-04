@@ -1,0 +1,1 @@
+±ýVvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_wrappers.py 2pyXgh

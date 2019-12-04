@@ -487,3 +487,234 @@
 [12-03 06:54:10] p4747 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:169} INFO - note created successfully
 [12-03 07:10:57] p6509 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:169} INFO - note created successfully
 [12-03 07:29:01] p7949 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:169} INFO - note created successfully
+[12-03 21:43:30] p9173 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-03 21:43:53] p9173 {/home/admin1/PycharmProjects/fundoo/notes/views.py:350} WARNING - got error for getting note for user <class 'django.core.paginator.PageNotAnInteger'>
+[12-03 21:43:53] p9173 {/home/admin1/PycharmProjects/fundoo/notes/views.py:355} INFO - all the notes are rendered to html page
+[12-03 21:44:15] p9173 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-03 23:15:30] p15316 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:216} ERROR - Exception occured while getting the Label object
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:162} INFO - Label Updated Successfully
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:168} ERROR - Exception occured while getting the Label object
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:173} ERROR - Exception occured
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:432} ERROR - Delete Operation Failed
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:437} ERROR - Delete Operation Failed
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/views.py:359} WARNING - got error for getting note for user <class 'django.core.paginator.PageNotAnInteger'>
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/views.py:364} INFO - all the notes are rendered to html page
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:98} ERROR - Exception occured
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-03 23:17:12] p15438 {/home/admin1/PycharmProjects/fundoo/notes/views.py:128} ERROR - Exception occured
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:216} ERROR - Exception occured while getting the Label object
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:162} INFO - Label Updated Successfully
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:168} ERROR - Exception occured while getting the Label object
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:173} ERROR - Exception occured
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:432} ERROR - Delete Operation Failed
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:437} ERROR - Delete Operation Failed
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/views.py:359} WARNING - got error for getting note for user <class 'django.core.paginator.PageNotAnInteger'>
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/views.py:364} INFO - all the notes are rendered to html page
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:98} ERROR - Exception occured
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-03 23:19:17] p15606 {/home/admin1/PycharmProjects/fundoo/notes/views.py:128} ERROR - Exception occured
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:216} ERROR - Exception occured while getting the Label object
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:162} INFO - Label Updated Successfully
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:168} ERROR - Exception occured while getting the Label object
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:173} ERROR - Exception occured
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:432} ERROR - Delete Operation Failed
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:437} ERROR - Delete Operation Failed
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/views.py:359} WARNING - got error for getting note for user <class 'django.core.paginator.PageNotAnInteger'>
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/views.py:364} INFO - all the notes are rendered to html page
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:98} ERROR - Exception occured
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-03 23:20:33] p15660 {/home/admin1/PycharmProjects/fundoo/notes/views.py:128} ERROR - Exception occured
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:216} ERROR - Exception occured while getting the Label object
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:162} INFO - Label Updated Successfully
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:168} ERROR - Exception occured while getting the Label object
+[12-03 23:44:41] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:173} ERROR - Exception occured
+[12-03 23:44:42] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:432} ERROR - Delete Operation Failed
+[12-03 23:44:42] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:437} ERROR - Delete Operation Failed
+[12-03 23:44:42] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-03 23:44:42] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-03 23:44:42] p18505 {/home/admin1/PycharmProjects/fundoo/notes/views.py:359} WARNING - got error for getting note for user <class 'django.core.paginator.PageNotAnInteger'>
+[12-03 23:44:42] p18505 {/home/admin1/PycharmProjects/fundoo/notes/views.py:364} INFO - all the notes are rendered to html page
+[12-03 23:44:42] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-03 23:44:42] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-03 23:44:42] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:98} ERROR - Exception occured
+[12-03 23:44:42] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-03 23:44:42] p18505 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-03 23:44:42] p18505 {/home/admin1/PycharmProjects/fundoo/notes/views.py:128} ERROR - Exception occured
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:216} ERROR - Exception occured while getting the Label object
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:162} INFO - Label Updated Successfully
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:168} ERROR - Exception occured while getting the Label object
+[12-04 00:46:20] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:173} ERROR - Exception occured
+[12-04 00:46:21] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:432} ERROR - Delete Operation Failed
+[12-04 00:46:21] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:437} ERROR - Delete Operation Failed
+[12-04 00:46:21] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-04 00:46:21] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-04 00:46:21] p30784 {/home/admin1/PycharmProjects/fundoo/notes/views.py:359} WARNING - got error for getting note for user <class 'django.core.paginator.PageNotAnInteger'>
+[12-04 00:46:21] p30784 {/home/admin1/PycharmProjects/fundoo/notes/views.py:364} INFO - all the notes are rendered to html page
+[12-04 00:46:21] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-04 00:46:21] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-04 00:46:21] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:98} ERROR - Exception occured
+[12-04 00:46:21] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-04 00:46:21] p30784 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-04 00:46:21] p30784 {/home/admin1/PycharmProjects/fundoo/notes/views.py:128} ERROR - Exception occured
+[12-04 00:47:22] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:216} ERROR - Exception occured while getting the Label object
+[12-04 00:47:22] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-04 00:47:22] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-04 00:47:22] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-04 00:47:22] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 00:47:22] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 00:47:22] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 00:47:22] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:162} INFO - Label Updated Successfully
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:168} ERROR - Exception occured while getting the Label object
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:173} ERROR - Exception occured
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:432} ERROR - Delete Operation Failed
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:437} ERROR - Delete Operation Failed
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/views.py:359} WARNING - got error for getting note for user <class 'django.core.paginator.PageNotAnInteger'>
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/views.py:364} INFO - all the notes are rendered to html page
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:98} ERROR - Exception occured
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-04 00:47:23] p30959 {/home/admin1/PycharmProjects/fundoo/notes/views.py:128} ERROR - Exception occured
+[12-04 11:58:10] p25475 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-04 11:59:16] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:216} ERROR - Exception occured while getting the Label object
+[12-04 11:59:16] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-04 11:59:16] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-04 11:59:16] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-04 11:59:16] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 11:59:16] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:162} INFO - Label Updated Successfully
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:168} ERROR - Exception occured while getting the Label object
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:173} ERROR - Exception occured
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:432} ERROR - Delete Operation Failed
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:437} ERROR - Delete Operation Failed
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/views.py:359} WARNING - got error for getting note for user <class 'django.core.paginator.PageNotAnInteger'>
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/views.py:364} INFO - all the notes are rendered to html page
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:98} ERROR - Exception occured
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-04 11:59:17] p25569 {/home/admin1/PycharmProjects/fundoo/notes/views.py:128} ERROR - Exception occured
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:216} ERROR - Exception occured while getting the Label object
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:162} INFO - Label Updated Successfully
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:168} ERROR - Exception occured while getting the Label object
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:173} ERROR - Exception occured
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:432} ERROR - Delete Operation Failed
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:437} ERROR - Delete Operation Failed
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/views.py:359} WARNING - got error for getting note for user <class 'django.core.paginator.PageNotAnInteger'>
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/views.py:364} INFO - all the notes are rendered to html page
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:98} ERROR - Exception occured
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-04 12:04:04] p25871 {/home/admin1/PycharmProjects/fundoo/notes/views.py:128} ERROR - Exception occured
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:216} ERROR - Exception occured while getting the Label object
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:220} ERROR - Exception Occured
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:68} INFO - note is created
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:71} INFO - Label created successfully
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:162} INFO - Label Updated Successfully
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:168} ERROR - Exception occured while getting the Label object
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:173} ERROR - Exception occured
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:432} ERROR - Delete Operation Failed
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:437} ERROR - Delete Operation Failed
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:228} INFO - Data accessed from redis
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/views.py:359} WARNING - got error for getting note for user <class 'django.core.paginator.PageNotAnInteger'>
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/views.py:364} INFO - all the notes are rendered to html page
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:94} ERROR - Exception occured while accessing label
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:98} ERROR - Exception occured
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
+[12-04 12:22:33] p26666 {/home/admin1/PycharmProjects/fundoo/notes/views.py:128} ERROR - Exception occured

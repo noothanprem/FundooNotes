@@ -1,0 +1,1 @@
+Á‚0venv/lib/python3.6/site-packages/keyring/http.py 2pyX*h

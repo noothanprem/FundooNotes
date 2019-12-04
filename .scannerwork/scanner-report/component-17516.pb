@@ -1,0 +1,1 @@
+ìˆ7venv/lib/python3.6/site-packages/click/_bashcomplete.py 2pyX¦h

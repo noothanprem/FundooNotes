@@ -1,0 +1,1 @@
+вп;venv/lib64/python3.6/site-packages/celery/contrib/sphinx.py 2pyXoh

@@ -1,0 +1,1 @@
+жа1venv/lib64/python3.6/site-packages/celery/contrib :еазайакалама

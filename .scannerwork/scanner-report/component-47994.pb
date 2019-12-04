@@ -1,0 +1,1 @@
+תצ?venv/lib64/python3.6/site-packages/twisted/words/im/__init__.py 2pyX	h

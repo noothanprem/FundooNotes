@@ -1,0 +1,1 @@
+›"Gvenv/lib/python3.6/site-packages/django/contrib/syndication/__init__.py 2pyXh

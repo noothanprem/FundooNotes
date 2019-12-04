@@ -1,0 +1,1 @@
+веCvenv/lib64/python3.6/site-packages/awscli/customizations/codedeploy :жеьеыезешеэещеХеЙеКе

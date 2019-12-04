@@ -1,0 +1,1 @@
+þEvenv/lib/python3.6/site-packages/celery/worker/consumer/connection.py 2pyX'h

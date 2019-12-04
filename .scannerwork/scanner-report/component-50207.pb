@@ -1,0 +1,1 @@
+ŸˆTvenv/lib64/python3.6/site-packages/django_extensions/management/commands/syncdata.py 2pyXÚh

@@ -1,0 +1,1 @@
+­°Gvenv/lib64/python3.6/site-packages/macaroonbakery/httpbakery/_client.py 2pyX˜h

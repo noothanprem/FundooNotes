@@ -1,0 +1,1 @@
+ϼWvenv/lib/python3.6/site-packages/django_extensions/management/commands/find_template.py 2pyXh

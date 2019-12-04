@@ -1,0 +1,1 @@
+ù∆9venv/lib/python3.6/site-packages/django_common/management :ú∆

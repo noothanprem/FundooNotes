@@ -1,0 +1,1 @@
+ØÏ=venv/lib64/python3.6/site-packages/google/protobuf/any_pb2.py 2pyXOh

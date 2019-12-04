@@ -1,0 +1,1 @@
+˜©Evenv/lib64/python3.6/site-packages/storages/backends/azure_storage.py 2pyXÌh

@@ -1,0 +1,1 @@
+èÄ;venv/lib64/python3.6/site-packages/awscli/customizations/s3 :'çÄéÄêÄëÄìÄíÄîÄïÄğÄñÄòÄ€ÅÅ

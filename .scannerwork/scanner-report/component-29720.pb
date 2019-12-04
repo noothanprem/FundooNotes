@@ -1,0 +1,1 @@
+˜è>venv/lib64/python3.6/site-packages/django/utils/deprecation.py 2pyXbh

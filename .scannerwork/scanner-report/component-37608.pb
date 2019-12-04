@@ -1,0 +1,1 @@
+ше@venv/lib64/python3.6/site-packages/faker/providers/company/es_MX :че

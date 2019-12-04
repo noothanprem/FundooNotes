@@ -1,0 +1,1 @@
+ú­;venv/lib64/python3.6/site-packages/docutils/languages/fi.py 2pyX=h

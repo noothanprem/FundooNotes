@@ -1,0 +1,1 @@
+ªÎ/venv/lib64/python3.6/site-packages/gi/_error.py 2pyX8h

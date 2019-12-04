@@ -1,0 +1,1 @@
+¢{Uvenv/lib/python3.6/site-packages/pymacaroons/field_encryptors/secret_box_encryptor.py 2pyX!h

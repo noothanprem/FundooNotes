@@ -1,0 +1,1 @@
+¡M@venv/lib/python3.6/site-packages/autobahn/wamp/test/test_auth.py 2pyXòh

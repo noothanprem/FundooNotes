@@ -1,0 +1,1 @@
+°Ú=venv/lib64/python3.6/site-packages/pygtkcompat/pygtkcompat.py 2pyXh

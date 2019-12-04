@@ -1,0 +1,1 @@
+здNvenv/lib64/python3.6/site-packages/awscli/customizations/configure/__init__.py 2pyX2h

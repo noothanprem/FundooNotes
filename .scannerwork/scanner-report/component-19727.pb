@@ -1,0 +1,1 @@
+š<venv/lib/python3.6/site-packages/hamcrest/core/core/allof.py 2pyX-h

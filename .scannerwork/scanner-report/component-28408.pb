@@ -1,0 +1,1 @@
+øİ1venv/lib64/python3.6/site-packages/zope/interface :'õİûİüİıİşİÿİ€Ş¯Ş°Ş±Ş²ŞÁŞÙŞ

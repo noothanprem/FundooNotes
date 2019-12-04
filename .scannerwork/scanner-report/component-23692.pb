@@ -1,0 +1,1 @@
+Œ¹Evenv/lib/python3.6/site-packages/social_core/backends/mapmyfitness.py 2pyX2h

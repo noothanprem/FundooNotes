@@ -1,3 +1,5 @@
+import pdb
+
 from django.test import TestCase
 
 # Create your tests here.
@@ -14,10 +16,11 @@ from django.urls import reverse
 
 from .models import Label, Note
 from django.contrib.auth.models import User
-from django.test import client
+from django.test import Client
+client = Client()
 
 header = {
-    'HTTP_AUTHORIZATION': 'Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNTc1MzUzMjI2LCJqdGkiOiJmY2RjNGMzNDYzM2M0ZjI4YTU2MGU1ZDA0NTFkOTQ5NyIsInVzZXJfaWQiOjN9.ZYu0e4RTjkFOQvoTwuGddS0yhulsC0BjDxBsdcSuQ80'}
+    'HTTP_AUTHORIZATION': 'Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNTc1NjMzMzIyLCJqdGkiOiI2MzE3NTI5Mzk3ZGE0OTMxYjFmYWNlNzRiN2I0YWJmNiIsInVzZXJfaWQiOjN9.g2MxwZtku38dZWL45xWDntim3LQe657U3ABXoXgYzSk'}
 # headers = {
 #    'Content_Type': "application/json",
 #    'Authorization': "TEST_TOKEN"
@@ -153,99 +156,99 @@ BASE_URL = config('BASE_URL')
 #         url = BASE_URL + (data[0]['urls']['reminder'])
 #         response = requests.get(url=url, headers=headers)
 #         assert response.status_code == 200
-#
+
 #     def test_reminder_get2(self):
 #         url = BASE_URL + (data[0]['urls']['reminder1'])
 #         response = requests.get(url=url, headers=headers)
 #         assert response.status_code == 404
 
-class ModeslTest(TestCase):
-
-    def test_label_string_representation1(self):
-        label = Label(name="My Label")
-        self.assertEqual(str(label), label.name)
-
-    def test_label_string_representation2(self):
-        label = Label(name="My Label")
-        self.assertNotEqual(str(label), "")
-
-    def test_label_equal1(self):
-        label1 = Label(name="Mine")
-        label2 = Label(name="Mine")
-        self.assertFalse(label1 == label2)
-
-    def test_label_equal2(self):
-        label1 = Label(name="My name")
-        label2 = Label(name="")
-        self.assertFalse(label1 == label2)
-
-    def test_label_isinstance1(self):
-        user1 = User(username="nipun")
-        label1 = Label(name="My new Label")
-        self.assertFalse(user1 == label1)
-
-    def test_label_isinstance2(self):
-        user1 = User(username="nipun")
-        label1 = Label(name="second label")
-        self.assertFalse(user1 == label1)
-
-    def test_label_verbose_name_plural1(self):
-        self.assertEqual(str(Label._meta.verbose_name_plural), "labels")
-
-    def test_label_verbose_name_plural2(self):
-        self.assertNotEqual(str(Label._meta.verbose_name_plural), "hello")
-
-    def test_label_verbose_name(self):
-        self.assertEqual(str(Label._meta.verbose_name), "label")
-
-    def test_label_verbose_name(self):
-        self.assertNotEqual(str(Label._meta.verbose_name), "hello")
-
-    def test_note_string_representation1(self):
-        note = Note(title="My title")
-        self.assertEqual(str(note), note.title)
-
-    def test_note_string_representation2(self):
-        note = Note(title="My note")
-        self.assertNotEqual(str(note), "")
-
-    def test_note_equal1(self):
-        note1 = Note(title="Mine")
-        note2 = Note(title="Mine")
-        self.assertFalse(note1 == note2)
-
-    def test_note_equal2(self):
-        note1 = Note(title="My name")
-        note2 = Note(title="")
-        self.assertFalse(note1 == note2)
-
-    def test_note_isinstance1(self):
-        user1 = User(username="nipun")
-        note1 = Note(title="My new note")
-        self.assertFalse(user1 == note1)
-
-    def test_note_isinstance2(self):
-        user1 = User(username="nipun")
-        note1 = Note(title="second note")
-        self.assertFalse(user1 == note1)
-
-    def test_note_verbose_name_plural1(self):
-        self.assertEqual(str(Note._meta.verbose_name_plural), "notes")
-
-    def test_note_verbose_name_plural2(self):
-        self.assertNotEqual(str(Note._meta.verbose_name_plural), "hello")
-
-    def test_note_verbose_name(self):
-        self.assertEqual(str(Note._meta.verbose_name), "note")
-
-    def test_note_verbose_name(self):
-        self.assertNotEqual(str(Note._meta.verbose_name), "hello")
-
-    def test_reminder_get2(self):
-        url = BASE_URL + "notes_reminder"
-        response = self.client.get(url)
-        print(response.status_code)
-        assert response.status_code == 200
+# class ModeslTest(TestCase):
+#
+#     def test_label_string_representation1(self):
+#         label = Label(name="My Label1")
+#         self.assertEqual(str(label), label.name)
+#
+#     def test_label_string_representation2(self):
+#         label = Label(name="My Label2")
+#         self.assertNotEqual(str(label), "")
+#
+#     def test_label_equal1(self):
+#         label1 = Label(name="Mine1")
+#         label2 = Label(name="Mine")
+#         self.assertFalse(label1 == label2)
+#
+#     def test_label_equal2(self):
+#         label1 = Label(name="My name1")
+#         label2 = Label(name="")
+#         self.assertFalse(label1 == label2)
+#
+#     def test_label_isinstance1(self):
+#         user1 = User(username="nipun")
+#         label1 = Label(name="My new Label1")
+#         self.assertFalse(user1 == label1)
+#
+#     def test_label_isinstance2(self):
+#         user1 = User(username="nipun")
+#         label1 = Label(name="second label1")
+#         self.assertFalse(user1 == label1)
+#
+#     def test_label_verbose_name_plural1(self):
+#         self.assertEqual(str(Label._meta.verbose_name_plural), "labels")
+#
+#     def test_label_verbose_name_plural2(self):
+#         self.assertNotEqual(str(Label._meta.verbose_name_plural), "hello")
+#
+#     def test_label_verbose_name(self):
+#         self.assertEqual(str(Label._meta.verbose_name), "label")
+#
+#     def test_label_verbose_name(self):
+#         self.assertNotEqual(str(Label._meta.verbose_name), "hello")
+#
+#     def test_note_string_representation1(self):
+#         note = Note(title="My title1")
+#         self.assertEqual(str(note), note.title)
+#
+#     def test_note_string_representation2(self):
+#         note = Note(title="My note1")
+#         self.assertNotEqual(str(note), "")
+#
+#     def test_note_equal1(self):
+#         note1 = Note(title="Mine1")
+#         note2 = Note(title="Mine1")
+#         self.assertFalse(note1 == note2)
+#
+#     def test_note_equal2(self):
+#         note1 = Note(title="My name1")
+#         note2 = Note(title="")
+#         self.assertFalse(note1 == note2)
+#
+#     def test_note_isinstance1(self):
+#         user1 = User(username="nipun")
+#         note1 = Note(title="My new note1")
+#         self.assertFalse(user1 == note1)
+#
+#     def test_note_isinstance2(self):
+#         user1 = User(username="nipun")
+#         note1 = Note(title="second note1")
+#         self.assertFalse(user1 == note1)
+#
+#     def test_note_verbose_name_plural1(self):
+#         self.assertEqual(str(Note._meta.verbose_name_plural), "notes")
+#
+#     def test_note_verbose_name_plural2(self):
+#         self.assertNotEqual(str(Note._meta.verbose_name_plural), "hello")
+#
+#     def test_note_verbose_name(self):
+#         self.assertEqual(str(Note._meta.verbose_name), "note")
+#
+#     def test_note_verbose_name(self):
+#         self.assertNotEqual(str(Note._meta.verbose_name), "hello")
+#
+#     def test_reminder_get2(self):
+#         url = BASE_URL + "notes_reminder"
+#         response = self.client.get(url)
+#         print(response.status_code)
+#         assert response.status_code == 200
 
 
 class NoteTest(TestCase):
@@ -261,8 +264,9 @@ class NoteTest(TestCase):
 
     def test_label_get1(self):
         url = BASE_URL + reverse('createlabel_view')
-        # print(header)
+        # pdb.set_trace()
         response = self.client.get(url, content_type='application/json', **header)
+        # print(response.text)
         self.assertEqual(response.status_code, 200)
 
     def test_label_post1(self):
@@ -296,15 +300,15 @@ class NoteTest(TestCase):
         response = self.client.put(url,data,content_type='application/json',**header)
         self.assertEqual(response.status_code,200)
     def test_label_delete1(self):
-        url = BASE_URL + reverse('updatelabel_view',args=[2])
+        url = BASE_URL + reverse('updatelabel_view',args=[3])
         response = self.client.delete(url,content_type='application/json',**header)
         self.assertEqual(response.status_code,404)
     def test_label_delete2(self):
-        url = BASE_URL + reverse('updatelabel_view',args=["hampad"])
+        url = BASE_URL + reverse('updatelabel_view',args=["hamweck"])
         response = self.client.delete(url,content_type='application/json',**header)
         self.assertEqual(response.status_code,404)
     def test_label_delete3(self):
-        url = BASE_URL + reverse('updatelabel_view',args=["hampad"])
+        url = BASE_URL + reverse('updatelabel_view',args=["hampadfgn"])
         response = self.client.delete(url,content_type='application/json',**header)
         self.assertEqual(response.status_code,404)
 
@@ -322,12 +326,12 @@ class NoteTest(TestCase):
         self.assertEqual(response.status_code, 200)
     def test_note_post1(self):
         url = BASE_URL + reverse('createnote_view')
-        data = {"title":"test_note1","note":"helloo1","label":["hosur"]}
+        data = {"title":"test_note2","note":"helloo1","label":["hosur"]}
         response = self.client.post(url, data, content_type='application/json', **header)
         self.assertEqual(response.status_code,400)
     def test_note_post2(self):
          url = BASE_URL + reverse('createnote_view')
-         data = {"title":"test_note1","note":"helloo1","label":[123]}
+         data = {"title":"test_note2","note":"helloo1","label":[123]}
          response = self.client.post(url, data, content_type='application/json', **header)
          self.assertEqual(response.status_code,400)
     def test_note_post3(self):

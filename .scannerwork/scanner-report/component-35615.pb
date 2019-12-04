@@ -1,0 +1,1 @@
+Ÿ–>venv/lib64/python3.6/site-packages/django_redis/client/herd.py 2pyXh

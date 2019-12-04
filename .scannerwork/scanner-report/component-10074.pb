@@ -1,0 +1,1 @@
+ÚN2venv/lib/python3.6/site-packages/libfuturize/fixes :2ÙNÛNÜNİNŞNßNàNáNâNãNäNåNæNçNèNéNêNëNìNíN‡O‰OŠO‹OğO

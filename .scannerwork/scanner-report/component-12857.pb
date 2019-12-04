@@ -1,0 +1,1 @@
+¹d6venv/lib/python3.6/site-packages/macaroonbakery/bakery :¸dºd»d¼dÃdÄdÅdÆdÇd×dØdÙdÚdÛd

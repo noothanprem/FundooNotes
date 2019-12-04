@@ -1,0 +1,1 @@
+ç¡4venv/lib/python3.6/site-packages/twisted/web/http.py 2pyX¼h

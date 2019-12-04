@@ -1,0 +1,1 @@
+ÍXvenv/lib64/python3.6/site-packages/oauth2_provider/contrib/rest_framework/permissions.py 2pyX³h

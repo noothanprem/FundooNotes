@@ -1,0 +1,1 @@
+Š2venv/lib64/python3.6/site-packages/certifi/core.py 2pyXh

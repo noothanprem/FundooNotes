@@ -1,0 +1,1 @@
+˜O/venv/lib/python3.6/site-packages/xlwt/compat.py 2pyXh

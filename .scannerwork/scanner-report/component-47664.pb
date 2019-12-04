@@ -1,0 +1,1 @@
+°ôAvenv/lib64/python3.6/site-packages/twisted/trial/test/packages.py 2pyXÅh

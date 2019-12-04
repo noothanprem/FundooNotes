@@ -1,0 +1,1 @@
+Ï7venv/lib64/python3.6/site-packages/coreschema/encodings :ÏÏ–Ï—Ï

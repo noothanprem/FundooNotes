@@ -1,0 +1,1 @@
+ÏCAvenv/lib/python3.6/site-packages/django/conf/locale/eo/formats.py 2pyX2h

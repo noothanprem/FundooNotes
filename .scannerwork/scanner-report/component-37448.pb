@@ -1,0 +1,1 @@
+Ȥ@venv/lib64/python3.6/site-packages/faker/providers/address/sk_SK :Ǥ

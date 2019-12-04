@@ -1,0 +1,1 @@
+–2venv/lib/python3.6/site-packages/MySQLdb/constants :•—˜™š¢

@@ -1,0 +1,1 @@
+î¯8venv/lib64/python3.6/site-packages/macaroonbakery/bakery :*í¯ï¯ğ¯ñ¯÷¯ù¯ú¯û¯ü¯Œ°°°°°

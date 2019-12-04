@@ -1,0 +1,1 @@
+™³Vvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/filter_backends/ordering :	˜³š³›³

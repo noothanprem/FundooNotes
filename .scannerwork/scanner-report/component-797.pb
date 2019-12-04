@@ -1,0 +1,1 @@
+ù0venv/lib/python3.6/site-packages/celery/local.py 2pyX“h

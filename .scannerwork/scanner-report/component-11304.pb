@@ -1,0 +1,1 @@
+¨X=venv/lib/python3.6/site-packages/faker/providers/phone_number :§X

@@ -1,0 +1,1 @@
+ˆÓ:venv/lib64/python3.6/site-packages/kombu/asynchronous/http :	‡Ó‰ÓŽÓ

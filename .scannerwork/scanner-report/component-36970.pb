@@ -1,0 +1,1 @@
+ê Cvenv/lib64/python3.6/site-packages/faker/providers/automotive/hu_HU :é 

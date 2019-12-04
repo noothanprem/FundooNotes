@@ -1,0 +1,1 @@
+ÅJ1venv/lib/python3.6/site-packages/bs4/formatter.py 2pyXdh

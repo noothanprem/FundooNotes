@@ -1,0 +1,1 @@
+çÿ>venv/lib64/python3.6/site-packages/rest_framework/templatetags :æÿèÿ

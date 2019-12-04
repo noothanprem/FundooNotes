@@ -1,0 +1,1 @@
+àÚ=venv/lib64/python3.6/site-packages/reportlab/pdfgen/canvas.py 2pyX÷h

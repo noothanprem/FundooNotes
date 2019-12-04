@@ -1,0 +1,1 @@
+τύPvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/fields/common.py 2pyXbh

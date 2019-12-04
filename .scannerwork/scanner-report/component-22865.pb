@@ -1,0 +1,1 @@
+Ñ²bvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/filter_backends/search/historical.py 2pyXŠh

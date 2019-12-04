@@ -1,0 +1,1 @@
+º’;venv/lib64/python3.6/site-packages/django/urls/resolvers.py 2pyX¢h

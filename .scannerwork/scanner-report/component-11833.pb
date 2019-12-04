@@ -1,0 +1,1 @@
+¹\5venv/lib/python3.6/site-packages/faker/providers/isbn :¸\º\Â\

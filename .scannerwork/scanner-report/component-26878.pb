@@ -1,0 +1,1 @@
+şÑ2venv/lib64/python3.6/site-packages/celery/security :ıÑÿÑ€ÒÒ‡Ò

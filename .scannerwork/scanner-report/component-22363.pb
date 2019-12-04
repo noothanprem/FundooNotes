@@ -1,0 +1,1 @@
+Û®Bvenv/lib/python3.6/site-packages/twisted/conch/test/test_telnet.py 2pyX¬h

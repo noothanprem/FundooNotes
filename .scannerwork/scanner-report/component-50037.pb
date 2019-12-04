@@ -1,0 +1,1 @@
+õ†1venv/lib64/python3.6/site-packages/django_crontab :ô†ö†÷†‚‡

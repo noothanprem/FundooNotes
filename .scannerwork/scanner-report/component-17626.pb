@@ -1,0 +1,1 @@
+Ú‰@venv/lib/python3.6/site-packages/elasticsearch/client/indices.py 2pyXÏh

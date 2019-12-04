@@ -1,0 +1,1 @@
+Ò\0venv/lib/python3.6/site-packages/faker/config.py 2pyXh

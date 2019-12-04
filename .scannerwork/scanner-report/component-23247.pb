@@ -1,0 +1,1 @@
+ϵ7venv/lib/python3.6/site-packages/rest_framework/schemas :εеѵҵӵ۵ݵ

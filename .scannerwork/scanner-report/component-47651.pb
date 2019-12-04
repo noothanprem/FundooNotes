@@ -1,0 +1,1 @@
+£ôEvenv/lib64/python3.6/site-packages/twisted/trial/test/test_warning.py 2pyXðh

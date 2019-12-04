@@ -1,0 +1,1 @@
+¢¡Cvenv/lib/python3.6/site-packages/django_social_share/tests/tests.py 2pyX?h

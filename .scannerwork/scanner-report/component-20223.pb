@@ -1,0 +1,1 @@
+ÿ3venv/lib/python3.6/site-packages/coverage/htmlfiles :ş…†ˆ‰

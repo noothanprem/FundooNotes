@@ -1,0 +1,1 @@
+»•2venv/lib/python3.6/site-packages/botocore/vendored :º•¼•

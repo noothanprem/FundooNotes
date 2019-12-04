@@ -1,0 +1,1 @@
+‚√Zvenv/lib64/python3.6/site-packages/awscli/customizations/servicecatalog/generateproduct.py 2pyX¶h

@@ -1,0 +1,1 @@
+ºÍCvenv/lib64/python3.6/site-packages/django_cron/backends/__init__.py 2pyXh

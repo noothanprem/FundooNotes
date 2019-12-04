@@ -1,0 +1,1 @@
+ğU=venv/lib/python3.6/site-packages/faker/providers/person/tr_TR :ïU

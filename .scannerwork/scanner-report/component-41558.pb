@@ -1,0 +1,1 @@
+ждBvenv/lib64/python3.6/site-packages/awscli/customizations/configure :удвдьдыдздшдЦд

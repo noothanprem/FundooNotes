@@ -1,0 +1,1 @@
+Š1venv/lib/python3.6/site-packages/django_inlinecss :œŠŠ­Š®Š¶Š·Š

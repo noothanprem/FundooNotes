@@ -1,0 +1,1 @@
+ªçBvenv/lib64/python3.6/site-packages/django/views/decorators/csrf.py 2pyX9h

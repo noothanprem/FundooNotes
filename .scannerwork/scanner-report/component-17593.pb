@@ -1,0 +1,1 @@
+¹‰Ivenv/lib/python3.6/site-packages/elasticsearch/client/xpack/monitoring.py 2pyXh

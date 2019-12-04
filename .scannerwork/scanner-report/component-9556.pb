@@ -1,0 +1,1 @@
+ÔJCvenv/lib/python3.6/site-packages/django_redis/serializers/pickle.py 2pyX$h

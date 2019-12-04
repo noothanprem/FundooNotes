@@ -1,0 +1,1 @@
+ƒт6venv/lib64/python3.6/site-packages/twisted/application :√т’т÷т„тЎтит

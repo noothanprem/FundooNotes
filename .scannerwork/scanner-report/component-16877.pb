@@ -1,0 +1,1 @@
+íƒ5venv/lib/python3.6/site-packages/automat/_discover.py 2pyX‘h

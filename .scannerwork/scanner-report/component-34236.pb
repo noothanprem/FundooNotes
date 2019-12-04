@@ -1,0 +1,1 @@
+¼‹3venv/lib64/python3.6/site-packages/django/core/mail :	»‹Ò‹Ó‹

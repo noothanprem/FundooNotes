@@ -1,0 +1,1 @@
+›Íkvenv/lib64/python3.6/site-packages/django_cron/migrations/0002_remove_max_length_from_CronJobLog_message.py 2pyXh

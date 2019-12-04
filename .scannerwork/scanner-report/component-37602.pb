@@ -1,0 +1,1 @@
+те=venv/lib64/python3.6/site-packages/faker/providers/file/en_US :се

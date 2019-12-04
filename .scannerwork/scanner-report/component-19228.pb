@@ -1,0 +1,1 @@
+œ–\venv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/gb2312prober.py 2pyX*h

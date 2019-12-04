@@ -1,0 +1,1 @@
+ö©Cvenv/lib64/python3.6/site-packages/locust/test/test_locust_class.py 2pyX±h

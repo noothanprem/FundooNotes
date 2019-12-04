@@ -1,0 +1,1 @@
+ÁxAvenv/lib/python3.6/site-packages/awscli/customizations/cloudtrail :ÀxÂxÃxÉx

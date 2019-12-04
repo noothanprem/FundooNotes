@@ -1,0 +1,1 @@
+Ì);venv/lib/python3.6/site-packages/django/contrib/staticfiles :Ë)Í)Õ)Þ)ß)ë)ì)í)î)ï)

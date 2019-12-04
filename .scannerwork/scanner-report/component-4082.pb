@@ -1,0 +1,1 @@
+òDvenv/lib/python3.6/site-packages/django/db/backends/oracle/client.py 2pyXh

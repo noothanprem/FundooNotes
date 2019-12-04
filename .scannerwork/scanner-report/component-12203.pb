@@ -1,0 +1,1 @@
+«_0venv/lib/python3.6/site-packages/PIL/ImageWin.py 2pyXåh

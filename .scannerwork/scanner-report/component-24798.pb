@@ -1,0 +1,1 @@
+ÞÁNvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/ipaddress.py 2pyXôh
