@@ -1,1 +1,0 @@
-ÆÿJvenv/lib64/python3.6/site-packages/rest_framework/templates/rest_framework :Ìÿ

@@ -1,1 +1,1 @@
-Åº=venv/lib/python3.6/site-packages/django_extensions/jobs/daily :	ÄºÇºáº
+ÅºNvenv/lib/python3.6/site-packages/django_extensions/jobs/daily/cache_cleanup.py 2pyXh

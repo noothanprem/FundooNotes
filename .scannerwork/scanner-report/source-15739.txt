@@ -1,17 +1,18 @@
-from abc import ABCMeta, abstractmethod
+import binascii
+
+from pymacaroons.binders.base_binder import BaseBinder
+from pymacaroons.utils import hmac_concat, truncate_or_pad
 
 
-class BaseBinder(object):
-    __metaclass__ = ABCMeta
+class HashSignaturesBinder(BaseBinder):
 
-    def __init__(self, root):
-        self.root = root
+    def __init__(self, root, key=None):
+        super(HashSignaturesBinder, self).__init__(root)
+        self.key = key or truncate_or_pad(b'\0')
 
-    def bind(self, discharge):
-        protected = discharge.copy()
-        protected.signature = self.bind_signature(discharge.signature_bytes)
-        return protected
-
-    @abstractmethod
     def bind_signature(self, signature):
-        pass
+        return hmac_concat(
+            self.key,
+            binascii.unhexlify(self.root.signature_bytes),
+            binascii.unhexlify(signature)
+        )

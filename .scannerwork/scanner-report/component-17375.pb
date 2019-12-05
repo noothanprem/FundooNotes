@@ -1,1 +1,1 @@
-ß‡Ivenv/lib/python3.6/site-packages/kombu/asynchronous/aws/sqs/connection.py 2pyXÄh
+ß‡;venv/lib/python3.6/site-packages/kombu/asynchronous/aws/sqs :Ý‡Þ‡à‡æ‡è‡

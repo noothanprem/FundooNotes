@@ -1,1 +1,1 @@
-—‹Vvenv/lib64/python3.6/site-packages/oauthlib/oauth2/rfc6749/endpoints/pre_configured.py 2pyXÝh
+—‹Pvenv/lib64/python3.6/site-packages/oauthlib/oauth2/rfc6749/endpoints/resource.py 2pyXXh

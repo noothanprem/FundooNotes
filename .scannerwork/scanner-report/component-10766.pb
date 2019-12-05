@@ -1,1 +1,1 @@
-T?venv/lib/python3.6/site-packages/faker/providers/internet/de_AT :T
+T?venv/lib/python3.6/site-packages/faker/providers/internet/ko_KR :T

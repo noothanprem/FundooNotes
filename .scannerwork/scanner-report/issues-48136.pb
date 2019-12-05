@@ -1,59 +1,39 @@
-q
-pythonS100URename method "connectionMade" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2HH t
-pythonS100XRename method "childDataReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2LL o
-pythonS100SRename method "processEnded" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2WW p
-pythonS100TRename method "_spawnProcess" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2`` r
-pythonS100VRename method "_requireFailure" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2}} x
-pythonS100ZRename method "test_loseConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÖÖ |
-pythonS100^Rename method "test_readConnectionLost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-õõ {
-pythonS100]Rename method "test_lastWriteReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-µµ u
-pythonS100WRename method "test_hostAndPeer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‹‹ w
-pythonS100YRename method "test_writeSequence" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-˝˝ n
-pythonS100PRename method "_junkPath" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-çç 
-pythonS100aRename method "test_normalFileStandardOut" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-∆∆ "{
-pythonS117]Rename this local variable "errorLogFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ää {
-pythonS117]Rename this local variable "errorLogFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-°° w
-pythonS117YRename this local variable "junkPath" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-éé v
-pythonS117XRename this local variable "toWrite" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ûû w
-pythonS117YRename this local variable "junkPath" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ªª y
-pythonS117[Rename this local variable "onConnLost" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ŒŒ v
-pythonS117XRename this local variable "howMany" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-‚‚ h
-pythonS1542KRename function "cb" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2~~ j
-pythonS1542KRename function "eb" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÄÄ t
-pythonS1542URename function "processEnded" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-êê o
-pythonS1542PRename function "cbBytes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¶¶ t
-pythonS1542URename function "processEnded" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¨¨ t
-pythonS1542URename function "processEnded" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-œœ t
-pythonS1542URename function "processEnded" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÂÂ t
-pythonS1542URename function "processEnded" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-˜˜ t
-pythonS1542URename function "processEnded" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-áá v
-pythonS1542WRename function "connectionMade" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-†† t
-pythonS1542URename function "processEnded" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-™™ t
-pythonS1542URename function "processEnded" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-øø n
-pythonS1542ORename function "cbLost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÒÒ 
+h
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2.. k
+pythonS100ORename method "tearDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 288 s
+pythonS100WRename method "test_FileRebuild" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2<< o
+pythonS100SRename method "test_Rebuild" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2TT |
+pythonS100`Rename method "test_ComponentInteraction" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ff !v
+pythonS100ZRename method "test_UpdateInstance" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2xx {
+pythonS100]Rename method "test_BananaInteraction" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ãã w
+pythonS100YRename method "test_hashException" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ëë s
+pythonS100URename method "test_Sensitive" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+†† j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+€€ m
+pythonS100ORename method "tearDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‡‡ v
+pythonS100XRename method "test_typeSubclass" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ˆˆ w
+pythonS100YRename method "test_instanceSlots" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+áá y
+pythonS117]Rename this local variable "newComponent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2kk 
+pythonS117aRename this local variable "unhashableObject" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+óó 
+pythonS117aRename this local variable "unhashableObject" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+öö |
+pythonS117^Rename this local variable "testSensitive" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+≠≠ {
+pythonS117]Rename this local variable "newException" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+≤≤ ~
+pythonS117`Rename this local variable "classDefinition" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÈÈ ~
+pythonS117`Rename this local variable "classDefinition" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+˙˙ ~
+pythonS117`Rename this local variable "classDefinition" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+åå n
+pythonS116RRename this field "hashCalled" to match the regular expression ^[_a-z][_a-z0-9]*$. 2 r
+pythonS1542SRename function "myFunction" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÕÕ 

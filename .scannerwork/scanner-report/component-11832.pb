@@ -1,1 +1,1 @@
-¸\>venv/lib/python3.6/site-packages/faker/providers/isbn/rules.py 2pyX/h
+¸\5venv/lib/python3.6/site-packages/faker/providers/isbn :·\¹\Ä\

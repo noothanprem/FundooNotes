@@ -1,1 +1,0 @@
-вкvenv/bin/rstpep2html.py 2pyXh

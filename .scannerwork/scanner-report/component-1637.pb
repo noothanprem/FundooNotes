@@ -1,1 +1,1 @@
-å1venv/lib/python3.6/site-packages/execnet/xspec.py 2pyX=h
+å(venv/lib/python3.6/site-packages/execnet :äæçèùúûüýþÿŒ

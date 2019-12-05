@@ -1,1 +1,0 @@
-Ï?:venv/lib/python3.6/site-packages/django/core/validators.py 2pyXœh

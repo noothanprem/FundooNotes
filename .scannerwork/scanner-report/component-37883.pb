@@ -1,1 +1,1 @@
-û§?venv/lib64/python3.6/site-packages/faker/providers/isbn/isbn.py 2pyX?h
+û§2venv/lib64/python3.6/site-packages/faker/compat.py 2pyXh

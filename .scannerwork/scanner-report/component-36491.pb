@@ -1,1 +1,0 @@
-‹>venv/lib64/python3.6/site-packages/sqlparse/engine/__init__.py 2pyXh

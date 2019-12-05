@@ -4,148 +4,188 @@
 # may not use this file except in compliance with the License. A copy of
 # the License is located at
 #
-#     http://aws.amazon.com/apache2.0/
+# http://aws.amazon.com/apache2.0/
 #
 # or in the "license" file accompanying this file. This file is
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-import zipfile
-import copy
-from contextlib import closing
 
-from botocore.vendored import six
+import os
+import re
+import sys
+import logging
+import fileinput
+import datetime
 
-from awscli.arguments import CustomArgument, CLIArgument
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
+from botocore.compat import urlsplit
+from awscli.customizations.commands import BasicCommand
+from awscli.compat import NonTranslatedStdout
 
-
-ERROR_MSG = (
-    "--zip-file must be a zip file with the fileb:// prefix.\n"
-    "Example usage:  --zip-file fileb://path/to/file.zip")
-
-ZIP_DOCSTRING = (
-    '<p>The path to the zip file of the {param_type} you are uploading. '
-    'Example: fileb://{param_type}.zip</p>'
-)
+logger = logging.getLogger('botocore.credentials')
 
 
-def register_lambda_create_function(cli):
-    cli.register('building-argument-table.lambda.create-function',
-                 ZipFileArgumentHoister('Code').hoist)
-    cli.register('building-argument-table.lambda.publish-layer-version',
-                 ZipFileArgumentHoister('Content').hoist)
-    cli.register('building-argument-table.lambda.update-function-code',
-                 _modify_zipfile_docstring)
-    cli.register('process-cli-arg.lambda.update-function-code',
-                 validate_is_zip_file)
-
-
-def validate_is_zip_file(cli_argument, value, **kwargs):
-    if cli_argument.name == 'zip-file':
-        _should_contain_zip_content(value)
-
-
-class ZipFileArgumentHoister(object):
-    """Hoists a ZipFile argument up to the top level.
-
-    Injects a top-level ZipFileArgument into the argument table which maps
-    a --zip-file parameter to the underlying ``serialized_name`` ZipFile
-    shape. Repalces the old ZipFile argument with an instance of
-    ReplacedZipFileArgument to prevent its usage and recommend the new
-    top-level injected parameter.
+def initialize(cli):
     """
-    def __init__(self, serialized_name):
-        self._serialized_name = serialized_name
-        self._name = serialized_name.lower()
-
-    def hoist(self, session, argument_table, **kwargs):
-        help_text = ZIP_DOCSTRING.format(param_type=self._name)
-        argument_table['zip-file'] = ZipFileArgument(
-            'zip-file', help_text=help_text, cli_type_name='blob',
-            serialized_name=self._serialized_name
-        )
-        argument = argument_table[self._name]
-        model = copy.deepcopy(argument.argument_model)
-        del model.members['ZipFile']
-        argument_table[self._name] = ReplacedZipFileArgument(
-            name=self._name,
-            argument_model=model,
-            operation_model=argument._operation_model,
-            is_required=False,
-            event_emitter=session.get_component('event_emitter'),
-            serialized_name=self._serialized_name,
-        )
-
-
-def _modify_zipfile_docstring(session, argument_table, **kwargs):
-    if 'zip-file' in argument_table:
-        argument_table['zip-file'].documentation = ZIP_DOCSTRING
-
-
-def _should_contain_zip_content(value):
-    if not isinstance(value, bytes):
-        # If it's not bytes it's basically impossible for
-        # this to be valid zip content, but we'll at least
-        # still try to load the contents as a zip file
-        # to be absolutely sure.
-        value = value.encode('utf-8')
-    fileobj = six.BytesIO(value)
-    try:
-        with closing(zipfile.ZipFile(fileobj)) as f:
-            f.infolist()
-    except zipfile.BadZipfile:
-        raise ValueError(ERROR_MSG)
-
-
-class ZipFileArgument(CustomArgument):
-    """A new ZipFile argument to be injected at the top level.
-
-    This class injects a ZipFile argument under the specified serialized_name
-    parameter. This can be used to take a top level parameter like --zip-file
-    and inject it into a nested different parameter like Code so
-    --zip-file foo.zip winds up being serilized as
-    { 'Code': { 'ZipFile': <contents of foo.zip> } }.
+    The entry point for the credential helper
     """
-    def __init__(self, *args, **kwargs):
-        self._param_to_replace = kwargs.pop('serialized_name')
-        super(ZipFileArgument, self).__init__(*args, **kwargs)
+    cli.register('building-command-table.codecommit', inject_commands)
 
-    def add_to_params(self, parameters, value):
-        if value is None:
-            return
-        _should_contain_zip_content(value)
-        zip_file_param = {'ZipFile': value}
-        if parameters.get(self._param_to_replace):
-            parameters[self._param_to_replace].update(zip_file_param)
+
+def inject_commands(command_table, session, **kwargs):
+    """
+    Injects new commands into the codecommit subcommand.
+    """
+    command_table['credential-helper'] = CodeCommitCommand(session)
+
+
+class CodeCommitNoOpStoreCommand(BasicCommand):
+    NAME = 'store'
+    DESCRIPTION = ('This operation does nothing, credentials'
+                   ' are calculated each time')
+    SYNOPSIS = ('aws codecommit credential-helper store')
+    EXAMPLES = ''
+    _UNDOCUMENTED = True
+
+    def _run_main(self, args, parsed_globals):
+        return 0
+
+
+class CodeCommitNoOpEraseCommand(BasicCommand):
+    NAME = 'erase'
+    DESCRIPTION = ('This operation does nothing, no credentials'
+                   ' are ever stored')
+    SYNOPSIS = ('aws codecommit credential-helper erase')
+    EXAMPLES = ''
+    _UNDOCUMENTED = True
+
+    def _run_main(self, args, parsed_globals):
+        return 0
+
+
+class CodeCommitGetCommand(BasicCommand):
+    NAME = 'get'
+    DESCRIPTION = ('get a username SigV4 credential pair'
+                   ' based on protocol, host and path provided'
+                   ' from standard in. This is primarily'
+                   ' called by git to generate credentials to'
+                   ' authenticate against AWS CodeCommit')
+    SYNOPSIS = ('aws codecommit credential-helper get')
+    EXAMPLES = (r'echo -e "protocol=https\\n'
+                r'path=/v1/repos/myrepo\\n'
+                'host=git-codecommit.us-east-1.amazonaws.com"'
+                ' | aws codecommit credential-helper get')
+    ARG_TABLE = [
+        {
+            'name': 'ignore-host-check',
+            'action': 'store_true',
+            'default': False,
+            'group_name': 'ignore-host-check',
+            'help_text': (
+                'Optional. Generate credentials regardless of whether'
+                ' the domain is an Amazon domain.'
+                )
+            }
+        ]
+
+    def __init__(self, session):
+        super(CodeCommitGetCommand, self).__init__(session)
+
+    def _run_main(self, args, parsed_globals):
+        git_parameters = self.read_git_parameters()
+        if ('amazon.com' in git_parameters['host'] or
+                'amazonaws.com' in git_parameters['host'] or
+                args.ignore_host_check):
+            theUrl = self.extract_url(git_parameters)
+            region = self.extract_region(git_parameters, parsed_globals)
+            signature = self.sign_request(region, theUrl)
+            self.write_git_parameters(signature)
+        return 0
+
+    def write_git_parameters(self, signature):
+        username = self._session.get_credentials().access_key
+        if self._session.get_credentials().token is not None:
+            username += "%" + self._session.get_credentials().token
+        # Python will add a \r to the line ending for a text stdout in Windows.
+        # Git does not like the \r, so switch to binary
+        with NonTranslatedStdout() as binary_stdout:
+            binary_stdout.write('username={0}\n'.format(username))
+            logger.debug('username\n%s', username)
+            binary_stdout.write('password={0}\n'.format(signature))
+            # need to explicitly flush the buffer here,
+            # before we turn the stream back to text for windows
+            binary_stdout.flush()
+            logger.debug('signature\n%s', signature)
+
+    def read_git_parameters(self):
+        parsed = {}
+        for line in sys.stdin:
+            key, value = line.strip().split('=', 1)
+            parsed[key] = value
+        return parsed
+
+    def extract_url(self, parameters):
+        url = '{0}://{1}/{2}'.format(parameters['protocol'],
+                                     parameters['host'],
+                                     parameters['path'])
+        return url
+
+    def extract_region(self, parameters, parsed_globals):
+        match = re.match(r'(vpce-.+\.)?git-codecommit(-fips)?\.([^.]+)\.(vpce\.)?amazonaws\.com',
+                         parameters['host'])
+        if match is not None:
+            return match.group(3)
+        elif parsed_globals.region is not None:
+            return parsed_globals.region
         else:
-            parameters[self._param_to_replace] = zip_file_param
+            return self._session.get_config_variable('region')
+
+    def sign_request(self, region, url_to_sign):
+        credentials = self._session.get_credentials()
+        signer = SigV4Auth(credentials, 'codecommit', region)
+        request = AWSRequest()
+        request.url = url_to_sign
+        request.method = 'GIT'
+        now = datetime.datetime.utcnow()
+        request.context['timestamp'] = now.strftime('%Y%m%dT%H%M%S')
+        split = urlsplit(request.url)
+        # we don't want to include the port number in the signature
+        hostname = split.netloc.split(':')[0]
+        canonical_request = '{0}\n{1}\n\nhost:{2}\n\nhost\n'.format(
+            request.method,
+            split.path,
+            hostname)
+        logger.debug("Calculating signature using v4 auth.")
+        logger.debug('CanonicalRequest:\n%s', canonical_request)
+        string_to_sign = signer.string_to_sign(request, canonical_request)
+        logger.debug('StringToSign:\n%s', string_to_sign)
+        signature = signer.signature(string_to_sign, request)
+        logger.debug('Signature:\n%s', signature)
+        return '{0}Z{1}'.format(request.context['timestamp'], signature)
 
 
-class ReplacedZipFileArgument(CLIArgument):
-    """A replacement arugment for nested ZipFile argument.
+class CodeCommitCommand(BasicCommand):
+    NAME = 'credential-helper'
+    SYNOPSIS = ('aws codecommit credential-helper')
+    EXAMPLES = ''
 
-    This prevents the use of a non-working nested argument that expects binary.
-    Instead an instance of ZipFileArgument should be injected at the top level
-    and used instead. That way fileb:// can be used to load the binary
-    contents. And the argument class can inject those bytes into the correct
-    serialization name.
-    """
-    def __init__(self, *args, **kwargs):
-        super(ReplacedZipFileArgument, self).__init__(*args, **kwargs)
-        self._cli_name = '--%s' % kwargs['name']
-        self._param_to_replace = kwargs['serialized_name']
+    SUBCOMMANDS = [
+        {'name': 'get', 'command_class': CodeCommitGetCommand},
+        {'name': 'store', 'command_class': CodeCommitNoOpStoreCommand},
+        {'name': 'erase', 'command_class': CodeCommitNoOpEraseCommand},
+    ]
+    DESCRIPTION = ('Provide a SigV4 compatible user name and'
+                   ' password for git smart HTTP '
+                   ' These commands are consumed by git and'
+                   ' should not used directly. Erase and Store'
+                   ' are no-ops. Get is operation to generate'
+                   ' credentials to authenticate AWS CodeCommit.'
+                   ' Run \"aws codecommit credential-helper help\"'
+                   ' for details')
 
-    def add_to_params(self, parameters, value):
-        if value is None:
-            return
-        unpacked = self._unpack_argument(value)
-        if 'ZipFile' in unpacked:
-            raise ValueError(
-                "ZipFile cannot be provided "
-                "as part of the %s argument.  "
-                "Please use the '--zip-file' "
-                "option instead to specify a zip file." % self._cli_name)
-        if parameters.get(self._param_to_replace):
-            parameters[self._param_to_replace].update(unpacked)
-        else:
-            parameters[self._param_to_replace] = unpacked
+    def _run_main(self, args, parsed_globals):
+        raise ValueError('usage: aws [options] codecommit'
+                         ' credential-helper <subcommand> '
+                         '[parameters]\naws: error: too few arguments')

@@ -1,1 +1,1 @@
-š‡:venv/lib64/python3.6/site-packages/django_extensions/utils :	™‡Ÿ‡ ‡
+š‡:venv/lib64/python3.6/site-packages/django_extensions/utils :	™‡ž‡ ‡

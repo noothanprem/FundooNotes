@@ -1,108 +1,130 @@
 # -*- coding: utf-8 -*-
-"""Semaphores and concurrency primitives."""
+"""Amazon SQS queue implementation."""
 from __future__ import absolute_import, unicode_literals
 
-from collections import deque
+from vine import transform
 
-from kombu.five import python_2_unicode_compatible
+from .message import AsyncMessage
 
-__all__ = ('DummyLock', 'LaxBoundedSemaphore')
+_all__ = ['AsyncQueue']
 
 
-@python_2_unicode_compatible
-class LaxBoundedSemaphore(object):
-    """Asynchronous Bounded Semaphore.
+def list_first(rs):
+    """Get the first item in a list, or None if list empty."""
+    return rs[0] if len(rs) == 1 else None
 
-    Lax means that the value will stay within the specified
-    range even if released more times than it was acquired.
 
-    Example:
-        >>> from future import print_statement as printf
-        # ^ ignore: just fooling stupid pyflakes
+class AsyncQueue():
+    """Async SQS Queue."""
 
-        >>> x = LaxBoundedSemaphore(2)
+    def __init__(self, connection=None, url=None, message_class=AsyncMessage):
+        self.connection = connection
+        self.url = url
+        self.message_class = message_class
+        self.visibility_timeout = None
 
-        >>> x.acquire(printf, 'HELLO 1')
-        HELLO 1
+    def _NA(self, *args, **kwargs):
+        raise NotImplementedError()
+    count_slow = dump = save_to_file = save_to_filename = save = \
+        save_to_s3 = load_from_s3 = load_from_file = load_from_filename = \
+        load = clear = _NA
 
-        >>> x.acquire(printf, 'HELLO 2')
-        HELLO 2
-
-        >>> x.acquire(printf, 'HELLO 3')
-        >>> x._waiters   # private, do not access directly
-        [print, ('HELLO 3',)]
-
-        >>> x.release()
-        HELLO 3
-    """
-
-    def __init__(self, value):
-        self.initial_value = self.value = value
-        self._waiting = deque()
-        self._add_waiter = self._waiting.append
-        self._pop_waiter = self._waiting.popleft
-
-    def acquire(self, callback, *partial_args, **partial_kwargs):
-        """Acquire semaphore.
-
-        This will immediately apply ``callback`` if
-        the resource is available, otherwise the callback is suspended
-        until the semaphore is released.
-
-        Arguments:
-            callback (Callable): The callback to apply.
-            *partial_args (Any): partial arguments to callback.
-        """
-        value = self.value
-        if value <= 0:
-            self._add_waiter((callback, partial_args, partial_kwargs))
-            return False
-        else:
-            self.value = max(value - 1, 0)
-            callback(*partial_args, **partial_kwargs)
-            return True
-
-    def release(self):
-        """Release semaphore.
-
-        Note:
-            If there are any waiters this will apply the first waiter
-            that is waiting for the resource (FIFO order).
-        """
-        try:
-            waiter, args, kwargs = self._pop_waiter()
-        except IndexError:
-            self.value = min(self.value + 1, self.initial_value)
-        else:
-            waiter(*args, **kwargs)
-
-    def grow(self, n=1):
-        """Change the size of the semaphore to accept more users."""
-        self.initial_value += n
-        self.value += n
-        [self.release() for _ in range(n)]
-
-    def shrink(self, n=1):
-        """Change the size of the semaphore to accept less users."""
-        self.initial_value = max(self.initial_value - n, 0)
-        self.value = max(self.value - n, 0)
-
-    def clear(self):
-        """Reset the semaphore, which also wipes out any waiting callbacks."""
-        self._waiting.clear()
-        self.value = self.initial_value
-
-    def __repr__(self):
-        return '<{0} at {1:#x} value:{2} waiting:{3}>'.format(
-            self.__class__.__name__, id(self), self.value, len(self._waiting),
+    def get_attributes(self, attributes='All', callback=None):
+        return self.connection.get_queue_attributes(
+            self, attributes, callback,
         )
 
+    def set_attribute(self, attribute, value, callback=None):
+        return self.connection.set_queue_attribute(
+            self, attribute, value, callback,
+        )
 
-class DummyLock(object):
-    """Pretending to be a lock."""
+    def get_timeout(self, callback=None, _attr='VisibilityTimeout'):
+        return self.get_attributes(
+            _attr, transform(
+                self._coerce_field_value, callback, _attr, int,
+            ),
+        )
 
-    def __enter__(self):
-        return self
+    def _coerce_field_value(self, key, type, response):
+        return type(response[key])
 
-    def __exit__(self, *exc_info):
-        pass
+    def set_timeout(self, visibility_timeout, callback=None):
+        return self.set_attribute(
+            'VisibilityTimeout', visibility_timeout,
+            transform(
+                self._on_timeout_set, callback,
+            )
+        )
+
+    def _on_timeout_set(self, visibility_timeout):
+        if visibility_timeout:
+            self.visibility_timeout = visibility_timeout
+        return self.visibility_timeout
+
+    def add_permission(self, label, aws_account_id, action_name,
+                       callback=None):
+        return self.connection.add_permission(
+            self, label, aws_account_id, action_name, callback,
+        )
+
+    def remove_permission(self, label, callback=None):
+        return self.connection.remove_permission(self, label, callback)
+
+    def read(self, visibility_timeout=None, wait_time_seconds=None,
+             callback=None):
+        return self.get_messages(
+            1, visibility_timeout,
+            wait_time_seconds=wait_time_seconds,
+            callback=transform(list_first, callback),
+        )
+
+    def write(self, message, delay_seconds=None, callback=None):
+        return self.connection.send_message(
+            self, message.get_body_encoded(), delay_seconds,
+            callback=transform(self._on_message_sent, callback, message),
+        )
+
+    def write_batch(self, messages, callback=None):
+        return self.connection.send_message_batch(
+            self, messages, callback=callback,
+        )
+
+    def _on_message_sent(self, orig_message, new_message):
+        orig_message.id = new_message.id
+        orig_message.md5 = new_message.md5
+        return new_message
+
+    def get_messages(self, num_messages=1, visibility_timeout=None,
+                     attributes=None, wait_time_seconds=None, callback=None):
+        return self.connection.receive_message(
+            self, number_messages=num_messages,
+            visibility_timeout=visibility_timeout,
+            attributes=attributes,
+            wait_time_seconds=wait_time_seconds,
+            callback=callback,
+        )
+
+    def delete_message(self, message, callback=None):
+        return self.connection.delete_message(self, message, callback)
+
+    def delete_message_batch(self, messages, callback=None):
+        return self.connection.delete_message_batch(
+            self, messages, callback=callback,
+        )
+
+    def change_message_visibility_batch(self, messages, callback=None):
+        return self.connection.change_message_visibility_batch(
+            self, messages, callback=callback,
+        )
+
+    def delete(self, callback=None):
+        return self.connection.delete_queue(self, callback=callback)
+
+    def count(self, page_size=10, vtimeout=10, callback=None,
+              _attr='ApproximateNumberOfMessages'):
+        return self.get_attributes(
+            _attr, callback=transform(
+                self._coerce_field_value, callback, _attr, int,
+            ),
+        )

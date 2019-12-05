@@ -1,1 +1,1 @@
-à¢6venv/lib/python3.6/site-packages/twisted/web/static.py 2pyXÐh
+à¢8venv/lib/python3.6/site-packages/twisted/web/resource.py 2pyX§h

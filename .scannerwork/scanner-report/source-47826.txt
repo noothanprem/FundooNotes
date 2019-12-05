@@ -1,178 +1,158 @@
-# -*- test-case-name: twisted.logger.test.test_flatten -*-
+# -*- test-case-name: twisted.logger.test.test_observer -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-Code related to "flattening" events; that is, extracting a description of all
-relevant fields from the format string and persisting them for later
-examination.
+Basic log observers.
 """
 
-from string import Formatter
-from collections import defaultdict
+from zope.interface import Interface, implementer
 
-from twisted.python.compat import unicode
-
-aFormatter = Formatter()
+from twisted.python.failure import Failure
+from ._logger import Logger
 
 
 
-class KeyFlattener(object):
+OBSERVER_DISABLED = (
+    "Temporarily disabling observer {observer} due to exception: {log_failure}"
+)
+
+
+
+class ILogObserver(Interface):
     """
-    A L{KeyFlattener} computes keys for the things within curly braces in
-    PEP-3101-style format strings as parsed by L{string.Formatter.parse}.
+    An observer which can handle log events.
+
+    Unlike most interfaces within Twisted, an L{ILogObserver} I{must be
+    thread-safe}.  Log observers may be called indiscriminately from many
+    different threads, as any thread may wish to log a message at any time.
     """
 
-    def __init__(self):
+    def __call__(event):
         """
-        Initialize a L{KeyFlattener}.
+        Log an event.
+
+        @type event: C{dict} with (native) C{str} keys.
+        @param event: A dictionary with arbitrary keys as defined by the
+            application emitting logging events, as well as keys added by the
+            logging system.  The logging system reserves the right to set any
+            key beginning with the prefix C{"log_"}; applications should not
+            use any key so named.  Currently, the following keys are used by
+            the logging system in some way, if they are present (they are all
+            optional):
+
+                - C{"log_format"}: a PEP-3101-style format string which draws
+                  upon the keys in the event as its values, used to format the
+                  event for human consumption.
+
+                - C{"log_flattened"}: a dictionary mapping keys derived from
+                  the names and format values used in the C{"log_format"}
+                  string to their values.  This is used to preserve some
+                  structured information for use with
+                  L{twisted.logger.extractField}.
+
+                - C{"log_trace"}: A L{list} designed to capture information
+                  about which L{LogPublisher}s have observed the event.
+
+                - C{"log_level"}: a L{log level
+                  <twisted.logger.LogLevel>} constant, indicating the
+                  importance of and audience for this event.
+
+                - C{"log_namespace"}: a namespace for the emitter of the event,
+                  given as a unicode string.
+
+                - C{"log_system"}: a string indicating the network event or
+                  method call which resulted in the message being logged.
         """
-        self.keys = defaultdict(lambda: 0)
-
-
-    def flatKey(self, fieldName, formatSpec, conversion):
-        """
-        Compute a string key for a given field/format/conversion.
-
-        @param fieldName: A format field name.
-        @type fieldName: L{str}
-
-        @param formatSpec: A format spec.
-        @type formatSpec: L{str}
-
-        @param conversion: A format field conversion type.
-        @type conversion: L{str}
-
-        @return: A key specific to the given field, format and conversion, as
-            well as the occurrence of that combination within this
-            L{KeyFlattener}'s lifetime.
-        @rtype: L{str}
-        """
-        result = (
-            "{fieldName}!{conversion}:{formatSpec}"
-            .format(
-                fieldName=fieldName,
-                formatSpec=(formatSpec or ""),
-                conversion=(conversion or ""),
-            )
-        )
-        self.keys[result] += 1
-        n = self.keys[result]
-        if n != 1:
-            result += "/" + str(self.keys[result])
-        return result
 
 
 
-def flattenEvent(event):
+@implementer(ILogObserver)
+class LogPublisher(object):
     """
-    Flatten the given event by pre-associating format fields with specific
-    objects and callable results in a L{dict} put into the C{"log_flattened"}
-    key in the event.
+    I{ILogObserver} that fans out events to other observers.
 
-    @param event: A logging event.
-    @type event: L{dict}
+    Keeps track of a set of L{ILogObserver} objects and forwards
+    events to each.
     """
-    if event.get("log_format", None) is None:
-        return
 
-    if "log_flattened" in event:
-        fields = event["log_flattened"]
-    else:
-        fields = {}
+    def __init__(self, *observers):
+        self._observers = list(observers)
+        self.log = Logger(observer=self)
 
-    keyFlattener = KeyFlattener()
 
-    for (literalText, fieldName, formatSpec, conversion) in (
-        aFormatter.parse(event["log_format"])
-    ):
-        if fieldName is None:
-            continue
+    def addObserver(self, observer):
+        """
+        Registers an observer with this publisher.
 
-        if conversion != "r":
-            conversion = "s"
+        @param observer: An L{ILogObserver} to add.
+        """
+        if not callable(observer):
+            raise TypeError("Observer is not callable: {0!r}".format(observer))
+        if observer not in self._observers:
+            self._observers.append(observer)
 
-        flattenedKey = keyFlattener.flatKey(fieldName, formatSpec, conversion)
-        structuredKey = keyFlattener.flatKey(fieldName, formatSpec, "")
 
-        if flattenedKey in fields:
-            # We've already seen and handled this key
-            continue
+    def removeObserver(self, observer):
+        """
+        Unregisters an observer with this publisher.
 
-        if fieldName.endswith(u"()"):
-            fieldName = fieldName[:-2]
-            callit = True
+        @param observer: An L{ILogObserver} to remove.
+        """
+        try:
+            self._observers.remove(observer)
+        except ValueError:
+            pass
+
+
+    def __call__(self, event):
+        """
+        Forward events to contained observers.
+        """
+        if "log_trace" in event:
+            def trace(observer):
+                """
+                Add tracing information for an observer.
+
+                @param observer: an observer being forwarded to
+                @type observer: L{ILogObserver}
+                """
+                event["log_trace"].append((self, observer))
         else:
-            callit = False
+            trace = None
 
-        field = aFormatter.get_field(fieldName, (), event)
-        fieldValue = field[0]
+        brokenObservers = []
 
-        if conversion == "r":
-            conversionFunction = repr
-        else:  # Above: if conversion is not "r", it's "s"
-            conversionFunction = unicode
+        for observer in self._observers:
+            if trace is not None:
+                trace(observer)
 
-        if callit:
-            fieldValue = fieldValue()
+            try:
+                observer(event)
+            except Exception:
+                brokenObservers.append((observer, Failure()))
 
-        flattenedValue = conversionFunction(fieldValue)
-        fields[flattenedKey] = flattenedValue
-        fields[structuredKey] = fieldValue
-
-    if fields:
-        event["log_flattened"] = fields
-
-
-
-def extractField(field, event):
-    """
-    Extract a given format field from the given event.
-
-    @param field: A string describing a format field or log key.  This is the
-        text that would normally fall between a pair of curly braces in a
-        format string: for example, C{"key[2].attribute"}.  If a conversion is
-        specified (the thing after the C{"!"} character in a format field) then
-        the result will always be L{unicode}.
-    @type field: L{str} (native string)
-
-    @param event: A log event.
-    @type event: L{dict}
-
-    @return: A value extracted from the field.
-    @rtype: L{object}
-
-    @raise KeyError: if the field is not found in the given event.
-    """
-    keyFlattener = KeyFlattener()
-    [[literalText, fieldName, formatSpec, conversion]] = aFormatter.parse(
-        "{" + field + "}"
-    )
-    key = keyFlattener.flatKey(fieldName, formatSpec, conversion)
-    if "log_flattened" not in event:
-        flattenEvent(event)
-    return event["log_flattened"][key]
+        for brokenObserver, failure in brokenObservers:
+            errorLogger = self._errorLoggerForObserver(brokenObserver)
+            errorLogger.failure(
+                OBSERVER_DISABLED,
+                failure=failure,
+                observer=brokenObserver,
+            )
 
 
+    def _errorLoggerForObserver(self, observer):
+        """
+        Create an error-logger based on this logger, which does not contain the
+        given bad observer.
 
-def flatFormat(event):
-    """
-    Format an event which has been flattened with L{flattenEvent}.
+        @param observer: The observer which previously had an error.
+        @type observer: L{ILogObserver}
 
-    @param event: A logging event.
-    @type event: L{dict}
-
-    @return: A formatted string.
-    @rtype: L{unicode}
-    """
-    fieldValues = event["log_flattened"]
-    s = []
-    keyFlattener = KeyFlattener()
-    formatFields = aFormatter.parse(event["log_format"])
-    for literalText, fieldName, formatSpec, conversion in formatFields:
-        s.append(literalText)
-        if fieldName is not None:
-            key = keyFlattener.flatKey(
-                    fieldName, formatSpec, conversion or "s")
-            s.append(unicode(fieldValues[key]))
-    return u"".join(s)
+        @return: L{None}
+        """
+        errorPublisher = LogPublisher(*[
+            obs for obs in self._observers
+            if obs is not observer
+        ])
+        return Logger(observer=errorPublisher)

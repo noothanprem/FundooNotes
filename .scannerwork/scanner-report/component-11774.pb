@@ -1,1 +1,1 @@
-þ[Fvenv/lib/python3.6/site-packages/faker/providers/job/fi_FI/__init__.py 2pyXËh
+þ[:venv/lib/python3.6/site-packages/faker/providers/job/uk_UA :ý[

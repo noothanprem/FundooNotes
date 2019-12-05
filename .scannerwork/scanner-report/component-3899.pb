@@ -1,1 +1,0 @@
-»Evenv/lib/python3.6/site-packages/django/utils/translation/template.py 2pyXäh

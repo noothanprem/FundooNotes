@@ -1,1 +1,1 @@
-πÕ6venv/lib64/python3.6/site-packages/colorful/widgets.py 2pyX7h
+πÕ+venv/lib64/python3.6/site-packages/colorful :∏Õ∫ÕºÕΩÕ¡Õ

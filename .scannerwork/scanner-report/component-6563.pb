@@ -1,1 +1,1 @@
-£3Bvenv/lib/python3.6/site-packages/django/contrib/admindocs/utils.py 2pyXîh
+£3Bvenv/lib/python3.6/site-packages/django/contrib/admindocs/views.py 2pyXŸh

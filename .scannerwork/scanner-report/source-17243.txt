@@ -1,68 +1,97 @@
-import sys, pickle
-from unittest import TestCase
-
+import unittest
 import simplejson as json
-from simplejson.compat import text_type, b
 
-class TestErrors(TestCase):
-    def test_string_keys_error(self):
-        data = [{'a': 'A', 'b': (2, 4), 'c': 3.0, ('d',): 'D tuple'}]
-        try:
-            json.dumps(data)
-        except TypeError:
-            err = sys.exc_info()[1]
+
+class ForJson(object):
+    def for_json(self):
+        return {'for_json': 1}
+
+
+class NestedForJson(object):
+    def for_json(self):
+        return {'nested': ForJson()}
+
+
+class ForJsonList(object):
+    def for_json(self):
+        return ['list']
+
+
+class DictForJson(dict):
+    def for_json(self):
+        return {'alpha': 1}
+
+
+class ListForJson(list):
+    def for_json(self):
+        return ['list']
+
+
+class TestForJson(unittest.TestCase):
+    def assertRoundTrip(self, obj, other, for_json=True):
+        if for_json is None:
+            # None will use the default
+            s = json.dumps(obj)
         else:
-            self.fail('Expected TypeError')
-        self.assertEqual(str(err),
-                'keys must be str, int, float, bool or None, not tuple')
+            s = json.dumps(obj, for_json=for_json)
+        self.assertEqual(
+            json.loads(s),
+            other)
 
-    def test_not_serializable(self):
-        try:
-            json.dumps(json)
-        except TypeError:
-            err = sys.exc_info()[1]
-        else:
-            self.fail('Expected TypeError')
-        self.assertEqual(str(err),
-                'Object of type module is not JSON serializable')
+    def test_for_json_encodes_stand_alone_object(self):
+        self.assertRoundTrip(
+            ForJson(),
+            ForJson().for_json())
 
-    def test_decode_error(self):
-        err = None
-        try:
-            json.loads('{}\na\nb')
-        except json.JSONDecodeError:
-            err = sys.exc_info()[1]
-        else:
-            self.fail('Expected JSONDecodeError')
-        self.assertEqual(err.lineno, 2)
-        self.assertEqual(err.colno, 1)
-        self.assertEqual(err.endlineno, 3)
-        self.assertEqual(err.endcolno, 2)
+    def test_for_json_encodes_object_nested_in_dict(self):
+        self.assertRoundTrip(
+            {'hooray': ForJson()},
+            {'hooray': ForJson().for_json()})
 
-    def test_scan_error(self):
-        err = None
-        for t in (text_type, b):
-            try:
-                json.loads(t('{"asdf": "'))
-            except json.JSONDecodeError:
-                err = sys.exc_info()[1]
-            else:
-                self.fail('Expected JSONDecodeError')
-            self.assertEqual(err.lineno, 1)
-            self.assertEqual(err.colno, 10)
+    def test_for_json_encodes_object_nested_in_list_within_dict(self):
+        self.assertRoundTrip(
+            {'list': [0, ForJson(), 2, 3]},
+            {'list': [0, ForJson().for_json(), 2, 3]})
 
-    def test_error_is_pickable(self):
-        err = None
-        try:
-            json.loads('{}\na\nb')
-        except json.JSONDecodeError:
-            err = sys.exc_info()[1]
-        else:
-            self.fail('Expected JSONDecodeError')
-        s = pickle.dumps(err)
-        e = pickle.loads(s)
+    def test_for_json_encodes_object_nested_within_object(self):
+        self.assertRoundTrip(
+            NestedForJson(),
+            {'nested': {'for_json': 1}})
 
-        self.assertEqual(err.msg, e.msg)
-        self.assertEqual(err.doc, e.doc)
-        self.assertEqual(err.pos, e.pos)
-        self.assertEqual(err.end, e.end)
+    def test_for_json_encodes_list(self):
+        self.assertRoundTrip(
+            ForJsonList(),
+            ForJsonList().for_json())
+
+    def test_for_json_encodes_list_within_object(self):
+        self.assertRoundTrip(
+            {'nested': ForJsonList()},
+            {'nested': ForJsonList().for_json()})
+
+    def test_for_json_encodes_dict_subclass(self):
+        self.assertRoundTrip(
+            DictForJson(a=1),
+            DictForJson(a=1).for_json())
+
+    def test_for_json_encodes_list_subclass(self):
+        self.assertRoundTrip(
+            ListForJson(['l']),
+            ListForJson(['l']).for_json())
+
+    def test_for_json_ignored_if_not_true_with_dict_subclass(self):
+        for for_json in (None, False):
+            self.assertRoundTrip(
+                DictForJson(a=1),
+                {'a': 1},
+                for_json=for_json)
+
+    def test_for_json_ignored_if_not_true_with_list_subclass(self):
+        for for_json in (None, False):
+            self.assertRoundTrip(
+                ListForJson(['l']),
+                ['l'],
+                for_json=for_json)
+
+    def test_raises_typeerror_if_for_json_not_true_with_object(self):
+        self.assertRaises(TypeError, json.dumps, ForJson())
+        self.assertRaises(TypeError, json.dumps, ForJson(), for_json=False)

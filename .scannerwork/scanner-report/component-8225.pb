@@ -1,1 +1,1 @@
-¡@Kvenv/lib/python3.6/site-packages/django/core/management/commands/migrate.py 2pyXîh
+¡@:venv/lib/python3.6/site-packages/django/core/mail/utils.py 2pyXh

@@ -1,1 +1,1 @@
-·‡7venv/lib/python3.6/site-packages/kombu/utils/objects.py 2pyXBh
+·‡;venv/lib/python3.6/site-packages/kombu/utils/amq_manager.py 2pyXh

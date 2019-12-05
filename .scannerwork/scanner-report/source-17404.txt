@@ -1,127 +1,122 @@
-"""Messaging library for Python."""
+"""Object utilities."""
 from __future__ import absolute_import, unicode_literals
 
-import os
-import re
-import sys
+from copy import copy
 
-if sys.version_info < (2, 7):  # pragma: no cover
-    raise Exception('Kombu 4.0 requires Python versions 2.7 or later.')
+from .connection import maybe_channel
+from .exceptions import NotBoundError
+from .five import python_2_unicode_compatible
+from .utils.functional import ChannelPromise
 
-from collections import namedtuple  # noqa
-
-__version__ = '4.6.5'
-__author__ = 'Ask Solem'
-__contact__ = 'auvipy@gmail.com, ask@celeryproject.org'
-__homepage__ = 'https://kombu.readthedocs.io'
-__docformat__ = 'restructuredtext en'
-
-# -eof meta-
-
-version_info_t = namedtuple('version_info_t', (
-    'major', 'minor', 'micro', 'releaselevel', 'serial',
-))
-
-# bumpversion can only search for {current_version}
-# so we have to parse the version here.
-_temp = re.match(
-    r'(\d+)\.(\d+).(\d+)(.+)?', __version__).groups()
-VERSION = version_info = version_info_t(
-    int(_temp[0]), int(_temp[1]), int(_temp[2]), _temp[3] or '', '')
-del(_temp)
-del(re)
-
-STATICA_HACK = True
-globals()['kcah_acitats'[::-1].upper()] = False
-if STATICA_HACK:  # pragma: no cover
-    # This is never executed, but tricks static analyzers (PyDev, PyCharm,
-    # pylint, etc.) into knowing the types of these symbols, and what
-    # they contain.
-    from kombu.connection import Connection, BrokerConnection   # noqa
-    from kombu.entity import Exchange, Queue, binding           # noqa
-    from kombu.message import Message                           # noqa
-    from kombu.messaging import Consumer, Producer              # noqa
-    from kombu.pools import connections, producers              # noqa
-    from kombu.utils.url import parse_url                       # noqa
-    from kombu.common import eventloop, uuid                    # noqa
-    from kombu.serialization import (                           # noqa
-        enable_insecure_serializers,
-        disable_insecure_serializers,
-    )
-
-# Lazy loading.
-# - See werkzeug/__init__.py for the rationale behind this.
-from types import ModuleType  # noqa
-
-all_by_module = {
-    'kombu.connection': ['Connection', 'BrokerConnection'],
-    'kombu.entity': ['Exchange', 'Queue', 'binding'],
-    'kombu.message': ['Message'],
-    'kombu.messaging': ['Consumer', 'Producer'],
-    'kombu.pools': ['connections', 'producers'],
-    'kombu.utils.url': ['parse_url'],
-    'kombu.common': ['eventloop', 'uuid'],
-    'kombu.serialization': [
-        'enable_insecure_serializers',
-        'disable_insecure_serializers',
-    ],
-}
-
-object_origins = {}
-for module, items in all_by_module.items():
-    for item in items:
-        object_origins[item] = module
+__all__ = ('Object', 'MaybeChannelBound')
 
 
-class module(ModuleType):
-    """Customized Python module."""
-
-    def __getattr__(self, name):
-        if name in object_origins:
-            module = __import__(object_origins[name], None, None, [name])
-            for extra_name in all_by_module[module.__name__]:
-                setattr(self, extra_name, getattr(module, extra_name))
-            return getattr(module, name)
-        return ModuleType.__getattribute__(self, name)
-
-    def __dir__(self):
-        result = list(new_module.__all__)
-        result.extend(('__file__', '__path__', '__doc__', '__all__',
-                       '__docformat__', '__name__', '__path__', 'VERSION',
-                       '__package__', '__version__', '__author__',
-                       '__contact__', '__homepage__', '__docformat__'))
-        return result
+def unpickle_dict(cls, kwargs):
+    return cls(**kwargs)
 
 
-# 2.5 does not define __package__
-try:
-    package = __package__
-except NameError:  # pragma: no cover
-    package = 'kombu'
+def _any(v):
+    return v
 
-# keep a reference to this module so that it's not garbage collected
-old_module = sys.modules[__name__]
 
-new_module = sys.modules[__name__] = module(__name__)
-new_module.__dict__.update({
-    '__file__': __file__,
-    '__path__': __path__,
-    '__doc__': __doc__,
-    '__all__': tuple(object_origins),
-    '__version__': __version__,
-    '__author__': __author__,
-    '__contact__': __contact__,
-    '__homepage__': __homepage__,
-    '__docformat__': __docformat__,
-    '__package__': package,
-    'version_info_t': version_info_t,
-    'version_info': version_info,
-    'VERSION': VERSION,
-    'absolute_import': absolute_import,
-    'unicode_literals': unicode_literals,
-})
+class Object(object):
+    """Common base class.
 
-if os.environ.get('KOMBU_LOG_DEBUG'):  # pragma: no cover
-    os.environ.update(KOMBU_LOG_CHANNEL='1', KOMBU_LOG_CONNECTION='1')
-    from .utils import debug
-    debug.setup_logging()
+    Supports automatic kwargs->attributes handling, and cloning.
+    """
+
+    attrs = ()
+
+    def __init__(self, *args, **kwargs):
+        for name, type_ in self.attrs:
+            value = kwargs.get(name)
+            if value is not None:
+                setattr(self, name, (type_ or _any)(value))
+            else:
+                try:
+                    getattr(self, name)
+                except AttributeError:
+                    setattr(self, name, None)
+
+    def as_dict(self, recurse=False):
+        def f(obj, type):
+            if recurse and isinstance(obj, Object):
+                return obj.as_dict(recurse=True)
+            return type(obj) if type and obj is not None else obj
+        return {
+            attr: f(getattr(self, attr), type) for attr, type in self.attrs
+        }
+
+    def __reduce__(self):
+        return unpickle_dict, (self.__class__, self.as_dict())
+
+    def __copy__(self):
+        return self.__class__(**self.as_dict())
+
+
+@python_2_unicode_compatible
+class MaybeChannelBound(Object):
+    """Mixin for classes that can be bound to an AMQP channel."""
+
+    _channel = None
+    _is_bound = False
+
+    #: Defines whether maybe_declare can skip declaring this entity twice.
+    can_cache_declaration = False
+
+    def __call__(self, channel):
+        """`self(channel) -> self.bind(channel)`."""
+        return self.bind(channel)
+
+    def bind(self, channel):
+        """Create copy of the instance that is bound to a channel."""
+        return copy(self).maybe_bind(channel)
+
+    def maybe_bind(self, channel):
+        """Bind instance to channel if not already bound."""
+        if not self.is_bound and channel:
+            self._channel = maybe_channel(channel)
+            self.when_bound()
+            self._is_bound = True
+        return self
+
+    def revive(self, channel):
+        """Revive channel after the connection has been re-established.
+
+        Used by :meth:`~kombu.Connection.ensure`.
+
+        """
+        if self.is_bound:
+            self._channel = channel
+            self.when_bound()
+
+    def when_bound(self):
+        """Callback called when the class is bound."""
+        pass
+
+    def __repr__(self):
+        return self._repr_entity(type(self).__name__)
+
+    def _repr_entity(self, item=''):
+        item = item or type(self).__name__
+        if self.is_bound:
+            return '<{0} bound to chan:{1}>'.format(
+                item or type(self).__name__, self.channel.channel_id)
+        return '<unbound {0}>'.format(item)
+
+    @property
+    def is_bound(self):
+        """Flag set if the channel is bound."""
+        return self._is_bound and self._channel is not None
+
+    @property
+    def channel(self):
+        """Current channel if the object is bound."""
+        channel = self._channel
+        if channel is None:
+            raise NotBoundError(
+                "Can't call method on {0} not bound to a channel".format(
+                    type(self).__name__))
+        if isinstance(channel, ChannelPromise):
+            channel = self._channel = channel()
+        return channel

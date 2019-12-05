@@ -1,1 +1,1 @@
-ª•Fvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl/management :¨•
+ª•Fvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl/management :©•

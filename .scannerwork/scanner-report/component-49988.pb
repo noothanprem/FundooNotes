@@ -1,1 +1,1 @@
-ĆAvenv/lib64/python3.6/site-packages/social_core/backends/strava.py 2pyX0h
+Ć?venv/lib64/python3.6/site-packages/social_core/backends/saml.py 2pyX�h

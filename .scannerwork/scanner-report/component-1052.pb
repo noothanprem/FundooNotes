@@ -1,1 +1,1 @@
-œ7venv/lib/python3.6/site-packages/urllib3/poolmanager.py 2pyX×h
+œ4venv/lib/python3.6/site-packages/urllib3/__init__.py 2pyXWh

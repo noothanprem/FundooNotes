@@ -1,1 +1,2 @@
-ç®7venv/lib/python3.6/site-packages/twisted/protocols/test :	å®é®è®
+ç®Evenv/lib/python3.6/site-packages/twisted/protocols/test/test_basic.py 2pyX€
+h

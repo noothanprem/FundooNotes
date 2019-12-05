@@ -1,1 +1,0 @@
-…šCvenv/lib/python3.6/site-packages/hamcrest/core/core/described_as.py 2pyX1h

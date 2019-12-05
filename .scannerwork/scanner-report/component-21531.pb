@@ -1,1 +1,1 @@
-›¨=venv/lib/python3.6/site-packages/twisted/spread/interfaces.py 2pyX h
+›¨(venv/lib/python3.6/site-packages/twisted :š¨·¨»©‘ªñ«

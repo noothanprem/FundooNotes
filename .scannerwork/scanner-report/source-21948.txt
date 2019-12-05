@@ -1,298 +1,226 @@
-# -*- coding: utf-8 -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-from __future__ import absolute_import, division
+"""
+Tests for L{twisted.words.protocols.jabber.jid}.
+"""
 
+from twisted.python.compat import unicode
 from twisted.trial import unittest
 
-from twisted.words.xish import xpath
-from twisted.words.xish.domish import Element
-from twisted.words.xish.xpath import XPathQuery
-from twisted.words.xish.xpathparser import SyntaxError
+from twisted.words.protocols.jabber import jid
 
-class XPathTests(unittest.TestCase):
-    def setUp(self):
-        # Build element:
-        # <foo xmlns='testns' attrib1='value1' attrib3="user@host/resource">
-        #     somecontent
-        #     <bar>
-        #        <foo>
-        #         <gar>DEF</gar>
-        #        </foo>
-        #     </bar>
-        #     somemorecontent
-        #     <bar attrib2="value2">
-        #        <bar>
-        #          <foo/>
-        #          <gar>ABC</gar>
-        #        </bar>
-        #     <bar/>
-        #     <bar attrib4='value4' attrib5='value5'>
-        #        <foo/>
-        #        <gar>JKL</gar>
-        #     </bar>
-        #     <bar attrib4='value4' attrib5='value4'>
-        #        <foo/>
-        #        <gar>MNO</gar>
-        #     </bar>
-        #     <bar attrib4='value4' attrib5='value6' attrib6='á'>
-        #         <quux>☃</quux>
-        #     </bar>
-        # </foo>
-        self.e = Element(("testns", "foo"))
-        self.e["attrib1"] = "value1"
-        self.e["attrib3"] = "user@host/resource"
-        self.e.addContent(u"somecontent")
-        self.bar1 = self.e.addElement("bar")
-        self.subfoo = self.bar1.addElement("foo")
-        self.gar1 = self.subfoo.addElement("gar")
-        self.gar1.addContent(u"DEF")
-        self.e.addContent(u"somemorecontent")
-        self.bar2 = self.e.addElement("bar")
-        self.bar2["attrib2"] = "value2"
-        self.bar3 = self.bar2.addElement("bar")
-        self.subfoo2 = self.bar3.addElement("foo")
-        self.gar2 = self.bar3.addElement("gar")
-        self.gar2.addContent(u"ABC")
-        self.bar4 = self.e.addElement("bar")
-        self.bar5 = self.e.addElement("bar")
-        self.bar5["attrib4"] = "value4"
-        self.bar5["attrib5"] = "value5"
-        self.subfoo3 = self.bar5.addElement("foo")
-        self.gar3 = self.bar5.addElement("gar")
-        self.gar3.addContent(u"JKL")
-        self.bar6 = self.e.addElement("bar")
-        self.bar6["attrib4"] = "value4"
-        self.bar6["attrib5"] = "value4"
-        self.subfoo4 = self.bar6.addElement("foo")
-        self.gar4 = self.bar6.addElement("gar")
-        self.gar4.addContent(u"MNO")
-        self.bar7 = self.e.addElement("bar")
-        self.bar7["attrib4"] = "value4"
-        self.bar7["attrib5"] = "value6"
-        self.bar7["attrib6"] = u"á"
-        self.quux = self.bar7.addElement("quux")
-        self.quux.addContent(u"\N{SNOWMAN}")
+class JIDParsingTests(unittest.TestCase):
+    def test_parse(self):
+        """
+        Test different forms of JIDs.
+        """
+        # Basic forms
+        self.assertEqual(jid.parse("user@host/resource"),
+                          ("user", "host", "resource"))
+        self.assertEqual(jid.parse("user@host"),
+                          ("user", "host", None))
+        self.assertEqual(jid.parse("host"),
+                          (None, "host", None))
+        self.assertEqual(jid.parse("host/resource"),
+                          (None, "host", "resource"))
 
-    def test_staticMethods(self):
-        """
-        Test basic operation of the static methods.
-        """
-        self.assertEqual(xpath.matches("/foo/bar", self.e),
-                          True)
-        self.assertEqual(xpath.queryForNodes("/foo/bar", self.e),
-                          [self.bar1, self.bar2, self.bar4,
-                           self.bar5, self.bar6, self.bar7])
-        self.assertEqual(xpath.queryForString("/foo", self.e),
-                          "somecontent")
-        self.assertEqual(xpath.queryForStringList("/foo", self.e),
-                          ["somecontent", "somemorecontent"])
+        # More interesting forms
+        self.assertEqual(jid.parse("foo/bar@baz"),
+                          (None, "foo", "bar@baz"))
+        self.assertEqual(jid.parse("boo@foo/bar@baz"),
+                          ("boo", "foo", "bar@baz"))
+        self.assertEqual(jid.parse("boo@foo/bar/baz"),
+                          ("boo", "foo", "bar/baz"))
+        self.assertEqual(jid.parse("boo/foo@bar@baz"),
+                          (None, "boo", "foo@bar@baz"))
+        self.assertEqual(jid.parse("boo/foo/bar"),
+                          (None, "boo", "foo/bar"))
+        self.assertEqual(jid.parse("boo//foo"),
+                          (None, "boo", "/foo"))
 
-    def test_locationFooBar(self):
+    def test_noHost(self):
         """
-        Test matching foo with child bar.
+        Test for failure on no host part.
         """
-        xp = XPathQuery("/foo/bar")
-        self.assertEqual(xp.matches(self.e), 1)
+        self.assertRaises(jid.InvalidFormat, jid.parse, "user@")
 
-    def test_locationFooBarFoo(self):
+    def test_doubleAt(self):
         """
-        Test finding foos at the second level.
-        """
-        xp = XPathQuery("/foo/bar/foo")
-        self.assertEqual(xp.matches(self.e), 1)
-        self.assertEqual(xp.queryForNodes(self.e), [self.subfoo,
-                                                     self.subfoo3,
-                                                     self.subfoo4])
+        Test for failure on double @ signs.
 
-    def test_locationNoBar3(self):
+        This should fail because @ is not a valid character for the host
+        part of the JID.
         """
-        Test not finding bar3.
-        """
-        xp = XPathQuery("/foo/bar3")
-        self.assertEqual(xp.matches(self.e), 0)
+        self.assertRaises(jid.InvalidFormat, jid.parse, "user@@host")
 
-    def test_locationAllChilds(self):
+    def test_multipleAt(self):
         """
-        Test finding childs of foo.
-        """
-        xp = XPathQuery("/foo/*")
-        self.assertEqual(xp.matches(self.e), True)
-        self.assertEqual(xp.queryForNodes(self.e), [self.bar1, self.bar2,
-                                                     self.bar4, self.bar5,
-                                                     self.bar6, self.bar7])
+        Test for failure on two @ signs.
 
-    def test_attribute(self):
+        This should fail because @ is not a valid character for the host
+        part of the JID.
         """
-        Test matching foo with attribute.
-        """
-        xp = XPathQuery("/foo[@attrib1]")
-        self.assertEqual(xp.matches(self.e), True)
+        self.assertRaises(jid.InvalidFormat, jid.parse, "user@host@host")
 
-    def test_attributeWithValueAny(self):
-        """
-        Test find nodes with attribute having value.
-        """
-        xp = XPathQuery("/foo/*[@attrib2='value2']")
-        self.assertEqual(xp.matches(self.e), True)
-        self.assertEqual(xp.queryForNodes(self.e), [self.bar2])
+    # Basic tests for case mapping. These are fallback tests for the
+    # prepping done in twisted.words.protocols.jabber.xmpp_stringprep
 
-    def test_locationWithValueUnicode(self):
+    def test_prepCaseMapUser(self):
         """
-        Nodes' attributes can be matched with non-ASCII values.
+        Test case mapping of the user part of the JID.
         """
-        xp = XPathQuery(u"/foo/*[@attrib6='á']")
-        self.assertEqual(xp.matches(self.e), True)
-        self.assertEqual(xp.queryForNodes(self.e), [self.bar7])
+        self.assertEqual(jid.prep("UsEr", "host", "resource"),
+                          ("user", "host", "resource"))
 
-    def test_namespaceFound(self):
+    def test_prepCaseMapHost(self):
         """
-        Test matching node with namespace.
+        Test case mapping of the host part of the JID.
         """
-        xp = XPathQuery("/foo[@xmlns='testns']/bar")
-        self.assertEqual(xp.matches(self.e), 1)
+        self.assertEqual(jid.prep("user", "hoST", "resource"),
+                          ("user", "host", "resource"))
 
-    def test_namespaceNotFound(self):
+    def test_prepNoCaseMapResource(self):
         """
-        Test not matching node with wrong namespace.
+        Test no case mapping of the resourcce part of the JID.
         """
-        xp = XPathQuery("/foo[@xmlns='badns']/bar2")
-        self.assertEqual(xp.matches(self.e), 0)
+        self.assertEqual(jid.prep("user", "hoST", "resource"),
+                          ("user", "host", "resource"))
+        self.assertNotEqual(jid.prep("user", "host", "Resource"),
+                             ("user", "host", "resource"))
 
-    def test_attributeWithValue(self):
-        """
-        Test matching node with attribute having value.
-        """
-        xp = XPathQuery("/foo[@attrib1='value1']")
-        self.assertEqual(xp.matches(self.e), 1)
+class JIDTests(unittest.TestCase):
 
-    def test_queryForString(self):
+    def test_noneArguments(self):
         """
-        queryforString on absolute paths returns their first CDATA.
+        Test that using no arguments raises an exception.
         """
-        xp = XPathQuery("/foo")
-        self.assertEqual(xp.queryForString(self.e), "somecontent")
+        self.assertRaises(RuntimeError, jid.JID)
 
-    def test_queryForStringList(self):
+    def test_attributes(self):
         """
-        queryforStringList on absolute paths returns all their CDATA.
+        Test that the attributes correspond with the JID parts.
         """
-        xp = XPathQuery("/foo")
-        self.assertEqual(xp.queryForStringList(self.e),
-                          ["somecontent", "somemorecontent"])
+        j = jid.JID("user@host/resource")
+        self.assertEqual(j.user, "user")
+        self.assertEqual(j.host, "host")
+        self.assertEqual(j.resource, "resource")
 
-    def test_queryForStringListAnyLocation(self):
+    def test_userhost(self):
         """
-        queryforStringList on relative paths returns all their CDATA.
+        Test the extraction of the bare JID.
         """
-        xp = XPathQuery("//foo")
-        self.assertEqual(xp.queryForStringList(self.e),
-                          ["somecontent", "somemorecontent"])
+        j = jid.JID("user@host/resource")
+        self.assertEqual("user@host", j.userhost())
 
-    def test_queryForNodes(self):
+    def test_userhostOnlyHost(self):
         """
-        Test finding nodes.
+        Test the extraction of the bare JID of the full form host/resource.
         """
-        xp = XPathQuery("/foo/bar")
-        self.assertEqual(xp.queryForNodes(self.e), [self.bar1, self.bar2,
-                                                     self.bar4, self.bar5,
-                                                     self.bar6, self.bar7])
+        j = jid.JID("host/resource")
+        self.assertEqual("host", j.userhost())
 
-    def test_textCondition(self):
+    def test_userhostJID(self):
         """
-        Test matching a node with given text.
+        Test getting a JID object of the bare JID.
         """
-        xp = XPathQuery("/foo[text() = 'somecontent']")
-        self.assertEqual(xp.matches(self.e), True)
+        j1 = jid.JID("user@host/resource")
+        j2 = jid.internJID("user@host")
+        self.assertIdentical(j2, j1.userhostJID())
 
-    def test_textConditionUnicode(self):
+    def test_userhostJIDNoResource(self):
         """
-        A node can be matched by text with non-ascii code points.
+        Test getting a JID object of the bare JID when there was no resource.
         """
-        xp = XPathQuery(u"//*[text()='\N{SNOWMAN}']")
-        self.assertEqual(xp.matches(self.e), True)
-        self.assertEqual(xp.queryForNodes(self.e), [self.quux])
+        j = jid.JID("user@host")
+        self.assertIdentical(j, j.userhostJID())
 
-    def test_textNotOperator(self):
+    def test_fullHost(self):
         """
-        Test for not operator.
+        Test giving a string representation of the JID with only a host part.
         """
-        xp = XPathQuery("/foo[not(@nosuchattrib)]")
-        self.assertEqual(xp.matches(self.e), True)
+        j = jid.JID(tuple=(None, 'host', None))
+        self.assertEqual('host', j.full())
 
-    def test_anyLocationAndText(self):
+    def test_fullHostResource(self):
         """
-        Test finding any nodes named gar and getting their text contents.
+        Test giving a string representation of the JID with host, resource.
         """
-        xp = XPathQuery("//gar")
-        self.assertEqual(xp.matches(self.e), True)
-        self.assertEqual(xp.queryForNodes(self.e), [self.gar1, self.gar2,
-                                                     self.gar3, self.gar4])
-        self.assertEqual(xp.queryForStringList(self.e), ["DEF", "ABC",
-                                                          "JKL", "MNO"])
+        j = jid.JID(tuple=(None, 'host', 'resource'))
+        self.assertEqual('host/resource', j.full())
 
-    def test_anyLocation(self):
+    def test_fullUserHost(self):
         """
-        Test finding any nodes named bar.
+        Test giving a string representation of the JID with user, host.
         """
-        xp = XPathQuery("//bar")
-        self.assertEqual(xp.matches(self.e), True)
-        self.assertEqual(xp.queryForNodes(self.e), [self.bar1, self.bar2,
-                                                     self.bar3, self.bar4,
-                                                     self.bar5, self.bar6,
-                                                     self.bar7])
+        j = jid.JID(tuple=('user', 'host', None))
+        self.assertEqual('user@host', j.full())
 
-    def test_anyLocationQueryForString(self):
+    def test_fullAll(self):
         """
-        L{XPathQuery.queryForString} should raise a L{NotImplementedError}
-        for any location.
+        Test giving a string representation of the JID.
         """
-        xp = XPathQuery("//bar")
-        self.assertRaises(NotImplementedError, xp.queryForString, None)
+        j = jid.JID(tuple=('user', 'host', 'resource'))
+        self.assertEqual('user@host/resource', j.full())
 
-    def test_andOperator(self):
+    def test_equality(self):
         """
-        Test boolean and operator in condition.
+        Test JID equality.
         """
-        xp = XPathQuery("//bar[@attrib4='value4' and @attrib5='value5']")
-        self.assertEqual(xp.matches(self.e), True)
-        self.assertEqual(xp.queryForNodes(self.e), [self.bar5])
+        j1 = jid.JID("user@host/resource")
+        j2 = jid.JID("user@host/resource")
+        self.assertNotIdentical(j1, j2)
+        self.assertEqual(j1, j2)
 
-    def test_orOperator(self):
+    def test_equalityWithNonJIDs(self):
         """
-        Test boolean or operator in condition.
+        Test JID equality.
         """
-        xp = XPathQuery("//bar[@attrib5='value4' or @attrib5='value5']")
-        self.assertEqual(xp.matches(self.e), True)
-        self.assertEqual(xp.queryForNodes(self.e), [self.bar5, self.bar6])
+        j = jid.JID("user@host/resource")
+        self.assertFalse(j == 'user@host/resource')
 
-    def test_booleanOperatorsParens(self):
+    def test_inequality(self):
         """
-        Test multiple boolean operators in condition with parens.
+        Test JID inequality.
         """
-        xp = XPathQuery("""//bar[@attrib4='value4' and
-                                 (@attrib5='value4' or @attrib5='value6')]""")
-        self.assertEqual(xp.matches(self.e), True)
-        self.assertEqual(xp.queryForNodes(self.e), [self.bar6, self.bar7])
+        j1 = jid.JID("user1@host/resource")
+        j2 = jid.JID("user2@host/resource")
+        self.assertNotEqual(j1, j2)
 
-    def test_booleanOperatorsNoParens(self):
+    def test_inequalityWithNonJIDs(self):
         """
-        Test multiple boolean operators in condition without parens.
+        Test JID equality.
         """
-        xp = XPathQuery("""//bar[@attrib5='value4' or
-                                 @attrib5='value5' or
-                                 @attrib5='value6']""")
-        self.assertEqual(xp.matches(self.e), True)
-        self.assertEqual(xp.queryForNodes(self.e), [self.bar5, self.bar6, self.bar7])
+        j = jid.JID("user@host/resource")
+        self.assertNotEqual(j, 'user@host/resource')
 
-    def test_badXPathNoClosingBracket(self):
+    def test_hashable(self):
         """
-        A missing closing bracket raises a SyntaxError.
+        Test JID hashability.
+        """
+        j1 = jid.JID("user@host/resource")
+        j2 = jid.JID("user@host/resource")
+        self.assertEqual(hash(j1), hash(j2))
 
-        This test excercises the most common failure mode.
+    def test_unicode(self):
         """
-        exc = self.assertRaises(SyntaxError, XPathQuery, """//bar[@attrib1""")
-        self.assertTrue(exc.msg.startswith("Trying to find one of"),
-                        ("SyntaxError message '%s' doesn't start with "
-                         "'Trying to find one of'") % exc.msg)
+        Test unicode representation of JIDs.
+        """
+        j = jid.JID(tuple=('user', 'host', 'resource'))
+        self.assertEqual(u"user@host/resource", unicode(j))
+
+    def test_repr(self):
+        """
+        Test representation of JID objects.
+        """
+        j = jid.JID(tuple=('user', 'host', 'resource'))
+        self.assertEqual("JID(%s)" % repr(u'user@host/resource'), repr(j))
+
+class InternJIDTests(unittest.TestCase):
+    def test_identity(self):
+        """
+        Test that two interned JIDs yield the same object.
+        """
+        j1 = jid.internJID("user@host")
+        j2 = jid.internJID("user@host")
+        self.assertIdentical(j1, j2)

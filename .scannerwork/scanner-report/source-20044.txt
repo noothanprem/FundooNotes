@@ -1,108 +1,48 @@
-"""0MQ Constants."""
+"""PyZMQ and 0MQ version functions."""
 
-# Copyright (c) PyZMQ Developers.
+# Copyright (C) PyZMQ Developers
 # Distributed under the terms of the Modified BSD License.
 
-from zmq.backend import constants
-from zmq.backend import has
-from zmq.utils.constant_names import (
-    base_names,
-    switched_sockopt_names,
-    int_sockopt_names,
-    int64_sockopt_names,
-    bytes_sockopt_names,
-    fd_sockopt_names,
-    ctx_opt_names,
-    msg_opt_names,
-)
 
-#-----------------------------------------------------------------------------
-# Python module level constants
-#-----------------------------------------------------------------------------
+from zmq.backend import zmq_version_info
 
 
-__all__ = [
-    'int_sockopts',
-    'int64_sockopts',
-    'bytes_sockopts',
-    'ctx_opts',
-    'ctx_opt_names',
-    'DRAFT_API',
-]
+VERSION_MAJOR = 18
+VERSION_MINOR = 1
+VERSION_PATCH = 1
+VERSION_EXTRA = ""
+__version__ = '%i.%i.%i' % (VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH)
 
-if constants.VERSION < 40200:
-    DRAFT_API = False
+if VERSION_EXTRA:
+    __version__ = "%s.%s" % (__version__, VERSION_EXTRA)
+    version_info = (VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, float('inf'))
 else:
-    DRAFT_API = bool(has('draft') and constants.DRAFT_API)
+    version_info = (VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH)
 
-int_sockopts    = set()
-int64_sockopts  = set()
-bytes_sockopts  = set()
-fd_sockopts     = set()
-ctx_opts        = set()
-msg_opts        = set()
+__revision__ = ''
 
+def pyzmq_version():
+    """return the version of pyzmq as a string"""
+    if __revision__:
+        return '@'.join([__version__,__revision__[:6]])
+    else:
+        return __version__
 
-if constants.VERSION < 30000:
-    int64_sockopt_names.extend(switched_sockopt_names)
-else:
-    int_sockopt_names.extend(switched_sockopt_names)
-
-_UNDEFINED = -9999
-
-
-def _add_constant(name, container=None):
-    """add a constant to be defined
-
-    optionally add it to one of the sets for use in get/setopt checkers
+def pyzmq_version_info():
+    """return the pyzmq version as a tuple of at least three numbers
+    
+    If pyzmq is a development version, `inf` will be appended after the third integer.
     """
-    c = getattr(constants, name, _UNDEFINED)
-    if c == _UNDEFINED:
-        return
-    globals()[name] = c
-    __all__.append(name)
-    if container is not None:
-        container.add(c)
-    return c
-
-for name in base_names:
-    _add_constant(name)
-
-for name in int_sockopt_names:
-    _add_constant(name, int_sockopts)
-
-for name in int64_sockopt_names:
-    _add_constant(name, int64_sockopts)
-
-for name in bytes_sockopt_names:
-    _add_constant(name, bytes_sockopts)
-
-for name in fd_sockopt_names:
-    _add_constant(name, fd_sockopts)
-
-for name in ctx_opt_names:
-    _add_constant(name, ctx_opts)
-
-for name in msg_opt_names:
-    _add_constant(name, msg_opts)
+    return version_info
 
 
-# ensure some aliases are always defined
-aliases = [
-    ('DONTWAIT', 'NOBLOCK'),
-    ('XREQ', 'DEALER'),
-    ('XREP', 'ROUTER'),
+def zmq_version():
+    """return the version of libzmq as a string"""
+    return "%i.%i.%i" % zmq_version_info()
+
+
+__all__ = ['zmq_version', 'zmq_version_info',
+           'pyzmq_version','pyzmq_version_info',
+           '__version__', '__revision__'
 ]
-for group in aliases:
-    undefined = set()
-    found = None
-    for name in group:
-        value = getattr(constants, name, -1)
-        if value != -1:
-            found = value
-        else:
-            undefined.add(name)
-    if found is not None:
-        for name in undefined:
-            globals()[name] = found
-            __all__.append(name)
+

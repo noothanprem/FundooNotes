@@ -1,1 +1,1 @@
-ύκ:venv/lib64/python3.6/site-packages/django/db/backends/base :όκώκÿκλ€λ‚λƒλλλ
+ύκ:venv/lib64/python3.6/site-packages/django/db/backends/base :όκÿκ€λλ‚λƒλλλώκ

@@ -1,1 +1,0 @@
-¹‰dvenv/lib64/python3.6/site-packages/django_extensions/static/django_extensions/js/jquery.ajaxQueue.js 2jsXxh

@@ -1,63 +1,103 @@
-q
-pythonS100URename method "makeConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2gg s
-pythonS100URename method "connectionMade" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ãã u
-pythonS100WRename method "initializeScreen" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-®® v
-pythonS100XRename method "currentLineBuffer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ππ r
-pythonS100TRename method "setInsertMode" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ææ t
-pythonS100VRename method "setTypeoverMode" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-√√ r
-pythonS100TRename method "drawInputLine" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-»» q
-pythonS100SRename method "terminalSize" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-–– }
-pythonS100_Rename method "unhandledControlSequence" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-⁄⁄  v
-pythonS100XRename method "keystrokeReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ﬁﬁ v
-pythonS100XRename method "characterReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ËË o
-pythonS100QRename method "handle_TAB" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÒÒ p
-pythonS100RRename method "handle_LEFT" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¯¯ q
-pythonS100SRename method "handle_RIGHT" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-˛˛ p
-pythonS100RRename method "handle_HOME" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÑÑ o
-pythonS100QRename method "handle_END" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ää u
-pythonS100WRename method "handle_BACKSPACE" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ëë r
-pythonS100TRename method "handle_DELETE" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ôô r
-pythonS100TRename method "handle_RETURN" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-üü r
-pythonS100TRename method "handle_INSERT" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ßß q
-pythonS100SRename method "lineReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ØØ s
-pythonS100URename method "connectionMade" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ºº y
-pythonS100[Rename method "currentHistoryBuffer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-«« s
-pythonS100URename method "_deliverBuffer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÃÃ n
-pythonS100PRename method "handle_UP" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-”” p
-pythonS100RRename method "handle_DOWN" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‡‡ r
-pythonS100TRename method "handle_RETURN" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÚÚ t
-pythonS117XRename this local variable "logFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2// o
-pythonS117QRename this parameter "keyID" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ﬁﬁ  %~
-pythonS117`Rename this parameter "moreCharactersComing" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ËË$ 8l
-pythonS116PRename this field "_logFile" to match the regular expression ^[_a-z][_a-z0-9]*$. 2"" m
-pythonS116QRename this field "execBytes" to match the regular expression ^[_a-z][_a-z0-9]*$. 2EE k
-pythonS116ORename this field "execStr" to match the regular expression ^[_a-z][_a-z0-9]*$. 2FF p
-pythonS116TRename this field "terminalCopy" to match the regular expression ^[_a-z][_a-z0-9]*$. 2hh 
+o
+pythonS107QMethod "newConnection" has 11 parameters, which is greater than the 7 authorized. 2
+∞≤ .j
+pythonS107LMethod "__init__" has 12 parameters, which is greater than the 7 authorized. 2
+ÊË *s
+pythonS100WRename method "secureConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 255 t
+pythonS100XRename method "cleanupConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2== o
+pythonS100QRename method "openFailed" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ïï p
+pythonS100RRename method "channelOpen" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ùù q
+pythonS100SRename method "_execFailure" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ßß q
+pythonS100SRename method "_execSuccess" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+≤≤ q
+pythonS100SRename method "dataReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+«« s
+pythonS100URename method "serviceStarted" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ôô q
+pythonS100SRename method "getPublicKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+≤≤ m
+pythonS100ORename method "signData" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∆∆ r
+pythonS100TRename method "getPrivateKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‘‘ p
+pythonS100RRename method "getPassword" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‡‡ y
+pythonS100[Rename method "ssh_USERAUTH_SUCCESS" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÏÏ s
+pythonS100URename method "connectToAgent" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ıı x
+pythonS100ZRename method "loseAgentConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ãã r
+pythonS100TRename method "verifyHostKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ææ x
+pythonS100ZRename method "_saveHostKeyFailure" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+–– u
+pythonS100WRename method "connectionSecure" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ﬂﬂ s
+pythonS100URename method "connectionLost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ˆˆ r
+pythonS100TRename method "newConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∞∞ w
+pythonS100YRename method "existingConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÏÏ t
+pythonS100VRename method "_executeCommand" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ïï p
+pythonS100RRename method "_knownHosts" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+íí u
+pythonS100WRename method "secureConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+úú v
+pythonS100XRename method "cleanupConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∞∞ u
+pythonS100WRename method "secureConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‘‘ v
+pythonS100XRename method "cleanupConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+›› w
+pythonS117[Rename this parameter "protocolFactory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2||) 8x
+pythonS117\Rename this parameter "commandConnected" to match the regular expression ^[_a-z][a-z0-9_]*$. 2||: J~
+pythonS117`Rename this local variable "shortSignalName" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÈÈ y
+pythonS117[Rename this local variable "coreDumped" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÍÍ {
+pythonS117]Rename this local variable "errorMessage" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÎÎ z
+pythonS117\Rename this local variable "languageTag" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÏÏ y
+pythonS117[Rename this local variable "signalName" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÌÌ w
+pythonS117YRename this local variable "signalID" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÓÓ s
+pythonS117URename this parameter "publicKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+∆∆  r
+pythonS117TRename this parameter "signData" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+∆∆" *q
+pythonS117SRename this parameter "hostKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ææ #w
+pythonS117YRename this parameter "agentEndpoint" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+±±0 =t
+pythonS117VRename this parameter "knownHosts" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+≤≤  y
+pythonS117[Rename this parameter "protocolFactory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÅÅ %y
+pythonS117[Rename this parameter "protocolFactory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ïï* 9
+pythonS117aRename this local variable "commandConnected" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+££ w
+pythonS117YRename this parameter "agentEndpoint" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÁÁ (t
+pythonS117VRename this parameter "knownHosts" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÁÁ* 4x
+pythonS117ZRename this local variable "sshClient" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+®® s
+pythonS116URename this field "agentEndpoint" to match the regular expression ^[_a-z][_a-z0-9]*$. 2
+˜˜ p
+pythonS116RRename this field "knownHosts" to match the regular expression ^[_a-z][_a-z0-9]*$. 2
+˙˙ r
+pythonS1542SRename function "readyFired" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∑∑ u
+pythonS1542VRename function "maybeGotAgent" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÒÒ {
+pythonS1542\Rename function "disconnectOnFailure" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+•• 

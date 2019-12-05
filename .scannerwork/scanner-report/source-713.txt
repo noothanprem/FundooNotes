@@ -1,76 +1,152 @@
 # -*- coding: utf-8 -*-
-"""Database models used by the SQLAlchemy result store backend."""
+"""Riak result store backend."""
 from __future__ import absolute_import, unicode_literals
 
-from datetime import datetime
+import sys
+import warnings
 
-import sqlalchemy as sa
-from sqlalchemy.types import PickleType
+from kombu.utils.url import _parse_url
 
-from celery import states
-from celery.five import python_2_unicode_compatible
+from celery.exceptions import CeleryWarning, ImproperlyConfigured
 
-from .session import ResultModelBase
+from .base import KeyValueStoreBackend
 
-__all__ = ('Task', 'TaskSet')
+try:
+    import riak
+    from riak import RiakClient
+    from riak.resolver import last_written_resolver
+except ImportError:  # pragma: no cover
+    riak = RiakClient = last_written_resolver = None  # noqa
 
+__all__ = ('RiakBackend',)
 
-@python_2_unicode_compatible
-class Task(ResultModelBase):
-    """Task result/status."""
+E_BUCKET_NAME = """\
+Riak bucket names must be composed of ASCII characters only, not: {0!r}\
+"""
 
-    __tablename__ = 'celery_taskmeta'
-    __table_args__ = {'sqlite_autoincrement': True}
-
-    id = sa.Column(sa.Integer, sa.Sequence('task_id_sequence'),
-                   primary_key=True, autoincrement=True)
-    task_id = sa.Column(sa.String(155), unique=True)
-    status = sa.Column(sa.String(50), default=states.PENDING)
-    result = sa.Column(PickleType, nullable=True)
-    date_done = sa.Column(sa.DateTime, default=datetime.utcnow,
-                          onupdate=datetime.utcnow, nullable=True)
-    traceback = sa.Column(sa.Text, nullable=True)
-
-    def __init__(self, task_id):
-        self.task_id = task_id
-
-    def to_dict(self):
-        return {
-            'task_id': self.task_id,
-            'status': self.status,
-            'result': self.result,
-            'traceback': self.traceback,
-            'date_done': self.date_done,
-        }
-
-    def __repr__(self):
-        return '<Task {0.task_id} state: {0.status}>'.format(self)
+W_UNSUPPORTED_PYTHON_VERSION = """\
+Python {}.{} is unsupported by the client library \
+https://pypi.org/project/riak\
+""".format(sys.version_info.major, sys.version_info.minor)
 
 
-@python_2_unicode_compatible
-class TaskSet(ResultModelBase):
-    """TaskSet result."""
+if sys.version_info[0] == 3:
+    if sys.version_info.minor >= 7:
+        warnings.warn(CeleryWarning(W_UNSUPPORTED_PYTHON_VERSION))
 
-    __tablename__ = 'celery_tasksetmeta'
-    __table_args__ = {'sqlite_autoincrement': True}
+    def to_bytes(string):
+        return string.encode() if isinstance(string, str) else string
 
-    id = sa.Column(sa.Integer, sa.Sequence('taskset_id_sequence'),
-                   autoincrement=True, primary_key=True)
-    taskset_id = sa.Column(sa.String(155), unique=True)
-    result = sa.Column(PickleType, nullable=True)
-    date_done = sa.Column(sa.DateTime, default=datetime.utcnow,
-                          nullable=True)
+    def str_decode(string, encoding):
+        return to_bytes(string).decode(encoding)
 
-    def __init__(self, taskset_id, result):
-        self.taskset_id = taskset_id
-        self.result = result
+else:
 
-    def to_dict(self):
-        return {
-            'taskset_id': self.taskset_id,
-            'result': self.result,
-            'date_done': self.date_done,
-        }
+    def str_decode(string, encoding):
+        return string.decode('ascii')
 
-    def __repr__(self):
-        return '<TaskSet: {0.taskset_id}>'.format(self)
+
+def is_ascii(string):
+    try:
+        str_decode(string, 'ascii')
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+class RiakBackend(KeyValueStoreBackend):
+    """Riak result backend.
+
+    Raises:
+        celery.exceptions.ImproperlyConfigured:
+            if module :pypi:`riak` is not available.
+    """
+
+    # TODO: allow using other protocols than protobuf ?
+    #: default protocol used to connect to Riak, might be `http` or `pbc`
+    protocol = 'pbc'
+
+    #: default Riak bucket name (`default`)
+    bucket_name = 'celery'
+
+    #: default Riak server hostname (`localhost`)
+    host = 'localhost'
+
+    #: default Riak server port (8087)
+    port = 8087
+
+    _bucket = None
+
+    def __init__(self, host=None, port=None, bucket_name=None, protocol=None,
+                 url=None, *args, **kwargs):
+        super(RiakBackend, self).__init__(*args, **kwargs)
+        self.url = url
+
+        if not riak:
+            raise ImproperlyConfigured(
+                'You need to install the riak library to use the '
+                'Riak backend.')
+
+        uhost = uport = upass = ubucket = None
+        if url:
+            _, uhost, uport, _, upass, ubucket, _ = _parse_url(url)
+            if ubucket:
+                ubucket = ubucket.strip('/')
+
+        config = self.app.conf.get('riak_backend_settings', None)
+        if config is not None:
+            if not isinstance(config, dict):
+                raise ImproperlyConfigured(
+                    'Riak backend settings should be grouped in a dict')
+        else:
+            config = {}
+
+        self.host = uhost or config.get('host', self.host)
+        self.port = int(uport or config.get('port', self.port))
+        self.bucket_name = ubucket or config.get('bucket', self.bucket_name)
+        self.protocol = protocol or config.get('protocol', self.protocol)
+
+        # riak bucket must be ascii letters or numbers only
+        if not is_ascii(self.bucket_name):
+            raise ValueError(E_BUCKET_NAME.format(self.bucket_name))
+
+        self._client = None
+
+    def _get_client(self):
+        """Get client connection."""
+        if self._client is None or not self._client.is_alive():
+            self._client = RiakClient(protocol=self.protocol,
+                                      host=self.host,
+                                      pb_port=self.port)
+            self._client.resolver = last_written_resolver
+        return self._client
+
+    def _get_bucket(self):
+        """Connect to our bucket."""
+        if (
+                self._client is None or not self._client.is_alive() or
+                not self._bucket
+        ):
+            self._bucket = self.client.bucket(self.bucket_name)
+        return self._bucket
+
+    @property
+    def client(self):
+        return self._get_client()
+
+    @property
+    def bucket(self):
+        return self._get_bucket()
+
+    def get(self, key):
+        return self.bucket.get(key).data
+
+    def set(self, key, value):
+        _key = self.bucket.new(key, data=value)
+        _key.store()
+
+    def mget(self, keys):
+        return [self.get(key).data for key in keys]
+
+    def delete(self, key):
+        self.bucket.delete(key)

@@ -1,1 +1,1 @@
-›¹Fvenv/lib/python3.6/site-packages/social_core/backends/stackoverflow.py 2pyX,h
+›¹Avenv/lib/python3.6/site-packages/social_core/backends/dribbble.py 2pyX?h

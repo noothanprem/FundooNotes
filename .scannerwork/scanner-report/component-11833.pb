@@ -1,1 +1,1 @@
-¹\5venv/lib/python3.6/site-packages/faker/providers/isbn :¸\º\Â\
+¹\Avenv/lib/python3.6/site-packages/faker/providers/isbn/__init__.py 2pyXIh

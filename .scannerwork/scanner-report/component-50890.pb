@@ -1,1 +1,1 @@
-ʍTvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/auth.py 2pyX�h
+ʍTvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/help.py 2pyXxh

@@ -1,71 +1,41 @@
-k
-pythonS100ORename method "isOnline" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2(( h
-pythonS100LRename method "logOn" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2// i
-pythonS100MRename method "logOff" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 288 k
-pythonS100ORename method "getGroup" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2== l
-pythonS100PRename method "getPerson" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2BB l
-pythonS100PRename method "joinGroup" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2UU m
-pythonS100QRename method "leaveGroup" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2[[ w
-pythonS100[Rename method "getGroupConversation" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2aa l
-pythonS100PRename method "getPerson" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ee k
-pythonS100ORename method "isOnline" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ww l
-pythonS100PRename method "getStatus" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 p
-pythonS100RRename method "getIdleTime" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-áá p
-pythonS100RRename method "sendMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-çç m
-pythonS100ORename method "setTopic" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-≠≠ u
-pythonS100WRename method "sendGroupMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-µµ m
-pythonS100ORename method "sendText" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÁÁ p
-pythonS100RRename method "showMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÎÎ p
-pythonS100RRename method "changedNick" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÔÔ m
-pythonS100ORename method "sendText" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÑÑ u
-pythonS100WRename method "showGroupMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-àà t
-pythonS100VRename method "setGroupMembers" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-åå m
-pythonS100ORename method "setTopic" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-íí q
-pythonS100SRename method "memberJoined" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-õõ v
-pythonS100XRename method "memberChangedNick" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-§§ o
-pythonS100QRename method "memberLeft" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÆÆ z
-pythonS100\Rename method "registerAccountClient" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-∫∫ |
-pythonS100^Rename method "unregisterAccountClient" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¬¬ t
-pythonS100VRename method "getContactsList" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-   t
-pythonS100VRename method "getConversation" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-““ y
-pythonS100[Rename method "getGroupConversation" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ﬂﬂ n
-pythonS100PRename method "getPerson" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÏÏ m
-pythonS100ORename method "getGroup" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-˘˘ w
-pythonS100YRename method "contactChangedNick" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÜÜ s
-pythonS117WRename this parameter "accountName" to match the regular expression ^[_a-z][a-z0-9_]*$. 2 q
-pythonS117URename this parameter "autoLogin" to match the regular expression ^[_a-z][a-z0-9_]*$. 2 'q
-pythonS117URename this parameter "groupName" to match the regular expression ^[_a-z][a-z0-9_]*$. 2== r
-pythonS117VRename this parameter "personName" to match the regular expression ^[_a-z][a-z0-9_]*$. 2BB u
-pythonS117YRename this parameter "logonDeferred" to match the regular expression ^[_a-z][a-z0-9_]*$. 2MM" /q
-pythonS117URename this parameter "groupName" to match the regular expression ^[_a-z][a-z0-9_]*$. 2UU q
-pythonS117URename this parameter "groupName" to match the regular expression ^[_a-z][a-z0-9_]*$. 2[[ o
-pythonS117QRename this parameter "Class" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-““  %t
-pythonS117VRename this parameter "stayHidden" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-““' 1o
-pythonS117QRename this parameter "Class" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ﬂﬂ$ )t
-pythonS117VRename this parameter "stayHidden" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ﬂﬂ+ 5
+l
+pythonS100PRename method "testStuff" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2@@ x
+pythonS100\Rename method "test_addObserverTwice" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ee }
+pythonS100aRename method "test_addObserverInDispatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2yy "Ü
+pythonS100hRename method "test_addOnetimeObserverInDispatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+êê )x
+pythonS100ZRename method "testOnetimeDispatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ßß y
+pythonS100[Rename method "testDispatcherResult" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+≥≥ }
+pythonS100_Rename method "testOrderedXPathDispatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¡¡  Ñ
+pythonS100fRename method "test_cleanUpRemoveEventObserver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+÷÷ 'Ñ
+pythonS100fRename method "test_cleanUpRemoveXPathObserver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÂÂ 'Ö
+pythonS100gRename method "test_cleanUpOnetimeEventObserver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ıı (Ö
+pythonS100gRename method "test_cleanUpOnetimeXPathObserver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÉÉ (Ç
+pythonS100dRename method "test_observerRaisingException" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+íí %j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+øø x
+pythonS100ZRename method "test_sendFromSource" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+√√ v
+pythonS100XRename method "test_sendFromSink" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+—— É
+pythonS117eRename this local variable "originalCallbackList" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ßß l
+pythonS116PRename this field "callList" to match the regular expression ^[_a-z][_a-z0-9]*$. 2++ q
+pythonS1542RRename function "onMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÅÅ q
+pythonS1542RRename function "onMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+òò r
+pythonS1542SRename function "raiseError" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+°° j
+pythonS1542KRename function "cb" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+«« j
+pythonS1542KRename function "cb" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+’’ 

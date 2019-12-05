@@ -1,1 +1,1 @@
-Ä?Fvenv/lib/python3.6/site-packages/django/contrib/contenttypes/checks.py 2pyX*h
+Ä?Dvenv/lib/python3.6/site-packages/django/contrib/contenttypes/apps.py 2pyXh

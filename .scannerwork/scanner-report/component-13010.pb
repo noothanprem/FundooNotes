@@ -1,1 +1,1 @@
-Òe5venv/lib/python3.6/site-packages/chardet/escprober.py 2pyXfh
+Òe;venv/lib/python3.6/site-packages/chardet/mbcharsetprober.py 2pyX\h

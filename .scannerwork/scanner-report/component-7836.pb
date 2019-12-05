@@ -1,1 +1,1 @@
-œ=Wvenv/lib/python3.6/site-packages/django/contrib/contenttypes/migrations/0001_initial.py 2pyX#h
+œ=>venv/lib/python3.6/site-packages/django/contrib/admin/utils.py 2pyXŒh

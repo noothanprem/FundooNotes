@@ -1,1 +1,1 @@
-¯ö5venv/lib64/python3.6/site-packages/twisted/words/xish :®ö°ö±ö³ö´ö½ö
+¯ö5venv/lib64/python3.6/site-packages/twisted/words/xish :®ö°ö±ö³ö´ö¼ö

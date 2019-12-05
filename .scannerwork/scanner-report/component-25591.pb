@@ -1,1 +1,1 @@
-÷Ç'venv/lib/python3.6/site-packages/debian :öÇùÇúÇûÇüÇıÇşÇŠÈ‹ÈŒÈ
+÷Ç2venv/lib/python3.6/site-packages/debian/debtags.py 2pyXĞh

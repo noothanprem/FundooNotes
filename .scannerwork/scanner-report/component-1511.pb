@@ -1,1 +1,1 @@
-çCvenv/lib/python3.6/site-packages/nacl/bindings/crypto_scalarmult.py 2pyX=h
+ç.venv/lib/python3.6/site-packages/nacl/bindings :æèéêëìíîïðñÿ

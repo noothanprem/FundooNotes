@@ -1,206 +1,172 @@
-"""Integration testing utilities."""
-from __future__ import absolute_import, print_function, unicode_literals
+# -*- coding: utf-8 -*-
+"""Abortable Tasks.
 
-import socket
-import sys
-from collections import defaultdict
-from functools import partial
-from itertools import count
+Abortable tasks overview
+=========================
 
-from kombu.utils.functional import retry_over_time
+For long-running :class:`Task`'s, it can be desirable to support
+aborting during execution.  Of course, these tasks should be built to
+support abortion specifically.
 
-from celery import states
-from celery.exceptions import TimeoutError
-from celery.five import items
-from celery.result import ResultSet
-from celery.utils.text import truncate
-from celery.utils.time import humanize_seconds as _humanize_seconds
+The :class:`AbortableTask` serves as a base class for all :class:`Task`
+objects that should support abortion by producers.
 
-E_STILL_WAITING = 'Still waiting for {0}.  Trying again {when}: {exc!r}'
+* Producers may invoke the :meth:`abort` method on
+  :class:`AbortableAsyncResult` instances, to request abortion.
 
-humanize_seconds = partial(_humanize_seconds, microseconds=True)
+* Consumers (workers) should periodically check (and honor!) the
+  :meth:`is_aborted` method at controlled points in their task's
+  :meth:`run` method.  The more often, the better.
+
+The necessary intermediate communication is dealt with by the
+:class:`AbortableTask` implementation.
+
+Usage example
+-------------
+
+In the consumer:
+
+.. code-block:: python
+
+    from __future__ import absolute_import
+
+    from celery.contrib.abortable import AbortableTask
+    from celery.utils.log import get_task_logger
+
+    from proj.celery import app
+
+    logger = get_logger(__name__)
+
+    @app.task(bind=True, base=AbortableTask)
+    def long_running_task(self):
+        results = []
+        for i in range(100):
+            # check after every 5 iterations...
+            # (or alternatively, check when some timer is due)
+            if not i % 5:
+                if self.is_aborted():
+                    # respect aborted state, and terminate gracefully.
+                    logger.warning('Task aborted')
+                    return
+                value = do_something_expensive(i)
+                results.append(y)
+        logger.info('Task complete')
+        return results
+
+In the producer:
+
+.. code-block:: python
+
+    from __future__ import absolute_import
+
+    import time
+
+    from proj.tasks import MyLongRunningTask
+
+    def myview(request):
+        # result is of type AbortableAsyncResult
+        result = long_running_task.delay()
+
+        # abort the task after 10 seconds
+        time.sleep(10)
+        result.abort()
+
+After the `result.abort()` call, the task execution isn't
+aborted immediately.  In fact, it's not guaranteed to abort at all.
+Keep checking `result.state` status, or call `result.get(timeout=)` to
+have it block until the task is finished.
+
+.. note::
+
+   In order to abort tasks, there needs to be communication between the
+   producer and the consumer.  This is currently implemented through the
+   database backend.  Therefore, this class will only work with the
+   database backends.
+"""
+from __future__ import absolute_import, unicode_literals
+
+from celery import Task
+from celery.result import AsyncResult
+
+__all__ = ('AbortableAsyncResult', 'AbortableTask')
 
 
-class Sentinel(Exception):
-    """Signifies the end of something."""
+"""
+Task States
+-----------
+
+.. state:: ABORTED
+
+ABORTED
+~~~~~~~
+
+Task is aborted (typically by the producer) and should be
+aborted as soon as possible.
+
+"""
+ABORTED = 'ABORTED'
 
 
-class ManagerMixin(object):
-    """Mixin that adds :class:`Manager` capabilities."""
+class AbortableAsyncResult(AsyncResult):
+    """Represents an abortable result.
 
-    def _init_manager(self,
-                      block_timeout=30 * 60.0, no_join=False,
-                      stdout=None, stderr=None):
-        # type: (float, bool, TextIO, TextIO) -> None
-        self.stdout = sys.stdout if stdout is None else stdout
-        self.stderr = sys.stderr if stderr is None else stderr
-        self.connerrors = self.app.connection().recoverable_connection_errors
-        self.block_timeout = block_timeout
-        self.no_join = no_join
+    Specifically, this gives the `AsyncResult` a :meth:`abort()` method,
+    that sets the state of the underlying Task to `'ABORTED'`.
+    """
 
-    def remark(self, s, sep='-'):
-        # type: (str, str) -> None
-        print('{0}{1}'.format(sep, s), file=self.stdout)
+    def is_aborted(self):
+        """Return :const:`True` if the task is (being) aborted."""
+        return self.state == ABORTED
 
-    def missing_results(self, r):
-        # type: (Sequence[AsyncResult]) -> Sequence[str]
-        return [res.id for res in r if res.id not in res.backend._cache]
+    def abort(self):
+        """Set the state of the task to :const:`ABORTED`.
 
-    def wait_for(self, fun, catch,
-                 desc='thing', args=(), kwargs={}, errback=None,
-                 max_retries=10, interval_start=0.1, interval_step=0.5,
-                 interval_max=5.0, emit_warning=False, **options):
-        # type: (Callable, Sequence[Any], str, Tuple, Dict, Callable,
-        #        int, float, float, float, bool, **Any) -> Any
-        """Wait for event to happen.
+        Abortable tasks monitor their state at regular intervals and
+        terminate execution if so.
 
-        The `catch` argument specifies the exception that means the event
-        has not happened yet.
+        Warning:
+            Be aware that invoking this method does not guarantee when the
+            task will be aborted (or even if the task will be aborted at all).
         """
-        def on_error(exc, intervals, retries):
-            interval = next(intervals)
-            if emit_warning:
-                self.warn(E_STILL_WAITING.format(
-                    desc, when=humanize_seconds(interval, 'in', ' '), exc=exc,
-                ))
-            if errback:
-                errback(exc, interval, retries)
-            return interval
-
-        return self.retry_over_time(
-            fun, catch,
-            args=args, kwargs=kwargs,
-            errback=on_error, max_retries=max_retries,
-            interval_start=interval_start, interval_step=interval_step,
-            **options
-        )
-
-    def ensure_not_for_a_while(self, fun, catch,
-                               desc='thing', max_retries=20,
-                               interval_start=0.1, interval_step=0.02,
-                               interval_max=1.0, emit_warning=False,
-                               **options):
-        """Make sure something does not happen (at least for a while)."""
-        try:
-            return self.wait_for(
-                fun, catch, desc=desc, max_retries=max_retries,
-                interval_start=interval_start, interval_step=interval_step,
-                interval_max=interval_max, emit_warning=emit_warning,
-            )
-        except catch:
-            pass
-        else:
-            raise AssertionError('Should not have happened: {0}'.format(desc))
-
-    def retry_over_time(self, *args, **kwargs):
-        return retry_over_time(*args, **kwargs)
-
-    def join(self, r, propagate=False, max_retries=10, **kwargs):
-        if self.no_join:
-            return
-        if not isinstance(r, ResultSet):
-            r = self.app.ResultSet([r])
-        received = []
-
-        def on_result(task_id, value):
-            received.append(task_id)
-
-        for i in range(max_retries) if max_retries else count(0):
-            received[:] = []
-            try:
-                return r.get(callback=on_result, propagate=propagate, **kwargs)
-            except (socket.timeout, TimeoutError) as exc:
-                waiting_for = self.missing_results(r)
-                self.remark(
-                    'Still waiting for {0}/{1}: [{2}]: {3!r}'.format(
-                        len(r) - len(received), len(r),
-                        truncate(', '.join(waiting_for)), exc), '!',
-                )
-            except self.connerrors as exc:
-                self.remark('join: connection lost: {0!r}'.format(exc), '!')
-        raise AssertionError('Test failed: Missing task results')
-
-    def inspect(self, timeout=3.0):
-        return self.app.control.inspect(timeout=timeout)
-
-    def query_tasks(self, ids, timeout=0.5):
-        for reply in items(self.inspect(timeout).query_task(*ids) or {}):
-            yield reply
-
-    def query_task_states(self, ids, timeout=0.5):
-        states = defaultdict(set)
-        for hostname, reply in self.query_tasks(ids, timeout=timeout):
-            for task_id, (state, _) in items(reply):
-                states[state].add(task_id)
-        return states
-
-    def assert_accepted(self, ids, interval=0.5,
-                        desc='waiting for tasks to be accepted', **policy):
-        return self.assert_task_worker_state(
-            self.is_accepted, ids, interval=interval, desc=desc, **policy
-        )
-
-    def assert_received(self, ids, interval=0.5,
-                        desc='waiting for tasks to be received', **policy):
-        return self.assert_task_worker_state(
-            self.is_accepted, ids, interval=interval, desc=desc, **policy
-        )
-
-    def assert_result_tasks_in_progress_or_completed(
-            self,
-            async_results,
-            interval=0.5,
-            desc='waiting for tasks to be started or completed',
-            **policy
-    ):
-        return self.assert_task_state_from_result(
-            self.is_result_task_in_progress,
-            async_results,
-            interval=interval, desc=desc, **policy
-        )
-
-    def assert_task_state_from_result(self, fun, results,
-                                      interval=0.5, **policy):
-        return self.wait_for(
-            partial(self.true_or_raise, fun, results, timeout=interval),
-            (Sentinel,), **policy
-        )
-
-    @staticmethod
-    def is_result_task_in_progress(results, **kwargs):
-        possible_states = (states.STARTED, states.SUCCESS)
-        return all(result.state in possible_states for result in results)
-
-    def assert_task_worker_state(self, fun, ids, interval=0.5, **policy):
-        return self.wait_for(
-            partial(self.true_or_raise, fun, ids, timeout=interval),
-            (Sentinel,), **policy
-        )
-
-    def is_received(self, ids, **kwargs):
-        return self._ids_matches_state(
-            ['reserved', 'active', 'ready'], ids, **kwargs)
-
-    def is_accepted(self, ids, **kwargs):
-        return self._ids_matches_state(['active', 'ready'], ids, **kwargs)
-
-    def _ids_matches_state(self, expected_states, ids, timeout=0.5):
-        states = self.query_task_states(ids, timeout=timeout)
-        return all(
-            any(t in s for s in [states[k] for k in expected_states])
-            for t in ids
-        )
-
-    def true_or_raise(self, fun, *args, **kwargs):
-        res = fun(*args, **kwargs)
-        if not res:
-            raise Sentinel()
-        return res
+        # TODO: store_result requires all four arguments to be set,
+        # but only state should be updated here
+        return self.backend.store_result(self.id, result=None,
+                                         state=ABORTED, traceback=None)
 
 
-class Manager(ManagerMixin):
-    """Test helpers for task integration tests."""
+class AbortableTask(Task):
+    """Task that can be aborted.
 
-    def __init__(self, app, **kwargs):
-        self.app = app
-        self._init_manager(**kwargs)
+    This serves as a base class for all :class:`Task`'s
+    that support aborting during execution.
+
+    All subclasses of :class:`AbortableTask` must call the
+    :meth:`is_aborted` method periodically and act accordingly when
+    the call evaluates to :const:`True`.
+    """
+
+    abstract = True
+
+    def AsyncResult(self, task_id):
+        """Return the accompanying AbortableAsyncResult instance."""
+        return AbortableAsyncResult(task_id, backend=self.backend)
+
+    def is_aborted(self, **kwargs):
+        """Return true if task is aborted.
+
+        Checks against the backend whether this
+        :class:`AbortableAsyncResult` is :const:`ABORTED`.
+
+        Always return :const:`False` in case the `task_id` parameter
+        refers to a regular (non-abortable) :class:`Task`.
+
+        Be aware that invoking this method will cause a hit in the
+        backend (for example a database query), so find a good balance
+        between calling it regularly (for responsiveness), but not too
+        often (for performance).
+        """
+        task_id = kwargs.get('task_id', self.request.id)
+        result = self.AsyncResult(task_id)
+        if not isinstance(result, AbortableAsyncResult):
+            return False
+        return result.is_aborted()

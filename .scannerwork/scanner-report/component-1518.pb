@@ -1,1 +1,1 @@
-î=venv/lib/python3.6/site-packages/nacl/bindings/crypto_sign.py 2pyX¤h
+îBvenv/lib/python3.6/site-packages/nacl/bindings/crypto_secretbox.py 2pyXPh

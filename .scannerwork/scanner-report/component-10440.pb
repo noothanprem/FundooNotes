@@ -1,1 +1,1 @@
-ÈQ1venv/lib/python3.6/site-packages/sqlparse/filters :ÇQÉQÊQËQÌQÍQ×Q
+ÈQ1venv/lib/python3.6/site-packages/sqlparse/filters :ÇQÉQÊQËQÌQÍQÖQ

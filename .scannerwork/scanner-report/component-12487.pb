@@ -1,1 +1,1 @@
-ÇaEvenv/lib/python3.6/site-packages/docutils/parsers/rst/languages/ca.py 2pyX~h
+ÇaEvenv/lib/python3.6/site-packages/docutils/parsers/rst/languages/eo.py 2pyXwh

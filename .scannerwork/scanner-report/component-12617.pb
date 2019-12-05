@@ -1,1 +1,1 @@
-Éb<venv/lib/python3.6/site-packages/docutils/languages/zh_tw.py 2pyXCh
+Éb9venv/lib/python3.6/site-packages/docutils/languages/af.py 2pyX;h

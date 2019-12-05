@@ -1,65 +1,66 @@
-"""
- This object provides quoting for GEOS geometries into PostgreSQL/PostGIS.
-"""
-from psycopg2 import Binary
-from psycopg2.extensions import ISQLQuote
-
-from django.contrib.gis.db.backends.postgis.pgraster import to_pgraster
-from django.contrib.gis.geos import GEOSGeometry
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 
 
-class PostGISAdapter:
-    def __init__(self, obj, geography=False):
+class PostGISSchemaEditor(DatabaseSchemaEditor):
+    geom_index_type = 'GIST'
+    geom_index_ops_nd = 'GIST_GEOMETRY_OPS_ND'
+    rast_index_wrapper = 'ST_ConvexHull(%s)'
+
+    sql_alter_column_to_3d = "ALTER COLUMN %(column)s TYPE %(type)s USING ST_Force3D(%(column)s)::%(type)s"
+    sql_alter_column_to_2d = "ALTER COLUMN %(column)s TYPE %(type)s USING ST_Force2D(%(column)s)::%(type)s"
+
+    def geo_quote_name(self, name):
+        return self.connection.ops.geo_quote_name(name)
+
+    def _field_should_be_indexed(self, model, field):
+        if getattr(field, 'spatial_index', False):
+            return True
+        return super()._field_should_be_indexed(model, field)
+
+    def _create_index_sql(self, model, fields, **kwargs):
+        if len(fields) != 1 or not hasattr(fields[0], 'geodetic'):
+            return super()._create_index_sql(model, fields, **kwargs)
+
+        field = fields[0]
+        field_column = self.quote_name(field.column)
+
+        if field.geom_type == 'RASTER':
+            # For raster fields, wrap index creation SQL statement with ST_ConvexHull.
+            # Indexes on raster columns are based on the convex hull of the raster.
+            field_column = self.rast_index_wrapper % field_column
+        elif field.dim > 2 and not field.geography:
+            # Use "nd" ops which are fast on multidimensional cases
+            field_column = "%s %s" % (field_column, self.geom_index_ops_nd)
+
+        return self.sql_create_index % {
+            "name": self.quote_name('%s_%s_id' % (model._meta.db_table, field.column)),
+            "table": self.quote_name(model._meta.db_table),
+            "using": "USING %s" % self.geom_index_type,
+            "columns": field_column,
+            "extra": '',
+            "condition": '',
+        }
+
+    def _alter_column_type_sql(self, table, old_field, new_field, new_type):
         """
-        Initialize on the spatial object.
+        Special case when dimension changed.
         """
-        self.is_geometry = isinstance(obj, (GEOSGeometry, PostGISAdapter))
+        if not hasattr(old_field, 'dim') or not hasattr(new_field, 'dim'):
+            return super()._alter_column_type_sql(table, old_field, new_field, new_type)
 
-        # Getting the WKB (in string form, to allow easy pickling of
-        # the adaptor) and the SRID from the geometry or raster.
-        if self.is_geometry:
-            self.ewkb = bytes(obj.ewkb)
-            self._adapter = Binary(self.ewkb)
+        if old_field.dim == 2 and new_field.dim == 3:
+            sql_alter = self.sql_alter_column_to_3d
+        elif old_field.dim == 3 and new_field.dim == 2:
+            sql_alter = self.sql_alter_column_to_2d
         else:
-            self.ewkb = to_pgraster(obj)
-
-        self.srid = obj.srid
-        self.geography = geography
-
-    def __conform__(self, proto):
-        """Does the given protocol conform to what Psycopg2 expects?"""
-        if proto == ISQLQuote:
-            return self
-        else:
-            raise Exception('Error implementing psycopg2 protocol. Is psycopg2 installed?')
-
-    def __eq__(self, other):
-        return isinstance(other, PostGISAdapter) and self.ewkb == other.ewkb
-
-    def __hash__(self):
-        return hash(self.ewkb)
-
-    def __str__(self):
-        return self.getquoted()
-
-    def prepare(self, conn):
-        """
-        This method allows escaping the binary in the style required by the
-        server's `standard_conforming_string` setting.
-        """
-        if self.is_geometry:
-            self._adapter.prepare(conn)
-
-    def getquoted(self):
-        """
-        Return a properly quoted string for use in PostgreSQL/PostGIS.
-        """
-        if self.is_geometry:
-            # Psycopg will figure out whether to use E'\\000' or '\000'.
-            return '%s(%s)' % (
-                'ST_GeogFromWKB' if self.geography else 'ST_GeomFromEWKB',
-                self._adapter.getquoted().decode()
-            )
-        else:
-            # For rasters, add explicit type cast to WKB string.
-            return "'%s'::raster" % self.ewkb
+            sql_alter = self.sql_alter_column_type
+        return (
+            (
+                sql_alter % {
+                    "column": self.quote_name(new_field.column),
+                    "type": new_type,
+                },
+                [],
+            ),
+            [],
+        )

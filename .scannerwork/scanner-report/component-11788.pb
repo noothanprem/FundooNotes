@@ -1,1 +1,1 @@
-Œ\:venv/lib/python3.6/site-packages/faker/providers/job/hu_HU :Š\
+Œ\Fvenv/lib/python3.6/site-packages/faker/providers/job/hu_HU/__init__.py 2pyX¤h

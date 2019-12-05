@@ -1,1 +1,1 @@
-øÁZvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/status_codes.py 2pyXyh
+øÁTvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/models.py 2pyXºh

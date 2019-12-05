@@ -1,163 +1,115 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-"""
-Tests for L{twisted.words.protocols.jabber.sasl_mechanisms}.
-"""
-
-from __future__ import absolute_import, division
-
 from twisted.trial import unittest
 
-from twisted.python.compat import networkString
-from twisted.words.protocols.jabber import sasl_mechanisms
+from twisted.words.protocols.jabber.xmpp_stringprep import (
+    nodeprep, resourceprep, nameprep)
 
-class PlainTests(unittest.TestCase):
+
+
+class DeprecationTests(unittest.TestCase):
     """
-    Tests for L{twisted.words.protocols.jabber.sasl_mechanisms.Plain}.
+    Deprecations in L{twisted.words.protocols.jabber.xmpp_stringprep}.
     """
-    def test_getInitialResponse(self):
+    def test_crippled(self):
         """
-        Test the initial response.
+        L{xmpp_stringprep.crippled} is deprecated and always returns C{False}.
         """
-        m = sasl_mechanisms.Plain(None, u'test', u'secret')
-        self.assertEqual(m.getInitialResponse(), b'\x00test\x00secret')
+        from twisted.words.protocols.jabber.xmpp_stringprep import crippled
+        warnings = self.flushWarnings(
+            offendingFunctions=[self.test_crippled])
+        self.assertEqual(DeprecationWarning, warnings[0]['category'])
+        self.assertEqual(
+            "twisted.words.protocols.jabber.xmpp_stringprep.crippled was "
+            "deprecated in Twisted 13.1.0: crippled is always False",
+            warnings[0]['message'])
+        self.assertEqual(1, len(warnings))
+        self.assertEqual(crippled, False)
 
 
 
-class AnonymousTests(unittest.TestCase):
+class XMPPStringPrepTests(unittest.TestCase):
     """
-    Tests for L{twisted.words.protocols.jabber.sasl_mechanisms.Anonymous}.
+    The nodeprep stringprep profile is similar to the resourceprep profile,
+    but does an extra mapping of characters (table B.2) and disallows
+    more characters (table C.1.1 and eight extra punctuation characters).
+    Due to this similarity, the resourceprep tests are more extensive, and
+    the nodeprep tests only address the mappings additional restrictions.
+
+    The nameprep profile is nearly identical to the nameprep implementation in
+    L{encodings.idna}, but that implementation assumes the C{UseSTD4ASCIIRules}
+    flag to be false. This implementation assumes it to be true, and restricts
+    the allowed set of characters.  The tests here only check for the
+    differences.
     """
-    def test_getInitialResponse(self):
+
+    def testResourcePrep(self):
+        self.assertEqual(resourceprep.prepare(u'resource'), u'resource')
+        self.assertNotEqual(resourceprep.prepare(u'Resource'), u'resource')
+        self.assertEqual(resourceprep.prepare(u' '), u' ')
+
+        self.assertEqual(resourceprep.prepare(u'Henry \u2163'), u'Henry IV')
+        self.assertEqual(resourceprep.prepare(u'foo\xad\u034f\u1806\u180b'
+                                               u'bar\u200b\u2060'
+                                               u'baz\ufe00\ufe08\ufe0f\ufeff'),
+                          u'foobarbaz')
+        self.assertEqual(resourceprep.prepare(u'\u00a0'), u' ')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\u1680')
+        self.assertEqual(resourceprep.prepare(u'\u2000'), u' ')
+        self.assertEqual(resourceprep.prepare(u'\u200b'), u'')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\u0010\u007f')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\u0085')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\u180e')
+        self.assertEqual(resourceprep.prepare(u'\ufeff'), u'')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\uf123')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\U000f1234')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\U0010f234')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\U0008fffe')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\U0010ffff')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\udf42')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\ufffd')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\u2ff5')
+        self.assertEqual(resourceprep.prepare(u'\u0341'), u'\u0301')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\u200e')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\u202a')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\U000e0001')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\U000e0042')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'foo\u05bebar')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'foo\ufd50bar')
+        #self.assertEqual(resourceprep.prepare(u'foo\ufb38bar'),
+        #                  u'foo\u064ebar')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\u06271')
+        self.assertEqual(resourceprep.prepare(u'\u06271\u0628'),
+                          u'\u06271\u0628')
+        self.assertRaises(UnicodeError, resourceprep.prepare, u'\U000e0002')
+
+
+    def testNodePrep(self):
+        self.assertEqual(nodeprep.prepare(u'user'), u'user')
+        self.assertEqual(nodeprep.prepare(u'User'), u'user')
+        self.assertRaises(UnicodeError, nodeprep.prepare, u'us&er')
+
+
+    def test_nodeprepUnassignedInUnicode32(self):
         """
-        Test the initial response to be empty.
+        Make sure unassigned code points from Unicode 3.2 are rejected.
         """
-        m = sasl_mechanisms.Anonymous()
-        self.assertEqual(m.getInitialResponse(), None)
+        self.assertRaises(UnicodeError, nodeprep.prepare, u'\u1d39')
 
 
+    def testNamePrep(self):
+        self.assertEqual(nameprep.prepare(u'example.com'), u'example.com')
+        self.assertEqual(nameprep.prepare(u'Example.com'), u'example.com')
+        self.assertRaises(UnicodeError, nameprep.prepare, u'ex@mple.com')
+        self.assertRaises(UnicodeError, nameprep.prepare, u'-example.com')
+        self.assertRaises(UnicodeError, nameprep.prepare, u'example-.com')
 
-class DigestMD5Tests(unittest.TestCase):
-    """
-    Tests for L{twisted.words.protocols.jabber.sasl_mechanisms.DigestMD5}.
-    """
-    def setUp(self):
-        self.mechanism = sasl_mechanisms.DigestMD5(
-            u'xmpp', u'example.org', None, u'test', u'secret')
+        self.assertEqual(nameprep.prepare(u'stra\u00dfe.example.com'),
+                          u'strasse.example.com')
 
-
-    def test_getInitialResponse(self):
+    def test_nameprepTrailingDot(self):
         """
-        Test that no initial response is generated.
+        A trailing dot in domain names is preserved.
         """
-        self.assertIdentical(self.mechanism.getInitialResponse(), None)
-
-
-    def test_getResponse(self):
-        """
-        The response to a Digest-MD5 challenge includes the parameters from the
-        challenge.
-        """
-        challenge = (
-            b'realm="localhost",nonce="1234",qop="auth",charset=utf-8,'
-            b'algorithm=md5-sess')
-        directives = self.mechanism._parse(
-            self.mechanism.getResponse(challenge))
-        del directives[b"cnonce"], directives[b"response"]
-        self.assertEqual({
-                b'username': b'test', b'nonce': b'1234', b'nc': b'00000001',
-                b'qop': [b'auth'], b'charset': b'utf-8',
-                b'realm': b'localhost', b'digest-uri': b'xmpp/example.org'
-                }, directives)
-
-
-    def test_getResponseNonAsciiRealm(self):
-        """
-        Bytes outside the ASCII range in the challenge are nevertheless
-        included in the response.
-        """
-        challenge = (b'realm="\xc3\xa9chec.example.org",nonce="1234",'
-                     b'qop="auth",charset=utf-8,algorithm=md5-sess')
-        directives = self.mechanism._parse(
-            self.mechanism.getResponse(challenge))
-        del directives[b"cnonce"], directives[b"response"]
-        self.assertEqual({
-                b'username': b'test', b'nonce': b'1234', b'nc': b'00000001',
-                b'qop': [b'auth'], b'charset': b'utf-8',
-                b'realm': b'\xc3\xa9chec.example.org',
-                b'digest-uri': b'xmpp/example.org'}, directives)
-
-
-    def test_getResponseNoRealm(self):
-        """
-        The response to a challenge without a realm uses the host part of the
-        JID as the realm.
-        """
-        challenge = b'nonce="1234",qop="auth",charset=utf-8,algorithm=md5-sess'
-        directives = self.mechanism._parse(
-                         self.mechanism.getResponse(challenge))
-        self.assertEqual(directives[b'realm'], b'example.org')
-
-
-    def test_getResponseNoRealmIDN(self):
-        """
-        If the challenge does not include a realm and the host part of the JID
-        includes bytes outside of the ASCII range, the response still includes
-        the host part of the JID as the realm.
-        """
-        self.mechanism = sasl_mechanisms.DigestMD5(
-            u'xmpp', u'\u00e9chec.example.org', None, u'test', u'secret')
-        challenge = b'nonce="1234",qop="auth",charset=utf-8,algorithm=md5-sess'
-        directives = self.mechanism._parse(
-            self.mechanism.getResponse(challenge))
-        self.assertEqual(directives[b'realm'], b'\xc3\xa9chec.example.org')
-
-
-    def test_getResponseRspauth(self):
-        """
-        If the challenge just has a rspauth directive, the response is empty.
-        """
-        challenge = \
-            b'rspauth=cnNwYXV0aD1lYTQwZjYwMzM1YzQyN2I1NTI3Yjg0ZGJhYmNkZmZmZA=='
-        response = self.mechanism.getResponse(challenge)
-        self.assertEqual(b"", response)
-
-
-    def test_calculateResponse(self):
-        """
-        The response to a Digest-MD5 challenge is computed according to RFC
-        2831.
-        """
-        charset = 'utf-8'
-        nonce = b'OA6MG9tEQGm2hh'
-        nc = networkString('%08x' % (1,))
-        cnonce = b'OA6MHXh6VqTrRk'
-
-        username = u'\u0418chris'
-        password = u'\u0418secret'
-        host = u'\u0418elwood.innosoft.com'
-        digestURI = u'imap/\u0418elwood.innosoft.com'.encode(charset)
-
-        mechanism = sasl_mechanisms.DigestMD5(
-            b'imap', host, None, username, password)
-        response = mechanism._calculateResponse(
-            cnonce, nc, nonce, username.encode(charset),
-            password.encode(charset), host.encode(charset), digestURI)
-        self.assertEqual(response, b'7928f233258be88392424d094453c5e3')
-
-
-    def test_parse(self):
-        """
-        A challenge can be parsed into a L{dict} with L{bytes} or L{list}
-        values.
-        """
-        challenge = (
-            b'nonce="1234",qop="auth,auth-conf",charset=utf-8,'
-            b'algorithm=md5-sess,cipher="des,3des"')
-        directives = self.mechanism._parse(challenge)
-        self.assertEqual({
-                b"algorithm": b"md5-sess", b"nonce": b"1234",
-                b"charset": b"utf-8", b"qop": [b'auth', b'auth-conf'],
-                b"cipher": [b'des', b'3des']
-                }, directives)
+        self.assertEqual(nameprep.prepare(u'example.com.'), u'example.com.')

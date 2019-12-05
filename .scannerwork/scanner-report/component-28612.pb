@@ -1,1 +1,1 @@
-Äß8venv/lib64/python3.6/site-packages/openid/association.py 2pyX³h
+Äß5venv/lib64/python3.6/site-packages/openid/__init__.py 2pyX1h

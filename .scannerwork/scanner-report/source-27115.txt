@@ -1,809 +1,1051 @@
 from __future__ import absolute_import
-from contextlib import contextmanager
-import zlib
-import io
+import errno
 import logging
-from socket import timeout as SocketTimeout
-from socket import error as SocketError
+import sys
+import warnings
 
-try:
-    import brotli
-except ImportError:
-    brotli = None
+from socket import error as SocketError, timeout as SocketTimeout
+import socket
 
-from ._collections import HTTPHeaderDict
+
 from .exceptions import (
-    BodyNotHttplibCompatible,
+    ClosedPoolError,
     ProtocolError,
-    DecodeError,
+    EmptyPoolError,
+    HeaderParsingError,
+    HostChangedError,
+    LocationValueError,
+    MaxRetryError,
+    ProxyError,
     ReadTimeoutError,
-    ResponseNotChunked,
-    IncompleteRead,
-    InvalidHeader,
+    SSLError,
+    TimeoutError,
+    InsecureRequestWarning,
+    NewConnectionError,
 )
-from .packages.six import string_types as basestring, PY3
-from .packages.six.moves import http_client as httplib
-from .connection import HTTPException, BaseSSLError
-from .util.response import is_fp_closed, is_response_to_head
+from .packages.ssl_match_hostname import CertificateError
+from .packages import six
+from .packages.six.moves import queue
+from .connection import (
+    port_by_scheme,
+    DummyConnection,
+    HTTPConnection,
+    HTTPSConnection,
+    VerifiedHTTPSConnection,
+    HTTPException,
+    BaseSSLError,
+)
+from .request import RequestMethods
+from .response import HTTPResponse
+
+from .util.connection import is_connection_dropped
+from .util.request import set_file_position
+from .util.response import assert_header_parsing
+from .util.retry import Retry
+from .util.timeout import Timeout
+from .util.url import (
+    get_host,
+    parse_url,
+    Url,
+    _normalize_host as normalize_host,
+    _encode_target,
+)
+from .util.queue import LifoQueue
+
+
+xrange = six.moves.xrange
 
 log = logging.getLogger(__name__)
 
-
-class DeflateDecoder(object):
-    def __init__(self):
-        self._first_try = True
-        self._data = b""
-        self._obj = zlib.decompressobj()
-
-    def __getattr__(self, name):
-        return getattr(self._obj, name)
-
-    def decompress(self, data):
-        if not data:
-            return data
-
-        if not self._first_try:
-            return self._obj.decompress(data)
-
-        self._data += data
-        try:
-            decompressed = self._obj.decompress(data)
-            if decompressed:
-                self._first_try = False
-                self._data = None
-            return decompressed
-        except zlib.error:
-            self._first_try = False
-            self._obj = zlib.decompressobj(-zlib.MAX_WBITS)
-            try:
-                return self.decompress(self._data)
-            finally:
-                self._data = None
+_Default = object()
 
 
-class GzipDecoderState(object):
-
-    FIRST_MEMBER = 0
-    OTHER_MEMBERS = 1
-    SWALLOW_DATA = 2
-
-
-class GzipDecoder(object):
-    def __init__(self):
-        self._obj = zlib.decompressobj(16 + zlib.MAX_WBITS)
-        self._state = GzipDecoderState.FIRST_MEMBER
-
-    def __getattr__(self, name):
-        return getattr(self._obj, name)
-
-    def decompress(self, data):
-        ret = bytearray()
-        if self._state == GzipDecoderState.SWALLOW_DATA or not data:
-            return bytes(ret)
-        while True:
-            try:
-                ret += self._obj.decompress(data)
-            except zlib.error:
-                previous_state = self._state
-                # Ignore data after the first error
-                self._state = GzipDecoderState.SWALLOW_DATA
-                if previous_state == GzipDecoderState.OTHER_MEMBERS:
-                    # Allow trailing garbage acceptable in other gzip clients
-                    return bytes(ret)
-                raise
-            data = self._obj.unused_data
-            if not data:
-                return bytes(ret)
-            self._state = GzipDecoderState.OTHER_MEMBERS
-            self._obj = zlib.decompressobj(16 + zlib.MAX_WBITS)
-
-
-if brotli is not None:
-
-    class BrotliDecoder(object):
-        # Supports both 'brotlipy' and 'Brotli' packages
-        # since they share an import name. The top branches
-        # are for 'brotlipy' and bottom branches for 'Brotli'
-        def __init__(self):
-            self._obj = brotli.Decompressor()
-
-        def decompress(self, data):
-            if hasattr(self._obj, "decompress"):
-                return self._obj.decompress(data)
-            return self._obj.process(data)
-
-        def flush(self):
-            if hasattr(self._obj, "flush"):
-                return self._obj.flush()
-            return b""
-
-
-class MultiDecoder(object):
+# Pool objects
+class ConnectionPool(object):
     """
-    From RFC7231:
-        If one or more encodings have been applied to a representation, the
-        sender that applied the encodings MUST generate a Content-Encoding
-        header field that lists the content codings in the order in which
-        they were applied.
+    Base class for all connection pools, such as
+    :class:`.HTTPConnectionPool` and :class:`.HTTPSConnectionPool`.
     """
 
-    def __init__(self, modes):
-        self._decoders = [_get_decoder(m.strip()) for m in modes.split(",")]
+    scheme = None
+    QueueCls = LifoQueue
 
-    def flush(self):
-        return self._decoders[0].flush()
+    def __init__(self, host, port=None):
+        if not host:
+            raise LocationValueError("No host specified.")
 
-    def decompress(self, data):
-        for d in reversed(self._decoders):
-            data = d.decompress(data)
-        return data
+        self.host = _normalize_host(host, scheme=self.scheme)
+        self._proxy_host = host.lower()
+        self.port = port
+
+    def __str__(self):
+        return "%s(host=%r, port=%r)" % (type(self).__name__, self.host, self.port)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        # Return False to re-raise any potential exceptions
+        return False
+
+    def close(self):
+        """
+        Close all pooled connections and disable the pool.
+        """
+        pass
 
 
-def _get_decoder(mode):
-    if "," in mode:
-        return MultiDecoder(mode)
-
-    if mode == "gzip":
-        return GzipDecoder()
-
-    if brotli is not None and mode == "br":
-        return BrotliDecoder()
-
-    return DeflateDecoder()
+# This is taken from http://hg.python.org/cpython/file/7aaba721ebc0/Lib/socket.py#l252
+_blocking_errnos = {errno.EAGAIN, errno.EWOULDBLOCK}
 
 
-class HTTPResponse(io.IOBase):
+class HTTPConnectionPool(ConnectionPool, RequestMethods):
     """
-    HTTP Response container.
+    Thread-safe connection pool for one host.
 
-    Backwards-compatible to httplib's HTTPResponse but the response ``body`` is
-    loaded and decoded on-demand when the ``data`` property is accessed.  This
-    class is also compatible with the Python standard library's :mod:`io`
-    module, and can hence be treated as a readable object in the context of that
-    framework.
+    :param host:
+        Host used for this HTTP Connection (e.g. "localhost"), passed into
+        :class:`httplib.HTTPConnection`.
 
-    Extra parameters for behaviour not present in httplib.HTTPResponse:
+    :param port:
+        Port used for this HTTP Connection (None is equivalent to 80), passed
+        into :class:`httplib.HTTPConnection`.
 
-    :param preload_content:
-        If True, the response's body will be preloaded during construction.
+    :param strict:
+        Causes BadStatusLine to be raised if the status line can't be parsed
+        as a valid HTTP/1.0 or 1.1 status line, passed into
+        :class:`httplib.HTTPConnection`.
 
-    :param decode_content:
-        If True, will attempt to decode the body based on the
-        'content-encoding' header.
+        .. note::
+           Only works in Python 2. This parameter is ignored in Python 3.
 
-    :param original_response:
-        When this HTTPResponse wrapper is generated from an httplib.HTTPResponse
-        object, it's convenient to include the original for debug purposes. It's
-        otherwise unused.
+    :param timeout:
+        Socket timeout in seconds for each individual connection. This can
+        be a float or integer, which sets the timeout for the HTTP request,
+        or an instance of :class:`urllib3.util.Timeout` which gives you more
+        fine-grained control over request timeouts. After the constructor has
+        been parsed, this is always a `urllib3.util.Timeout` object.
+
+    :param maxsize:
+        Number of connections to save that can be reused. More than 1 is useful
+        in multithreaded situations. If ``block`` is set to False, more
+        connections will be created but they will not be saved once they've
+        been used.
+
+    :param block:
+        If set to True, no more than ``maxsize`` connections will be used at
+        a time. When no free connections are available, the call will block
+        until a connection has been released. This is a useful side effect for
+        particular multithreaded situations where one does not want to use more
+        than maxsize connections per host to prevent flooding.
+
+    :param headers:
+        Headers to include with all requests, unless other headers are given
+        explicitly.
 
     :param retries:
-        The retries contains the last :class:`~urllib3.util.retry.Retry` that
-        was used during the request.
+        Retry configuration to use by default with requests in this pool.
 
-    :param enforce_content_length:
-        Enforce content length checking. Body returned by server must match
-        value of Content-Length header, if present. Otherwise, raise error.
+    :param _proxy:
+        Parsed proxy URL, should not be used directly, instead, see
+        :class:`urllib3.connectionpool.ProxyManager`"
+
+    :param _proxy_headers:
+        A dictionary with proxy headers, should not be used directly,
+        instead, see :class:`urllib3.connectionpool.ProxyManager`"
+
+    :param \\**conn_kw:
+        Additional parameters are used to create fresh :class:`urllib3.connection.HTTPConnection`,
+        :class:`urllib3.connection.HTTPSConnection` instances.
     """
 
-    CONTENT_DECODERS = ["gzip", "deflate"]
-    if brotli is not None:
-        CONTENT_DECODERS += ["br"]
-    REDIRECT_STATUSES = [301, 302, 303, 307, 308]
+    scheme = "http"
+    ConnectionCls = HTTPConnection
+    ResponseCls = HTTPResponse
 
     def __init__(
         self,
-        body="",
+        host,
+        port=None,
+        strict=False,
+        timeout=Timeout.DEFAULT_TIMEOUT,
+        maxsize=1,
+        block=False,
         headers=None,
-        status=0,
-        version=0,
-        reason=None,
-        strict=0,
-        preload_content=True,
-        decode_content=True,
-        original_response=None,
-        pool=None,
-        connection=None,
-        msg=None,
         retries=None,
-        enforce_content_length=False,
-        request_method=None,
-        request_url=None,
-        auto_close=True,
+        _proxy=None,
+        _proxy_headers=None,
+        **conn_kw
     ):
+        ConnectionPool.__init__(self, host, port)
+        RequestMethods.__init__(self, headers)
 
-        if isinstance(headers, HTTPHeaderDict):
-            self.headers = headers
-        else:
-            self.headers = HTTPHeaderDict(headers)
-        self.status = status
-        self.version = version
-        self.reason = reason
         self.strict = strict
-        self.decode_content = decode_content
+
+        if not isinstance(timeout, Timeout):
+            timeout = Timeout.from_float(timeout)
+
+        if retries is None:
+            retries = Retry.DEFAULT
+
+        self.timeout = timeout
         self.retries = retries
-        self.enforce_content_length = enforce_content_length
-        self.auto_close = auto_close
 
-        self._decoder = None
-        self._body = None
-        self._fp = None
-        self._original_response = original_response
-        self._fp_bytes_read = 0
-        self.msg = msg
-        self._request_url = request_url
+        self.pool = self.QueueCls(maxsize)
+        self.block = block
 
-        if body and isinstance(body, (basestring, bytes)):
-            self._body = body
+        self.proxy = _proxy
+        self.proxy_headers = _proxy_headers or {}
 
-        self._pool = pool
-        self._connection = connection
+        # Fill the queue up so that doing get() on it will block properly
+        for _ in xrange(maxsize):
+            self.pool.put(None)
 
-        if hasattr(body, "read"):
-            self._fp = body
+        # These are mostly for testing and debugging purposes.
+        self.num_connections = 0
+        self.num_requests = 0
+        self.conn_kw = conn_kw
 
-        # Are we using the chunked-style of transfer encoding?
-        self.chunked = False
-        self.chunk_left = None
-        tr_enc = self.headers.get("transfer-encoding", "").lower()
-        # Don't incur the penalty of creating a list and then discarding it
-        encodings = (enc.strip() for enc in tr_enc.split(","))
-        if "chunked" in encodings:
-            self.chunked = True
+        if self.proxy:
+            # Enable Nagle's algorithm for proxies, to avoid packet fragmentation.
+            # We cannot know if the user has added default socket options, so we cannot replace the
+            # list.
+            self.conn_kw.setdefault("socket_options", [])
 
-        # Determine length of response
-        self.length_remaining = self._init_length(request_method)
-
-        # If requested, preload the body.
-        if preload_content and not self._body:
-            self._body = self.read(decode_content=decode_content)
-
-    def get_redirect_location(self):
+    def _new_conn(self):
         """
-        Should we redirect and where to?
-
-        :returns: Truthy redirect location string if we got a redirect status
-            code and valid location. ``None`` if redirect status and no
-            location. ``False`` if not a redirect status code.
+        Return a fresh :class:`HTTPConnection`.
         """
-        if self.status in self.REDIRECT_STATUSES:
-            return self.headers.get("location")
+        self.num_connections += 1
+        log.debug(
+            "Starting new HTTP connection (%d): %s:%s",
+            self.num_connections,
+            self.host,
+            self.port or "80",
+        )
 
-        return False
+        conn = self.ConnectionCls(
+            host=self.host,
+            port=self.port,
+            timeout=self.timeout.connect_timeout,
+            strict=self.strict,
+            **self.conn_kw
+        )
+        return conn
 
-    def release_conn(self):
-        if not self._pool or not self._connection:
-            return
-
-        self._pool._put_conn(self._connection)
-        self._connection = None
-
-    @property
-    def data(self):
-        # For backwords-compat with earlier urllib3 0.4 and earlier.
-        if self._body:
-            return self._body
-
-        if self._fp:
-            return self.read(cache_content=True)
-
-    @property
-    def connection(self):
-        return self._connection
-
-    def isclosed(self):
-        return is_fp_closed(self._fp)
-
-    def tell(self):
+    def _get_conn(self, timeout=None):
         """
-        Obtain the number of bytes pulled over the wire so far. May differ from
-        the amount of content returned by :meth:``HTTPResponse.read`` if bytes
-        are encoded on the wire (e.g, compressed).
-        """
-        return self._fp_bytes_read
+        Get a connection. Will return a pooled connection if one is available.
 
-    def _init_length(self, request_method):
-        """
-        Set initial length value for Response content if available.
-        """
-        length = self.headers.get("content-length")
+        If no connections are available and :prop:`.block` is ``False``, then a
+        fresh connection is returned.
 
-        if length is not None:
-            if self.chunked:
-                # This Response will fail with an IncompleteRead if it can't be
-                # received as chunked. This method falls back to attempt reading
-                # the response before raising an exception.
-                log.warning(
-                    "Received response with both Content-Length and "
-                    "Transfer-Encoding set. This is expressly forbidden "
-                    "by RFC 7230 sec 3.3.2. Ignoring Content-Length and "
-                    "attempting to process response as Transfer-Encoding: "
-                    "chunked."
+        :param timeout:
+            Seconds to wait before giving up and raising
+            :class:`urllib3.exceptions.EmptyPoolError` if the pool is empty and
+            :prop:`.block` is ``True``.
+        """
+        conn = None
+        try:
+            conn = self.pool.get(block=self.block, timeout=timeout)
+
+        except AttributeError:  # self.pool is None
+            raise ClosedPoolError(self, "Pool is closed.")
+
+        except queue.Empty:
+            if self.block:
+                raise EmptyPoolError(
+                    self,
+                    "Pool reached maximum size and no more connections are allowed.",
                 )
-                return None
+            pass  # Oh well, we'll create a new connection then
 
-            try:
-                # RFC 7230 section 3.3.2 specifies multiple content lengths can
-                # be sent in a single Content-Length header
-                # (e.g. Content-Length: 42, 42). This line ensures the values
-                # are all valid ints and that as long as the `set` length is 1,
-                # all values are the same. Otherwise, the header is invalid.
-                lengths = set([int(val) for val in length.split(",")])
-                if len(lengths) > 1:
-                    raise InvalidHeader(
-                        "Content-Length contained multiple "
-                        "unmatching values (%s)" % length
-                    )
-                length = lengths.pop()
-            except ValueError:
-                length = None
-            else:
-                if length < 0:
-                    length = None
+        # If this is a persistent connection, check if it got disconnected
+        if conn and is_connection_dropped(conn):
+            log.debug("Resetting dropped connection: %s", self.host)
+            conn.close()
+            if getattr(conn, "auto_open", 1) == 0:
+                # This is a proxied connection that has been mutated by
+                # httplib._tunnel() and cannot be reused (since it would
+                # attempt to bypass the proxy)
+                conn = None
 
-        # Convert status to int for comparison
-        # In some cases, httplib returns a status of "_UNKNOWN"
+        return conn or self._new_conn()
+
+    def _put_conn(self, conn):
+        """
+        Put a connection back into the pool.
+
+        :param conn:
+            Connection object for the current host and port as returned by
+            :meth:`._new_conn` or :meth:`._get_conn`.
+
+        If the pool is already full, the connection is closed and discarded
+        because we exceeded maxsize. If connections are discarded frequently,
+        then maxsize should be increased.
+
+        If the pool is closed, then the connection will be closed and discarded.
+        """
         try:
-            status = int(self.status)
-        except ValueError:
-            status = 0
+            self.pool.put(conn, block=False)
+            return  # Everything is dandy, done.
+        except AttributeError:
+            # self.pool is None.
+            pass
+        except queue.Full:
+            # This should never happen if self.block == True
+            log.warning("Connection pool is full, discarding connection: %s", self.host)
 
-        # Check for responses that shouldn't include a body
-        if status in (204, 304) or 100 <= status < 200 or request_method == "HEAD":
-            length = 0
+        # Connection never got put back into the pool, close it.
+        if conn:
+            conn.close()
 
-        return length
-
-    def _init_decoder(self):
+    def _validate_conn(self, conn):
         """
-        Set-up the _decoder attribute if necessary.
+        Called right before a request is made, after the socket is created.
         """
-        # Note: content-encoding value should be case-insensitive, per RFC 7230
-        # Section 3.2
-        content_encoding = self.headers.get("content-encoding", "").lower()
-        if self._decoder is None:
-            if content_encoding in self.CONTENT_DECODERS:
-                self._decoder = _get_decoder(content_encoding)
-            elif "," in content_encoding:
-                encodings = [
-                    e.strip()
-                    for e in content_encoding.split(",")
-                    if e.strip() in self.CONTENT_DECODERS
-                ]
-                if len(encodings):
-                    self._decoder = _get_decoder(content_encoding)
+        pass
 
-    DECODER_ERROR_CLASSES = (IOError, zlib.error)
-    if brotli is not None:
-        DECODER_ERROR_CLASSES += (brotli.error,)
+    def _prepare_proxy(self, conn):
+        # Nothing to do for HTTP connections.
+        pass
 
-    def _decode(self, data, decode_content, flush_decoder):
-        """
-        Decode the data passed in and potentially flush the decoder.
-        """
-        if not decode_content:
-            return data
+    def _get_timeout(self, timeout):
+        """ Helper that always returns a :class:`urllib3.util.Timeout` """
+        if timeout is _Default:
+            return self.timeout.clone()
 
-        try:
-            if self._decoder:
-                data = self._decoder.decompress(data)
-        except self.DECODER_ERROR_CLASSES as e:
-            content_encoding = self.headers.get("content-encoding", "").lower()
-            raise DecodeError(
-                "Received response with content-encoding: %s, but "
-                "failed to decode it." % content_encoding,
-                e,
+        if isinstance(timeout, Timeout):
+            return timeout.clone()
+        else:
+            # User passed us an int/float. This is for backwards compatibility,
+            # can be removed later
+            return Timeout.from_float(timeout)
+
+    def _raise_timeout(self, err, url, timeout_value):
+        """Is the error actually a timeout? Will raise a ReadTimeout or pass"""
+
+        if isinstance(err, SocketTimeout):
+            raise ReadTimeoutError(
+                self, url, "Read timed out. (read timeout=%s)" % timeout_value
             )
-        if flush_decoder:
-            data += self._flush_decoder()
 
-        return data
+        # See the above comment about EAGAIN in Python 3. In Python 2 we have
+        # to specifically catch it and throw the timeout error
+        if hasattr(err, "errno") and err.errno in _blocking_errnos:
+            raise ReadTimeoutError(
+                self, url, "Read timed out. (read timeout=%s)" % timeout_value
+            )
 
-    def _flush_decoder(self):
+        # Catch possible read timeouts thrown as SSL errors. If not the
+        # case, rethrow the original. We need to do this because of:
+        # http://bugs.python.org/issue10272
+        if "timed out" in str(err) or "did not complete (read)" in str(
+            err
+        ):  # Python < 2.7.4
+            raise ReadTimeoutError(
+                self, url, "Read timed out. (read timeout=%s)" % timeout_value
+            )
+
+    def _make_request(
+        self, conn, method, url, timeout=_Default, chunked=False, **httplib_request_kw
+    ):
         """
-        Flushes the decoder. Should only be called if the decoder is actually
-        being used.
-        """
-        if self._decoder:
-            buf = self._decoder.decompress(b"")
-            return buf + self._decoder.flush()
+        Perform a request on a given urllib connection object taken from our
+        pool.
 
-        return b""
+        :param conn:
+            a connection from one of our connection pools
 
-    @contextmanager
-    def _error_catcher(self):
+        :param timeout:
+            Socket timeout in seconds for the request. This can be a
+            float or integer, which will set the same timeout value for
+            the socket connect and the socket read, or an instance of
+            :class:`urllib3.util.Timeout`, which gives you more fine-grained
+            control over your timeouts.
         """
-        Catch low-level python exceptions, instead re-raising urllib3
-        variants, so that low-level exceptions are not leaked in the
-        high-level api.
+        self.num_requests += 1
 
-        On exit, release the connection back to the pool.
+        timeout_obj = self._get_timeout(timeout)
+        timeout_obj.start_connect()
+        conn.timeout = timeout_obj.connect_timeout
+
+        # Trigger any extra validation we need to do.
+        try:
+            self._validate_conn(conn)
+        except (SocketTimeout, BaseSSLError) as e:
+            # Py2 raises this as a BaseSSLError, Py3 raises it as socket timeout.
+            self._raise_timeout(err=e, url=url, timeout_value=conn.timeout)
+            raise
+
+        # conn.request() calls httplib.*.request, not the method in
+        # urllib3.request. It also calls makefile (recv) on the socket.
+        if chunked:
+            conn.request_chunked(method, url, **httplib_request_kw)
+        else:
+            conn.request(method, url, **httplib_request_kw)
+
+        # Reset the timeout for the recv() on the socket
+        read_timeout = timeout_obj.read_timeout
+
+        # App Engine doesn't have a sock attr
+        if getattr(conn, "sock", None):
+            # In Python 3 socket.py will catch EAGAIN and return None when you
+            # try and read into the file pointer created by http.client, which
+            # instead raises a BadStatusLine exception. Instead of catching
+            # the exception and assuming all BadStatusLine exceptions are read
+            # timeouts, check for a zero timeout before making the request.
+            if read_timeout == 0:
+                raise ReadTimeoutError(
+                    self, url, "Read timed out. (read timeout=%s)" % read_timeout
+                )
+            if read_timeout is Timeout.DEFAULT_TIMEOUT:
+                conn.sock.settimeout(socket.getdefaulttimeout())
+            else:  # None or a value
+                conn.sock.settimeout(read_timeout)
+
+        # Receive the response from the server
+        try:
+            try:
+                # Python 2.7, use buffering of HTTP responses
+                httplib_response = conn.getresponse(buffering=True)
+            except TypeError:
+                # Python 3
+                try:
+                    httplib_response = conn.getresponse()
+                except BaseException as e:
+                    # Remove the TypeError from the exception chain in
+                    # Python 3 (including for exceptions like SystemExit).
+                    # Otherwise it looks like a bug in the code.
+                    six.raise_from(e, None)
+        except (SocketTimeout, BaseSSLError, SocketError) as e:
+            self._raise_timeout(err=e, url=url, timeout_value=read_timeout)
+            raise
+
+        # AppEngine doesn't have a version attr.
+        http_version = getattr(conn, "_http_vsn_str", "HTTP/?")
+        log.debug(
+            '%s://%s:%s "%s %s %s" %s %s',
+            self.scheme,
+            self.host,
+            self.port,
+            method,
+            url,
+            http_version,
+            httplib_response.status,
+            httplib_response.length,
+        )
+
+        try:
+            assert_header_parsing(httplib_response.msg)
+        except (HeaderParsingError, TypeError) as hpe:  # Platform-specific: Python 3
+            log.warning(
+                "Failed to parse headers (url=%s): %s",
+                self._absolute_url(url),
+                hpe,
+                exc_info=True,
+            )
+
+        return httplib_response
+
+    def _absolute_url(self, path):
+        return Url(scheme=self.scheme, host=self.host, port=self.port, path=path).url
+
+    def close(self):
         """
+        Close all pooled connections and disable the pool.
+        """
+        if self.pool is None:
+            return
+        # Disable access to the pool
+        old_pool, self.pool = self.pool, None
+
+        try:
+            while True:
+                conn = old_pool.get(block=False)
+                if conn:
+                    conn.close()
+
+        except queue.Empty:
+            pass  # Done.
+
+    def is_same_host(self, url):
+        """
+        Check if the given ``url`` is a member of the same host as this
+        connection pool.
+        """
+        if url.startswith("/"):
+            return True
+
+        # TODO: Add optional support for socket.gethostbyname checking.
+        scheme, host, port = get_host(url)
+        if host is not None:
+            host = _normalize_host(host, scheme=scheme)
+
+        # Use explicit default port for comparison when none is given
+        if self.port and not port:
+            port = port_by_scheme.get(scheme)
+        elif not self.port and port == port_by_scheme.get(scheme):
+            port = None
+
+        return (scheme, host, port) == (self.scheme, self.host, self.port)
+
+    def urlopen(
+        self,
+        method,
+        url,
+        body=None,
+        headers=None,
+        retries=None,
+        redirect=True,
+        assert_same_host=True,
+        timeout=_Default,
+        pool_timeout=None,
+        release_conn=None,
+        chunked=False,
+        body_pos=None,
+        **response_kw
+    ):
+        """
+        Get a connection from the pool and perform an HTTP request. This is the
+        lowest level call for making a request, so you'll need to specify all
+        the raw details.
+
+        .. note::
+
+           More commonly, it's appropriate to use a convenience method provided
+           by :class:`.RequestMethods`, such as :meth:`request`.
+
+        .. note::
+
+           `release_conn` will only behave as expected if
+           `preload_content=False` because we want to make
+           `preload_content=False` the default behaviour someday soon without
+           breaking backwards compatibility.
+
+        :param method:
+            HTTP request method (such as GET, POST, PUT, etc.)
+
+        :param body:
+            Data to send in the request body (useful for creating
+            POST requests, see HTTPConnectionPool.post_url for
+            more convenience).
+
+        :param headers:
+            Dictionary of custom headers to send, such as User-Agent,
+            If-None-Match, etc. If None, pool headers are used. If provided,
+            these headers completely replace any pool-specific headers.
+
+        :param retries:
+            Configure the number of retries to allow before raising a
+            :class:`~urllib3.exceptions.MaxRetryError` exception.
+
+            Pass ``None`` to retry until you receive a response. Pass a
+            :class:`~urllib3.util.retry.Retry` object for fine-grained control
+            over different types of retries.
+            Pass an integer number to retry connection errors that many times,
+            but no other types of errors. Pass zero to never retry.
+
+            If ``False``, then retries are disabled and any exception is raised
+            immediately. Also, instead of raising a MaxRetryError on redirects,
+            the redirect response will be returned.
+
+        :type retries: :class:`~urllib3.util.retry.Retry`, False, or an int.
+
+        :param redirect:
+            If True, automatically handle redirects (status codes 301, 302,
+            303, 307, 308). Each redirect counts as a retry. Disabling retries
+            will disable redirect, too.
+
+        :param assert_same_host:
+            If ``True``, will make sure that the host of the pool requests is
+            consistent else will raise HostChangedError. When False, you can
+            use the pool on an HTTP proxy and request foreign hosts.
+
+        :param timeout:
+            If specified, overrides the default timeout for this one
+            request. It may be a float (in seconds) or an instance of
+            :class:`urllib3.util.Timeout`.
+
+        :param pool_timeout:
+            If set and the pool is set to block=True, then this method will
+            block for ``pool_timeout`` seconds and raise EmptyPoolError if no
+            connection is available within the time period.
+
+        :param release_conn:
+            If False, then the urlopen call will not release the connection
+            back into the pool once a response is received (but will release if
+            you read the entire contents of the response such as when
+            `preload_content=True`). This is useful if you're not preloading
+            the response's content immediately. You will need to call
+            ``r.release_conn()`` on the response ``r`` to return the connection
+            back into the pool. If None, it takes the value of
+            ``response_kw.get('preload_content', True)``.
+
+        :param chunked:
+            If True, urllib3 will send the body using chunked transfer
+            encoding. Otherwise, urllib3 will send the body using the standard
+            content-length form. Defaults to False.
+
+        :param int body_pos:
+            Position to seek to in file-like body in the event of a retry or
+            redirect. Typically this won't need to be set because urllib3 will
+            auto-populate the value when needed.
+
+        :param \\**response_kw:
+            Additional parameters are passed to
+            :meth:`urllib3.response.HTTPResponse.from_httplib`
+        """
+        if headers is None:
+            headers = self.headers
+
+        if not isinstance(retries, Retry):
+            retries = Retry.from_int(retries, redirect=redirect, default=self.retries)
+
+        if release_conn is None:
+            release_conn = response_kw.get("preload_content", True)
+
+        # Check host
+        if assert_same_host and not self.is_same_host(url):
+            raise HostChangedError(self, url, retries)
+
+        # Ensure that the URL we're connecting to is properly encoded
+        if url.startswith("/"):
+            url = six.ensure_str(_encode_target(url))
+        else:
+            url = six.ensure_str(parse_url(url).url)
+
+        conn = None
+
+        # Track whether `conn` needs to be released before
+        # returning/raising/recursing. Update this variable if necessary, and
+        # leave `release_conn` constant throughout the function. That way, if
+        # the function recurses, the original value of `release_conn` will be
+        # passed down into the recursive call, and its value will be respected.
+        #
+        # See issue #651 [1] for details.
+        #
+        # [1] <https://github.com/urllib3/urllib3/issues/651>
+        release_this_conn = release_conn
+
+        # Merge the proxy headers. Only do this in HTTP. We have to copy the
+        # headers dict so we can safely change it without those changes being
+        # reflected in anyone else's copy.
+        if self.scheme == "http":
+            headers = headers.copy()
+            headers.update(self.proxy_headers)
+
+        # Must keep the exception bound to a separate variable or else Python 3
+        # complains about UnboundLocalError.
+        err = None
+
+        # Keep track of whether we cleanly exited the except block. This
+        # ensures we do proper cleanup in finally.
         clean_exit = False
 
+        # Rewind body position, if needed. Record current position
+        # for future rewinds in the event of a redirect/retry.
+        body_pos = set_file_position(body, body_pos)
+
         try:
-            try:
-                yield
+            # Request a connection from the queue.
+            timeout_obj = self._get_timeout(timeout)
+            conn = self._get_conn(timeout=pool_timeout)
 
-            except SocketTimeout:
-                # FIXME: Ideally we'd like to include the url in the ReadTimeoutError but
-                # there is yet no clean way to get at it from this context.
-                raise ReadTimeoutError(self._pool, None, "Read timed out.")
+            conn.timeout = timeout_obj.connect_timeout
 
-            except BaseSSLError as e:
-                # FIXME: Is there a better way to differentiate between SSLErrors?
-                if "read operation timed out" not in str(e):  # Defensive:
-                    # This shouldn't happen but just in case we're missing an edge
-                    # case, let's avoid swallowing SSL errors.
-                    raise
+            is_new_proxy_conn = self.proxy is not None and not getattr(
+                conn, "sock", None
+            )
+            if is_new_proxy_conn:
+                self._prepare_proxy(conn)
 
-                raise ReadTimeoutError(self._pool, None, "Read timed out.")
+            # Make the request on the httplib connection object.
+            httplib_response = self._make_request(
+                conn,
+                method,
+                url,
+                timeout=timeout_obj,
+                body=body,
+                headers=headers,
+                chunked=chunked,
+            )
 
-            except (HTTPException, SocketError) as e:
-                # This includes IncompleteRead.
-                raise ProtocolError("Connection broken: %r" % e, e)
+            # If we're going to release the connection in ``finally:``, then
+            # the response doesn't need to know about the connection. Otherwise
+            # it will also try to release it and we'll have a double-release
+            # mess.
+            response_conn = conn if not release_conn else None
 
-            # If no exception is thrown, we should avoid cleaning up
-            # unnecessarily.
+            # Pass method to Response for length checking
+            response_kw["request_method"] = method
+
+            # Import httplib's response into our own wrapper object
+            response = self.ResponseCls.from_httplib(
+                httplib_response,
+                pool=self,
+                connection=response_conn,
+                retries=retries,
+                **response_kw
+            )
+
+            # Everything went great!
             clean_exit = True
+
+        except queue.Empty:
+            # Timed out by queue.
+            raise EmptyPoolError(self, "No pool connections are available.")
+
+        except (
+            TimeoutError,
+            HTTPException,
+            SocketError,
+            ProtocolError,
+            BaseSSLError,
+            SSLError,
+            CertificateError,
+        ) as e:
+            # Discard the connection for these exceptions. It will be
+            # replaced during the next _get_conn() call.
+            clean_exit = False
+            if isinstance(e, (BaseSSLError, CertificateError)):
+                e = SSLError(e)
+            elif isinstance(e, (SocketError, NewConnectionError)) and self.proxy:
+                e = ProxyError("Cannot connect to proxy.", e)
+            elif isinstance(e, (SocketError, HTTPException)):
+                e = ProtocolError("Connection aborted.", e)
+
+            retries = retries.increment(
+                method, url, error=e, _pool=self, _stacktrace=sys.exc_info()[2]
+            )
+            retries.sleep()
+
+            # Keep track of the error for the retry warning.
+            err = e
+
         finally:
-            # If we didn't terminate cleanly, we need to throw away our
-            # connection.
             if not clean_exit:
-                # The response may not be closed but we're not going to use it
-                # anymore so close it now to ensure that the connection is
-                # released back to the pool.
-                if self._original_response:
-                    self._original_response.close()
+                # We hit some kind of exception, handled or otherwise. We need
+                # to throw the connection away unless explicitly told not to.
+                # Close the connection, set the variable to None, and make sure
+                # we put the None back in the pool to avoid leaking it.
+                conn = conn and conn.close()
+                release_this_conn = True
 
-                # Closing the response may not actually be sufficient to close
-                # everything, so if we have a hold of the connection close that
-                # too.
-                if self._connection:
-                    self._connection.close()
+            if release_this_conn:
+                # Put the connection back to be reused. If the connection is
+                # expired then it will be None, which will get replaced with a
+                # fresh connection during _get_conn.
+                self._put_conn(conn)
 
-            # If we hold the original response but it's closed now, we should
-            # return the connection back to the pool.
-            if self._original_response and self._original_response.isclosed():
-                self.release_conn()
+        if not conn:
+            # Try again
+            log.warning(
+                "Retrying (%r) after connection broken by '%r': %s", retries, err, url
+            )
+            return self.urlopen(
+                method,
+                url,
+                body,
+                headers,
+                retries,
+                redirect,
+                assert_same_host,
+                timeout=timeout,
+                pool_timeout=pool_timeout,
+                release_conn=release_conn,
+                chunked=chunked,
+                body_pos=body_pos,
+                **response_kw
+            )
 
-    def read(self, amt=None, decode_content=None, cache_content=False):
-        """
-        Similar to :meth:`httplib.HTTPResponse.read`, but with two additional
-        parameters: ``decode_content`` and ``cache_content``.
+        def drain_and_release_conn(response):
+            try:
+                # discard any remaining response body, the connection will be
+                # released back to the pool once the entire response is read
+                response.read()
+            except (
+                TimeoutError,
+                HTTPException,
+                SocketError,
+                ProtocolError,
+                BaseSSLError,
+                SSLError,
+            ):
+                pass
 
-        :param amt:
-            How much of the content to read. If specified, caching is skipped
-            because it doesn't make sense to cache partial content as the full
-            response.
+        # Handle redirect?
+        redirect_location = redirect and response.get_redirect_location()
+        if redirect_location:
+            if response.status == 303:
+                method = "GET"
 
-        :param decode_content:
-            If True, will attempt to decode the body based on the
-            'content-encoding' header.
+            try:
+                retries = retries.increment(method, url, response=response, _pool=self)
+            except MaxRetryError:
+                if retries.raise_on_redirect:
+                    # Drain and release the connection for this response, since
+                    # we're not returning it to be released manually.
+                    drain_and_release_conn(response)
+                    raise
+                return response
 
-        :param cache_content:
-            If True, will save the returned data such that the same result is
-            returned despite of the state of the underlying file object. This
-            is useful if you want the ``.data`` property to continue working
-            after having ``.read()`` the file object. (Overridden if ``amt`` is
-            set.)
-        """
-        self._init_decoder()
-        if decode_content is None:
-            decode_content = self.decode_content
+            # drain and return the connection to the pool before recursing
+            drain_and_release_conn(response)
 
-        if self._fp is None:
-            return
+            retries.sleep_for_retry(response)
+            log.debug("Redirecting %s -> %s", url, redirect_location)
+            return self.urlopen(
+                method,
+                redirect_location,
+                body,
+                headers,
+                retries=retries,
+                redirect=redirect,
+                assert_same_host=assert_same_host,
+                timeout=timeout,
+                pool_timeout=pool_timeout,
+                release_conn=release_conn,
+                chunked=chunked,
+                body_pos=body_pos,
+                **response_kw
+            )
 
-        flush_decoder = False
-        fp_closed = getattr(self._fp, "closed", False)
+        # Check if we should retry the HTTP response.
+        has_retry_after = bool(response.getheader("Retry-After"))
+        if retries.is_retry(method, response.status, has_retry_after):
+            try:
+                retries = retries.increment(method, url, response=response, _pool=self)
+            except MaxRetryError:
+                if retries.raise_on_status:
+                    # Drain and release the connection for this response, since
+                    # we're not returning it to be released manually.
+                    drain_and_release_conn(response)
+                    raise
+                return response
 
-        with self._error_catcher():
-            if amt is None:
-                # cStringIO doesn't like amt=None
-                data = self._fp.read() if not fp_closed else b""
-                flush_decoder = True
-            else:
-                cache_content = False
-                data = self._fp.read(amt) if not fp_closed else b""
-                if (
-                    amt != 0 and not data
-                ):  # Platform-specific: Buggy versions of Python.
-                    # Close the connection when no data is returned
-                    #
-                    # This is redundant to what httplib/http.client _should_
-                    # already do.  However, versions of python released before
-                    # December 15, 2012 (http://bugs.python.org/issue16298) do
-                    # not properly close the connection in all cases. There is
-                    # no harm in redundantly calling close.
-                    self._fp.close()
-                    flush_decoder = True
-                    if self.enforce_content_length and self.length_remaining not in (
-                        0,
-                        None,
-                    ):
-                        # This is an edge case that httplib failed to cover due
-                        # to concerns of backward compatibility. We're
-                        # addressing it here to make sure IncompleteRead is
-                        # raised during streaming, so all calls with incorrect
-                        # Content-Length are caught.
-                        raise IncompleteRead(self._fp_bytes_read, self.length_remaining)
+            # drain and return the connection to the pool before recursing
+            drain_and_release_conn(response)
 
-        if data:
-            self._fp_bytes_read += len(data)
-            if self.length_remaining is not None:
-                self.length_remaining -= len(data)
+            retries.sleep(response)
+            log.debug("Retry: %s", url)
+            return self.urlopen(
+                method,
+                url,
+                body,
+                headers,
+                retries=retries,
+                redirect=redirect,
+                assert_same_host=assert_same_host,
+                timeout=timeout,
+                pool_timeout=pool_timeout,
+                release_conn=release_conn,
+                chunked=chunked,
+                body_pos=body_pos,
+                **response_kw
+            )
 
-            data = self._decode(data, decode_content, flush_decoder)
+        return response
 
-            if cache_content:
-                self._body = data
 
-        return data
+class HTTPSConnectionPool(HTTPConnectionPool):
+    """
+    Same as :class:`.HTTPConnectionPool`, but HTTPS.
 
-    def stream(self, amt=2 ** 16, decode_content=None):
-        """
-        A generator wrapper for the read() method. A call will block until
-        ``amt`` bytes have been read from the connection or until the
-        connection is closed.
+    When Python is compiled with the :mod:`ssl` module, then
+    :class:`.VerifiedHTTPSConnection` is used, which *can* verify certificates,
+    instead of :class:`.HTTPSConnection`.
 
-        :param amt:
-            How much of the content to read. The generator will return up to
-            much data per iteration, but may return less. This is particularly
-            likely when using compressed data. However, the empty string will
-            never be returned.
+    :class:`.VerifiedHTTPSConnection` uses one of ``assert_fingerprint``,
+    ``assert_hostname`` and ``host`` in this order to verify connections.
+    If ``assert_hostname`` is False, no verification is done.
 
-        :param decode_content:
-            If True, will attempt to decode the body based on the
-            'content-encoding' header.
-        """
-        if self.chunked and self.supports_chunked_reads():
-            for line in self.read_chunked(amt, decode_content=decode_content):
-                yield line
-        else:
-            while not is_fp_closed(self._fp):
-                data = self.read(amt=amt, decode_content=decode_content)
+    The ``key_file``, ``cert_file``, ``cert_reqs``, ``ca_certs``,
+    ``ca_cert_dir``, ``ssl_version``, ``key_password`` are only used if :mod:`ssl`
+    is available and are fed into :meth:`urllib3.util.ssl_wrap_socket` to upgrade
+    the connection socket into an SSL socket.
+    """
 
-                if data:
-                    yield data
+    scheme = "https"
+    ConnectionCls = HTTPSConnection
 
-    @classmethod
-    def from_httplib(ResponseCls, r, **response_kw):
-        """
-        Given an :class:`httplib.HTTPResponse` instance ``r``, return a
-        corresponding :class:`urllib3.response.HTTPResponse` object.
+    def __init__(
+        self,
+        host,
+        port=None,
+        strict=False,
+        timeout=Timeout.DEFAULT_TIMEOUT,
+        maxsize=1,
+        block=False,
+        headers=None,
+        retries=None,
+        _proxy=None,
+        _proxy_headers=None,
+        key_file=None,
+        cert_file=None,
+        cert_reqs=None,
+        key_password=None,
+        ca_certs=None,
+        ssl_version=None,
+        assert_hostname=None,
+        assert_fingerprint=None,
+        ca_cert_dir=None,
+        **conn_kw
+    ):
 
-        Remaining parameters are passed to the HTTPResponse constructor, along
-        with ``original_response=r``.
-        """
-        headers = r.msg
-
-        if not isinstance(headers, HTTPHeaderDict):
-            if PY3:
-                headers = HTTPHeaderDict(headers.items())
-            else:
-                # Python 2.7
-                headers = HTTPHeaderDict.from_httplib(headers)
-
-        # HTTPResponse objects in Python 3 don't have a .strict attribute
-        strict = getattr(r, "strict", 0)
-        resp = ResponseCls(
-            body=r,
-            headers=headers,
-            status=r.status,
-            version=r.version,
-            reason=r.reason,
-            strict=strict,
-            original_response=r,
-            **response_kw
+        HTTPConnectionPool.__init__(
+            self,
+            host,
+            port,
+            strict,
+            timeout,
+            maxsize,
+            block,
+            headers,
+            retries,
+            _proxy,
+            _proxy_headers,
+            **conn_kw
         )
-        return resp
 
-    # Backwards-compatibility methods for httplib.HTTPResponse
-    def getheaders(self):
-        return self.headers
+        self.key_file = key_file
+        self.cert_file = cert_file
+        self.cert_reqs = cert_reqs
+        self.key_password = key_password
+        self.ca_certs = ca_certs
+        self.ca_cert_dir = ca_cert_dir
+        self.ssl_version = ssl_version
+        self.assert_hostname = assert_hostname
+        self.assert_fingerprint = assert_fingerprint
 
-    def getheader(self, name, default=None):
-        return self.headers.get(name, default)
+    def _prepare_conn(self, conn):
+        """
+        Prepare the ``connection`` for :meth:`urllib3.util.ssl_wrap_socket`
+        and establish the tunnel if proxy is used.
+        """
 
-    # Backwards compatibility for http.cookiejar
-    def info(self):
-        return self.headers
+        if isinstance(conn, VerifiedHTTPSConnection):
+            conn.set_cert(
+                key_file=self.key_file,
+                key_password=self.key_password,
+                cert_file=self.cert_file,
+                cert_reqs=self.cert_reqs,
+                ca_certs=self.ca_certs,
+                ca_cert_dir=self.ca_cert_dir,
+                assert_hostname=self.assert_hostname,
+                assert_fingerprint=self.assert_fingerprint,
+            )
+            conn.ssl_version = self.ssl_version
+        return conn
 
-    # Overrides from io.IOBase
-    def close(self):
-        if not self.closed:
-            self._fp.close()
+    def _prepare_proxy(self, conn):
+        """
+        Establish tunnel connection early, because otherwise httplib
+        would improperly set Host: header to proxy's IP:port.
+        """
+        conn.set_tunnel(self._proxy_host, self.port, self.proxy_headers)
+        conn.connect()
 
-        if self._connection:
-            self._connection.close()
+    def _new_conn(self):
+        """
+        Return a fresh :class:`httplib.HTTPSConnection`.
+        """
+        self.num_connections += 1
+        log.debug(
+            "Starting new HTTPS connection (%d): %s:%s",
+            self.num_connections,
+            self.host,
+            self.port or "443",
+        )
 
-        if not self.auto_close:
-            io.IOBase.close(self)
-
-    @property
-    def closed(self):
-        if not self.auto_close:
-            return io.IOBase.closed.__get__(self)
-        elif self._fp is None:
-            return True
-        elif hasattr(self._fp, "isclosed"):
-            return self._fp.isclosed()
-        elif hasattr(self._fp, "closed"):
-            return self._fp.closed
-        else:
-            return True
-
-    def fileno(self):
-        if self._fp is None:
-            raise IOError("HTTPResponse has no file to get a fileno from")
-        elif hasattr(self._fp, "fileno"):
-            return self._fp.fileno()
-        else:
-            raise IOError(
-                "The file-like object this HTTPResponse is wrapped "
-                "around has no file descriptor"
+        if not self.ConnectionCls or self.ConnectionCls is DummyConnection:
+            raise SSLError(
+                "Can't connect to HTTPS URL because the SSL module is not available."
             )
 
-    def flush(self):
-        if (
-            self._fp is not None
-            and hasattr(self._fp, "flush")
-            and not getattr(self._fp, "closed", False)
-        ):
-            return self._fp.flush()
+        actual_host = self.host
+        actual_port = self.port
+        if self.proxy is not None:
+            actual_host = self.proxy.host
+            actual_port = self.proxy.port
 
-    def readable(self):
-        # This method is required for `io` module compatibility.
-        return True
+        conn = self.ConnectionCls(
+            host=actual_host,
+            port=actual_port,
+            timeout=self.timeout.connect_timeout,
+            strict=self.strict,
+            cert_file=self.cert_file,
+            key_file=self.key_file,
+            key_password=self.key_password,
+            **self.conn_kw
+        )
 
-    def readinto(self, b):
-        # This method is required for `io` module compatibility.
-        temp = self.read(len(b))
-        if len(temp) == 0:
-            return 0
-        else:
-            b[: len(temp)] = temp
-            return len(temp)
+        return self._prepare_conn(conn)
 
-    def supports_chunked_reads(self):
+    def _validate_conn(self, conn):
         """
-        Checks if the underlying file-like object looks like a
-        httplib.HTTPResponse object. We do this by testing for the fp
-        attribute. If it is present we assume it returns raw chunks as
-        processed by read_chunked().
+        Called right before a request is made, after the socket is created.
         """
-        return hasattr(self._fp, "fp")
+        super(HTTPSConnectionPool, self)._validate_conn(conn)
 
-    def _update_chunk_length(self):
-        # First, we'll figure out length of a chunk and then
-        # we'll try to read it from socket.
-        if self.chunk_left is not None:
-            return
-        line = self._fp.fp.readline()
-        line = line.split(b";", 1)[0]
-        try:
-            self.chunk_left = int(line, 16)
-        except ValueError:
-            # Invalid chunked protocol response, abort.
-            self.close()
-            raise httplib.IncompleteRead(line)
+        # Force connect early to allow us to validate the connection.
+        if not getattr(conn, "sock", None):  # AppEngine might not have  `.sock`
+            conn.connect()
 
-    def _handle_chunk(self, amt):
-        returned_chunk = None
-        if amt is None:
-            chunk = self._fp._safe_read(self.chunk_left)
-            returned_chunk = chunk
-            self._fp._safe_read(2)  # Toss the CRLF at the end of the chunk.
-            self.chunk_left = None
-        elif amt < self.chunk_left:
-            value = self._fp._safe_read(amt)
-            self.chunk_left = self.chunk_left - amt
-            returned_chunk = value
-        elif amt == self.chunk_left:
-            value = self._fp._safe_read(amt)
-            self._fp._safe_read(2)  # Toss the CRLF at the end of the chunk.
-            self.chunk_left = None
-            returned_chunk = value
-        else:  # amt > self.chunk_left
-            returned_chunk = self._fp._safe_read(self.chunk_left)
-            self._fp._safe_read(2)  # Toss the CRLF at the end of the chunk.
-            self.chunk_left = None
-        return returned_chunk
-
-    def read_chunked(self, amt=None, decode_content=None):
-        """
-        Similar to :meth:`HTTPResponse.read`, but with an additional
-        parameter: ``decode_content``.
-
-        :param amt:
-            How much of the content to read. If specified, caching is skipped
-            because it doesn't make sense to cache partial content as the full
-            response.
-
-        :param decode_content:
-            If True, will attempt to decode the body based on the
-            'content-encoding' header.
-        """
-        self._init_decoder()
-        # FIXME: Rewrite this method and make it a class with a better structured logic.
-        if not self.chunked:
-            raise ResponseNotChunked(
-                "Response is not chunked. "
-                "Header 'transfer-encoding: chunked' is missing."
-            )
-        if not self.supports_chunked_reads():
-            raise BodyNotHttplibCompatible(
-                "Body should be httplib.HTTPResponse like. "
-                "It should have have an fp attribute which returns raw chunks."
+        if not conn.is_verified:
+            warnings.warn(
+                (
+                    "Unverified HTTPS request is being made. "
+                    "Adding certificate verification is strongly advised. See: "
+                    "https://urllib3.readthedocs.io/en/latest/advanced-usage.html"
+                    "#ssl-warnings"
+                ),
+                InsecureRequestWarning,
             )
 
-        with self._error_catcher():
-            # Don't bother reading the body of a HEAD request.
-            if self._original_response and is_response_to_head(self._original_response):
-                self._original_response.close()
-                return
 
-            # If a response is already read and closed
-            # then return immediately.
-            if self._fp.fp is None:
-                return
+def connection_from_url(url, **kw):
+    """
+    Given a url, return an :class:`.ConnectionPool` instance of its host.
 
-            while True:
-                self._update_chunk_length()
-                if self.chunk_left == 0:
-                    break
-                chunk = self._handle_chunk(amt)
-                decoded = self._decode(
-                    chunk, decode_content=decode_content, flush_decoder=False
-                )
-                if decoded:
-                    yield decoded
+    This is a shortcut for not having to parse out the scheme, host, and port
+    of the url before creating an :class:`.ConnectionPool` instance.
 
-            if decode_content:
-                # On CPython and PyPy, we should never need to flush the
-                # decoder. However, on Jython we *might* need to, so
-                # lets defensively do it anyway.
-                decoded = self._flush_decoder()
-                if decoded:  # Platform-specific: Jython.
-                    yield decoded
+    :param url:
+        Absolute URL string that must include the scheme. Port is optional.
 
-            # Chunk content ends with \r\n: discard it.
-            while True:
-                line = self._fp.fp.readline()
-                if not line:
-                    # Some sites may not end with '\r\n'.
-                    break
-                if line == b"\r\n":
-                    break
+    :param \\**kw:
+        Passes additional parameters to the constructor of the appropriate
+        :class:`.ConnectionPool`. Useful for specifying things like
+        timeout, maxsize, headers, etc.
 
-            # We read everything; close the "file".
-            if self._original_response:
-                self._original_response.close()
+    Example::
 
-    def geturl(self):
-        """
-        Returns the URL that was the source of this response.
-        If the request that generated this response redirected, this method
-        will return the final redirect location.
-        """
-        if self.retries is not None and len(self.retries.history):
-            return self.retries.history[-1].redirect_location
-        else:
-            return self._request_url
+        >>> conn = connection_from_url('http://google.com/')
+        >>> r = conn.request('GET', '/')
+    """
+    scheme, host, port = get_host(url)
+    port = port or port_by_scheme.get(scheme, 80)
+    if scheme == "https":
+        return HTTPSConnectionPool(host, port=port, **kw)
+    else:
+        return HTTPConnectionPool(host, port=port, **kw)
 
-    def __iter__(self):
-        buffer = [b""]
-        for chunk in self.stream(decode_content=True):
-            if b"\n" in chunk:
-                chunk = chunk.split(b"\n")
-                yield b"".join(buffer) + chunk[0] + b"\n"
-                for x in chunk[1:-1]:
-                    yield x + b"\n"
-                if chunk[-1]:
-                    buffer = [chunk[-1]]
-                else:
-                    buffer = []
-            else:
-                buffer.append(chunk)
-        if buffer:
-            yield b"".join(buffer)
+
+def _normalize_host(host, scheme):
+    """
+    Normalize hosts for comparisons and use with sockets.
+    """
+
+    host = normalize_host(host, scheme)
+
+    # httplib doesn't like it when we include brackets in IPv6 addresses
+    # Specifically, if we include brackets but also pass the port then
+    # httplib crazily doubles up the square brackets on the Host header.
+    # Instead, we need to make sure we never pass ``None`` as the port.
+    # However, for backward compatibility reasons we can't actually
+    # *assert* that.  See http://bugs.python.org/issue28539
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
+    return host

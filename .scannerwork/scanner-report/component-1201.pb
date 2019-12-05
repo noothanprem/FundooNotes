@@ -1,1 +1,1 @@
-±	8venv/lib/python3.6/site-packages/future/backports/urllib :°	²	³	´	µ	¾	
+±	Cvenv/lib/python3.6/site-packages/future/backports/urllib/request.py 2pyXÒh

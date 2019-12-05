@@ -1,31 +1,50 @@
-from django.conf.urls import url
-
-from . import views
+from .settings import oauth2_settings
 
 
-app_name = "oauth2_provider"
+class BaseScopes(object):
+    def get_all_scopes(self):
+        """
+        Return a dict-like object with all the scopes available in the
+        system. The key should be the scope name and the value should be
+        the description.
+
+        ex: {"read": "A read scope", "write": "A write scope"}
+        """
+        raise NotImplementedError("")
+
+    def get_available_scopes(self, application=None, request=None, *args, **kwargs):
+        """
+        Return a list of scopes available for the current application/request.
+
+        TODO: add info on where and why this method is called.
+
+        ex: ["read", "write"]
+        """
+        raise NotImplementedError("")
+
+    def get_default_scopes(self, application=None, request=None, *args, **kwargs):
+        """
+        Return a list of the default scopes for the current application/request.
+        This MUST be a subset of the scopes returned by `get_available_scopes`.
+
+        TODO: add info on where and why this method is called.
+
+        ex: ["read"]
+        """
+        raise NotImplementedError("")
 
 
-base_urlpatterns = [
-    url(r"^authorize/$", views.AuthorizationView.as_view(), name="authorize"),
-    url(r"^token/$", views.TokenView.as_view(), name="token"),
-    url(r"^revoke_token/$", views.RevokeTokenView.as_view(), name="revoke-token"),
-    url(r"^introspect/$", views.IntrospectTokenView.as_view(), name="introspect"),
-]
+class SettingsScopes(BaseScopes):
+    def get_all_scopes(self):
+        return oauth2_settings.SCOPES
+
+    def get_available_scopes(self, application=None, request=None, *args, **kwargs):
+        return oauth2_settings._SCOPES
+
+    def get_default_scopes(self, application=None, request=None, *args, **kwargs):
+        return oauth2_settings._DEFAULT_SCOPES
 
 
-management_urlpatterns = [
-    # Application management views
-    url(r"^applications/$", views.ApplicationList.as_view(), name="list"),
-    url(r"^applications/register/$", views.ApplicationRegistration.as_view(), name="register"),
-    url(r"^applications/(?P<pk>[\w-]+)/$", views.ApplicationDetail.as_view(), name="detail"),
-    url(r"^applications/(?P<pk>[\w-]+)/delete/$", views.ApplicationDelete.as_view(), name="delete"),
-    url(r"^applications/(?P<pk>[\w-]+)/update/$", views.ApplicationUpdate.as_view(), name="update"),
-    # Token management views
-    url(r"^authorized_tokens/$", views.AuthorizedTokensListView.as_view(), name="authorized-token-list"),
-    url(r"^authorized_tokens/(?P<pk>[\w-]+)/delete/$", views.AuthorizedTokenDeleteView.as_view(),
-        name="authorized-token-delete"),
-]
-
-
-urlpatterns = base_urlpatterns + management_urlpatterns
+def get_scopes_backend():
+    scopes_class = oauth2_settings.SCOPES_BACKEND_CLASS
+    return scopes_class()

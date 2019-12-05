@@ -1,1 +1,1 @@
-˜°Hvenv/lib64/python3.6/site-packages/macaroonbakery/checkers/_operation.py 2pyXh
+˜°Gvenv/lib64/python3.6/site-packages/macaroonbakery/checkers/_declared.py 2pyXUh

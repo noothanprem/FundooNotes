@@ -1,1 +1,1 @@
-Ù¡Mvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/__init__.py 2pyXph
+Ù¡Vvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/sessions.py 2pyXÉh

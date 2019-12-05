@@ -1,42 +1,68 @@
 """
-This module contains generic exceptions used by template backends. Although,
-due to historical reasons, the Django template language also internally uses
-these exceptions, other exceptions specific to the DTL should not be added
-here.
+Django's support for templates.
+
+The django.template namespace contains two independent subsystems:
+
+1. Multiple Template Engines: support for pluggable template backends,
+   built-in backends and backend-independent APIs
+2. Django Template Language: Django's own template engine, including its
+   built-in loaders, context processors, tags and filters.
+
+Ideally these subsystems would be implemented in distinct packages. However
+keeping them together made the implementation of Multiple Template Engines
+less disruptive .
+
+Here's a breakdown of which modules belong to which subsystem.
+
+Multiple Template Engines:
+
+- django.template.backends.*
+- django.template.loader
+- django.template.response
+
+Django Template Language:
+
+- django.template.base
+- django.template.context
+- django.template.context_processors
+- django.template.loaders.*
+- django.template.debug
+- django.template.defaultfilters
+- django.template.defaulttags
+- django.template.engine
+- django.template.loader_tags
+- django.template.smartif
+
+Shared:
+
+- django.template.utils
+
 """
 
+# Multiple Template Engines
 
-class TemplateDoesNotExist(Exception):
-    """
-    The exception used when a template does not exist. Optional arguments:
+from .engine import Engine
+from .utils import EngineHandler
 
-    backend
-        The template backend class used when raising this exception.
+engines = EngineHandler()
 
-    tried
-        A list of sources that were tried when finding the template. This
-        is formatted as a list of tuples containing (origin, status), where
-        origin is an Origin object or duck type and status is a string with the
-        reason the template wasn't found.
-
-    chain
-        A list of intermediate TemplateDoesNotExist exceptions. This is used to
-        encapsulate multiple exceptions when loading templates from multiple
-        engines.
-    """
-    def __init__(self, msg, tried=None, backend=None, chain=None):
-        self.backend = backend
-        if tried is None:
-            tried = []
-        self.tried = tried
-        if chain is None:
-            chain = []
-        self.chain = chain
-        super().__init__(msg)
+__all__ = ('Engine', 'engines')
 
 
-class TemplateSyntaxError(Exception):
-    """
-    The exception used for syntax errors during parsing or rendering.
-    """
-    pass
+# Django Template Language
+
+# Public exceptions
+from .base import VariableDoesNotExist                                  # NOQA isort:skip
+from .context import ContextPopException                                # NOQA isort:skip
+from .exceptions import TemplateDoesNotExist, TemplateSyntaxError       # NOQA isort:skip
+
+# Template parts
+from .base import (                                                     # NOQA isort:skip
+    Context, Node, NodeList, Origin, RequestContext, Template, Variable,
+)
+
+# Library management
+from .library import Library                                            # NOQA isort:skip
+
+
+__all__ += ('Template', 'Context', 'RequestContext')

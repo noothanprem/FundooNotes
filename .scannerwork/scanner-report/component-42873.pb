@@ -1,1 +1,1 @@
-ùÎ-venv/lib64/python3.6/site-packages/coreschema :øÎ…Ï†Ï‡Ï˜Ï
+ùÎ-venv/lib64/python3.6/site-packages/coreschema :øÎƒÏ†Ï‡Ï—Ï

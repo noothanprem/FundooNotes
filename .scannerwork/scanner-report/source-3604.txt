@@ -1,49 +1,114 @@
-"Commonly-used date structures"
+"""
+Utility functions for generating "lorem ipsum" Latin text.
+"""
 
-from django.utils.translation import gettext_lazy as _, pgettext_lazy
+import random
 
-WEEKDAYS = {
-    0: _('Monday'), 1: _('Tuesday'), 2: _('Wednesday'), 3: _('Thursday'), 4: _('Friday'),
-    5: _('Saturday'), 6: _('Sunday')
-}
-WEEKDAYS_ABBR = {
-    0: _('Mon'), 1: _('Tue'), 2: _('Wed'), 3: _('Thu'), 4: _('Fri'),
-    5: _('Sat'), 6: _('Sun')
-}
-MONTHS = {
-    1: _('January'), 2: _('February'), 3: _('March'), 4: _('April'), 5: _('May'), 6: _('June'),
-    7: _('July'), 8: _('August'), 9: _('September'), 10: _('October'), 11: _('November'),
-    12: _('December')
-}
-MONTHS_3 = {
-    1: _('jan'), 2: _('feb'), 3: _('mar'), 4: _('apr'), 5: _('may'), 6: _('jun'),
-    7: _('jul'), 8: _('aug'), 9: _('sep'), 10: _('oct'), 11: _('nov'), 12: _('dec')
-}
-MONTHS_AP = {  # month names in Associated Press style
-    1: pgettext_lazy('abbrev. month', 'Jan.'),
-    2: pgettext_lazy('abbrev. month', 'Feb.'),
-    3: pgettext_lazy('abbrev. month', 'March'),
-    4: pgettext_lazy('abbrev. month', 'April'),
-    5: pgettext_lazy('abbrev. month', 'May'),
-    6: pgettext_lazy('abbrev. month', 'June'),
-    7: pgettext_lazy('abbrev. month', 'July'),
-    8: pgettext_lazy('abbrev. month', 'Aug.'),
-    9: pgettext_lazy('abbrev. month', 'Sept.'),
-    10: pgettext_lazy('abbrev. month', 'Oct.'),
-    11: pgettext_lazy('abbrev. month', 'Nov.'),
-    12: pgettext_lazy('abbrev. month', 'Dec.')
-}
-MONTHS_ALT = {  # required for long date representation by some locales
-    1: pgettext_lazy('alt. month', 'January'),
-    2: pgettext_lazy('alt. month', 'February'),
-    3: pgettext_lazy('alt. month', 'March'),
-    4: pgettext_lazy('alt. month', 'April'),
-    5: pgettext_lazy('alt. month', 'May'),
-    6: pgettext_lazy('alt. month', 'June'),
-    7: pgettext_lazy('alt. month', 'July'),
-    8: pgettext_lazy('alt. month', 'August'),
-    9: pgettext_lazy('alt. month', 'September'),
-    10: pgettext_lazy('alt. month', 'October'),
-    11: pgettext_lazy('alt. month', 'November'),
-    12: pgettext_lazy('alt. month', 'December')
-}
+COMMON_P = (
+    'Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod '
+    'tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim '
+    'veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea '
+    'commodo consequat. Duis aute irure dolor in reprehenderit in voluptate '
+    'velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint '
+    'occaecat cupidatat non proident, sunt in culpa qui officia deserunt '
+    'mollit anim id est laborum.'
+)
+
+WORDS = (
+    'exercitationem', 'perferendis', 'perspiciatis', 'laborum', 'eveniet',
+    'sunt', 'iure', 'nam', 'nobis', 'eum', 'cum', 'officiis', 'excepturi',
+    'odio', 'consectetur', 'quasi', 'aut', 'quisquam', 'vel', 'eligendi',
+    'itaque', 'non', 'odit', 'tempore', 'quaerat', 'dignissimos',
+    'facilis', 'neque', 'nihil', 'expedita', 'vitae', 'vero', 'ipsum',
+    'nisi', 'animi', 'cumque', 'pariatur', 'velit', 'modi', 'natus',
+    'iusto', 'eaque', 'sequi', 'illo', 'sed', 'ex', 'et', 'voluptatibus',
+    'tempora', 'veritatis', 'ratione', 'assumenda', 'incidunt', 'nostrum',
+    'placeat', 'aliquid', 'fuga', 'provident', 'praesentium', 'rem',
+    'necessitatibus', 'suscipit', 'adipisci', 'quidem', 'possimus',
+    'voluptas', 'debitis', 'sint', 'accusantium', 'unde', 'sapiente',
+    'voluptate', 'qui', 'aspernatur', 'laudantium', 'soluta', 'amet',
+    'quo', 'aliquam', 'saepe', 'culpa', 'libero', 'ipsa', 'dicta',
+    'reiciendis', 'nesciunt', 'doloribus', 'autem', 'impedit', 'minima',
+    'maiores', 'repudiandae', 'ipsam', 'obcaecati', 'ullam', 'enim',
+    'totam', 'delectus', 'ducimus', 'quis', 'voluptates', 'dolores',
+    'molestiae', 'harum', 'dolorem', 'quia', 'voluptatem', 'molestias',
+    'magni', 'distinctio', 'omnis', 'illum', 'dolorum', 'voluptatum', 'ea',
+    'quas', 'quam', 'corporis', 'quae', 'blanditiis', 'atque', 'deserunt',
+    'laboriosam', 'earum', 'consequuntur', 'hic', 'cupiditate',
+    'quibusdam', 'accusamus', 'ut', 'rerum', 'error', 'minus', 'eius',
+    'ab', 'ad', 'nemo', 'fugit', 'officia', 'at', 'in', 'id', 'quos',
+    'reprehenderit', 'numquam', 'iste', 'fugiat', 'sit', 'inventore',
+    'beatae', 'repellendus', 'magnam', 'recusandae', 'quod', 'explicabo',
+    'doloremque', 'aperiam', 'consequatur', 'asperiores', 'commodi',
+    'optio', 'dolor', 'labore', 'temporibus', 'repellat', 'veniam',
+    'architecto', 'est', 'esse', 'mollitia', 'nulla', 'a', 'similique',
+    'eos', 'alias', 'dolore', 'tenetur', 'deleniti', 'porro', 'facere',
+    'maxime', 'corrupti',
+)
+
+COMMON_WORDS = (
+    'lorem', 'ipsum', 'dolor', 'sit', 'amet', 'consectetur',
+    'adipisicing', 'elit', 'sed', 'do', 'eiusmod', 'tempor', 'incididunt',
+    'ut', 'labore', 'et', 'dolore', 'magna', 'aliqua',
+)
+
+
+def sentence():
+    """
+    Return a randomly generated sentence of lorem ipsum text.
+
+    The first word is capitalized, and the sentence ends in either a period or
+    question mark. Commas are added at random.
+    """
+    # Determine the number of comma-separated sections and number of words in
+    # each section for this sentence.
+    sections = [' '.join(random.sample(WORDS, random.randint(3, 12))) for i in range(random.randint(1, 5))]
+    s = ', '.join(sections)
+    # Convert to sentence case and add end punctuation.
+    return '%s%s%s' % (s[0].upper(), s[1:], random.choice('?.'))
+
+
+def paragraph():
+    """
+    Return a randomly generated paragraph of lorem ipsum text.
+
+    The paragraph consists of between 1 and 4 sentences, inclusive.
+    """
+    return ' '.join(sentence() for i in range(random.randint(1, 4)))
+
+
+def paragraphs(count, common=True):
+    """
+    Return a list of paragraphs as returned by paragraph().
+
+    If `common` is True, then the first paragraph will be the standard
+    'lorem ipsum' paragraph. Otherwise, the first paragraph will be random
+    Latin text. Either way, subsequent paragraphs will be random Latin text.
+    """
+    paras = []
+    for i in range(count):
+        if common and i == 0:
+            paras.append(COMMON_P)
+        else:
+            paras.append(paragraph())
+    return paras
+
+
+def words(count, common=True):
+    """
+    Return a string of `count` lorem ipsum words separated by a single space.
+
+    If `common` is True, then the first 19 words will be the standard
+    'lorem ipsum' words. Otherwise, all words will be selected randomly.
+    """
+    word_list = list(COMMON_WORDS) if common else []
+    c = len(word_list)
+    if count > c:
+        count -= c
+        while count > 0:
+            c = min(count, len(WORDS))
+            count -= c
+            word_list += random.sample(WORDS, c)
+    else:
+        word_list = word_list[:count]
+    return ' '.join(word_list)

@@ -1,1 +1,1 @@
-š_2venv/lib/python3.6/site-packages/PIL/ImageColor.py 2pyX¶h
+š_4venv/lib/python3.6/site-packages/PIL/ImagePalette.py 2pyXÙh

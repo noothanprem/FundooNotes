@@ -1,1 +1,1 @@
-ëdEvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_keyring.py 2pyXph
+ëdDvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_client.py 2pyXÅh

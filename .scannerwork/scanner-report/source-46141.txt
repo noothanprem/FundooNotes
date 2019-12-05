@@ -1,297 +1,167 @@
-# -*- coding: utf8 -*-
+# Copyright (C) PyZMQ Developers
+# Distributed under the terms of the Modified BSD License.
 
-import sys
 import time
 
-from unittest import TestCase
+import zmq
+from zmq import devices
+from zmq.tests import BaseZMQTestCase, SkipTest, have_gevent, GreenTest, PYPY
+from zmq.utils.strtypes import (bytes,unicode,basestring)
 
-from zmq.tests import BaseZMQTestCase, SkipTest
+if PYPY:
+    # cleanup of shared Context doesn't work on PyPy
+    devices.Device.context_factory = zmq.Context
 
-try:
-    from zmq.backend.cffi import (
-        zmq_version_info,
-        PUSH, PULL, IDENTITY,
-        REQ, REP, POLLIN, POLLOUT,
-    )
-    from zmq.backend.cffi._cffi import ffi, C
-    have_ffi_backend = True
-except ImportError:
-    have_ffi_backend = False
-
-
-class TestCFFIBackend(TestCase):
+class TestDevice(BaseZMQTestCase):
     
-    def setUp(self):
-        if not have_ffi_backend:
-            raise SkipTest('CFFI not available')
-
-    def test_zmq_version_info(self):
-        version = zmq_version_info()
-
-        assert version[0] in range(2,11)
-
-    def test_zmq_ctx_new_destroy(self):
-        ctx = C.zmq_ctx_new()
-
-        assert ctx != ffi.NULL
-        assert 0 == C.zmq_ctx_destroy(ctx)
-
-    def test_zmq_socket_open_close(self):
-        ctx = C.zmq_ctx_new()
-        socket = C.zmq_socket(ctx, PUSH)
-
-        assert ctx != ffi.NULL
-        assert ffi.NULL != socket
-        assert 0 == C.zmq_close(socket)
-        assert 0 == C.zmq_ctx_destroy(ctx)
-
-    def test_zmq_setsockopt(self):
-        ctx = C.zmq_ctx_new()
-        socket = C.zmq_socket(ctx, PUSH)
-
-        identity = ffi.new('char[3]', b'zmq')
-        ret = C.zmq_setsockopt(socket, IDENTITY, ffi.cast('void*', identity), 3)
-
-        assert ret == 0
-        assert ctx != ffi.NULL
-        assert ffi.NULL != socket
-        assert 0 == C.zmq_close(socket)
-        assert 0 == C.zmq_ctx_destroy(ctx)
-
-    def test_zmq_getsockopt(self):
-        ctx = C.zmq_ctx_new()
-        socket = C.zmq_socket(ctx, PUSH)
-
-        identity = ffi.new('char[]', b'zmq')
-        ret = C.zmq_setsockopt(socket, IDENTITY, ffi.cast('void*', identity), 3)
-        assert ret == 0
-
-        option_len = ffi.new('size_t*', 3)
-        option = ffi.new('char[3]')
-        ret = C.zmq_getsockopt(socket,
-                            IDENTITY,
-                            ffi.cast('void*', option),
-                            option_len)
-
-        assert ret == 0
-        assert ffi.string(ffi.cast('char*', option))[0:1] == b"z"
-        assert ffi.string(ffi.cast('char*', option))[1:2] == b"m"
-        assert ffi.string(ffi.cast('char*', option))[2:3] == b"q"
-        assert ctx != ffi.NULL
-        assert ffi.NULL != socket
-        assert 0 == C.zmq_close(socket)
-        assert 0 == C.zmq_ctx_destroy(ctx)
-
-    def test_zmq_bind(self):
-        ctx = C.zmq_ctx_new()
-        socket = C.zmq_socket(ctx, 8)
-
-        assert 0 == C.zmq_bind(socket, b'tcp://*:4444')
-        assert ctx != ffi.NULL
-        assert ffi.NULL != socket
-        assert 0 == C.zmq_close(socket)
-        assert 0 == C.zmq_ctx_destroy(ctx)
-
-    def test_zmq_bind_connect(self):
-        ctx = C.zmq_ctx_new()
-
-        socket1 = C.zmq_socket(ctx, PUSH)
-        socket2 = C.zmq_socket(ctx, PULL)
-
-        assert 0 == C.zmq_bind(socket1, b'tcp://*:4444')
-        assert 0 == C.zmq_connect(socket2, b'tcp://127.0.0.1:4444')
-        assert ctx != ffi.NULL
-        assert ffi.NULL != socket1
-        assert ffi.NULL != socket2
-        assert 0 == C.zmq_close(socket1)
-        assert 0 == C.zmq_close(socket2)
-        assert 0 == C.zmq_ctx_destroy(ctx)
-
-    def test_zmq_msg_init_close(self):
-        zmq_msg = ffi.new('zmq_msg_t*')
-
-        assert ffi.NULL != zmq_msg
-        assert 0 == C.zmq_msg_init(zmq_msg)
-        assert 0 == C.zmq_msg_close(zmq_msg)
-
-    def test_zmq_msg_init_size(self):
-        zmq_msg = ffi.new('zmq_msg_t*')
-
-        assert ffi.NULL != zmq_msg
-        assert 0 == C.zmq_msg_init_size(zmq_msg, 10)
-        assert 0 == C.zmq_msg_close(zmq_msg)
-
-    def test_zmq_msg_init_data(self):
-        zmq_msg = ffi.new('zmq_msg_t*')
-        message = ffi.new('char[5]', b'Hello')
-
-        assert 0 == C.zmq_msg_init_data(zmq_msg,
-                                        ffi.cast('void*', message),
-                                        5,
-                                        ffi.NULL,
-                                        ffi.NULL)
-
-        assert ffi.NULL != zmq_msg
-        assert 0 == C.zmq_msg_close(zmq_msg)
-
-    def test_zmq_msg_data(self):
-        zmq_msg = ffi.new('zmq_msg_t*')
-        message = ffi.new('char[]', b'Hello')
-        assert 0 == C.zmq_msg_init_data(zmq_msg,
-                                        ffi.cast('void*', message),
-                                        5,
-                                        ffi.NULL,
-                                        ffi.NULL)
-
-        data = C.zmq_msg_data(zmq_msg)
-
-        assert ffi.NULL != zmq_msg
-        assert ffi.string(ffi.cast("char*", data)) == b'Hello'
-        assert 0 == C.zmq_msg_close(zmq_msg)
-
-
-    def test_zmq_send(self):
-        ctx = C.zmq_ctx_new()
-
-        sender = C.zmq_socket(ctx, REQ)
-        receiver = C.zmq_socket(ctx, REP)
-
-        assert 0 == C.zmq_bind(receiver, b'tcp://*:7777')
-        assert 0 == C.zmq_connect(sender, b'tcp://127.0.0.1:7777')
-
-        time.sleep(0.1)
-
-        zmq_msg = ffi.new('zmq_msg_t*')
-        message = ffi.new('char[5]', b'Hello')
-
-        C.zmq_msg_init_data(zmq_msg,
-                            ffi.cast('void*', message),
-                            ffi.cast('size_t', 5),
-                            ffi.NULL,
-                            ffi.NULL)
-
-        assert 5 == C.zmq_msg_send(zmq_msg, sender, 0)
-        assert 0 == C.zmq_msg_close(zmq_msg)
-        assert C.zmq_close(sender) == 0
-        assert C.zmq_close(receiver) == 0
-        assert C.zmq_ctx_destroy(ctx) == 0
-
-    def test_zmq_recv(self):
-        ctx = C.zmq_ctx_new()
-
-        sender = C.zmq_socket(ctx, REQ)
-        receiver = C.zmq_socket(ctx, REP)
-
-        assert 0 == C.zmq_bind(receiver, b'tcp://*:2222')
-        assert 0 == C.zmq_connect(sender, b'tcp://127.0.0.1:2222')
-
-        time.sleep(0.1)
-
-        zmq_msg = ffi.new('zmq_msg_t*')
-        message = ffi.new('char[5]', b'Hello')
-
-        C.zmq_msg_init_data(zmq_msg,
-                            ffi.cast('void*', message),
-                            ffi.cast('size_t', 5),
-                            ffi.NULL,
-                            ffi.NULL)
-
-        zmq_msg2 = ffi.new('zmq_msg_t*')
-        C.zmq_msg_init(zmq_msg2)
-
-        assert 5 == C.zmq_msg_send(zmq_msg, sender, 0)
-        assert 5 == C.zmq_msg_recv(zmq_msg2, receiver, 0)
-        assert 5 == C.zmq_msg_size(zmq_msg2)
-        assert b"Hello" == ffi.buffer(C.zmq_msg_data(zmq_msg2),
-                                      C.zmq_msg_size(zmq_msg2))[:]
-        assert C.zmq_close(sender) == 0
-        assert C.zmq_close(receiver) == 0
-        assert C.zmq_ctx_destroy(ctx) == 0
-
-    def test_zmq_poll(self):
-        ctx = C.zmq_ctx_new()
-
-        sender = C.zmq_socket(ctx, REQ)
-        receiver = C.zmq_socket(ctx, REP)
-
-        r1 = C.zmq_bind(receiver, b'tcp://*:3333')
-        r2 = C.zmq_connect(sender, b'tcp://127.0.0.1:3333')
-
-        zmq_msg = ffi.new('zmq_msg_t*')
-        message = ffi.new('char[5]', b'Hello')
-
-        C.zmq_msg_init_data(zmq_msg,
-                            ffi.cast('void*', message),
-                            ffi.cast('size_t', 5),
-                            ffi.NULL,
-                            ffi.NULL)
-
-        receiver_pollitem = ffi.new('zmq_pollitem_t*')
-        receiver_pollitem.socket = receiver
-        receiver_pollitem.fd = 0
-        receiver_pollitem.events = POLLIN | POLLOUT
-        receiver_pollitem.revents = 0
-
-        ret = C.zmq_poll(ffi.NULL, 0, 0)
-        assert ret == 0
-
-        ret = C.zmq_poll(receiver_pollitem, 1, 0)
-        assert ret == 0
-
-        ret = C.zmq_msg_send(zmq_msg, sender, 0)
-        print(ffi.string(C.zmq_strerror(C.zmq_errno())))
-        assert ret == 5
-
-        time.sleep(0.2)
-
-        ret = C.zmq_poll(receiver_pollitem, 1, 0)
-        assert ret == 1
-
-        assert int(receiver_pollitem.revents) & POLLIN
-        assert not int(receiver_pollitem.revents) & POLLOUT
-
-        zmq_msg2 = ffi.new('zmq_msg_t*')
-        C.zmq_msg_init(zmq_msg2)
-
-        ret_recv = C.zmq_msg_recv(zmq_msg2, receiver, 0)
-        assert ret_recv == 5
-
-        assert 5 == C.zmq_msg_size(zmq_msg2)
-        assert b"Hello" == ffi.buffer(C.zmq_msg_data(zmq_msg2),
-                                    C.zmq_msg_size(zmq_msg2))[:]
-
-        sender_pollitem = ffi.new('zmq_pollitem_t*')
-        sender_pollitem.socket = sender
-        sender_pollitem.fd = 0
-        sender_pollitem.events = POLLIN | POLLOUT
-        sender_pollitem.revents = 0
-
-        ret = C.zmq_poll(sender_pollitem, 1, 0)
-        assert ret == 0
-
-        zmq_msg_again = ffi.new('zmq_msg_t*')
-        message_again = ffi.new('char[11]', b'Hello Again')
-
-        C.zmq_msg_init_data(zmq_msg_again,
-                            ffi.cast('void*', message_again),
-                            ffi.cast('size_t', 11),
-                            ffi.NULL,
-                            ffi.NULL)
-
-        assert 11 == C.zmq_msg_send(zmq_msg_again, receiver, 0)
-
-        time.sleep(0.2)
-
-        assert 0 <= C.zmq_poll(sender_pollitem, 1, 0)
-        assert int(sender_pollitem.revents) & POLLIN
-        assert 11 == C.zmq_msg_recv(zmq_msg2, sender, 0)
-        assert 11 == C.zmq_msg_size(zmq_msg2)
-        assert b"Hello Again" == ffi.buffer(C.zmq_msg_data(zmq_msg2),
-                                            int(C.zmq_msg_size(zmq_msg2)))[:]
-        assert 0 == C.zmq_close(sender)
-        assert 0 == C.zmq_close(receiver)
-        assert 0 == C.zmq_ctx_destroy(ctx)
-        assert 0 == C.zmq_msg_close(zmq_msg)
-        assert 0 == C.zmq_msg_close(zmq_msg2)
-        assert 0 == C.zmq_msg_close(zmq_msg_again)
-
+    def test_device_types(self):
+        for devtype in (zmq.STREAMER, zmq.FORWARDER, zmq.QUEUE):
+            dev = devices.Device(devtype, zmq.PAIR, zmq.PAIR)
+            self.assertEqual(dev.device_type, devtype)
+            del dev
+    
+    def test_device_attributes(self):
+        dev = devices.Device(zmq.QUEUE, zmq.SUB, zmq.PUB)
+        self.assertEqual(dev.in_type, zmq.SUB)
+        self.assertEqual(dev.out_type, zmq.PUB)
+        self.assertEqual(dev.device_type, zmq.QUEUE)
+        self.assertEqual(dev.daemon, True)
+        del dev
+    
+    def test_single_socket_forwarder_connect(self):
+        if zmq.zmq_version() in ('4.1.1', '4.0.6'):
+            raise SkipTest("libzmq-%s broke single-socket devices" % zmq.zmq_version())
+        dev = devices.ThreadDevice(zmq.QUEUE, zmq.REP, -1)
+        req = self.context.socket(zmq.REQ)
+        port = req.bind_to_random_port('tcp://127.0.0.1')
+        dev.connect_in('tcp://127.0.0.1:%i'%port)
+        dev.start()
+        time.sleep(.25)
+        msg = b'hello'
+        req.send(msg)
+        self.assertEqual(msg, self.recv(req))
+        del dev
+        req.close()
+        dev = devices.ThreadDevice(zmq.QUEUE, zmq.REP, -1)
+        req = self.context.socket(zmq.REQ)
+        port = req.bind_to_random_port('tcp://127.0.0.1')
+        dev.connect_out('tcp://127.0.0.1:%i'%port)
+        dev.start()
+        time.sleep(.25)
+        msg = b'hello again'
+        req.send(msg)
+        self.assertEqual(msg, self.recv(req))
+        del dev
+        req.close()
+        
+    def test_single_socket_forwarder_bind(self):
+        if zmq.zmq_version() in ('4.1.1', '4.0.6'):
+            raise SkipTest("libzmq-%s broke single-socket devices" % zmq.zmq_version())
+        dev = devices.ThreadDevice(zmq.QUEUE, zmq.REP, -1)
+        port = dev.bind_in_to_random_port('tcp://127.0.0.1')
+        req = self.context.socket(zmq.REQ)
+        req.connect('tcp://127.0.0.1:%i'%port)
+        dev.start()
+        time.sleep(.25)
+        msg = b'hello'
+        req.send(msg)
+        self.assertEqual(msg, self.recv(req))
+        del dev
+        req.close()
+        dev = devices.ThreadDevice(zmq.QUEUE, zmq.REP, -1)
+        port = dev.bind_in_to_random_port('tcp://127.0.0.1')
+        req = self.context.socket(zmq.REQ)
+        req.connect('tcp://127.0.0.1:%i'%port)
+        dev.start()
+        time.sleep(.25)
+        msg = b'hello again'
+        req.send(msg)
+        self.assertEqual(msg, self.recv(req))
+        del dev
+        req.close()
+    
+    def test_device_bind_to_random_with_args(self):
+        dev = devices.ThreadDevice(zmq.PULL, zmq.PUSH, -1)
+        iface = 'tcp://127.0.0.1'
+        ports = []
+        min, max = 5000, 5050
+        ports.extend([
+            dev.bind_in_to_random_port(iface, min_port=min, max_port=max),
+            dev.bind_out_to_random_port(iface, min_port=min, max_port=max)
+        ])
+        for port in ports:
+            if port < min or port > max:
+                self.fail('Unexpected port number: %i' % port)
+
+    def test_device_bind_to_random_binderror(self):
+        dev = devices.ThreadDevice(zmq.PULL, zmq.PUSH, -1)
+        iface = 'tcp://127.0.0.1'
+        try:
+            for i in range(11):
+                dev.bind_in_to_random_port(
+                    iface, min_port=10000, max_port=10010
+                )
+        except zmq.ZMQBindError as e:
+            return
+        else:
+            self.fail('Should have failed')
+
+    def test_proxy(self):
+        if zmq.zmq_version_info() < (3,2):
+            raise SkipTest("Proxies only in libzmq >= 3")
+        dev = devices.ThreadProxy(zmq.PULL, zmq.PUSH, zmq.PUSH)
+        iface = 'tcp://127.0.0.1'
+        port = dev.bind_in_to_random_port(iface)
+        port2 = dev.bind_out_to_random_port(iface)
+        port3 = dev.bind_mon_to_random_port(iface)
+        dev.start()
+        time.sleep(0.25)
+        msg = b'hello'
+        push = self.context.socket(zmq.PUSH)
+        push.connect("%s:%i" % (iface, port))
+        pull = self.context.socket(zmq.PULL)
+        pull.connect("%s:%i" % (iface, port2))
+        mon = self.context.socket(zmq.PULL)
+        mon.connect("%s:%i" % (iface, port3))
+        push.send(msg)
+        self.sockets.extend([push, pull, mon])
+        self.assertEqual(msg, self.recv(pull))
+        self.assertEqual(msg, self.recv(mon))
+
+    def test_proxy_bind_to_random_with_args(self):
+        if zmq.zmq_version_info() < (3, 2):
+            raise SkipTest("Proxies only in libzmq >= 3")
+        dev = devices.ThreadProxy(zmq.PULL, zmq.PUSH, zmq.PUSH)
+        iface = 'tcp://127.0.0.1'
+        ports = []
+        min, max = 5000, 5050
+        ports.extend([
+            dev.bind_in_to_random_port(iface, min_port=min, max_port=max),
+            dev.bind_out_to_random_port(iface, min_port=min, max_port=max),
+            dev.bind_mon_to_random_port(iface, min_port=min, max_port=max)
+        ])
+        for port in ports:
+            if port < min or port > max:
+                self.fail('Unexpected port number: %i' % port)
+
+if have_gevent:
+    import gevent
+    import zmq.green
+    
+    class TestDeviceGreen(GreenTest, BaseZMQTestCase):
+        
+        def test_green_device(self):
+            rep = self.context.socket(zmq.REP)
+            req = self.context.socket(zmq.REQ)
+            self.sockets.extend([req, rep])
+            port = rep.bind_to_random_port('tcp://127.0.0.1')
+            g = gevent.spawn(zmq.green.device, zmq.QUEUE, rep, rep)
+            req.connect('tcp://127.0.0.1:%i' % port)
+            req.send(b'hi')
+            timeout = gevent.Timeout(3)
+            timeout.start()
+            receiver = gevent.spawn(req.recv)
+            self.assertEqual(receiver.get(2), b'hi')
+            timeout.cancel()
+            g.kill(block=True)
+            

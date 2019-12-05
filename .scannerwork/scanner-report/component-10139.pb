@@ -1,1 +1,1 @@
-›O,venv/lib/python3.6/site-packages/xlwt/Row.py 2pyX¦h
+›O;venv/lib/python3.6/site-packages/xlwt/ExcelFormulaParser.py 2pyXžh

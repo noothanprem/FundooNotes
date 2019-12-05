@@ -1,271 +1,216 @@
 #
-# The Python Imaging Library
+# The Python Imaging Library.
 # $Id$
 #
-# a simple math add-on for the Python Imaging Library
+# image palette object
 #
 # History:
-# 1999-02-15 fl   Original PIL Plus release
-# 2005-05-05 fl   Simplified and cleaned up for PIL 1.1.6
-# 2005-09-12 fl   Fixed int() and float() for Python 2.4.1
+# 1996-03-11 fl   Rewritten.
+# 1997-01-03 fl   Up and running.
+# 1997-08-23 fl   Added load hack
+# 2001-04-16 fl   Fixed randint shadow bug in random()
 #
-# Copyright (c) 1999-2005 by Secret Labs AB
-# Copyright (c) 2005 by Fredrik Lundh
+# Copyright (c) 1997-2001 by Secret Labs AB
+# Copyright (c) 1996-1997 by Fredrik Lundh
 #
 # See the README file for information on usage and redistribution.
 #
 
-from . import Image, _imagingmath
-from ._util import py3
-
-try:
-    import builtins
-except ImportError:
-    import __builtin__
-    builtins = __builtin__
-
-VERBOSE = 0
+import array
+from . import ImageColor, GimpPaletteFile, GimpGradientFile, PaletteFile
 
 
-def _isconstant(v):
-    return isinstance(v, int) or isinstance(v, float)
-
-
-class _Operand(object):
-    """Wraps an image operand, providing standard operators"""
-
-    def __init__(self, im):
-        self.im = im
-
-    def __fixup(self, im1):
-        # convert image to suitable mode
-        if isinstance(im1, _Operand):
-            # argument was an image.
-            if im1.im.mode in ("1", "L"):
-                return im1.im.convert("I")
-            elif im1.im.mode in ("I", "F"):
-                return im1.im
-            else:
-                raise ValueError("unsupported mode: %s" % im1.im.mode)
-        else:
-            # argument was a constant
-            if _isconstant(im1) and self.im.mode in ("1", "L", "I"):
-                return Image.new("I", self.im.size, im1)
-            else:
-                return Image.new("F", self.im.size, im1)
-
-    def apply(self, op, im1, im2=None, mode=None):
-        im1 = self.__fixup(im1)
-        if im2 is None:
-            # unary operation
-            out = Image.new(mode or im1.mode, im1.size, None)
-            im1.load()
-            try:
-                op = getattr(_imagingmath, op+"_"+im1.mode)
-            except AttributeError:
-                raise TypeError("bad operand type for '%s'" % op)
-            _imagingmath.unop(op, out.im.id, im1.im.id)
-        else:
-            # binary operation
-            im2 = self.__fixup(im2)
-            if im1.mode != im2.mode:
-                # convert both arguments to floating point
-                if im1.mode != "F":
-                    im1 = im1.convert("F")
-                if im2.mode != "F":
-                    im2 = im2.convert("F")
-                if im1.mode != im2.mode:
-                    raise ValueError("mode mismatch")
-            if im1.size != im2.size:
-                # crop both arguments to a common size
-                size = (min(im1.size[0], im2.size[0]),
-                        min(im1.size[1], im2.size[1]))
-                if im1.size != size:
-                    im1 = im1.crop((0, 0) + size)
-                if im2.size != size:
-                    im2 = im2.crop((0, 0) + size)
-                out = Image.new(mode or im1.mode, size, None)
-            else:
-                out = Image.new(mode or im1.mode, im1.size, None)
-            im1.load()
-            im2.load()
-            try:
-                op = getattr(_imagingmath, op+"_"+im1.mode)
-            except AttributeError:
-                raise TypeError("bad operand type for '%s'" % op)
-            _imagingmath.binop(op, out.im.id, im1.im.id, im2.im.id)
-        return _Operand(out)
-
-    # unary operators
-    def __bool__(self):
-        # an image is "true" if it contains at least one non-zero pixel
-        return self.im.getbbox() is not None
-
-    if not py3:
-        # Provide __nonzero__ for pre-Py3k
-        __nonzero__ = __bool__
-        del __bool__
-
-    def __abs__(self):
-        return self.apply("abs", self)
-
-    def __pos__(self):
-        return self
-
-    def __neg__(self):
-        return self.apply("neg", self)
-
-    # binary operators
-    def __add__(self, other):
-        return self.apply("add", self, other)
-
-    def __radd__(self, other):
-        return self.apply("add", other, self)
-
-    def __sub__(self, other):
-        return self.apply("sub", self, other)
-
-    def __rsub__(self, other):
-        return self.apply("sub", other, self)
-
-    def __mul__(self, other):
-        return self.apply("mul", self, other)
-
-    def __rmul__(self, other):
-        return self.apply("mul", other, self)
-
-    def __truediv__(self, other):
-        return self.apply("div", self, other)
-
-    def __rtruediv__(self, other):
-        return self.apply("div", other, self)
-
-    def __mod__(self, other):
-        return self.apply("mod", self, other)
-
-    def __rmod__(self, other):
-        return self.apply("mod", other, self)
-
-    def __pow__(self, other):
-        return self.apply("pow", self, other)
-
-    def __rpow__(self, other):
-        return self.apply("pow", other, self)
-
-    if not py3:
-        # Provide __div__ and __rdiv__ for pre-Py3k
-        __div__ = __truediv__
-        __rdiv__ = __rtruediv__
-        del __truediv__
-        del __rtruediv__
-
-    # bitwise
-    def __invert__(self):
-        return self.apply("invert", self)
-
-    def __and__(self, other):
-        return self.apply("and", self, other)
-
-    def __rand__(self, other):
-        return self.apply("and", other, self)
-
-    def __or__(self, other):
-        return self.apply("or", self, other)
-
-    def __ror__(self, other):
-        return self.apply("or", other, self)
-
-    def __xor__(self, other):
-        return self.apply("xor", self, other)
-
-    def __rxor__(self, other):
-        return self.apply("xor", other, self)
-
-    def __lshift__(self, other):
-        return self.apply("lshift", self, other)
-
-    def __rshift__(self, other):
-        return self.apply("rshift", self, other)
-
-    # logical
-    def __eq__(self, other):
-        return self.apply("eq", self, other)
-
-    def __ne__(self, other):
-        return self.apply("ne", self, other)
-
-    def __lt__(self, other):
-        return self.apply("lt", self, other)
-
-    def __le__(self, other):
-        return self.apply("le", self, other)
-
-    def __gt__(self, other):
-        return self.apply("gt", self, other)
-
-    def __ge__(self, other):
-        return self.apply("ge", self, other)
-
-
-# conversions
-def imagemath_int(self):
-    return _Operand(self.im.convert("I"))
-
-
-def imagemath_float(self):
-    return _Operand(self.im.convert("F"))
-
-
-# logical
-def imagemath_equal(self, other):
-    return self.apply("eq", self, other, mode="I")
-
-
-def imagemath_notequal(self, other):
-    return self.apply("ne", self, other, mode="I")
-
-
-def imagemath_min(self, other):
-    return self.apply("min", self, other)
-
-
-def imagemath_max(self, other):
-    return self.apply("max", self, other)
-
-
-def imagemath_convert(self, mode):
-    return _Operand(self.im.convert(mode))
-
-
-ops = {}
-for k, v in list(globals().items()):
-    if k[:10] == "imagemath_":
-        ops[k[10:]] = v
-
-
-def eval(expression, _dict={}, **kw):
+class ImagePalette(object):
     """
-    Evaluates an image expression.
+    Color palette for palette mapped images
 
-    :param expression: A string containing a Python-style expression.
-    :param options: Values to add to the evaluation context.  You
-                    can either use a dictionary, or one or more keyword
-                    arguments.
-    :return: The evaluated expression. This is usually an image object, but can
-             also be an integer, a floating point value, or a pixel tuple,
-             depending on the expression.
+    :param mode: The mode to use for the Palette. See:
+        :ref:`concept-modes`. Defaults to "RGB"
+    :param palette: An optional palette. If given, it must be a bytearray,
+        an array or a list of ints between 0-255 and of length ``size``
+        times the number of colors in ``mode``. The list must be aligned
+        by channel (All R values must be contiguous in the list before G
+        and B values.) Defaults to 0 through 255 per channel.
+    :param size: An optional palette size. If given, it cannot be equal to
+        or greater than 256. Defaults to 0.
     """
 
-    # build execution namespace
-    args = ops.copy()
-    args.update(_dict)
-    args.update(kw)
-    for k, v in list(args.items()):
-        if hasattr(v, "im"):
-            args[k] = _Operand(v)
+    def __init__(self, mode="RGB", palette=None, size=0):
+        self.mode = mode
+        self.rawmode = None  # if set, palette contains raw data
+        self.palette = palette or bytearray(range(256))*len(self.mode)
+        self.colors = {}
+        self.dirty = None
+        if ((size == 0 and len(self.mode)*256 != len(self.palette)) or
+                (size != 0 and size != len(self.palette))):
+            raise ValueError("wrong palette size")
 
-    out = builtins.eval(expression, args)
-    try:
-        return out.im
-    except AttributeError:
-        return out
+    def copy(self):
+        new = ImagePalette()
+
+        new.mode = self.mode
+        new.rawmode = self.rawmode
+        if self.palette is not None:
+            new.palette = self.palette[:]
+        new.colors = self.colors.copy()
+        new.dirty = self.dirty
+
+        return new
+
+    def getdata(self):
+        """
+        Get palette contents in format suitable # for the low-level
+        ``im.putpalette`` primitive.
+
+        .. warning:: This method is experimental.
+        """
+        if self.rawmode:
+            return self.rawmode, self.palette
+        return self.mode + ";L", self.tobytes()
+
+    def tobytes(self):
+        """Convert palette to bytes.
+
+        .. warning:: This method is experimental.
+        """
+        if self.rawmode:
+            raise ValueError("palette contains raw palette data")
+        if isinstance(self.palette, bytes):
+            return self.palette
+        arr = array.array("B", self.palette)
+        if hasattr(arr, 'tobytes'):
+            return arr.tobytes()
+        return arr.tostring()
+
+    # Declare tostring as an alias for tobytes
+    tostring = tobytes
+
+    def getcolor(self, color):
+        """Given an rgb tuple, allocate palette entry.
+
+        .. warning:: This method is experimental.
+        """
+        if self.rawmode:
+            raise ValueError("palette contains raw palette data")
+        if isinstance(color, tuple):
+            try:
+                return self.colors[color]
+            except KeyError:
+                # allocate new color slot
+                if isinstance(self.palette, bytes):
+                    self.palette = bytearray(self.palette)
+                index = len(self.colors)
+                if index >= 256:
+                    raise ValueError("cannot allocate more than 256 colors")
+                self.colors[color] = index
+                self.palette[index] = color[0]
+                self.palette[index+256] = color[1]
+                self.palette[index+512] = color[2]
+                self.dirty = 1
+                return index
+        else:
+            raise ValueError("unknown color specifier: %r" % color)
+
+    def save(self, fp):
+        """Save palette to text file.
+
+        .. warning:: This method is experimental.
+        """
+        if self.rawmode:
+            raise ValueError("palette contains raw palette data")
+        if isinstance(fp, str):
+            fp = open(fp, "w")
+        fp.write("# Palette\n")
+        fp.write("# Mode: %s\n" % self.mode)
+        for i in range(256):
+            fp.write("%d" % i)
+            for j in range(i*len(self.mode), (i+1)*len(self.mode)):
+                try:
+                    fp.write(" %d" % self.palette[j])
+                except IndexError:
+                    fp.write(" 0")
+            fp.write("\n")
+        fp.close()
+
+
+# --------------------------------------------------------------------
+# Internal
+
+def raw(rawmode, data):
+    palette = ImagePalette()
+    palette.rawmode = rawmode
+    palette.palette = data
+    palette.dirty = 1
+    return palette
+
+
+# --------------------------------------------------------------------
+# Factories
+
+def make_linear_lut(black, white):
+    lut = []
+    if black == 0:
+        for i in range(256):
+            lut.append(white*i//255)
+    else:
+        raise NotImplementedError  # FIXME
+    return lut
+
+
+def make_gamma_lut(exp):
+    lut = []
+    for i in range(256):
+        lut.append(int(((i / 255.0) ** exp) * 255.0 + 0.5))
+    return lut
+
+
+def negative(mode="RGB"):
+    palette = list(range(256))
+    palette.reverse()
+    return ImagePalette(mode, palette * len(mode))
+
+
+def random(mode="RGB"):
+    from random import randint
+    palette = []
+    for i in range(256*len(mode)):
+        palette.append(randint(0, 255))
+    return ImagePalette(mode, palette)
+
+
+def sepia(white="#fff0c0"):
+    r, g, b = ImageColor.getrgb(white)
+    r = make_linear_lut(0, r)
+    g = make_linear_lut(0, g)
+    b = make_linear_lut(0, b)
+    return ImagePalette("RGB", r + g + b)
+
+
+def wedge(mode="RGB"):
+    return ImagePalette(mode, list(range(256)) * len(mode))
+
+
+def load(filename):
+
+    # FIXME: supports GIMP gradients only
+
+    with open(filename, "rb") as fp:
+
+        for paletteHandler in [
+            GimpPaletteFile.GimpPaletteFile,
+            GimpGradientFile.GimpGradientFile,
+            PaletteFile.PaletteFile
+        ]:
+            try:
+                fp.seek(0)
+                lut = paletteHandler(fp).getpalette()
+                if lut:
+                    break
+            except (SyntaxError, ValueError):
+                # import traceback
+                # traceback.print_exc()
+                pass
+        else:
+            raise IOError("cannot load palette")
+
+    return lut  # data, rawmode

@@ -1,1 +1,1 @@
-·Evenv/lib/python3.6/site-packages/cryptography/hazmat/backends/openssl :*‡‚„‰ÂÊÁËÈÍÎÏÌÓÔÒàâäÿ
+·Evenv/lib/python3.6/site-packages/cryptography/hazmat/backends/openssl :*‡‚„‰ÂÊÁËÈÍÎÏÌÓÔÒÜâäç

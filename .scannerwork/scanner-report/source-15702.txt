@@ -1,4 +1,4 @@
-# Copyright 2016 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2012-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -12,272 +12,395 @@
 # language governing permissions and limitations under the License.
 import logging
 import os
+import sys
+import platform
 import shlex
-import subprocess
+from subprocess import Popen, PIPE
 
-from botocore.configloader import raw_config_parse
+from docutils.core import publish_string
+from docutils.writers import manpage
 
-from awscli.compat import compat_shell_quote
-from awscli.commands import CLICommand
-from awscli.utils import emit_top_level_args_parsed_event
+from botocore.docs.bcdoc import docevents
+from botocore.docs.bcdoc.restdoc import ReSTDocument
+from botocore.docs.bcdoc.textwriter import TextWriter
+
+from awscli.clidocs import ProviderDocumentEventHandler
+from awscli.clidocs import ServiceDocumentEventHandler
+from awscli.clidocs import OperationDocumentEventHandler
+from awscli.clidocs import TopicListerDocumentEventHandler
+from awscli.clidocs import TopicDocumentEventHandler
+from awscli.argprocess import ParamShorthandParser
+from awscli.argparser import ArgTableArgParser
+from awscli.topictags import TopicTagDB
+from awscli.utils import ignore_ctrl_c
 
 
-LOG = logging.getLogger(__name__)
+LOG = logging.getLogger('awscli.help')
 
 
-class InvalidAliasException(Exception):
-    pass
+class ExecutableNotFoundError(Exception):
+    def __init__(self, executable_name):
+        super(ExecutableNotFoundError, self).__init__(
+            'Could not find executable named "%s"' % executable_name)
 
 
-class AliasLoader(object):
-    def __init__(self,
-                 alias_filename=os.path.expanduser(
-                     os.path.join('~', '.aws', 'cli', 'alias'))):
-        """Interface for loading and interacting with alias file
+def get_renderer():
+    """
+    Return the appropriate HelpRenderer implementation for the
+    current platform.
+    """
+    if platform.system() == 'Windows':
+        return WindowsHelpRenderer()
+    else:
+        return PosixHelpRenderer()
 
-        :param alias_filename: The name of the file to load aliases from.
-            This file must be an INI file.
+
+class PagingHelpRenderer(object):
+    """
+    Interface for a help renderer.
+
+    The renderer is responsible for displaying the help content on
+    a particular platform.
+
+    """
+    def __init__(self, output_stream=sys.stdout):
+        self.output_stream = output_stream
+
+    PAGER = None
+
+    def get_pager_cmdline(self):
+        pager = self.PAGER
+        if 'MANPAGER' in os.environ:
+            pager = os.environ['MANPAGER']
+        elif 'PAGER' in os.environ:
+            pager = os.environ['PAGER']
+        return shlex.split(pager)
+
+    def render(self, contents):
         """
-        self._filename = alias_filename
-        self._aliases = None
-
-    def _build_aliases(self):
-        self._aliases = self._load_aliases()
-        self._cleanup_alias_values(self._aliases.get('toplevel', {}))
-
-    def _load_aliases(self):
-        if os.path.exists(self._filename):
-            return raw_config_parse(
-                self._filename, parse_subsections=False)
-        return {'toplevel': {}}
-
-    def _cleanup_alias_values(self, aliases):
-        for alias in aliases:
-            # Beginning and end line separators should not be included
-            # in the internal representation of the alias value.
-            aliases[alias] = aliases[alias].strip()
-
-    def get_aliases(self):
-        if self._aliases is None:
-            self._build_aliases()
-        return self._aliases.get('toplevel', {})
-
-
-class AliasCommandInjector(object):
-    def __init__(self, session, alias_loader):
-        """Injects alias commands for a command table
-
-        :type session: botocore.session.Session
-        :param session: The botocore session
-
-        :type alias_loader: awscli.alias.AliasLoader
-        :param alias_loader: The alias loader to use
+        Each implementation of HelpRenderer must implement this
+        render method.
         """
-        self._session = session
-        self._alias_loader = alias_loader
+        converted_content = self._convert_doc_content(contents)
+        self._send_output_to_pager(converted_content)
 
-    def inject_aliases(self, command_table, parser):
-        for alias_name, alias_value in \
-                self._alias_loader.get_aliases().items():
-            if alias_value.startswith('!'):
-                alias_cmd = ExternalAliasCommand(alias_name, alias_value)
-            else:
-                service_alias_cmd_args = [
-                    alias_name, alias_value, self._session, command_table,
-                    parser
-                ]
-                # If the alias name matches something already in the
-                # command table provide the command it is about
-                # to clobber as a possible reference that it will
-                # need to proxy to.
-                if alias_name in command_table:
-                    service_alias_cmd_args.append(
-                        command_table[alias_name])
-                alias_cmd = ServiceAliasCommand(*service_alias_cmd_args)
-            command_table[alias_name] = alias_cmd
+    def _send_output_to_pager(self, output):
+        cmdline = self.get_pager_cmdline()
+        LOG.debug("Running command: %s", cmdline)
+        p = self._popen(cmdline, stdin=PIPE)
+        p.communicate(input=output)
+
+    def _popen(self, *args, **kwargs):
+        return Popen(*args, **kwargs)
+
+    def _convert_doc_content(self, contents):
+        return contents
 
 
-class BaseAliasCommand(CLICommand):
-    _UNDOCUMENTED = True
+class PosixHelpRenderer(PagingHelpRenderer):
+    """
+    Render help content on a Posix-like system.  This includes
+    Linux and MacOS X.
+    """
 
-    def __init__(self, alias_name, alias_value):
-        """Base class for alias command
+    PAGER = 'less -R'
 
-        :type alias_name: string
-        :param alias_name: The name of the alias
+    def _convert_doc_content(self, contents):
+        man_contents = publish_string(contents, writer=manpage.Writer())
+        if not self._exists_on_path('groff'):
+            raise ExecutableNotFoundError('groff')
+        cmdline = ['groff', '-m', 'man', '-T', 'ascii']
+        LOG.debug("Running command: %s", cmdline)
+        p3 = self._popen(cmdline, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+        groff_output = p3.communicate(input=man_contents)[0]
+        return groff_output
 
-        :type alias_value: string
-        :param alias_value: The parsed value of the alias. This can be
-            retrieved from `AliasLoader.get_aliases()[alias_name]`
+    def _send_output_to_pager(self, output):
+        cmdline = self.get_pager_cmdline()
+        if not self._exists_on_path(cmdline[0]):
+            LOG.debug("Pager '%s' not found in PATH, printing raw help." %
+                      cmdline[0])
+            self.output_stream.write(output.decode('utf-8') + "\n")
+            self.output_stream.flush()
+            return
+        LOG.debug("Running command: %s", cmdline)
+        with ignore_ctrl_c():
+            # We can't rely on the KeyboardInterrupt from
+            # the CLIDriver being caught because when we
+            # send the output to a pager it will use various
+            # control characters that need to be cleaned
+            # up gracefully.  Otherwise if we simply catch
+            # the Ctrl-C and exit, it will likely leave the
+            # users terminals in a bad state and they'll need
+            # to manually run ``reset`` to fix this issue.
+            # Ignoring Ctrl-C solves this issue.  It's also
+            # the default behavior of less (you can't ctrl-c
+            # out of a manpage).
+            p = self._popen(cmdline, stdin=PIPE)
+            p.communicate(input=output)
+
+    def _exists_on_path(self, name):
+        # Since we're only dealing with POSIX systems, we can
+        # ignore things like PATHEXT.
+        return any([os.path.exists(os.path.join(p, name))
+                    for p in os.environ.get('PATH', '').split(os.pathsep)])
+
+
+class WindowsHelpRenderer(PagingHelpRenderer):
+    """Render help content on a Windows platform."""
+
+    PAGER = 'more'
+
+    def _convert_doc_content(self, contents):
+        text_output = publish_string(contents,
+                                     writer=TextWriter())
+        return text_output
+
+    def _popen(self, *args, **kwargs):
+        # Also set the shell value to True.  To get any of the
+        # piping to a pager to work, we need to use shell=True.
+        kwargs['shell'] = True
+        return Popen(*args, **kwargs)
+
+
+class HelpCommand(object):
+    """
+    HelpCommand Interface
+    ---------------------
+    A HelpCommand object acts as the interface between objects in the
+    CLI (e.g. Providers, Services, Operations, etc.) and the documentation
+    system (bcdoc).
+
+    A HelpCommand object wraps the object from the CLI space and provides
+    a consistent interface to critical information needed by the
+    documentation pipeline such as the object's name, description, etc.
+
+    The HelpCommand object is passed to the component of the
+    documentation pipeline that fires documentation events.  It is
+    then passed on to each document event handler that has registered
+    for the events.
+
+    All HelpCommand objects contain the following attributes:
+
+        + ``session`` - A ``botocore`` ``Session`` object.
+        + ``obj`` - The object that is being documented.
+        + ``command_table`` - A dict mapping command names to
+              callable objects.
+        + ``arg_table`` - A dict mapping argument names to callable objects.
+        + ``doc`` - A ``Document`` object that is used to collect the
+              generated documentation.
+
+    In addition, please note the `properties` defined below which are
+    required to allow the object to be used in the document pipeline.
+
+    Implementations of HelpCommand are provided here for Provider,
+    Service and Operation objects.  Other implementations for other
+    types of objects might be needed for customization in plugins.
+    As long as the implementations conform to this basic interface
+    it should be possible to pass them to the documentation system
+    and generate interactive and static help files.
+    """
+
+    EventHandlerClass = None
+    """
+    Each subclass should define this class variable to point to the
+    EventHandler class used by this HelpCommand.
+    """
+
+    def __init__(self, session, obj, command_table, arg_table):
+        self.session = session
+        self.obj = obj
+        if command_table is None:
+            command_table = {}
+        self.command_table = command_table
+        if arg_table is None:
+            arg_table = {}
+        self.arg_table = arg_table
+        self._subcommand_table = {}
+        self._related_items = []
+        self.renderer = get_renderer()
+        self.doc = ReSTDocument(target='man')
+
+    @property
+    def event_class(self):
         """
-        self._alias_name = alias_name
-        self._alias_value = alias_value
+        Return the ``event_class`` for this object.
 
-    def __call__(self, args, parsed_args):
-        raise NotImplementedError('__call__')
+        The ``event_class`` is used by the documentation pipeline
+        when generating documentation events.  For the event below::
+
+            doc-title.<event_class>.<name>
+
+        The document pipeline would use this property to determine
+        the ``event_class`` value.
+        """
+        pass
 
     @property
     def name(self):
-        return self._alias_name
-
-    @name.setter
-    def name(self, value):
-        self._alias_name = value
-
-
-class ServiceAliasCommand(BaseAliasCommand):
-    UNSUPPORTED_GLOBAL_PARAMETERS = [
-        'debug',
-        'profile'
-    ]
-
-    def __init__(self, alias_name, alias_value, session, command_table,
-                 parser, shadow_proxy_command=None):
-        """Command for a `toplevel` subcommand alias
-
-        :type alias_name: string
-        :param alias_name: The name of the alias
-
-        :type alias_value: string
-        :param alias_value: The parsed value of the alias. This can be
-            retrieved from `AliasLoader.get_aliases()[alias_name]`
-
-        :type session: botocore.session.Session
-        :param session: The botocore session
-
-        :type command_table: dict
-        :param command_table: The command table containing all of the
-            possible service command objects that a particular alias could
-            redirect to.
-
-        :type parser: awscli.argparser.MainArgParser
-        :param parser: The parser to parse commands provided at the top level
-            of a CLI command which includes service commands and global
-            parameters. This is used to parse the service commmand and any
-            global parameters from the alias's value.
-
-        :type shadow_proxy_command: CLICommand
-        :param shadow_proxy_command: A built-in command that
-            potentially shadows the alias in name. If the alias
-            references this command in its value, the alias should proxy
-            to this command as oppposed to proxy to itself in the command
-            table
         """
-        super(ServiceAliasCommand, self).__init__(alias_name, alias_value)
-        self._session = session
-        self._command_table = command_table
-        self._parser = parser
-        self._shadow_proxy_command = shadow_proxy_command
+        Return the name of the wrapped object.
+
+        This would be called by the document pipeline to determine
+        the ``name`` to be inserted into the event, as shown above.
+        """
+        pass
+
+    @property
+    def subcommand_table(self):
+        """These are the commands that may follow after the help command"""
+        return self._subcommand_table
+
+    @property
+    def related_items(self):
+        """This is list of items that are related to the help command"""
+        return self._related_items
 
     def __call__(self, args, parsed_globals):
-        alias_args = self._get_alias_args()
-        parsed_alias_args, remaining = self._parser.parse_known_args(
-            alias_args)
-        self._update_parsed_globals(parsed_alias_args, parsed_globals)
-        # Take any of the remaining arguments that were not parsed out and
-        # prepend them to the remaining args provided to the alias.
-        remaining.extend(args)
-        LOG.debug(
-            'Alias %r passing on arguments: %r to %r command',
-            self._alias_name, remaining, parsed_alias_args.command)
-        # Pass the update remaing args and global args to the service command
-        # the alias proxied to.
-        command = self._command_table[parsed_alias_args.command]
-        if self._shadow_proxy_command:
-            shadow_name = self._shadow_proxy_command.name
-            # Use the shadow command only if the aliases value
-            # uses that command indicating it needs to proxy over to
-            # a built-in command.
-            if shadow_name == parsed_alias_args.command:
-                LOG.debug(
-                    'Using shadowed command object: %s '
-                    'for alias: %s', self._shadow_proxy_command,
-                    self._alias_name
-                )
-                command = self._shadow_proxy_command
-        return command(remaining, parsed_globals)
+        if args:
+            subcommand_parser = ArgTableArgParser({}, self.subcommand_table)
+            parsed, remaining = subcommand_parser.parse_known_args(args)
+            if getattr(parsed, 'subcommand', None) is not None:
+                return self.subcommand_table[parsed.subcommand](remaining,
+                                                                parsed_globals)
 
-    def _get_alias_args(self):
-        try:
-            alias_args = shlex.split(self._alias_value)
-        except ValueError as e:
-            raise InvalidAliasException(
-                'Value of alias "%s" could not be parsed. '
-                'Received error: %s when parsing:\n%s' % (
-                    self._alias_name, e, self._alias_value)
-            )
-
-        alias_args = [arg.strip(os.linesep) for arg in alias_args]
-        LOG.debug(
-            'Expanded subcommand alias %r with value: %r to: %r',
-            self._alias_name, self._alias_value, alias_args
-        )
-        return alias_args
-
-    def _update_parsed_globals(self, parsed_alias_args, parsed_globals):
-        global_params_to_update = self._get_global_parameters_to_update(
-            parsed_alias_args)
-        # Emit the top level args parsed event to ensure all possible
-        # customizations that typically get applied are applied to the
-        # global parameters provided in the alias before updating
-        # the original provided global parameter values
-        # and passing those onto subsequent commands.
-        emit_top_level_args_parsed_event(self._session, parsed_alias_args)
-        for param_name in global_params_to_update:
-            updated_param_value = getattr(parsed_alias_args, param_name)
-            setattr(parsed_globals, param_name, updated_param_value)
-
-    def _get_global_parameters_to_update(self, parsed_alias_args):
-        # Retrieve a list of global parameters that the newly parsed args
-        # from the alias will have to clobber from the originally provided
-        # parsed globals.
-        global_params_to_update = []
-        for parsed_param, value in vars(parsed_alias_args).items():
-            # To determine which parameters in the alias were global values
-            # compare the parsed alias parameters to the default as
-            # specified by the parser. If the parsed values from the alias
-            # differs from the default value in the parser,
-            # that global parameter must have been provided in the alias.
-            if self._parser.get_default(parsed_param) != value:
-                if parsed_param in self.UNSUPPORTED_GLOBAL_PARAMETERS:
-                    raise InvalidAliasException(
-                        'Global parameter "--%s" detected in alias "%s" '
-                        'which is not support in subcommand aliases.' % (
-                            parsed_param, self._alias_name))
-                else:
-                    global_params_to_update.append(parsed_param)
-        return global_params_to_update
+        # Create an event handler for a Provider Document
+        instance = self.EventHandlerClass(self)
+        # Now generate all of the events for a Provider document.
+        # We pass ourselves along so that we can, in turn, get passed
+        # to all event handlers.
+        docevents.generate_events(self.session, self)
+        self.renderer.render(self.doc.getvalue())
+        instance.unregister()
 
 
-class ExternalAliasCommand(BaseAliasCommand):
-    def __init__(self, alias_name, alias_value, invoker=subprocess.call):
-        """Command for external aliases
+class ProviderHelpCommand(HelpCommand):
+    """Implements top level help command.
 
-        Executes command external of CLI as opposed to being a proxy
-        to another command.
+    This is what is called when ``aws help`` is run.
 
-        :type alias_name: string
-        :param alias_name: The name of the alias
+    """
+    EventHandlerClass = ProviderDocumentEventHandler
 
-        :type alias_value: string
-        :param alias_value: The parsed value of the alias. This can be
-            retrieved from `AliasLoader.get_aliases()[alias_name]`
+    def __init__(self, session, command_table, arg_table,
+                 description, synopsis, usage):
+        HelpCommand.__init__(self, session, None,
+                             command_table, arg_table)
+        self.description = description
+        self.synopsis = synopsis
+        self.help_usage = usage
+        self._subcommand_table = None
+        self._topic_tag_db = None
+        self._related_items = ['aws help topics']
 
-        :type invoker: callable
-        :param invoker: Callable to run arguments of external alias. The
-            signature should match that of ``subprocess.call``
-        """
-        self._alias_name = alias_name
-        self._alias_value = alias_value
-        self._invoker = invoker
+    @property
+    def event_class(self):
+        return 'aws'
 
-    def __call__(self, args, parsed_globals):
-        command_components = [
-            self._alias_value[1:]
-        ]
-        command_components.extend(compat_shell_quote(a) for a in args)
-        command = ' '.join(command_components)
-        LOG.debug(
-            'Using external alias %r with value: %r to run: %r',
-            self._alias_name, self._alias_value, command)
-        return self._invoker(command, shell=True)
+    @property
+    def name(self):
+        return 'aws'
+
+    @property
+    def subcommand_table(self):
+        if self._subcommand_table is None:
+            if self._topic_tag_db is None:
+                self._topic_tag_db = TopicTagDB()
+            self._topic_tag_db.load_json_index()
+            self._subcommand_table = self._create_subcommand_table()
+        return self._subcommand_table
+
+    def _create_subcommand_table(self):
+        subcommand_table = {}
+        # Add the ``aws help topics`` command to the ``topic_table``
+        topic_lister_command = TopicListerCommand(self.session)
+        subcommand_table['topics'] = topic_lister_command
+        topic_names = self._topic_tag_db.get_all_topic_names()
+
+        # Add all of the possible topics to the ``topic_table``
+        for topic_name in topic_names:
+            topic_help_command = TopicHelpCommand(self.session, topic_name)
+            subcommand_table[topic_name] = topic_help_command
+        return subcommand_table
+
+
+class ServiceHelpCommand(HelpCommand):
+    """Implements service level help.
+
+    This is the object invoked whenever a service command
+    help is implemented, e.g. ``aws ec2 help``.
+
+    """
+
+    EventHandlerClass = ServiceDocumentEventHandler
+
+    def __init__(self, session, obj, command_table, arg_table, name,
+                 event_class):
+        super(ServiceHelpCommand, self).__init__(session, obj, command_table,
+                                                 arg_table)
+        self._name = name
+        self._event_class = event_class
+
+    @property
+    def event_class(self):
+        return self._event_class
+
+    @property
+    def name(self):
+        return self._name
+
+
+class OperationHelpCommand(HelpCommand):
+    """Implements operation level help.
+
+    This is the object invoked whenever help for a service is requested,
+    e.g. ``aws ec2 describe-instances help``.
+
+    """
+    EventHandlerClass = OperationDocumentEventHandler
+
+    def __init__(self, session, operation_model, arg_table, name,
+                 event_class):
+        HelpCommand.__init__(self, session, operation_model, None, arg_table)
+        self.param_shorthand = ParamShorthandParser()
+        self._name = name
+        self._event_class = event_class
+
+    @property
+    def event_class(self):
+        return self._event_class
+
+    @property
+    def name(self):
+        return self._name
+
+
+class TopicListerCommand(HelpCommand):
+    EventHandlerClass = TopicListerDocumentEventHandler
+
+    def __init__(self, session):
+        super(TopicListerCommand, self).__init__(session, None, {}, {})
+
+    @property
+    def event_class(self):
+        return 'topics'
+
+    @property
+    def name(self):
+        return 'topics'
+
+
+class TopicHelpCommand(HelpCommand):
+    EventHandlerClass = TopicDocumentEventHandler
+
+    def __init__(self, session, topic_name):
+        super(TopicHelpCommand, self).__init__(session, None, {}, {})
+        self._topic_name = topic_name
+
+    @property
+    def event_class(self):
+        return 'topics.' + self.name
+
+    @property
+    def name(self):
+        return self._topic_name

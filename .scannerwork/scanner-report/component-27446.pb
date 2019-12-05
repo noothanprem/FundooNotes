@@ -1,1 +1,0 @@
-ถึ?venv/lib64/python3.6/site-packages/future/moves/configparser.py 2pyX	h

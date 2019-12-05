@@ -1,1 +1,1 @@
-ýº@venv/lib/python3.6/site-packages/social_core/backends/azuread.py 2pyXh
+ýº?venv/lib/python3.6/site-packages/social_core/backends/amazon.py 2pyX.h

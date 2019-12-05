@@ -1,1 +1,1 @@
-ωνjvenv/lib64/python3.6/site-packages/django/contrib/auth/migrations/0002_alter_permission_name_max_length.py 2pyXh
+ων>venv/lib64/python3.6/site-packages/django/contrib/auth/urls.py 2pyXh

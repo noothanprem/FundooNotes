@@ -1,1 +1,1 @@
-²„Avenv/lib64/python3.6/site-packages/social_core/backends/bungie.py 2pyXWh
+²„@venv/lib64/python3.6/site-packages/social_core/backends/udata.py 2pyX&h

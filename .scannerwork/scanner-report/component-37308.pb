@@ -1,1 +1,1 @@
-¼£Evenv/lib64/python3.6/site-packages/faker/providers/phone_number/it_IT :»£
+¼£Evenv/lib64/python3.6/site-packages/faker/providers/phone_number/it_IT :º£

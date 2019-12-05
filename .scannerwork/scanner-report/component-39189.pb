@@ -1,1 +1,1 @@
-•²'venv/lib64/python3.6/site-packages/idna :”²–²—²˜²™²š²¢²¥²
+•²'venv/lib64/python3.6/site-packages/idna :“²–²—²˜²™²š²£²¥²

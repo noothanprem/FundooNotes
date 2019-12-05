@@ -1,1 +1,1 @@
-ã¼\venv/lib/python3.6/site-packages/django_extensions/management/commands/set_fake_passwords.py 2pyX6h
+ã¼Uvenv/lib/python3.6/site-packages/django_extensions/management/commands/clear_cache.py 2pyX&h

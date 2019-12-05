@@ -1,1 +1,1 @@
-ñè5venv/lib/python3.6/site-packages/botocore/__init__.py 2pyX]h
+ñè1venv/lib/python3.6/site-packages/botocore/stub.py 2pyXãh

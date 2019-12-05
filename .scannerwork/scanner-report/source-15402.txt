@@ -11,43 +11,43 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 
-from awscli.customizations.commands import BasicCommand
-from awscli.customizations.servicecatalog.utils \
-    import make_url, get_s3_path
-from awscli.customizations.s3uploader import S3Uploader
-from awscli.customizations.servicecatalog import exceptions
 
+TAGS = "Tags to associate with the new product."
 
-class GenerateBaseCommand(BasicCommand):
+BUCKET_NAME = ("Name of the S3 bucket name where the CloudFormation "
+               "template will be uploaded to")
 
-    def _run_main(self, parsed_args, parsed_globals):
-        self.region = self.get_and_validate_region(parsed_globals)
-        self.s3_client = self._session.create_client(
-            's3',
-            region_name=self.region,
-            endpoint_url=parsed_globals.endpoint_url,
-            verify=parsed_globals.verify_ssl
-        )
-        self.s3_uploader = S3Uploader(self.s3_client,
-                                      parsed_args.bucket_name,
-                                      force_upload=True)
-        try:
-            self.s3_uploader.upload(parsed_args.file_path,
-                                get_s3_path(parsed_args.file_path))
-        except OSError as ex:
-            raise RuntimeError("%s cannot be found" % parsed_args.file_path)
+SUPPORT_DESCRIPTION = "Support information about the product"
 
-    def get_and_validate_region(self, parsed_globals):
-        region = parsed_globals.region
-        if region is None:
-            region = self._session.get_config_variable('region')
-        if region not in self._session.get_available_regions('servicecatalog'):
-            raise exceptions.InvalidParametersException(
-                message="Region {0} is not supported".format(
-                    parsed_globals.region))
-        return region
+SUPPORT_EMAIL = "Contact email for product support"
 
-    def create_s3_url(self, bucket_name, file_path):
-        return make_url(self.region,
-                        bucket_name,
-                        get_s3_path(file_path))
+PA_NAME = "The name assigned to the provisioning artifact"
+
+PA_DESCRIPTION = "The text description of the provisioning artifact"
+
+PA_TYPE = "The type of the provisioning artifact"
+
+DISTRIBUTOR = "The distributor of the product"
+
+PRODUCT_ID = "The product identifier"
+
+PRODUCT_NAME = "The name of the product"
+
+OWNER = "The owner of the product"
+
+PRODUCT_TYPE = "The type of the product to create"
+
+PRODUCT_DESCRIPTION = "The text description of the product"
+
+PRODUCT_COMMAND_DESCRIPTION = ("Create a new product using a CloudFormation "
+                               "template specified as a local file path")
+
+PA_COMMAND_DESCRIPTION = ("Create a new provisioning artifact for the "
+                          "specified product using a CloudFormation template "
+                          "specified as a local file path")
+
+GENERATE_COMMAND = ("Generate a Service Catalog product or provisioning "
+                    "artifact using a CloudFormation template specified "
+                    "as a local file path")
+
+FILE_PATH = "A local file path that references the CloudFormation template"

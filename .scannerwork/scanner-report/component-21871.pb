@@ -1,1 +1,0 @@
-якLvenv/lib/python3.6/site-packages/twisted/words/protocols/jabber/jstrports.py 2pyX"h

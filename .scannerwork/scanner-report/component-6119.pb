@@ -1,1 +1,1 @@
-ç/Gvenv/lib/python3.6/site-packages/django/contrib/gis/geos/collections.py 2pyXth
+ç/Fvenv/lib/python3.6/site-packages/django/contrib/gis/geos/linestring.py 2pyX°h

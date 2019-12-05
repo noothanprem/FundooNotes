@@ -1,1 +1,1 @@
-Ó@@venv/lib/python3.6/site-packages/django/core/management/color.py 2pyXJh
+Ó@7venv/lib/python3.6/site-packages/django/core/management :Ò@Ô@Õ@Ö@×@ß@

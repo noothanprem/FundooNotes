@@ -1,1 +1,0 @@
-æ˜9venv/lib/python3.6/site-packages/social_django/migrations :å˜ç˜è˜é˜ê˜ë˜ì˜í˜ø˜

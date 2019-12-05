@@ -1,118 +1,127 @@
-# -*- test-case-name: twisted.test.test_fdesc -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-
 """
-Utility functions for dealing with POSIX file descriptors.
+Extended thread dispatching support.
+
+For basic support see reactor threading API docs.
 """
 
-import os
-import errno
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
+from __future__ import division, absolute_import
 
-# twisted imports
-from twisted.internet.main import CONNECTION_LOST, CONNECTION_DONE
-
-
-def setNonBlocking(fd):
-    """
-    Set the file description of the given file descriptor to non-blocking.
-    """
-    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
-    flags = flags | os.O_NONBLOCK
-    fcntl.fcntl(fd, fcntl.F_SETFL, flags)
-
-
-def setBlocking(fd):
-    """
-    Set the file description of the given file descriptor to blocking.
-    """
-    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
-    flags = flags & ~os.O_NONBLOCK
-    fcntl.fcntl(fd, fcntl.F_SETFL, flags)
-
-
-if fcntl is None:
-    # fcntl isn't available on Windows.  By default, handles aren't
-    # inherited on Windows, so we can do nothing here.
-    _setCloseOnExec = _unsetCloseOnExec = lambda fd: None
+from twisted.python.compat import _PY3
+if not _PY3:
+    import Queue
 else:
-    def _setCloseOnExec(fd):
-        """
-        Make a file descriptor close-on-exec.
-        """
-        flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-        flags = flags | fcntl.FD_CLOEXEC
-        fcntl.fcntl(fd, fcntl.F_SETFD, flags)
+    import queue as Queue
+
+from twisted.python import failure
+from twisted.internet import defer
 
 
-    def _unsetCloseOnExec(fd):
-        """
-        Make a file descriptor close-on-exec.
-        """
-        flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-        flags = flags & ~fcntl.FD_CLOEXEC
-        fcntl.fcntl(fd, fcntl.F_SETFD, flags)
-
-
-def readFromFD(fd, callback):
+def deferToThreadPool(reactor, threadpool, f, *args, **kwargs):
     """
-    Read from file descriptor, calling callback with resulting data.
+    Call the function C{f} using a thread from the given threadpool and return
+    the result as a Deferred.
 
-    If successful, call 'callback' with a single argument: the
-    resulting data.
+    This function is only used by client code which is maintaining its own
+    threadpool.  To run a function in the reactor's threadpool, use
+    C{deferToThread}.
 
-    Returns same thing FileDescriptor.doRead would: CONNECTION_LOST,
-    CONNECTION_DONE, or None.
+    @param reactor: The reactor in whose main thread the Deferred will be
+        invoked.
 
-    @type fd: C{int}
-    @param fd: non-blocking file descriptor to be read from.
-    @param callback: a callable which accepts a single argument. If
-    data is read from the file descriptor it will be called with this
-    data. Handling exceptions from calling the callback is up to the
-    caller.
+    @param threadpool: An object which supports the C{callInThreadWithCallback}
+        method of C{twisted.python.threadpool.ThreadPool}.
 
-    Note that if the descriptor is still connected but no data is read,
-    None will be returned but callback will not be called.
+    @param f: The function to call.
+    @param *args: positional arguments to pass to f.
+    @param **kwargs: keyword arguments to pass to f.
 
-    @return: CONNECTION_LOST on error, CONNECTION_DONE when fd is
-    closed, otherwise None.
+    @return: A Deferred which fires a callback with the result of f, or an
+        errback with a L{twisted.python.failure.Failure} if f throws an
+        exception.
     """
-    try:
-        output = os.read(fd, 8192)
-    except (OSError, IOError) as ioe:
-        if ioe.args[0] in (errno.EAGAIN, errno.EINTR):
-            return
+    d = defer.Deferred()
+
+    def onResult(success, result):
+        if success:
+            reactor.callFromThread(d.callback, result)
         else:
-            return CONNECTION_LOST
-    if not output:
-        return CONNECTION_DONE
-    callback(output)
+            reactor.callFromThread(d.errback, result)
+
+    threadpool.callInThreadWithCallback(onResult, f, *args, **kwargs)
+
+    return d
 
 
-def writeToFD(fd, data):
+def deferToThread(f, *args, **kwargs):
     """
-    Write data to file descriptor.
+    Run a function in a thread and return the result as a Deferred.
 
-    Returns same thing FileDescriptor.writeSomeData would.
+    @param f: The function to call.
+    @param *args: positional arguments to pass to f.
+    @param **kwargs: keyword arguments to pass to f.
 
-    @type fd: C{int}
-    @param fd: non-blocking file descriptor to be written to.
-    @type data: C{str} or C{buffer}
-    @param data: bytes to write to fd.
-
-    @return: number of bytes written, or CONNECTION_LOST.
+    @return: A Deferred which fires a callback with the result of f,
+    or an errback with a L{twisted.python.failure.Failure} if f throws
+    an exception.
     """
-    try:
-        return os.write(fd, data)
-    except (OSError, IOError) as io:
-        if io.errno in (errno.EAGAIN, errno.EINTR):
-            return 0
-        return CONNECTION_LOST
+    from twisted.internet import reactor
+    return deferToThreadPool(reactor, reactor.getThreadPool(),
+                             f, *args, **kwargs)
 
 
-__all__ = ["setNonBlocking", "setBlocking", "readFromFD", "writeToFD"]
+def _runMultiple(tupleList):
+    """
+    Run a list of functions.
+    """
+    for f, args, kwargs in tupleList:
+        f(*args, **kwargs)
+
+
+def callMultipleInThread(tupleList):
+    """
+    Run a list of functions in the same thread.
+
+    tupleList should be a list of (function, argsList, kwargsDict) tuples.
+    """
+    from twisted.internet import reactor
+    reactor.callInThread(_runMultiple, tupleList)
+
+
+def blockingCallFromThread(reactor, f, *a, **kw):
+    """
+    Run a function in the reactor from a thread, and wait for the result
+    synchronously.  If the function returns a L{Deferred}, wait for its
+    result and return that.
+
+    @param reactor: The L{IReactorThreads} provider which will be used to
+        schedule the function call.
+    @param f: the callable to run in the reactor thread
+    @type f: any callable.
+    @param a: the arguments to pass to C{f}.
+    @param kw: the keyword arguments to pass to C{f}.
+
+    @return: the result of the L{Deferred} returned by C{f}, or the result
+        of C{f} if it returns anything other than a L{Deferred}.
+
+    @raise: If C{f} raises a synchronous exception,
+        C{blockingCallFromThread} will raise that exception.  If C{f}
+        returns a L{Deferred} which fires with a L{Failure},
+        C{blockingCallFromThread} will raise that failure's exception (see
+        L{Failure.raiseException}).
+    """
+    queue = Queue.Queue()
+    def _callFromThread():
+        result = defer.maybeDeferred(f, *a, **kw)
+        result.addBoth(queue.put)
+    reactor.callFromThread(_callFromThread)
+    result = queue.get()
+    if isinstance(result, failure.Failure):
+        result.raiseException()
+    return result
+
+
+__all__ = ["deferToThread", "deferToThreadPool", "callMultipleInThread",
+           "blockingCallFromThread"]

@@ -1,1 +1,2 @@
-ìöHvenv/lib64/python3.6/site-packages/twisted/words/test/test_jabbersasl.py 2pyX¥h
+ìöMvenv/lib64/python3.6/site-packages/twisted/words/test/test_jabberxmlstream.py 2pyXÿ
+h

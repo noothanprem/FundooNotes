@@ -1,6 +1,5 @@
-g
-pythonS100IRename method "id" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‡‡ 
-g
-pythonS1542JRename function "f" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 g
-pythonS1542JRename function "f" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2aa 
+w
+pythonS117[Rename this local variable "ExpireTest" to match the regular expression ^[_a-z][a-z0-9_]*$. 2 w
+pythonS117[Rename this local variable "ExpireTest" to match the regular expression ^[_a-z][a-z0-9_]*$. 2EE s
+pythonS1542TRename function "newMacaroon" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+„„ 

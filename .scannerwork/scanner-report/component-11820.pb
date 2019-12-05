@@ -1,1 +1,0 @@
-¬\Fvenv/lib/python3.6/site-packages/faker/providers/job/ru_RU/__init__.py 2pyX¦h

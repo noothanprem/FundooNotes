@@ -1,1 +1,1 @@
-¥•_venv/lib64/python3.6/site-packages/django_elasticsearch_dsl/management/commands/search_index.py 2pyXŒh
+¥•[venv/lib64/python3.6/site-packages/django_elasticsearch_dsl/management/commands/__init__.py 2pyXh

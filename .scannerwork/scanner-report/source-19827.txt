@@ -1,16 +1,8 @@
-from django.db import migrations
+from django.contrib.auth import get_user_model
 
+from .backends import TokenBackend
+from .settings import api_settings
 
-class Migration(migrations.Migration):
-
-    dependencies = [
-        ('token_blacklist', '0005_remove_outstandingtoken_jti'),
-    ]
-
-    operations = [
-        migrations.RenameField(
-            model_name='outstandingtoken',
-            old_name='jti_hex',
-            new_name='jti',
-        ),
-    ]
+User = get_user_model()
+token_backend = TokenBackend(api_settings.ALGORITHM, api_settings.SIGNING_KEY,
+                             api_settings.VERIFYING_KEY)

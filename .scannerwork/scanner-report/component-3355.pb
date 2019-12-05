@@ -1,1 +1,1 @@
-›2venv/lib/python3.6/site-packages/hyperlink/_url.py 2pyX‚h
+›Kvenv/lib/python3.6/site-packages/hyperlink/test/test_scheme_registration.py 2pyXAh

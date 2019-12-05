@@ -1,1 +1,1 @@
-ޚCvenv/lib/python3.6/site-packages/rest_framework_simplejwt/models.py 2pyXih
+ޚEvenv/lib/python3.6/site-packages/rest_framework_simplejwt/settings.py 2pyXKh

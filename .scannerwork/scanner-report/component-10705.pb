@@ -1,1 +1,1 @@
-ÑSFvenv/lib/python3.6/site-packages/faker/providers/ssn/et_EE/__init__.py 2pyXAh
+ÑSFvenv/lib/python3.6/site-packages/faker/providers/ssn/ru_RU/__init__.py 2pyXh

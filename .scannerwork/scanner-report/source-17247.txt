@@ -1,30 +1,47 @@
-from unittest import TestCase
+import unittest
 import simplejson as json
 
-def default_iterable(obj):
-    return list(obj)
+dct1 = {
+    'key1': 'value1'
+}
 
-class TestCheckCircular(TestCase):
-    def test_circular_dict(self):
-        dct = {}
-        dct['a'] = dct
-        self.assertRaises(ValueError, json.dumps, dct)
+dct2 = {
+    'key2': 'value2',
+    'd1': dct1
+}
 
-    def test_circular_list(self):
-        lst = []
-        lst.append(lst)
-        self.assertRaises(ValueError, json.dumps, lst)
+dct3 = {
+    'key2': 'value2',
+    'd1': json.dumps(dct1)
+}
 
-    def test_circular_composite(self):
-        dct2 = {}
-        dct2['a'] = []
-        dct2['a'].append(dct2)
-        self.assertRaises(ValueError, json.dumps, dct2)
+dct4 = {
+    'key2': 'value2',
+    'd1': json.RawJSON(json.dumps(dct1))
+}
 
-    def test_circular_default(self):
-        json.dumps([set()], default=default_iterable)
-        self.assertRaises(TypeError, json.dumps, [set()])
 
-    def test_circular_off_default(self):
-        json.dumps([set()], default=default_iterable, check_circular=False)
-        self.assertRaises(TypeError, json.dumps, [set()], check_circular=False)
+class TestRawJson(unittest.TestCase):
+
+    def test_normal_str(self):
+        self.assertNotEqual(json.dumps(dct2), json.dumps(dct3))
+
+    def test_raw_json_str(self):
+        self.assertEqual(json.dumps(dct2), json.dumps(dct4))
+        self.assertEqual(dct2, json.loads(json.dumps(dct4)))
+
+    def test_list(self):
+        self.assertEqual(
+            json.dumps([dct2]),
+            json.dumps([json.RawJSON(json.dumps(dct2))]))
+        self.assertEqual(
+            [dct2],
+            json.loads(json.dumps([json.RawJSON(json.dumps(dct2))])))
+
+    def test_direct(self):
+        self.assertEqual(
+            json.dumps(dct2),
+            json.dumps(json.RawJSON(json.dumps(dct2))))
+        self.assertEqual(
+            dct2,
+            json.loads(json.dumps(json.RawJSON(json.dumps(dct2)))))

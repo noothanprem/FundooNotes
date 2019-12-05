@@ -1,146 +1,84 @@
-"""Functions to parse datetime objects."""
+"""
+Django's standard crypto functions and utilities.
+"""
+import hashlib
+import hmac
+import random
+import time
 
-# We're using regular expressions rather than time.strptime because:
-# - They provide both validation and parsing.
-# - They're more flexible for datetimes.
-# - The date/datetime/time constructors produce friendlier error messages.
+from django.conf import settings
+from django.utils.encoding import force_bytes
 
-import datetime
-import re
-
-from django.utils.timezone import get_fixed_timezone, utc
-
-date_re = re.compile(
-    r'(?P<year>\d{4})-(?P<month>\d{1,2})-(?P<day>\d{1,2})$'
-)
-
-time_re = re.compile(
-    r'(?P<hour>\d{1,2}):(?P<minute>\d{1,2})'
-    r'(?::(?P<second>\d{1,2})(?:\.(?P<microsecond>\d{1,6})\d{0,6})?)?'
-)
-
-datetime_re = re.compile(
-    r'(?P<year>\d{4})-(?P<month>\d{1,2})-(?P<day>\d{1,2})'
-    r'[T ](?P<hour>\d{1,2}):(?P<minute>\d{1,2})'
-    r'(?::(?P<second>\d{1,2})(?:\.(?P<microsecond>\d{1,6})\d{0,6})?)?'
-    r'(?P<tzinfo>Z|[+-]\d{2}(?::?\d{2})?)?$'
-)
-
-standard_duration_re = re.compile(
-    r'^'
-    r'(?:(?P<days>-?\d+) (days?, )?)?'
-    r'((?:(?P<hours>-?\d+):)(?=\d+:\d+))?'
-    r'(?:(?P<minutes>-?\d+):)?'
-    r'(?P<seconds>-?\d+)'
-    r'(?:\.(?P<microseconds>\d{1,6})\d{0,6})?'
-    r'$'
-)
-
-# Support the sections of ISO 8601 date representation that are accepted by
-# timedelta
-iso8601_duration_re = re.compile(
-    r'^(?P<sign>[-+]?)'
-    r'P'
-    r'(?:(?P<days>\d+(.\d+)?)D)?'
-    r'(?:T'
-    r'(?:(?P<hours>\d+(.\d+)?)H)?'
-    r'(?:(?P<minutes>\d+(.\d+)?)M)?'
-    r'(?:(?P<seconds>\d+(.\d+)?)S)?'
-    r')?'
-    r'$'
-)
-
-# Support PostgreSQL's day-time interval format, e.g. "3 days 04:05:06". The
-# year-month and mixed intervals cannot be converted to a timedelta and thus
-# aren't accepted.
-postgres_interval_re = re.compile(
-    r'^'
-    r'(?:(?P<days>-?\d+) (days? ?))?'
-    r'(?:(?P<sign>[-+])?'
-    r'(?P<hours>\d+):'
-    r'(?P<minutes>\d\d):'
-    r'(?P<seconds>\d\d)'
-    r'(?:\.(?P<microseconds>\d{1,6}))?'
-    r')?$'
-)
+# Use the system PRNG if possible
+try:
+    random = random.SystemRandom()
+    using_sysrandom = True
+except NotImplementedError:
+    import warnings
+    warnings.warn('A secure pseudo-random number generator is not available '
+                  'on your system. Falling back to Mersenne Twister.')
+    using_sysrandom = False
 
 
-def parse_date(value):
-    """Parse a string and return a datetime.date.
-
-    Raise ValueError if the input is well formatted but not a valid date.
-    Return None if the input isn't well formatted.
+def salted_hmac(key_salt, value, secret=None):
     """
-    match = date_re.match(value)
-    if match:
-        kw = {k: int(v) for k, v in match.groupdict().items()}
-        return datetime.date(**kw)
+    Return the HMAC-SHA1 of 'value', using a key generated from key_salt and a
+    secret (which defaults to settings.SECRET_KEY).
 
-
-def parse_time(value):
-    """Parse a string and return a datetime.time.
-
-    This function doesn't support time zone offsets.
-
-    Raise ValueError if the input is well formatted but not a valid time.
-    Return None if the input isn't well formatted, in particular if it
-    contains an offset.
+    A different key_salt should be passed in for every application of HMAC.
     """
-    match = time_re.match(value)
-    if match:
-        kw = match.groupdict()
-        kw['microsecond'] = kw['microsecond'] and kw['microsecond'].ljust(6, '0')
-        kw = {k: int(v) for k, v in kw.items() if v is not None}
-        return datetime.time(**kw)
+    if secret is None:
+        secret = settings.SECRET_KEY
+
+    key_salt = force_bytes(key_salt)
+    secret = force_bytes(secret)
+
+    # We need to generate a derived key from our base key.  We can do this by
+    # passing the key_salt and our base key through a pseudo-random function and
+    # SHA1 works nicely.
+    key = hashlib.sha1(key_salt + secret).digest()
+
+    # If len(key_salt + secret) > sha_constructor().block_size, the above
+    # line is redundant and could be replaced by key = key_salt + secret, since
+    # the hmac module does the same thing for keys longer than the block size.
+    # However, we need to ensure that we *always* do this.
+    return hmac.new(key, msg=force_bytes(value), digestmod=hashlib.sha1)
 
 
-def parse_datetime(value):
-    """Parse a string and return a datetime.datetime.
-
-    This function supports time zone offsets. When the input contains one,
-    the output uses a timezone with a fixed offset from UTC.
-
-    Raise ValueError if the input is well formatted but not a valid datetime.
-    Return None if the input isn't well formatted.
+def get_random_string(length=12,
+                      allowed_chars='abcdefghijklmnopqrstuvwxyz'
+                                    'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'):
     """
-    match = datetime_re.match(value)
-    if match:
-        kw = match.groupdict()
-        kw['microsecond'] = kw['microsecond'] and kw['microsecond'].ljust(6, '0')
-        tzinfo = kw.pop('tzinfo')
-        if tzinfo == 'Z':
-            tzinfo = utc
-        elif tzinfo is not None:
-            offset_mins = int(tzinfo[-2:]) if len(tzinfo) > 3 else 0
-            offset = 60 * int(tzinfo[1:3]) + offset_mins
-            if tzinfo[0] == '-':
-                offset = -offset
-            tzinfo = get_fixed_timezone(offset)
-        kw = {k: int(v) for k, v in kw.items() if v is not None}
-        kw['tzinfo'] = tzinfo
-        return datetime.datetime(**kw)
+    Return a securely generated random string.
 
-
-def parse_duration(value):
-    """Parse a duration string and return a datetime.timedelta.
-
-    The preferred format for durations in Django is '%d %H:%M:%S.%f'.
-
-    Also supports ISO 8601 representation and PostgreSQL's day-time interval
-    format.
+    The default length of 12 with the a-z, A-Z, 0-9 character set returns
+    a 71-bit value. log_2((26+26+10)^12) =~ 71 bits
     """
-    match = (
-        standard_duration_re.match(value) or
-        iso8601_duration_re.match(value) or
-        postgres_interval_re.match(value)
-    )
-    if match:
-        kw = match.groupdict()
-        days = datetime.timedelta(float(kw.pop('days', 0) or 0))
-        sign = -1 if kw.pop('sign', '+') == '-' else 1
-        if kw.get('microseconds'):
-            kw['microseconds'] = kw['microseconds'].ljust(6, '0')
-        if kw.get('seconds') and kw.get('microseconds') and kw['seconds'].startswith('-'):
-            kw['microseconds'] = '-' + kw['microseconds']
-        kw = {k: float(v) for k, v in kw.items() if v is not None}
-        return days + sign * datetime.timedelta(**kw)
+    if not using_sysrandom:
+        # This is ugly, and a hack, but it makes things better than
+        # the alternative of predictability. This re-seeds the PRNG
+        # using a value that is hard for an attacker to predict, every
+        # time a random string is required. This may change the
+        # properties of the chosen random sequence slightly, but this
+        # is better than absolute predictability.
+        random.seed(
+            hashlib.sha256(
+                ('%s%s%s' % (random.getstate(), time.time(), settings.SECRET_KEY)).encode()
+            ).digest()
+        )
+    return ''.join(random.choice(allowed_chars) for i in range(length))
+
+
+def constant_time_compare(val1, val2):
+    """Return True if the two strings are equal, False otherwise."""
+    return hmac.compare_digest(force_bytes(val1), force_bytes(val2))
+
+
+def pbkdf2(password, salt, iterations, dklen=0, digest=None):
+    """Return the hash of password using pbkdf2."""
+    if digest is None:
+        digest = hashlib.sha256
+    dklen = dklen or None
+    password = force_bytes(password)
+    salt = force_bytes(salt)
+    return hashlib.pbkdf2_hmac(digest().name, password, salt, iterations, dklen)

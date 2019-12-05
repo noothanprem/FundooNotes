@@ -1,1 +1,0 @@
-ޞ<venv/lib64/python3.6/site-packages/faker/providers/ssn/hu_HU :ݞ

@@ -1,1 +1,0 @@
-Œ“:venv/lib64/python3.6/site-packages/provider/oauth2/urls.py 2pyX8h

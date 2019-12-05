@@ -1,1 +1,0 @@
-à‹2venv/lib/python3.6/site-packages/shortuuid/main.py 2pyX†h

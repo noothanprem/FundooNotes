@@ -1,1 +1,1 @@
-‚×5venv/lib64/python3.6/site-packages/uritemplate/api.py 2pyXHh
+‚×:venv/lib64/python3.6/site-packages/uritemplate/variable.py 2pyXh

@@ -1,1 +1,1 @@
-яв9venv/lib64/python3.6/site-packages/jwt/contrib/algorithms :	ёвавбв
+явEvenv/lib64/python3.6/site-packages/jwt/contrib/algorithms/py_ecdsa.py 2pyX=h

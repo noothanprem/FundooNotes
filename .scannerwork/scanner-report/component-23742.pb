@@ -1,1 +1,1 @@
-พน?venv/lib/python3.6/site-packages/social_core/backends/reddit.py 2pyX9h
+พนCvenv/lib/python3.6/site-packages/social_core/backends/scistarter.py 2pyX=h

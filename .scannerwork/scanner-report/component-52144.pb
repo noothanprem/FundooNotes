@@ -1,1 +1,1 @@
-°—fundoo :®—¯—±—²—³—
+°—fundoo/setting/__init__.py 2pyXh

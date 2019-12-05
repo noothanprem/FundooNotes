@@ -1,1 +1,1 @@
-¬×?venv/lib64/python3.6/site-packages/rest_framework_social_oauth2 :«×­×®×¯×°×±×²×½×¾×
+¬×?venv/lib64/python3.6/site-packages/rest_framework_social_oauth2 :«×­×®×¯×±×°×²×½×¿×

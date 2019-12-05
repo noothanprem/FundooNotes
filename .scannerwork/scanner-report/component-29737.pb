@@ -1,1 +1,1 @@
-©è<venv/lib64/python3.6/site-packages/django/middleware/csrf.py 2pyXÈh
+©è>venv/lib64/python3.6/site-packages/django/middleware/common.py 2pyX®h

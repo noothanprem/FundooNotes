@@ -1,1 +1,1 @@
-¾0venv/lib/python3.6/site-packages/celery/backends :(½¿ÀÁÂÃÄÅÆÇÈÑÒÓÔÕëìíî
+¾<venv/lib/python3.6/site-packages/celery/backends/arangodb.py 2pyXÕh

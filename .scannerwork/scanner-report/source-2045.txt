@@ -1,229 +1,583 @@
-widths = {'A': 722,
- 'AE': 889,
- 'Aacute': 722,
- 'Acircumflex': 722,
- 'Adieresis': 722,
- 'Agrave': 722,
- 'Aring': 722,
- 'Atilde': 722,
- 'B': 667,
- 'C': 667,
- 'Ccedilla': 667,
- 'D': 722,
- 'E': 611,
- 'Eacute': 611,
- 'Ecircumflex': 611,
- 'Edieresis': 611,
- 'Egrave': 611,
- 'Eth': 722,
- 'Euro': 500,
- 'F': 556,
- 'G': 722,
- 'H': 722,
- 'I': 333,
- 'Iacute': 333,
- 'Icircumflex': 333,
- 'Idieresis': 333,
- 'Igrave': 333,
- 'J': 389,
- 'K': 722,
- 'L': 611,
- 'Lslash': 611,
- 'M': 889,
- 'N': 722,
- 'Ntilde': 722,
- 'O': 722,
- 'OE': 889,
- 'Oacute': 722,
- 'Ocircumflex': 722,
- 'Odieresis': 722,
- 'Ograve': 722,
- 'Oslash': 722,
- 'Otilde': 722,
- 'P': 556,
- 'Q': 722,
- 'R': 667,
- 'S': 556,
- 'Scaron': 556,
- 'T': 611,
- 'Thorn': 556,
- 'U': 722,
- 'Uacute': 722,
- 'Ucircumflex': 722,
- 'Udieresis': 722,
- 'Ugrave': 722,
- 'V': 722,
- 'W': 944,
- 'X': 722,
- 'Y': 722,
- 'Yacute': 722,
- 'Ydieresis': 722,
- 'Z': 611,
- 'Zcaron': 611,
- 'a': 444,
- 'aacute': 444,
- 'acircumflex': 444,
- 'acute': 333,
- 'adieresis': 444,
- 'ae': 667,
- 'agrave': 444,
- 'ampersand': 778,
- 'aring': 444,
- 'asciicircum': 469,
- 'asciitilde': 541,
- 'asterisk': 500,
- 'at': 921,
- 'atilde': 444,
- 'b': 500,
- 'backslash': 278,
- 'bar': 200,
- 'braceleft': 480,
- 'braceright': 480,
- 'bracketleft': 333,
- 'bracketright': 333,
- 'breve': 333,
- 'brokenbar': 200,
- 'bullet': 350,
- 'c': 444,
- 'caron': 333,
- 'ccedilla': 444,
- 'cedilla': 333,
- 'cent': 500,
- 'circumflex': 333,
- 'colon': 278,
- 'comma': 250,
- 'copyright': 760,
- 'currency': 500,
- 'd': 500,
- 'dagger': 500,
- 'daggerdbl': 500,
- 'degree': 400,
- 'dieresis': 333,
- 'divide': 564,
- 'dollar': 500,
- 'dotaccent': 333,
- 'dotlessi': 278,
- 'e': 444,
- 'eacute': 444,
- 'ecircumflex': 444,
- 'edieresis': 444,
- 'egrave': 444,
- 'eight': 500,
- 'ellipsis': 1000,
- 'emdash': 1000,
- 'endash': 500,
- 'equal': 564,
- 'eth': 500,
- 'exclam': 333,
- 'exclamdown': 333,
- 'f': 333,
- 'fi': 556,
- 'five': 500,
- 'fl': 556,
- 'florin': 500,
- 'four': 500,
- 'fraction': 167,
- 'g': 500,
- 'germandbls': 500,
- 'grave': 333,
- 'greater': 564,
- 'guillemotleft': 500,
- 'guillemotright': 500,
- 'guilsinglleft': 333,
- 'guilsinglright': 333,
- 'h': 500,
- 'hungarumlaut': 333,
- 'hyphen': 333,
- 'i': 278,
- 'iacute': 278,
- 'icircumflex': 278,
- 'idieresis': 278,
- 'igrave': 278,
- 'j': 278,
- 'k': 500,
- 'l': 278,
- 'less': 564,
- 'logicalnot': 564,
- 'lslash': 278,
- 'm': 778,
- 'macron': 333,
- 'minus': 564,
- 'mu': 500,
- 'multiply': 564,
- 'n': 500,
- 'nine': 500,
- 'ntilde': 500,
- 'numbersign': 500,
- 'o': 500,
- 'oacute': 500,
- 'ocircumflex': 500,
- 'odieresis': 500,
- 'oe': 722,
- 'ogonek': 333,
- 'ograve': 500,
- 'one': 500,
- 'onehalf': 750,
- 'onequarter': 750,
- 'onesuperior': 300,
- 'ordfeminine': 276,
- 'ordmasculine': 310,
- 'oslash': 500,
- 'otilde': 500,
- 'p': 500,
- 'paragraph': 453,
- 'parenleft': 333,
- 'parenright': 333,
- 'percent': 833,
- 'period': 250,
- 'periodcentered': 250,
- 'perthousand': 1000,
- 'plus': 564,
- 'plusminus': 564,
- 'q': 500,
- 'question': 444,
- 'questiondown': 444,
- 'quotedbl': 408,
- 'quotedblbase': 444,
- 'quotedblleft': 444,
- 'quotedblright': 444,
- 'quoteleft': 333,
- 'quoteright': 333,
- 'quotesinglbase': 333,
- 'quotesingle': 180,
- 'r': 333,
- 'registered': 760,
- 'ring': 333,
- 's': 389,
- 'scaron': 389,
- 'section': 500,
- 'semicolon': 278,
- 'seven': 500,
- 'six': 500,
- 'slash': 278,
- 'space': 250,
- 'sterling': 500,
- 't': 278,
- 'thorn': 500,
- 'three': 500,
- 'threequarters': 750,
- 'threesuperior': 300,
- 'tilde': 333,
- 'trademark': 980,
- 'two': 500,
- 'twosuperior': 300,
- 'u': 500,
- 'uacute': 500,
- 'ucircumflex': 500,
- 'udieresis': 500,
- 'ugrave': 500,
- 'underscore': 500,
- 'v': 500,
- 'w': 722,
- 'x': 500,
- 'y': 500,
- 'yacute': 500,
- 'ydieresis': 500,
- 'yen': 500,
- 'z': 444,
- 'zcaron': 444,
- 'zero': 500}
+
+"""Support for Acrobat Forms in ReportLab documents
+
+This module is somewhat experimental at this time.
+
+Includes basic support for
+    textfields,
+    select fields (drop down lists), and
+    check buttons.
+
+The public interface consists of functions at the moment.
+At some later date these operations may be made into canvas
+methods. (comments?)
+
+The ...Absolute(...) functions position the fields with respect
+to the absolute canvas coordinate space -- that is, they do not
+respect any coordinate transforms in effect for the canvas.
+
+The ...Relative(...) functions position the ONLY THE LOWER LEFT
+CORNER of the field using the coordinate transform in effect for
+the canvas.  THIS WILL ONLY WORK CORRECTLY FOR TRANSLATED COORDINATES
+-- THE SHAPE, SIZE, FONTSIZE, AND ORIENTATION OF THE FIELD WILL NOT BE EFFECTED
+BY SCALING, ROTATION, SKEWING OR OTHER NON-TRANSLATION COORDINATE
+TRANSFORMS.
+
+Please note that all field names (titles) in a given document must be unique.
+Textfields and select fields only support the "base 14" canvas fonts
+at this time.
+
+See individual function docstrings below for more information.
+
+The function test1(...) generates a simple test file.
+
+THIS CONTRIBUTION WAS COMMISSIONED BY REPORTLAB USERS
+WHO WISH TO REMAIN ANONYMOUS.
+"""
+
+### NOTE: MAKE THE STRING FORMATS DYNAMIC IN PATTERNS TO SUPPORT ENCRYPTION XXXX
+
+import string
+from reportlab.pdfbase.pdfdoc import PDFString, PDFStream, PDFDictionary, PDFName, PDFObject
+from reportlab.lib.colors import obj_R_G_B
+
+#==========================public interfaces
+
+def textFieldAbsolute(canvas, title, x, y, width, height, value="", maxlen=1000000, multiline=0):
+    """Place a text field on the current page
+        with name title at ABSOLUTE position (x,y) with
+        dimensions (width, height), using value as the default value and
+        maxlen as the maximum permissible length.  If multiline is set make
+        it a multiline field.
+    """
+    theform = getForm(canvas)
+    return theform.textField(canvas, title, x, y, x+width, y+height, value, maxlen, multiline)
+
+def textFieldRelative(canvas, title, xR, yR, width, height, value="", maxlen=1000000, multiline=0):
+    "same as textFieldAbsolute except the x and y are relative to the canvas coordinate transform"
+    (xA, yA) = canvas.absolutePosition(xR,yR)
+    return textFieldAbsolute(canvas, title, xA, yA, width, height, value, maxlen, multiline)
+
+def buttonFieldAbsolute(canvas, title, value, x, y, width=16.7704, height=14.907):
+    """Place a check button field on the current page
+        with name title and default value value (one of "Yes" or "Off")
+        at ABSOLUTE position (x,y).
+    """
+    theform = getForm(canvas)
+    return theform.buttonField(canvas, title, value, x, y, width=width, height=height)
+
+def buttonFieldRelative(canvas, title, value, xR, yR, width=16.7704, height=14.907):
+    "same as buttonFieldAbsolute except the x and y are relative to the canvas coordinate transform"
+    (xA, yA) = canvas.absolutePosition(xR,yR)
+    return buttonFieldAbsolute(canvas, title, value, xA, yA, width=width, height=height)
+
+def selectFieldAbsolute(canvas, title, value, options, x, y, width, height):
+    """Place a select field (drop down list) on the current page
+        with name title and
+        with options listed in the sequence options
+        default value value (must be one of options)
+        at ABSOLUTE position (x,y) with dimensions (width, height)."""
+    theform = getForm(canvas)
+    theform.selectField(canvas, title, value, options, x, y, x+width, y+height)
+
+def selectFieldRelative(canvas, title, value, options, xR, yR, width, height):
+    "same as textFieldAbsolute except the x and y are relative to the canvas coordinate transform"
+    (xA, yA) = canvas.absolutePosition(xR,yR)
+    return selectFieldAbsolute(canvas, title, value, options, xA, yA, width, height)
+
+#==========================end of public interfaces
+
+from reportlab.pdfbase.pdfpattern import PDFPattern, PDFPatternIf
+
+def getForm(canvas):
+    "get form from canvas, create the form if needed"
+    try:
+        return canvas.AcroForm
+    except AttributeError:
+        theform = canvas.AcroForm = AcroForm()
+        # install the form in the document
+        d = canvas._doc
+        cat = d._catalog
+        cat.AcroForm = theform
+        return theform
+
+class AcroForm(PDFObject):
+    def __init__(self):
+        self.fields = []
+    def textField(self, canvas, title, xmin, ymin, xmax, ymax, value="", maxlen=1000000, multiline=0):
+        # determine the page ref
+        doc = canvas._doc
+        page = doc.thisPageRef()
+        # determine text info
+        R, G, B = obj_R_G_B(canvas._fillColorObj)
+        #print "rgb", (R,G,B)
+        font = canvas. _fontname
+        fontsize = canvas. _fontsize
+        field = TextField(title, value, xmin, ymin, xmax, ymax, page, maxlen,
+                          font, fontsize, R, G, B, multiline)
+        self.fields.append(field)
+        canvas._addAnnotation(field)
+    def selectField(self, canvas, title, value, options, xmin, ymin, xmax, ymax):
+        # determine the page ref
+        doc = canvas._doc
+        page = doc.thisPageRef()
+        # determine text info
+        R, G, B = obj_R_G_B(canvas._fillColorObj)
+        #print "rgb", (R,G,B)
+        font = canvas. _fontname
+        fontsize = canvas. _fontsize
+        field = SelectField(title, value, options, xmin, ymin, xmax, ymax, page,
+              font=font, fontsize=fontsize, R=R, G=G, B=B)
+        self.fields.append(field)
+        canvas._addAnnotation(field)
+    def buttonField(self, canvas, title, value, xmin, ymin, width=16.7704, height=14.907):
+        # determine the page ref
+        doc = canvas._doc
+        page = doc.thisPageRef()
+        field = ButtonField(title, value, xmin, ymin, page, width=width, height=height)
+        self.fields.append(field)
+        canvas._addAnnotation(field)
+    def format(self, document):
+        from reportlab.pdfbase.pdfdoc import PDFArray
+        proxy = PDFPattern(FormPattern,
+                    Resources=getattr(self,'resources',None) or FormResources(),
+                    NeedAppearances=getattr(self,'needAppearances','false'),
+                    fields=PDFArray(self.fields), SigFlags=getattr(self,'sigFlags',0))
+        return proxy.format(document)
+
+FormPattern = [
+'<<\r\n',
+'/NeedAppearances ',['NeedAppearances'],'\r\n'
+'/DA ', PDFString('/Helv 0 Tf 0 g '), '\r\n',
+'/DR ',["Resources"],'\r\n',
+'/Fields ', ["fields"],'\r\n',
+PDFPatternIf('SigFlags',['\r\n/SigFlags ',['SigFlags']]),
+'>>'
+]
+
+def FormFontsDictionary():
+    from reportlab.pdfbase.pdfdoc import PDFDictionary
+    fontsdictionary = PDFDictionary()
+    fontsdictionary.__RefOnly__ = 1
+    for fullname, shortname in FORMFONTNAMES.items():
+        fontsdictionary[shortname] = FormFont(fullname, shortname)
+    fontsdictionary["ZaDb"] = PDFPattern(ZaDbPattern)
+    return fontsdictionary
+
+def FormResources():
+    return PDFPattern(FormResourcesDictionaryPattern,
+                      Encoding=PDFPattern(EncodingPattern,PDFDocEncoding=PDFPattern(PDFDocEncodingPattern)),
+                      Font=FormFontsDictionary())
+
+ZaDbPattern = [
+' <<'
+' /BaseFont'
+'    /ZapfDingbats'
+' /Name'
+'    /ZaDb'
+' /Subtype'
+'    /Type1'
+' /Type'
+'    /Font'
+'>>']
+
+
+FormResourcesDictionaryPattern = [
+'<<',
+' /Encoding ',
+["Encoding"], '\r\n',
+' /Font ',
+["Font"], '\r\n',
+'>>'
+]
+
+FORMFONTNAMES = {
+    "Helvetica": "Helv",
+    "Helvetica-Bold": "HeBo",
+    'Courier': "Cour",
+    'Courier-Bold': "CoBo",
+    'Courier-Oblique': "CoOb",
+    'Courier-BoldOblique': "CoBO",
+    'Helvetica-Oblique': "HeOb",
+    'Helvetica-BoldOblique': "HeBO",
+    'Times-Roman': "Time",
+    'Times-Bold': "TiBo",
+    'Times-Italic': "TiIt",
+    'Times-BoldItalic': "TiBI",
+    }
+
+EncodingPattern = [
+'<<',
+' /PDFDocEncoding ',
+["PDFDocEncoding"], '\r\n',
+'>>',
+]
+
+PDFDocEncodingPattern = [
+'<<'
+' /Differences'
+'    ['
+' 24'
+' /breve'
+' /caron'
+' /circumflex'
+' /dotaccent'
+' /hungarumlaut'
+' /ogonek'
+' /ring'
+' /tilde'
+' 39'
+' /quotesingle'
+' 96'
+' /grave'
+' 128'
+' /bullet'
+' /dagger'
+' /daggerdbl'
+' /ellipsis'
+' /emdash'
+' /endash'
+' /florin'
+' /fraction'
+' /guilsinglleft'
+' /guilsinglright'
+' /minus'
+' /perthousand'
+' /quotedblbase'
+' /quotedblleft'
+' /quotedblright'
+' /quoteleft'
+' /quoteright'
+' /quotesinglbase'
+' /trademark'
+' /fi'
+' /fl'
+' /Lslash'
+' /OE'
+' /Scaron'
+' /Ydieresis'
+' /Zcaron'
+' /dotlessi'
+' /lslash'
+' /oe'
+' /scaron'
+' /zcaron'
+' 160'
+' /Euro'
+' 164'
+' /currency'
+' 166'
+' /brokenbar'
+' 168'
+' /dieresis'
+' /copyright'
+' /ordfeminine'
+' 172'
+' /logicalnot'
+' /.notdef'
+' /registered'
+' /macron'
+' /degree'
+' /plusminus'
+' /twosuperior'
+' /threesuperior'
+' /acute'
+' /mu'
+' 183'
+' /periodcentered'
+' /cedilla'
+' /onesuperior'
+' /ordmasculine'
+' 188'
+' /onequarter'
+' /onehalf'
+' /threequarters'
+' 192'
+' /Agrave'
+' /Aacute'
+' /Acircumflex'
+' /Atilde'
+' /Adieresis'
+' /Aring'
+' /AE'
+' /Ccedilla'
+' /Egrave'
+' /Eacute'
+' /Ecircumflex'
+' /Edieresis'
+' /Igrave'
+' /Iacute'
+' /Icircumflex'
+' /Idieresis'
+' /Eth'
+' /Ntilde'
+' /Ograve'
+' /Oacute'
+' /Ocircumflex'
+' /Otilde'
+' /Odieresis'
+' /multiply'
+' /Oslash'
+' /Ugrave'
+' /Uacute'
+' /Ucircumflex'
+' /Udieresis'
+' /Yacute'
+' /Thorn'
+' /germandbls'
+' /agrave'
+' /aacute'
+' /acircumflex'
+' /atilde'
+' /adieresis'
+' /aring'
+' /ae'
+' /ccedilla'
+' /egrave'
+' /eacute'
+' /ecircumflex'
+' /edieresis'
+' /igrave'
+' /iacute'
+' /icircumflex'
+' /idieresis'
+' /eth'
+' /ntilde'
+' /ograve'
+' /oacute'
+' /ocircumflex'
+' /otilde'
+' /odieresis'
+' /divide'
+' /oslash'
+' /ugrave'
+' /uacute'
+' /ucircumflex'
+' /udieresis'
+' /yacute'
+' /thorn'
+' /ydieresis'
+'    ]'
+' /Type'
+' /Encoding'
+'>>']
+
+def FormFont(BaseFont, Name):
+    from reportlab.pdfbase.pdfdoc import PDFName
+    return PDFPattern(FormFontPattern, BaseFont=PDFName(BaseFont), Name=PDFName(Name), Encoding=PDFPattern(PDFDocEncodingPattern))
+
+FormFontPattern = [
+'<<',
+' /BaseFont ',
+["BaseFont"], '\r\n',
+' /Encoding ',
+["Encoding"], '\r\n',
+' /Name ',
+["Name"], '\r\n',
+' /Subtype '
+' /Type1 '
+' /Type '
+' /Font '
+'>>' ]
+
+def resetPdfForm():
+    pass
+from reportlab.rl_config import register_reset
+register_reset(resetPdfForm)
+resetPdfForm()
+
+def TextField(title, value, xmin, ymin, xmax, ymax, page,
+              maxlen=1000000, font="Helvetica-Bold", fontsize=9, R=0, G=0, B=0.627, multiline=0):
+    from reportlab.pdfbase.pdfdoc import PDFString, PDFName
+    Flags = 0
+    if multiline:
+        Flags = Flags | (1<<12) # bit 13 is at position 12 :)
+    fontname = FORMFONTNAMES[font]
+    return PDFPattern(TextFieldPattern,
+                      value=PDFString(value), maxlen=maxlen, page=page,
+                      title=PDFString(title),
+                      xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax,
+                      fontname=PDFName(fontname), fontsize=fontsize, R=R, G=G, B=B, Flags=Flags)
+
+
+TextFieldPattern = [
+'<<'
+' /DA'
+' (', ["fontname"],' ',["fontsize"],' Tf ',["R"],' ',["G"],' ',["B"],' rg)'
+' /DV ',
+["value"], '\r\n',
+' /F 4 /FT /Tx'
+'/MK << /BC [ 0 0 0 ] >>'
+' /MaxLen ',
+["maxlen"], '\r\n',
+' /P ',
+["page"], '\r\n',
+' /Rect '
+'    [', ["xmin"], " ", ["ymin"], " ", ["xmax"], " ", ["ymax"], ' ]'
+'/Subtype /Widget'
+' /T ',
+["title"], '\r\n',
+' /Type'
+'    /Annot'
+' /V ',
+["value"], '\r\n',
+' /Ff ',
+["Flags"],'\r\n',
+'>>']
+
+def SelectField(title, value, options, xmin, ymin, xmax, ymax, page,
+              font="Helvetica-Bold", fontsize=9, R=0, G=0, B=0.627):
+    #print "ARGS", (title, value, options, xmin, ymin, xmax, ymax, page, font, fontsize, R, G, B)
+    from reportlab.pdfbase.pdfdoc import PDFString, PDFName, PDFArray
+    if value not in options:
+        raise ValueError("value %s must be one of options %s" % (repr(value), repr(options)))
+    fontname = FORMFONTNAMES[font]
+    optionstrings = list(map(PDFString, options))
+    optionarray = PDFArray(optionstrings)
+    return PDFPattern(SelectFieldPattern,
+                      Options=optionarray,
+                      Selected=PDFString(value), Page=page,
+                      Name=PDFString(title),
+                      xmin=xmin, ymin=ymin, xmax=xmax, ymax=ymax,
+                      fontname=PDFName(fontname), fontsize=fontsize, R=R, G=G, B=B)
+
+SelectFieldPattern = [
+'<< % a select list\r\n'
+' /DA ',
+' (', ["fontname"],' ',["fontsize"],' Tf ',["R"],' ',["G"],' ',["B"],' rg)\r\n',
+#'    (/Helv 12 Tf 0 g)\r\n',
+' /DV ',
+["Selected"],'\r\n',
+' /F ',
+'    4\r\n',
+' /FT ',
+'    /Ch\r\n',
+' /MK ',
+'    <<',
+'    /BC',
+'        [',
+'            0',
+'            0',
+'            0',
+'        ]',
+'    /BG',
+'        [',
+'            1',
+'            1',
+'            1',
+'        ]',
+'    >>\r\n',
+' /Opt ',
+["Options"],'\r\n',
+' /P ',
+["Page"],'\r\n',
+'/Rect',
+'    [',["xmin"], " ", ["ymin"], " ", ["xmax"], " ", ["ymax"],
+'    ] \r\n',
+'/Subtype',
+'    /Widget\r\n',
+' /T ',
+["Name"],'\r\n',
+' /Type ',
+'    /Annot',
+' /V ',
+["Selected"],'\r\n',
+'>>']
+
+def ButtonField(title, value, xmin, ymin, page, width=16.7704, height=14.907):
+    if value not in ("Yes", "Off"):
+        raise ValueError("button value must be 'Yes' or 'Off': "+repr(value))
+    fontSize = (11.3086/14.907)*height
+    dx = (3.6017/16.7704)*width
+    dy = (3.3881/14.907)*height
+    return PDFPattern(ButtonFieldPattern,
+                      Name=PDFString(title),
+                      xmin=xmin, ymin=ymin, xmax=xmin+width, ymax=ymin+width,
+                      Hide=PDFPattern(['<< /S  /Hide >>']),
+                      APDOff=ButtonStream('0.749 g 0 0 %(width)s %(height)s re f\r\n' % vars(), width=width, height=height),
+                      APDYes=ButtonStream('0.749 g 0 0 %(width)s %(height)s re f q 1 1 %(width)s %(height)s re W n BT /ZaDb %(fontSize)s Tf 0 g 1 0 0 1 %(dx)s %(dy)s Tm (4) Tj ET\r\n' % vars(),
+                                            width=width, height=height),
+                      APNYes=ButtonStream('q 1 1 %(width)s %(height)s re W n BT /ZaDb %(fontSize)s Tf 0 g   1 0 0 1 %(dx)s %(dy)s Tm (4) Tj ET Q\r\n' % vars(),
+                                            width=width, height=height),
+                      Value=PDFName(value),
+                      Page=page)
+
+ButtonFieldPattern = ['<< ',
+'/AA',
+'    <<',
+'    /D ',
+["Hide"],'\r\n',
+#'        %(imported.18.0)s',
+'    >> ',
+'/AP ',
+'    <<',
+'    /D',
+'        <<',
+'        /Off ',
+#'            %(imported.40.0)s',
+["APDOff"], '\r\n',
+'        /Yes ',
+#'            %(imported.39.0)s',
+["APDYes"], '\r\n',
+'        >>', '\r\n',
+'    /N',
+'        << ',
+'        /Yes ',
+#'            %(imported.38.0)s',
+["APNYes"],  '\r\n',
+'        >>',
+'    >>\r\n',
+' /AS ',
+["Value"], '\r\n',
+' /DA ',
+PDFString('/ZaDb 0 Tf 0 g'), '\r\n',
+'/DV ',
+["Value"], '\r\n',
+'/F ',
+'    4 ',
+'/FT ',
+'    /Btn ',
+'/H ',
+'    /T ',
+'/MK ',
+'    <<',
+'    /AC (\\376\\377)',
+#PDFString('\376\377'),
+'    /CA ',
+PDFString('4'),
+'    /RC ',
+PDFString('\376\377'),
+'    >> ','\r\n',
+'/P ',
+["Page"], '\r\n',
+'/Rect',
+'    [',["xmin"], " ", ["ymin"], " ", ["xmax"], " ", ["ymax"],
+'    ] ','\r\n',
+'/Subtype',
+'    /Widget ',
+'/T ',
+["Name"], '\r\n',
+'/Type',
+'    /Annot ',
+'/V ',
+["Value"], '\r\n',
+' >>']
+
+
+def buttonStreamDictionary(width=16.7704, height=14.907):
+    "everything except the length for the button appearance streams"
+    result = PDFDictionary()
+    result["SubType"] = "/Form"
+    result["BBox"] = "[0 0 %(width)s %(height)s]" % vars()
+    font = PDFDictionary()
+    font["ZaDb"] = PDFPattern(ZaDbPattern)
+    resources = PDFDictionary()
+    resources["ProcSet"] = "[ /PDF /Text ]"
+    resources["Font"] = font
+    result["Resources"] = resources
+    return result
+
+def ButtonStream(content, width=16.7704, height=14.907):
+    result = PDFStream(buttonStreamDictionary(width=width,height=height), content)
+    result.filters = []
+    return result

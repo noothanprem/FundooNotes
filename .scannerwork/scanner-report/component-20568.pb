@@ -1,1 +1,1 @@
-ؠ.venv/lib/python3.6/site-packages/Crypto/Random :	נڠ�
+ؠ.venv/lib/python3.6/site-packages/Crypto/Random :	נ٠�

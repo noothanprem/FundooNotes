@@ -1,1 +1,1 @@
-ê¬7venv/lib64/python3.6/site-packages/docutils/parsers/rst :é¬¦­Þ­ß­
+ê¬Gvenv/lib64/python3.6/site-packages/docutils/parsers/rst/languages/pl.py 2pyXgh

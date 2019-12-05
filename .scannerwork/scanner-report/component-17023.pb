@@ -1,1 +1,1 @@
-ÿ„Zvenv/lib/python3.6/site-packages/google/protobuf/internal/import_test_package/outer_pb2.py 2pyXIh
+ÿ„Evenv/lib/python3.6/site-packages/google/protobuf/internal/__init__.py 2pyXh

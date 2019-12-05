@@ -1,1 +1,1 @@
-”V=venv/lib/python3.6/site-packages/faker/providers/person/zh_CN :“V
+”V=venv/lib/python3.6/site-packages/faker/providers/person/zh_CN :’V

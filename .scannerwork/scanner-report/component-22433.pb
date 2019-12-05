@@ -1,1 +1,1 @@
-¡¯6venv/lib/python3.6/site-packages/twisted/conch/insults : ¯¢¯£¯¤¯ª¯
+¡¯>venv/lib/python3.6/site-packages/twisted/conch/insults/text.py 2pyX±h

@@ -1,1 +1,1 @@
-â@:venv/lib/python3.6/site-packages/django/core/mail/backends :à@ä@ã@å@ç@ñ@ó@
+â@1venv/lib/python3.6/site-packages/django/core/mail :à@û@°@

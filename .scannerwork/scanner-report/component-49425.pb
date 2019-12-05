@@ -1,1 +1,1 @@
-‘‚.venv/lib64/python3.6/site-packages/social_core :‚’‚“‚‹„Œ„ñ†ó†
+‘‚.venv/lib64/python3.6/site-packages/social_core :‚’‚“‚Š„‹„ñ†ò†

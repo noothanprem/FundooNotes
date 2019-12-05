@@ -1,12 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-oauthlib.oauth2.rfc6749.grant_types
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-"""
-from __future__ import unicode_literals, absolute_import
+oauthlib.oauth2.rfc6749
+~~~~~~~~~~~~~~~~~~~~~~~
 
-from .authorization_code import AuthorizationCodeGrant
-from .implicit import ImplicitGrant
-from .resource_owner_password_credentials import ResourceOwnerPasswordCredentialsGrant
-from .client_credentials import ClientCredentialsGrant
-from .refresh_token import RefreshTokenGrant
+This module is an implementation of various logic needed
+for consuming and providing OAuth 2.0 RFC6749.
+"""
+from __future__ import absolute_import, unicode_literals
+
+import functools
+import logging
+
+from .endpoints.base import BaseEndpoint
+from .endpoints.base import catch_errors_and_unavailability
+from .errors import TemporarilyUnavailableError, ServerError
+from .errors import FatalClientError, OAuth2Error
+
+
+log = logging.getLogger(__name__)

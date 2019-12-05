@@ -1,4 +1,4 @@
-# Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -10,156 +10,262 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-import base64
-import botocore
-import json
 
-from datetime import datetime, timedelta
-from botocore.signers import RequestSigner
-from botocore.model import ServiceId
+import os
+import yaml
+import logging
+import errno
+from botocore.compat import OrderedDict
 
-from awscli.customizations.commands import BasicCommand
-from awscli.customizations.utils import uni_print
-
-AUTH_SERVICE = "sts"
-AUTH_COMMAND = "GetCallerIdentity"
-AUTH_API_VERSION = "2011-06-15"
-AUTH_SIGNING_VERSION = "v4"
-
-# Presigned url timeout in seconds
-URL_TIMEOUT = 60
-
-TOKEN_EXPIRATION_MINS = 14
-
-TOKEN_PREFIX = 'k8s-aws-v1.'
-
-CLUSTER_NAME_HEADER = 'x-k8s-aws-id'
+from awscli.customizations.eks.exceptions import EKSError
+from awscli.customizations.eks.ordered_yaml import (ordered_yaml_load,
+                                                    ordered_yaml_dump)
 
 
-class GetTokenCommand(BasicCommand):
-    NAME = 'get-token'
+class KubeconfigError(EKSError):
+    """ Base class for all kubeconfig errors."""
 
-    DESCRIPTION = ("Get a token for authentication with an Amazon EKS cluster. "
-                   "This can be used as an alternative to the "
-                   "aws-iam-authenticator.")
 
-    ARG_TABLE = [
-        {
-            'name': 'cluster-name',
-            'help_text': ("Specify the name of the Amazon EKS cluster to create a token for."),
-            'required': True
-        },
-        {
-            'name': 'role-arn',
-            'help_text': ("Assume this role for credentials when signing the token."),
-            'required': False
-        }
-    ]
+class KubeconfigCorruptedError(KubeconfigError):
+    """ Raised when a kubeconfig cannot be parsed."""
 
-    def get_expiration_time(self):
-        token_expiration = datetime.utcnow() + timedelta(minutes=TOKEN_EXPIRATION_MINS)
-        return token_expiration.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    def _run_main(self, parsed_args, parsed_globals, token_generator=None):
-        if token_generator is None:
-            token_generator = TokenGenerator(self._session)
-        token = token_generator.get_token(
-            parsed_args.cluster_name,
-            parsed_args.role_arn,
-            parsed_globals.region,
-        )
+class KubeconfigInaccessableError(KubeconfigError):
+    """ Raised when a kubeconfig cannot be opened for read/writing."""
 
-        # By default STS signs the url for 15 minutes so we are creating a
-        # rfc3339 timestamp with expiration in 14 minutes as part of the token, which
-        # is used by some clients (client-go) who will refresh the token after 14 mins
-        token_expiration = self.get_expiration_time()
 
-        full_object = {
-            "kind": "ExecCredential",
-            "apiVersion": "client.authentication.k8s.io/v1alpha1",
-            "spec": {},
-            "status": {
-                "expirationTimestamp": token_expiration,
-                "token": token
-            }
-        }
+def _get_new_kubeconfig_content():
+    return OrderedDict([
+        ("apiVersion", "v1"),
+        ("clusters", []),
+        ("contexts", []),
+        ("current-context", ""),
+        ("kind", "Config"),
+        ("preferences", OrderedDict()),
+        ("users", [])
+    ])
 
-        uni_print(json.dumps(full_object))
-        uni_print('\n')
 
-class TokenGenerator(object):
-    def __init__(self, botocore_session):
-        self._session_handler = SessionHandler(botocore_session)
+class Kubeconfig(object):
+    def __init__(self, path, content=None):
+        self.path = path
+        if content is None:
+            content = _get_new_kubeconfig_content()
+        self.content = content
 
-    def get_token(self, cluster_name, role_arn, region_name=None):
-        """ Generate a presigned url token to pass to kubectl. """
-        url = self._get_presigned_url(cluster_name, role_arn, region_name)
-        token = TOKEN_PREFIX + base64.urlsafe_b64encode(url.encode('utf-8')).decode('utf-8').rstrip('=')
-        return token
+    def dump_content(self):
+        """ Return the stored content in yaml format. """
+        return ordered_yaml_dump(self.content)
 
-    def _get_presigned_url(self, cluster_name, role_arn, region_name=None):
-        session = self._session_handler.get_session(
-            region_name,
-            role_arn
-        )
-
-        if region_name is None:
-            region_name = session.get_config_variable('region')
-
-        loader = botocore.loaders.create_loader()
-        data = loader.load_data("endpoints")
-        endpoint_resolver = botocore.regions.EndpointResolver(data)
-        endpoint = endpoint_resolver.construct_endpoint(
-            AUTH_SERVICE,
-            region_name
-        )
-        signer = RequestSigner(
-            ServiceId(AUTH_SERVICE),
-            region_name,
-            AUTH_SERVICE,
-            AUTH_SIGNING_VERSION,
-            session.get_credentials(),
-            session.get_component('event_emitter')
-        )
-        action_params='Action=' + AUTH_COMMAND + '&Version=' + AUTH_API_VERSION
-        params = {
-            'method': 'GET',
-            'url': 'https://' + endpoint["hostname"] + '/?' + action_params,
-            'body': {},
-            'headers': {CLUSTER_NAME_HEADER: cluster_name},
-            'context': {}
-        }
-
-        url=signer.generate_presigned_url(
-            params,
-            region_name=endpoint["credentialScope"]["region"],
-            operation_name='',
-            expires_in=URL_TIMEOUT
-        )
-        return url
-
-class SessionHandler(object):
-    def __init__(self, botocore_session):
-        self._session = botocore_session
-
-    def get_session(self, region_name, role_arn):
+    def has_cluster(self, name):
         """
-        Assumes the given role and returns a session object assuming said role.
+        Return true if this kubeconfig contains an entry
+        For the passed cluster name.
         """
-        session = self._session
-        if region_name is not None:
-            session.set_config_variable('region', region_name)
+        if 'clusters' not in self.content:
+            return False
+        return name in [cluster['name']
+                        for cluster in self.content['clusters']]
 
-        if role_arn is not None:
-            sts = session.create_client(AUTH_SERVICE, region_name=region_name)
-            credentials_dict = sts.assume_role(
-                RoleArn=role_arn,
-                RoleSessionName='EKSGetTokenAuth'
-            )['Credentials']
 
-            session.set_credentials(credentials_dict['AccessKeyId'],
-                                    credentials_dict['SecretAccessKey'],
-                                    credentials_dict['SessionToken'])
-            return session
-        else:
-            return session
+class KubeconfigValidator(object):
+    def __init__(self):
+        # Validation_content is an empty Kubeconfig
+        # It is used as a way to know what types different entries should be
+        self._validation_content = Kubeconfig(None, None).content
+
+    def validate_config(self, config):
+        """
+        Raises KubeconfigCorruptedError if the passed content is invalid
+
+        :param config: The config to validate
+        :type config: Kubeconfig
+        """
+        if not isinstance(config, Kubeconfig):
+            raise KubeconfigCorruptedError("Internal error: "
+                                           "Not a Kubeconfig object.")
+        self._validate_config_types(config)
+        self._validate_list_entry_types(config)
+
+    def _validate_config_types(self, config):
+        """
+        Raises KubeconfigCorruptedError if any of the entries in config
+        are the wrong type
+
+        :param config: The config to validate
+        :type config: Kubeconfig
+        """
+        if not isinstance(config.content, dict):
+            raise KubeconfigCorruptedError("Content not a dictionary.")
+        for key, value in self._validation_content.items():
+            if (key in config.content and
+                    config.content[key] is not None and
+                    not isinstance(config.content[key], type(value))):
+                raise KubeconfigCorruptedError(
+                    "{0} is wrong type:{1} "
+                    "(Should be {2})".format(
+                        key,
+                        type(config.content[key]),
+                        type(value)
+                    )
+                )
+
+    def _validate_list_entry_types(self, config):
+        """
+        Raises KubeconfigCorruptedError if any lists in config contain objects
+        which are not dictionaries
+
+        :param config: The config to validate
+        :type config: Kubeconfig
+        """
+        for key, value in self._validation_content.items():
+            if (key in config.content and
+                    type(config.content[key]) == list):
+                for element in config.content[key]:
+                    if not isinstance(element, OrderedDict):
+                        raise KubeconfigCorruptedError(
+                            "Entry in {0} not a dictionary.".format(key))
+
+
+class KubeconfigLoader(object):
+    def __init__(self, validator=None):
+        if validator is None:
+            validator = KubeconfigValidator()
+        self._validator = validator
+
+    def load_kubeconfig(self, path):
+        """
+        Loads the kubeconfig found at the given path.
+        If no file is found at the given path,
+        Generate a new kubeconfig to write back.
+        If the kubeconfig is valid, loads the content from it.
+        If the kubeconfig is invalid, throw the relevant exception.
+
+        :param path: The path to load a kubeconfig from
+        :type path: string
+
+        :raises KubeconfigInaccessableError: if the kubeconfig can't be opened
+        :raises KubeconfigCorruptedError: if the kubeconfig is invalid
+
+        :return: The loaded kubeconfig
+        :rtype: Kubeconfig
+        """
+        try:
+            with open(path, "r") as stream:
+                loaded_content = ordered_yaml_load(stream)
+        except IOError as e:
+            if e.errno == errno.ENOENT:
+                loaded_content = None
+            else:
+                raise KubeconfigInaccessableError(
+                    "Can't open kubeconfig for reading: {0}".format(e))
+        except yaml.YAMLError as e:
+            raise KubeconfigCorruptedError(
+                "YamlError while loading kubeconfig: {0}".format(e))
+
+        loaded_config = Kubeconfig(path, loaded_content)
+        self._validator.validate_config(loaded_config)
+
+        return loaded_config
+
+
+class KubeconfigWriter(object):
+    def write_kubeconfig(self, config):
+        """
+        Write config to disk.
+        OK if the file doesn't exist.
+
+        :param config: The kubeconfig to write
+        :type config: Kubeconfig
+
+        :raises KubeconfigInaccessableError: if the kubeconfig
+        can't be opened for writing
+        """
+        directory = os.path.dirname(config.path)
+
+        try:
+            os.makedirs(directory)
+        except OSError as e:
+            if e.errno != errno.EEXIST:
+                raise KubeconfigInaccessableError(
+                        "Can't create directory for writing: {0}".format(e))
+        try:
+            with open(config.path, "w+") as stream:
+                ordered_yaml_dump(config.content, stream)
+        except IOError as e:
+            raise KubeconfigInaccessableError(
+                "Can't open kubeconfig for writing: {0}".format(e))
+
+
+class KubeconfigAppender(object):
+    def insert_entry(self, config, key, entry):
+        """
+        Insert entry into the array at content[key]
+        Overwrite an existing entry if they share the same name
+
+        :param config: The kubeconfig to insert an entry into
+        :type config: Kubeconfig
+        """
+        if key not in config.content:
+            config.content[key] = []
+        array = config.content[key]
+        if not isinstance(array, list):
+            raise KubeconfigError("Tried to insert into {0},"
+                                  "which is a {1} "
+                                  "not a {2}".format(key,
+                                                     type(array),
+                                                     list))
+        found = False
+        for counter, existing_entry in enumerate(array):
+            if "name" in existing_entry and\
+               "name" in entry and\
+               existing_entry["name"] == entry["name"]:
+                array[counter] = entry
+                found = True
+
+        if not found:
+            array.append(entry)
+
+        config.content[key] = array
+        return config
+
+    def _make_context(self, cluster, user, alias=None):
+        """ Generate a context to associate cluster and user with a given alias."""
+        return OrderedDict([
+            ("context", OrderedDict([
+                ("cluster", cluster["name"]),
+                ("user", user["name"])
+            ])),
+            ("name", alias or user["name"])
+        ])
+
+    def insert_cluster_user_pair(self, config, cluster, user, alias=None):
+        """
+        Insert the passed cluster entry and user entry,
+        then make a context to associate them
+        and set current-context to be the new context.
+        Returns the new context
+
+        :param config: the Kubeconfig to insert the pair into
+        :type config: Kubeconfig
+
+        :param cluster: the cluster entry
+        :type cluster: OrderedDict
+
+        :param user: the user entry
+        :type user: OrderedDict
+
+        :param alias: the alias for the context; defaults top user entry name
+        :type context: str
+
+        :return: The generated context
+        :rtype: OrderedDict
+        """
+        context = self._make_context(cluster, user, alias=alias)
+        self.insert_entry(config, "clusters", cluster)
+        self.insert_entry(config, "users", user)
+        self.insert_entry(config, "contexts", context)
+
+        config.content["current-context"] = context["name"]
+
+        return context

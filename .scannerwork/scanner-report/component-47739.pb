@@ -1,1 +1,1 @@
-ûôCvenv/lib64/python3.6/site-packages/twisted/plugins/twisted_words.py 2pyX0h
+ûôHvenv/lib64/python3.6/site-packages/twisted/plugins/autobahn_endpoints.py 2pyX³h

@@ -1,456 +1,379 @@
 """
-Pure-Python implementation of a Python 3-like bytes object for Python 2.
+Backport of Python 3's int, based on Py2's long.
 
-Why do this? Without it, the Python 2 bytes object is a very, very
-different beast to the Python 3 bytes object.
+They are very similar. The most notable difference is:
+
+- representation: trailing L in Python 2 removed in Python 3
 """
+from __future__ import division
 
-from collections import Iterable
-from numbers import Integral
-import string
-import copy
+import struct
+import collections
 
-from future.utils import istext, isbytes, PY3, with_metaclass
-from future.types import no, issubset
+from future.types.newbytes import newbytes
 from future.types.newobject import newobject
+from future.utils import PY3, isint, istext, isbytes, with_metaclass, native
 
-
-_builtin_bytes = bytes
 
 if PY3:
-    # We'll probably never use newstr on Py3 anyway...
-    unicode = str
+    long = int
 
 
-class BaseNewBytes(type):
+class BaseNewInt(type):
     def __instancecheck__(cls, instance):
-        if cls == newbytes:
-            return isinstance(instance, _builtin_bytes)
+        if cls == newint:
+            # Special case for Py2 short or long int
+            return isinstance(instance, (int, long))
         else:
             return issubclass(instance.__class__, cls)
 
 
-def _newchr(x):
-    if isinstance(x, str):  # this happens on pypy
-        return x.encode('ascii')
-    else:
-        return chr(x)
-
-
-class newbytes(with_metaclass(BaseNewBytes, _builtin_bytes)):
+class newint(with_metaclass(BaseNewInt, long)):
     """
-    A backport of the Python 3 bytes object to Py2
+    A backport of the Python 3 int object to Py2
     """
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, x=0, base=10):
         """
-        From the Py3 bytes docstring:
+        From the Py3 int docstring:
 
-        bytes(iterable_of_ints) -> bytes
-        bytes(string, encoding[, errors]) -> bytes
-        bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer
-        bytes(int) -> bytes object of size given by the parameter initialized with null bytes
-        bytes() -> empty bytes object
+        |  int(x=0) -> integer
+        |  int(x, base=10) -> integer
+        |
+        |  Convert a number or string to an integer, or return 0 if no
+        |  arguments are given.  If x is a number, return x.__int__().  For
+        |  floating point numbers, this truncates towards zero.
+        |
+        |  If x is not a number or if base is given, then x must be a string,
+        |  bytes, or bytearray instance representing an integer literal in the
+        |  given base.  The literal can be preceded by '+' or '-' and be
+        |  surrounded by whitespace.  The base defaults to 10.  Valid bases are
+        |  0 and 2-36. Base 0 means to interpret the base from the string as an
+        |  integer literal.
+        |  >>> int('0b100', base=0)
+        |  4
 
-        Construct an immutable array of bytes from:
-          - an iterable yielding integers in range(256)
-          - a text string encoded using the specified encoding
-          - any object implementing the buffer API.
-          - an integer
         """
+        try:
+            val = x.__int__()
+        except AttributeError:
+            val = x
+        else:
+            if not isint(val):
+                raise TypeError('__int__ returned non-int ({0})'.format(
+                    type(val)))
 
-        encoding = None
-        errors = None
-
-        if len(args) == 0:
-            return super(newbytes, cls).__new__(cls)
-        elif len(args) >= 2:
-            args = list(args)
-            if len(args) == 3:
-                errors = args.pop()
-            encoding=args.pop()
-        # Was: elif isinstance(args[0], newbytes):
-        # We use type() instead of the above because we're redefining
-        # this to be True for all unicode string subclasses. Warning:
-        # This may render newstr un-subclassable.
-        if type(args[0]) == newbytes:
-            # Special-case: for consistency with Py3.3, we return the same object
-            # (with the same id) if a newbytes object is passed into the
-            # newbytes constructor.
-            return args[0]
-        elif isinstance(args[0], _builtin_bytes):
-            value = args[0]
-        elif isinstance(args[0], unicode):
+        if base != 10:
+            # Explicit base
+            if not (istext(val) or isbytes(val) or isinstance(val, bytearray)):
+                raise TypeError(
+                    "int() can't convert non-string with explicit base")
             try:
-                if 'encoding' in kwargs:
-                    assert encoding is None
-                    encoding = kwargs['encoding']
-                if 'errors' in kwargs:
-                    assert errors is None
-                    errors = kwargs['errors']
-            except AssertionError:
-                raise TypeError('Argument given by name and position')
-            if encoding is None:
-                raise TypeError('unicode string argument without an encoding')
-            ###
-            # Was:   value = args[0].encode(**kwargs)
-            # Python 2.6 string encode() method doesn't take kwargs:
-            # Use this instead:
-            newargs = [encoding]
-            if errors is not None:
-                newargs.append(errors)
-            value = args[0].encode(*newargs)
-            ###
-        elif hasattr(args[0], '__bytes__'):
-            value = args[0].__bytes__()
-        elif isinstance(args[0], Iterable):
-            if len(args[0]) == 0:
-                # This could be an empty list or tuple. Return b'' as on Py3.
-                value = b''
-            else:
-                # Was: elif len(args[0])>0 and isinstance(args[0][0], Integral):
-                #      # It's a list of integers
-                # But then we can't index into e.g. frozensets. Try to proceed
-                # anyway.
-                try:
-                    value = bytearray([_newchr(x) for x in args[0]])
-                except:
-                    raise ValueError('bytes must be in range(0, 256)')
-        elif isinstance(args[0], Integral):
-            if args[0] < 0:
-                raise ValueError('negative count')
-            value = b'\x00' * args[0]
-        else:
-            value = args[0]
-        if type(value) == newbytes:
-            # Above we use type(...) rather than isinstance(...) because the
-            # newbytes metaclass overrides __instancecheck__.
-            # oldbytes(value) gives the wrong thing on Py2: the same
-            # result as str(value) on Py3, e.g. "b'abc'". (Issue #193).
-            # So we handle this case separately:
-            return copy.copy(value)
-        else:
-            return super(newbytes, cls).__new__(cls, value)
+                return super(newint, cls).__new__(cls, val, base)
+            except TypeError:
+                return super(newint, cls).__new__(cls, newbytes(val), base)
+        # After here, base is 10
+        try:
+            return super(newint, cls).__new__(cls, val)
+        except TypeError:
+            # Py2 long doesn't handle bytearray input with an explicit base, so
+            # handle this here.
+            # Py3: int(bytearray(b'10'), 2) == 2
+            # Py2: int(bytearray(b'10'), 2) == 2 raises TypeError
+            # Py2: long(bytearray(b'10'), 2) == 2 raises TypeError
+            try:
+                return super(newint, cls).__new__(cls, newbytes(val))
+            except:
+                raise TypeError("newint argument must be a string or a number,"
+                                "not '{0}'".format(type(val)))
 
     def __repr__(self):
-        return 'b' + super(newbytes, self).__repr__()
+        """
+        Without the L suffix
+        """
+        value = super(newint, self).__repr__()
+        assert value[-1] == 'L'
+        return value[:-1]
 
-    def __str__(self):
-        return 'b' + "'{0}'".format(super(newbytes, self).__str__())
-
-    def __getitem__(self, y):
-        value = super(newbytes, self).__getitem__(y)
-        if isinstance(y, Integral):
-            return ord(value)
-        else:
-            return newbytes(value)
-
-    def __getslice__(self, *args):
-        return self.__getitem__(slice(*args))
-
-    def __contains__(self, key):
-        if isinstance(key, int):
-            newbyteskey = newbytes([key])
-        # Don't use isinstance() here because we only want to catch
-        # newbytes, not Python 2 str:
-        elif type(key) == newbytes:
-            newbyteskey = key
-        else:
-            newbyteskey = newbytes(key)
-        return issubset(list(newbyteskey), list(self))
-
-    @no(unicode)
     def __add__(self, other):
-        return newbytes(super(newbytes, self).__add__(other))
+        value = super(newint, self).__add__(other)
+        if value is NotImplemented:
+            return long(self) + other
+        return newint(value)
 
-    @no(unicode)
-    def __radd__(self, left):
-        return newbytes(left) + self
+    def __radd__(self, other):
+        value = super(newint, self).__radd__(other)
+        if value is NotImplemented:
+            return other + long(self)
+        return newint(value)
 
-    @no(unicode)
+    def __sub__(self, other):
+        value = super(newint, self).__sub__(other)
+        if value is NotImplemented:
+            return long(self) - other
+        return newint(value)
+
+    def __rsub__(self, other):
+        value = super(newint, self).__rsub__(other)
+        if value is NotImplemented:
+            return other - long(self)
+        return newint(value)
+
     def __mul__(self, other):
-        return newbytes(super(newbytes, self).__mul__(other))
+        value = super(newint, self).__mul__(other)
+        if isint(value):
+            return newint(value)
+        elif value is NotImplemented:
+            return long(self) * other
+        return value
 
-    @no(unicode)
     def __rmul__(self, other):
-        return newbytes(super(newbytes, self).__rmul__(other))
+        value = super(newint, self).__rmul__(other)
+        if isint(value):
+            return newint(value)
+        elif value is NotImplemented:
+            return other * long(self)
+        return value
 
-    def __mod__(self, vals):
-        if isinstance(vals, newbytes):
-            vals = _builtin_bytes.__str__(vals)
-
-        elif isinstance(vals, tuple):
-            newvals = []
-            for v in vals:
-                if isinstance(v, newbytes):
-                    v = _builtin_bytes.__str__(v)
-                newvals.append(v)
-            vals = tuple(newvals)
-
-        elif (hasattr(vals.__class__, '__getitem__') and
-                hasattr(vals.__class__, 'iteritems')):
-            for k, v in vals.iteritems():
-                if isinstance(v, newbytes):
-                    vals[k] = _builtin_bytes.__str__(v)
-
-        return _builtin_bytes.__mod__(self, vals)
-
-    def __imod__(self, other):
-        return self.__mod__(other)
-
-    def join(self, iterable_of_bytes):
-        errmsg = 'sequence item {0}: expected bytes, {1} found'
-        if isbytes(iterable_of_bytes) or istext(iterable_of_bytes):
-            raise TypeError(errmsg.format(0, type(iterable_of_bytes)))
-        for i, item in enumerate(iterable_of_bytes):
-            if istext(item):
-                raise TypeError(errmsg.format(i, type(item)))
-        return newbytes(super(newbytes, self).join(iterable_of_bytes))
-
-    @classmethod
-    def fromhex(cls, string):
-        # Only on Py2:
-        return cls(string.replace(' ', '').decode('hex'))
-
-    @no(unicode)
-    def find(self, sub, *args):
-        return super(newbytes, self).find(sub, *args)
-
-    @no(unicode)
-    def rfind(self, sub, *args):
-        return super(newbytes, self).rfind(sub, *args)
-
-    @no(unicode, (1, 2))
-    def replace(self, old, new, *args):
-        return newbytes(super(newbytes, self).replace(old, new, *args))
-
-    def encode(self, *args):
-        raise AttributeError("encode method has been disabled in newbytes")
-
-    def decode(self, encoding='utf-8', errors='strict'):
-        """
-        Returns a newstr (i.e. unicode subclass)
-
-        Decode B using the codec registered for encoding. Default encoding
-        is 'utf-8'. errors may be given to set a different error
-        handling scheme.  Default is 'strict' meaning that encoding errors raise
-        a UnicodeDecodeError.  Other possible values are 'ignore' and 'replace'
-        as well as any other name registered with codecs.register_error that is
-        able to handle UnicodeDecodeErrors.
-        """
-        # Py2 str.encode() takes encoding and errors as optional parameter,
-        # not keyword arguments as in Python 3 str.
-
-        from future.types.newstr import newstr
-
-        if errors == 'surrogateescape':
-            from future.utils.surrogateescape import register_surrogateescape
-            register_surrogateescape()
-
-        return newstr(super(newbytes, self).decode(encoding, errors))
-
-        # This is currently broken:
-        # # We implement surrogateescape error handling here in addition rather
-        # # than relying on the custom error handler from
-        # # future.utils.surrogateescape to be registered globally, even though
-        # # that is fine in the case of decoding. (But not encoding: see the
-        # # comments in newstr.encode()``.)
-        #
-        # if errors == 'surrogateescape':
-        #     # Decode char by char
-        #     mybytes = []
-        #     for code in self:
-        #         # Code is an int
-        #         if 0x80 <= code <= 0xFF:
-        #             b = 0xDC00 + code
-        #         elif code <= 0x7F:
-        #             b = _unichr(c).decode(encoding=encoding)
-        #         else:
-        #             # # It may be a bad byte
-        #             # FIXME: What to do in this case? See the Py3 docs / tests.
-        #             # # Try swallowing it.
-        #             # continue
-        #             # print("RAISE!")
-        #             raise NotASurrogateError
-        #         mybytes.append(b)
-        #     return newbytes(mybytes)
-        # return newbytes(super(newstr, self).decode(encoding, errors))
-
-    @no(unicode)
-    def startswith(self, prefix, *args):
-        return super(newbytes, self).startswith(prefix, *args)
-
-    @no(unicode)
-    def endswith(self, prefix, *args):
-        return super(newbytes, self).endswith(prefix, *args)
-
-    @no(unicode)
-    def split(self, sep=None, maxsplit=-1):
-        # Py2 str.split() takes maxsplit as an optional parameter, not as a
-        # keyword argument as in Python 3 bytes.
-        parts = super(newbytes, self).split(sep, maxsplit)
-        return [newbytes(part) for part in parts]
-
-    def splitlines(self, keepends=False):
-        """
-        B.splitlines([keepends]) -> list of lines
-
-        Return a list of the lines in B, breaking at line boundaries.
-        Line breaks are not included in the resulting list unless keepends
-        is given and true.
-        """
-        # Py2 str.splitlines() takes keepends as an optional parameter,
-        # not as a keyword argument as in Python 3 bytes.
-        parts = super(newbytes, self).splitlines(keepends)
-        return [newbytes(part) for part in parts]
-
-    @no(unicode)
-    def rsplit(self, sep=None, maxsplit=-1):
-        # Py2 str.rsplit() takes maxsplit as an optional parameter, not as a
-        # keyword argument as in Python 3 bytes.
-        parts = super(newbytes, self).rsplit(sep, maxsplit)
-        return [newbytes(part) for part in parts]
-
-    @no(unicode)
-    def partition(self, sep):
-        parts = super(newbytes, self).partition(sep)
-        return tuple(newbytes(part) for part in parts)
-
-    @no(unicode)
-    def rpartition(self, sep):
-        parts = super(newbytes, self).rpartition(sep)
-        return tuple(newbytes(part) for part in parts)
-
-    @no(unicode, (1,))
-    def rindex(self, sub, *args):
-        '''
-        S.rindex(sub [,start [,end]]) -> int
-
-        Like S.rfind() but raise ValueError when the substring is not found.
-        '''
-        pos = self.rfind(sub, *args)
-        if pos == -1:
-            raise ValueError('substring not found')
-
-    @no(unicode)
-    def index(self, sub, *args):
-        '''
-        Returns index of sub in bytes.
-        Raises ValueError if byte is not in bytes and TypeError if can't
-        be converted bytes or its length is not 1.
-        '''
-        if isinstance(sub, int):
-            if len(args) == 0:
-                start, end = 0, len(self)
-            elif len(args) == 1:
-                start = args[0]
-            elif len(args) == 2:
-                start, end = args
-            else:
-                raise TypeError('takes at most 3 arguments')
-            return list(self)[start:end].index(sub)
-        if not isinstance(sub, bytes):
-            try:
-                sub = self.__class__(sub)
-            except (TypeError, ValueError):
-                raise TypeError("can't convert sub to bytes")
-        try:
-            return super(newbytes, self).index(sub, *args)
-        except ValueError:
-            raise ValueError('substring not found')
-
-    def __eq__(self, other):
-        if isinstance(other, (_builtin_bytes, bytearray)):
-            return super(newbytes, self).__eq__(other)
+    def __div__(self, other):
+        # We override this rather than e.g. relying on object.__div__ or
+        # long.__div__ because we want to wrap the value in a newint()
+        # call if other is another int
+        value = long(self) / other
+        if isinstance(other, (int, long)):
+            return newint(value)
         else:
-            return False
+            return value
 
-    def __ne__(self, other):
-        if isinstance(other, _builtin_bytes):
-            return super(newbytes, self).__ne__(other)
+    def __rdiv__(self, other):
+        value = other / long(self)
+        if isinstance(other, (int, long)):
+            return newint(value)
         else:
-            return True
+            return value
 
-    unorderable_err = 'unorderable types: bytes() and {0}'
+    def __idiv__(self, other):
+        # long has no __idiv__ method. Use __itruediv__ and cast back to
+        # newint:
+        value = self.__itruediv__(other)
+        if isinstance(other, (int, long)):
+            return newint(value)
+        else:
+            return value
 
-    def __lt__(self, other):
-        if isinstance(other, _builtin_bytes):
-            return super(newbytes, self).__lt__(other)
-        raise TypeError(self.unorderable_err.format(type(other)))
+    def __truediv__(self, other):
+        value = super(newint, self).__truediv__(other)
+        if value is NotImplemented:
+            value = long(self) / other
+        return value
 
-    def __le__(self, other):
-        if isinstance(other, _builtin_bytes):
-            return super(newbytes, self).__le__(other)
-        raise TypeError(self.unorderable_err.format(type(other)))
+    def __rtruediv__(self, other):
+        return super(newint, self).__rtruediv__(other)
 
-    def __gt__(self, other):
-        if isinstance(other, _builtin_bytes):
-            return super(newbytes, self).__gt__(other)
-        raise TypeError(self.unorderable_err.format(type(other)))
+    def __itruediv__(self, other):
+        # long has no __itruediv__ method
+        mylong = long(self)
+        mylong /= other
+        return mylong
 
-    def __ge__(self, other):
-        if isinstance(other, _builtin_bytes):
-            return super(newbytes, self).__ge__(other)
-        raise TypeError(self.unorderable_err.format(type(other)))
+    def __floordiv__(self, other):
+        return newint(super(newint, self).__floordiv__(other))
+
+    def __rfloordiv__(self, other):
+        return newint(super(newint, self).__rfloordiv__(other))
+
+    def __ifloordiv__(self, other):
+        # long has no __ifloordiv__ method
+        mylong = long(self)
+        mylong //= other
+        return newint(mylong)
+
+    def __mod__(self, other):
+        value = super(newint, self).__mod__(other)
+        if value is NotImplemented:
+            return long(self) % other
+        return newint(value)
+
+    def __rmod__(self, other):
+        value = super(newint, self).__rmod__(other)
+        if value is NotImplemented:
+            return other % long(self)
+        return newint(value)
+
+    def __divmod__(self, other):
+        value = super(newint, self).__divmod__(other)
+        if value is NotImplemented:
+            mylong = long(self)
+            return (mylong // other, mylong % other)
+        return (newint(value[0]), newint(value[1]))
+
+    def __rdivmod__(self, other):
+        value = super(newint, self).__rdivmod__(other)
+        if value is NotImplemented:
+            mylong = long(self)
+            return (other // mylong, other % mylong)
+        return (newint(value[0]), newint(value[1]))
+
+    def __pow__(self, other):
+        value = super(newint, self).__pow__(other)
+        if value is NotImplemented:
+            return long(self) ** other
+        return newint(value)
+
+    def __rpow__(self, other):
+        value = super(newint, self).__rpow__(other)
+        if value is NotImplemented:
+            return other ** long(self)
+        return newint(value)
+
+    def __lshift__(self, other):
+        if not isint(other):
+            raise TypeError(
+                "unsupported operand type(s) for <<: '%s' and '%s'" %
+                (type(self).__name__, type(other).__name__))
+        return newint(super(newint, self).__lshift__(other))
+
+    def __rshift__(self, other):
+        if not isint(other):
+            raise TypeError(
+                "unsupported operand type(s) for >>: '%s' and '%s'" %
+                (type(self).__name__, type(other).__name__))
+        return newint(super(newint, self).__rshift__(other))
+
+    def __and__(self, other):
+        if not isint(other):
+            raise TypeError(
+                "unsupported operand type(s) for &: '%s' and '%s'" %
+                (type(self).__name__, type(other).__name__))
+        return newint(super(newint, self).__and__(other))
+
+    def __or__(self, other):
+        if not isint(other):
+            raise TypeError(
+                "unsupported operand type(s) for |: '%s' and '%s'" %
+                (type(self).__name__, type(other).__name__))
+        return newint(super(newint, self).__or__(other))
+
+    def __xor__(self, other):
+        if not isint(other):
+            raise TypeError(
+                "unsupported operand type(s) for ^: '%s' and '%s'" %
+                (type(self).__name__, type(other).__name__))
+        return newint(super(newint, self).__xor__(other))
+
+    def __neg__(self):
+        return newint(super(newint, self).__neg__())
+
+    def __pos__(self):
+        return newint(super(newint, self).__pos__())
+
+    def __abs__(self):
+        return newint(super(newint, self).__abs__())
+
+    def __invert__(self):
+        return newint(super(newint, self).__invert__())
+
+    def __int__(self):
+        return self
+
+    def __nonzero__(self):
+        return self.__bool__()
+
+    def __bool__(self):
+        """
+        So subclasses can override this, Py3-style
+        """
+        return super(newint, self).__nonzero__()
 
     def __native__(self):
-        # We can't just feed a newbytes object into str(), because
-        # newbytes.__str__() returns e.g. "b'blah'", consistent with Py3 bytes.
-        return super(newbytes, self).__str__()
+        return long(self)
 
-    def __getattribute__(self, name):
+    def to_bytes(self, length, byteorder='big', signed=False):
         """
-        A trick to cause the ``hasattr`` builtin-fn to return False for
-        the 'encode' method on Py2.
-        """
-        if name in ['encode', u'encode']:
-            raise AttributeError("encode method has been disabled in newbytes")
-        return super(newbytes, self).__getattribute__(name)
+        Return an array of bytes representing an integer.
 
-    @no(unicode)
-    def rstrip(self, bytes_to_strip=None):
-        """
-        Strip trailing bytes contained in the argument.
-        If the argument is omitted, strip trailing ASCII whitespace.
-        """
-        return newbytes(super(newbytes, self).rstrip(bytes_to_strip))
+        The integer is represented using length bytes.  An OverflowError is
+        raised if the integer is not representable with the given number of
+        bytes.
 
-    @no(unicode)
-    def strip(self, bytes_to_strip=None):
-        """
-        Strip leading and trailing bytes contained in the argument.
-        If the argument is omitted, strip trailing ASCII whitespace.
-        """
-        return newbytes(super(newbytes, self).strip(bytes_to_strip))
+        The byteorder argument determines the byte order used to represent the
+        integer.  If byteorder is 'big', the most significant byte is at the
+        beginning of the byte array.  If byteorder is 'little', the most
+        significant byte is at the end of the byte array.  To request the native
+        byte order of the host system, use `sys.byteorder' as the byte order value.
 
-    def lower(self):
+        The signed keyword-only argument determines whether two's complement is
+        used to represent the integer.  If signed is False and a negative integer
+        is given, an OverflowError is raised.
         """
-        b.lower() -> copy of b
-
-        Return a copy of b with all ASCII characters converted to lowercase.
-        """
-        return newbytes(super(newbytes, self).lower())
-
-    @no(unicode)
-    def upper(self):
-        """
-        b.upper() -> copy of b
-
-        Return a copy of b with all ASCII characters converted to uppercase.
-        """
-        return newbytes(super(newbytes, self).upper())
+        if length < 0:
+            raise ValueError("length argument must be non-negative")
+        if length == 0 and self == 0:
+            return newbytes()
+        if signed and self < 0:
+            bits = length * 8
+            num = (2**bits) + self
+            if num <= 0:
+                raise OverflowError("int too smal to convert")
+        else:
+            if self < 0:
+                raise OverflowError("can't convert negative int to unsigned")
+            num = self
+        if byteorder not in ('little', 'big'):
+            raise ValueError("byteorder must be either 'little' or 'big'")
+        h = b'%x' % num
+        s = newbytes((b'0'*(len(h) % 2) + h).zfill(length*2).decode('hex'))
+        if signed:
+            high_set = s[0] & 0x80
+            if self > 0 and high_set:
+                raise OverflowError("int too big to convert")
+            if self < 0 and not high_set:
+                raise OverflowError("int too small to convert")
+        if len(s) > length:
+            raise OverflowError("int too big to convert")
+        return s if byteorder == 'big' else s[::-1]
 
     @classmethod
-    @no(unicode)
-    def maketrans(cls, frm, to):
+    def from_bytes(cls, mybytes, byteorder='big', signed=False):
         """
-        B.maketrans(frm, to) -> translation table
+        Return the integer represented by the given array of bytes.
 
-        Return a translation table (a bytes object of length 256) suitable
-        for use in the bytes or bytearray translate method where each byte
-        in frm is mapped to the byte at the same position in to.
-        The bytes objects frm and to must be of the same length.
+        The mybytes argument must either support the buffer protocol or be an
+        iterable object producing bytes.  Bytes and bytearray are examples of
+        built-in objects that support the buffer protocol.
+
+        The byteorder argument determines the byte order used to represent the
+        integer.  If byteorder is 'big', the most significant byte is at the
+        beginning of the byte array.  If byteorder is 'little', the most
+        significant byte is at the end of the byte array.  To request the native
+        byte order of the host system, use `sys.byteorder' as the byte order value.
+
+        The signed keyword-only argument indicates whether two's complement is
+        used to represent the integer.
         """
-        return newbytes(string.maketrans(frm, to))
+        if byteorder not in ('little', 'big'):
+            raise ValueError("byteorder must be either 'little' or 'big'")
+        if isinstance(mybytes, unicode):
+            raise TypeError("cannot convert unicode objects to bytes")
+        # mybytes can also be passed as a sequence of integers on Py3.
+        # Test for this:
+        elif isinstance(mybytes, collections.Iterable):
+            mybytes = newbytes(mybytes)
+        b = mybytes if byteorder == 'big' else mybytes[::-1]
+        if len(b) == 0:
+            b = b'\x00'
+        # The encode() method has been disabled by newbytes, but Py2's
+        # str has it:
+        num = int(native(b).encode('hex'), 16)
+        if signed and (b[0] & 0x80):
+            num = num - (2 ** (len(b)*8))
+        return cls(num)
 
 
-__all__ = ['newbytes']
+# def _twos_comp(val, bits):
+#     """compute the 2's compliment of int value val"""
+#     if( (val&(1<<(bits-1))) != 0 ):
+#         val = val - (1<<bits)
+#     return val
+
+
+__all__ = ['newint']

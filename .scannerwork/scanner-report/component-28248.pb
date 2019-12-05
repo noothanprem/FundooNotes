@@ -1,1 +1,1 @@
-ØÜ=venv/lib64/python3.6/site-packages/reportlab/graphics/samples :3×ÜÙÜÚÜÛÜÜÜİÜŞÜßÜàÜáÜâÜãÜõÜ÷ÜøÜùÜüÜ
+ØÜQvenv/lib64/python3.6/site-packages/reportlab/graphics/samples/clustered_column.py 2pyXTh

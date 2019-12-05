@@ -1,111 +1,154 @@
-# -*- test-case-name: twisted.trial._dist.test.test_workertrial -*-
+# -*- test-case-name: twisted.trial._dist.test.test_workerreporter -*-
 #
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-Implementation of C{AMP} worker commands, and main executable entry point for
-the workers.
+Test reporter forwarding test results over trial distributed AMP commands.
 
 @since: 12.3
 """
 
-import sys
-import os
-import errno
+from twisted.python.failure import Failure
+from twisted.python.reflect import qual
+from twisted.trial.reporter import TestResult
+from twisted.trial._dist import managercommands
 
 
 
-def _setupPath(environ):
+class WorkerReporter(TestResult):
     """
-    Override C{sys.path} with what the parent passed in B{TRIAL_PYTHONPATH}.
+    Reporter for trial's distributed workers. We send things not through a
+    stream, but through an C{AMP} protocol's C{callRemote} method.
 
-    @see: twisted.trial._dist.disttrial.DistTrialRunner.launchWorkerProcesses
-    """
-    if 'TRIAL_PYTHONPATH' in environ:
-        sys.path[:] = environ['TRIAL_PYTHONPATH'].split(os.pathsep)
-
-
-_setupPath(os.environ)
-
-
-from twisted.internet.protocol import FileWrapper
-from twisted.python.log import startLoggingWithObserver, textFromEventDict
-from twisted.trial._dist.options import WorkerOptions
-from twisted.trial._dist import _WORKER_AMP_STDIN, _WORKER_AMP_STDOUT
-
-
-
-class WorkerLogObserver(object):
-    """
-    A log observer that forward its output to a C{AMP} protocol.
+    @ivar _DEFAULT_TODO: Default message for expected failures and
+        unexpected successes, used only if a C{Todo} is not provided.
     """
 
-    def __init__(self, protocol):
+    _DEFAULT_TODO = 'Test expected to fail'
+
+    def __init__(self, ampProtocol):
         """
-        @param protocol: a connected C{AMP} protocol instance.
-        @type protocol: C{AMP}
+        @param ampProtocol: The communication channel with the trial
+            distributed manager which collects all test results.
+        @type ampProtocol: C{AMP}
         """
-        self.protocol = protocol
+        super(WorkerReporter, self).__init__()
+        self.ampProtocol = ampProtocol
 
 
-    def emit(self, eventDict):
+    def _getFailure(self, error):
         """
-        Produce a log output.
+        Convert a C{sys.exc_info()}-style tuple to a L{Failure}, if necessary.
         """
-        from twisted.trial._dist import managercommands
-        text = textFromEventDict(eventDict)
-        if text is None:
-            return
-        self.protocol.callRemote(managercommands.TestWrite, out=text)
+        if isinstance(error, tuple):
+            return Failure(error[1], error[0], error[2])
+        return error
 
 
+    def _getFrames(self, failure):
+        """
+        Extract frames from a C{Failure} instance.
+        """
+        frames = []
+        for frame in failure.frames:
+            frames.extend([frame[0], frame[1], str(frame[2])])
+        return frames
 
-def main(_fdopen=os.fdopen):
-    """
-    Main function to be run if __name__ == "__main__".
 
-    @param _fdopen: If specified, the function to use in place of C{os.fdopen}.
-    @param _fdopen: C{callable}
-    """
-    config = WorkerOptions()
-    config.parseOptions()
+    def addSuccess(self, test):
+        """
+        Send a success over.
+        """
+        super(WorkerReporter, self).addSuccess(test)
+        testName = test.id()
+        self.ampProtocol.callRemote(managercommands.AddSuccess,
+                                    testName=testName)
 
-    from twisted.trial._dist.worker import WorkerProtocol
-    workerProtocol = WorkerProtocol(config['force-gc'])
 
-    protocolIn = _fdopen(_WORKER_AMP_STDIN, 'rb')
-    protocolOut = _fdopen(_WORKER_AMP_STDOUT, 'wb')
-    workerProtocol.makeConnection(FileWrapper(protocolOut))
+    def addError(self, test, error):
+        """
+        Send an error over.
+        """
+        super(WorkerReporter, self).addError(test, error)
+        testName = test.id()
+        failure = self._getFailure(error)
+        error = failure.getErrorMessage()
+        errorClass = qual(failure.type)
+        frames = [frame for frame in self._getFrames(failure)]
+        self.ampProtocol.callRemote(managercommands.AddError,
+                                    testName=testName,
+                                    error=error,
+                                    errorClass=errorClass,
+                                    frames=frames)
 
-    observer = WorkerLogObserver(workerProtocol)
-    startLoggingWithObserver(observer.emit, False)
 
-    while True:
-        try:
-            r = protocolIn.read(1)
-        except IOError as e:
-            if e.args[0] == errno.EINTR:
-                if sys.version_info < (3, 0):
-                    sys.exc_clear()
-                continue
-            else:
-                raise
-        if r == b'':
-            break
+    def addFailure(self, test, fail):
+        """
+        Send a Failure over.
+        """
+        super(WorkerReporter, self).addFailure(test, fail)
+        testName = test.id()
+        failure = self._getFailure(fail)
+        fail = failure.getErrorMessage()
+        failClass = qual(failure.type)
+        frames = [frame for frame in self._getFrames(failure)]
+        self.ampProtocol.callRemote(managercommands.AddFailure,
+                                    testName=testName,
+                                    fail=fail,
+                                    failClass=failClass,
+                                    frames=frames)
+
+
+    def addSkip(self, test, reason):
+        """
+        Send a skip over.
+        """
+        super(WorkerReporter, self).addSkip(test, reason)
+        reason = str(reason)
+        testName = test.id()
+        self.ampProtocol.callRemote(managercommands.AddSkip,
+                                    testName=testName,
+                                    reason=reason)
+
+
+    def _getTodoReason(self, todo):
+        """
+        Get the reason for a C{Todo}.
+
+        If C{todo} is L{None}, return a sensible default.
+        """
+        if todo is None:
+            return self._DEFAULT_TODO
         else:
-            workerProtocol.dataReceived(r)
-            protocolOut.flush()
-            sys.stdout.flush()
-            sys.stderr.flush()
-
-    if config.tracer:
-        sys.settrace(None)
-        results = config.tracer.results()
-        results.write_results(show_missing=True, summary=False,
-                              coverdir=config.coverdir().path)
+            return todo.reason
 
 
+    def addExpectedFailure(self, test, error, todo=None):
+        """
+        Send an expected failure over.
+        """
+        super(WorkerReporter, self).addExpectedFailure(test, error, todo)
+        errorMessage = error.getErrorMessage()
+        testName = test.id()
+        self.ampProtocol.callRemote(managercommands.AddExpectedFailure,
+                                    testName=testName,
+                                    error=errorMessage,
+                                    todo=self._getTodoReason(todo))
 
-if __name__ == '__main__':
-    main()
+
+    def addUnexpectedSuccess(self, test, todo=None):
+        """
+        Send an unexpected success over.
+        """
+        super(WorkerReporter, self).addUnexpectedSuccess(test, todo)
+        testName = test.id()
+        self.ampProtocol.callRemote(managercommands.AddUnexpectedSuccess,
+                                    testName=testName,
+                                    todo=self._getTodoReason(todo))
+
+
+    def printSummary(self):
+        """
+        I{Don't} print a summary
+        """

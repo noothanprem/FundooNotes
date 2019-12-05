@@ -1,1 +1,1 @@
-©—7venv/lib/python3.6/site-packages/jwt/contrib/algorithms :	¨—ª—«—
+©—,venv/lib/python3.6/site-packages/jwt/contrib :¨—

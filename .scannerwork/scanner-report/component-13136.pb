@@ -1,1 +1,1 @@
-Ğf*venv/lib/python3.6/site-packages/typed_ast :ÏfÑfÖf×f
+Ğf*venv/lib/python3.6/site-packages/typed_ast :ÏfÓfÖf×f

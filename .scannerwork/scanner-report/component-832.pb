@@ -1,1 +1,1 @@
-À8venv/lib/python3.6/site-packages/celery/fixups/django.py 2pyXÌh
+À<venv/lib/python3.6/site-packages/celery/events/dispatcher.py 2pyXèh

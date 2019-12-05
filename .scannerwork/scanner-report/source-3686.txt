@@ -1,367 +1,392 @@
 """
-PHP date() style date formatting
-See http://www.php.net/date for format strings
+Syndication feed generation library -- used for generating RSS, etc.
 
-Usage:
->>> import datetime
->>> d = datetime.datetime.now()
->>> df = DateFormat(d)
->>> print(df.format('jS F Y H:i'))
-7th October 2003 11:39
->>>
+Sample usage:
+
+>>> from django.utils import feedgenerator
+>>> feed = feedgenerator.Rss201rev2Feed(
+...     title="Poynter E-Media Tidbits",
+...     link="http://www.poynter.org/column.asp?id=31",
+...     description="A group Weblog by the sharpest minds in online media/journalism/publishing.",
+...     language="en",
+... )
+>>> feed.add_item(
+...     title="Hello",
+...     link="http://www.holovaty.com/test/",
+...     description="Testing."
+... )
+>>> with open('test.rss', 'w') as fp:
+...     feed.write(fp, 'utf-8')
+
+For definitions of the different versions of RSS, see:
+https://web.archive.org/web/20110718035220/http://diveintomark.org/archives/2004/02/04/incompatible-rss
 """
-import calendar
 import datetime
-import re
-import time
+import email
+from io import StringIO
+from urllib.parse import urlparse
 
-from django.utils.dates import (
-    MONTHS, MONTHS_3, MONTHS_ALT, MONTHS_AP, WEEKDAYS, WEEKDAYS_ABBR,
-)
-from django.utils.timezone import get_default_timezone, is_aware, is_naive
-from django.utils.translation import gettext as _
-
-re_formatchars = re.compile(r'(?<!\\)([aAbBcdDeEfFgGhHiIjlLmMnNoOPrsStTUuwWyYzZ])')
-re_escaped = re.compile(r'\\(.)')
+from django.utils.encoding import iri_to_uri
+from django.utils.timezone import utc
+from django.utils.xmlutils import SimplerXMLGenerator
 
 
-class Formatter:
-    def format(self, formatstr):
-        pieces = []
-        for i, piece in enumerate(re_formatchars.split(str(formatstr))):
-            if i % 2:
-                if type(self.data) is datetime.date and hasattr(TimeFormat, piece):
-                    raise TypeError(
-                        "The format for date objects may not contain "
-                        "time-related format specifiers (found '%s')." % piece
-                    )
-                pieces.append(str(getattr(self, piece)()))
-            elif piece:
-                pieces.append(re_escaped.sub(r'\1', piece))
-        return ''.join(pieces)
+def rfc2822_date(date):
+    if not isinstance(date, datetime.datetime):
+        date = datetime.datetime.combine(date, datetime.time())
+    return email.utils.format_datetime(date)
 
 
-class TimeFormat(Formatter):
+def rfc3339_date(date):
+    if not isinstance(date, datetime.datetime):
+        date = datetime.datetime.combine(date, datetime.time())
+    return date.isoformat() + ('Z' if date.utcoffset() is None else '')
 
-    def __init__(self, obj):
-        self.data = obj
-        self.timezone = None
 
-        # We only support timezone when formatting datetime objects,
-        # not date objects (timezone information not appropriate),
-        # or time objects (against established django policy).
-        if isinstance(obj, datetime.datetime):
-            if is_naive(obj):
-                self.timezone = get_default_timezone()
-            else:
-                self.timezone = obj.tzinfo
+def get_tag_uri(url, date):
+    """
+    Create a TagURI.
 
-    def a(self):
-        "'a.m.' or 'p.m.'"
-        if self.data.hour > 11:
-            return _('p.m.')
-        return _('a.m.')
+    See https://web.archive.org/web/20110514113830/http://diveintomark.org/archives/2004/05/28/howto-atom-id
+    """
+    bits = urlparse(url)
+    d = ''
+    if date is not None:
+        d = ',%s' % date.strftime('%Y-%m-%d')
+    return 'tag:%s%s:%s/%s' % (bits.hostname, d, bits.path, bits.fragment)
 
-    def A(self):
-        "'AM' or 'PM'"
-        if self.data.hour > 11:
-            return _('PM')
-        return _('AM')
 
-    def B(self):
-        "Swatch Internet time"
-        raise NotImplementedError('may be implemented in a future release')
+class SyndicationFeed:
+    "Base class for all syndication feeds. Subclasses should provide write()"
+    def __init__(self, title, link, description, language=None, author_email=None,
+                 author_name=None, author_link=None, subtitle=None, categories=None,
+                 feed_url=None, feed_copyright=None, feed_guid=None, ttl=None, **kwargs):
+        def to_str(s):
+            return str(s) if s is not None else s
+        categories = categories and [str(c) for c in categories]
+        self.feed = {
+            'title': to_str(title),
+            'link': iri_to_uri(link),
+            'description': to_str(description),
+            'language': to_str(language),
+            'author_email': to_str(author_email),
+            'author_name': to_str(author_name),
+            'author_link': iri_to_uri(author_link),
+            'subtitle': to_str(subtitle),
+            'categories': categories or (),
+            'feed_url': iri_to_uri(feed_url),
+            'feed_copyright': to_str(feed_copyright),
+            'id': feed_guid or link,
+            'ttl': to_str(ttl),
+            **kwargs,
+        }
+        self.items = []
 
-    def e(self):
+    def add_item(self, title, link, description, author_email=None,
+                 author_name=None, author_link=None, pubdate=None, comments=None,
+                 unique_id=None, unique_id_is_permalink=None, categories=(),
+                 item_copyright=None, ttl=None, updateddate=None, enclosures=None, **kwargs):
         """
-        Timezone name.
-
-        If timezone information is not available, return an empty string.
+        Add an item to the feed. All args are expected to be strings except
+        pubdate and updateddate, which are datetime.datetime objects, and
+        enclosures, which is an iterable of instances of the Enclosure class.
         """
-        if not self.timezone:
-            return ""
+        def to_str(s):
+            return str(s) if s is not None else s
+        categories = categories and [to_str(c) for c in categories]
+        self.items.append({
+            'title': to_str(title),
+            'link': iri_to_uri(link),
+            'description': to_str(description),
+            'author_email': to_str(author_email),
+            'author_name': to_str(author_name),
+            'author_link': iri_to_uri(author_link),
+            'pubdate': pubdate,
+            'updateddate': updateddate,
+            'comments': to_str(comments),
+            'unique_id': to_str(unique_id),
+            'unique_id_is_permalink': unique_id_is_permalink,
+            'enclosures': enclosures or (),
+            'categories': categories or (),
+            'item_copyright': to_str(item_copyright),
+            'ttl': to_str(ttl),
+            **kwargs,
+        })
 
-        try:
-            if hasattr(self.data, 'tzinfo') and self.data.tzinfo:
-                return self.data.tzname() or ''
-        except NotImplementedError:
-            pass
-        return ""
+    def num_items(self):
+        return len(self.items)
 
-    def f(self):
+    def root_attributes(self):
         """
-        Time, in 12-hour hours and minutes, with minutes left off if they're
-        zero.
-        Examples: '1', '1:30', '2:05', '2'
-        Proprietary extension.
+        Return extra attributes to place on the root (i.e. feed/channel) element.
+        Called from write().
         """
-        if self.data.minute == 0:
-            return self.g()
-        return '%s:%s' % (self.g(), self.i())
+        return {}
 
-    def g(self):
-        "Hour, 12-hour format without leading zeros; i.e. '1' to '12'"
-        if self.data.hour == 0:
-            return 12
-        if self.data.hour > 12:
-            return self.data.hour - 12
-        return self.data.hour
-
-    def G(self):
-        "Hour, 24-hour format without leading zeros; i.e. '0' to '23'"
-        return self.data.hour
-
-    def h(self):
-        "Hour, 12-hour format; i.e. '01' to '12'"
-        return '%02d' % self.g()
-
-    def H(self):
-        "Hour, 24-hour format; i.e. '00' to '23'"
-        return '%02d' % self.G()
-
-    def i(self):
-        "Minutes; i.e. '00' to '59'"
-        return '%02d' % self.data.minute
-
-    def O(self):  # NOQA: E743
+    def add_root_elements(self, handler):
         """
-        Difference to Greenwich time in hours; e.g. '+0200', '-0430'.
-
-        If timezone information is not available, return an empty string.
+        Add elements in the root (i.e. feed/channel) element. Called
+        from write().
         """
-        if not self.timezone:
-            return ""
+        pass
 
-        seconds = self.Z()
-        if seconds == "":
-            return ""
-        sign = '-' if seconds < 0 else '+'
-        seconds = abs(seconds)
-        return "%s%02d%02d" % (sign, seconds // 3600, (seconds // 60) % 60)
-
-    def P(self):
+    def item_attributes(self, item):
         """
-        Time, in 12-hour hours, minutes and 'a.m.'/'p.m.', with minutes left off
-        if they're zero and the strings 'midnight' and 'noon' if appropriate.
-        Examples: '1 a.m.', '1:30 p.m.', 'midnight', 'noon', '12:30 p.m.'
-        Proprietary extension.
+        Return extra attributes to place on each item (i.e. item/entry) element.
         """
-        if self.data.minute == 0 and self.data.hour == 0:
-            return _('midnight')
-        if self.data.minute == 0 and self.data.hour == 12:
-            return _('noon')
-        return '%s %s' % (self.f(), self.a())
+        return {}
 
-    def s(self):
-        "Seconds; i.e. '00' to '59'"
-        return '%02d' % self.data.second
-
-    def T(self):
+    def add_item_elements(self, handler, item):
         """
-        Time zone of this machine; e.g. 'EST' or 'MDT'.
-
-        If timezone information is not available, return an empty string.
+        Add elements on each item (i.e. item/entry) element.
         """
-        if not self.timezone:
-            return ""
+        pass
 
-        name = None
-        try:
-            name = self.timezone.tzname(self.data)
-        except Exception:
-            # pytz raises AmbiguousTimeError during the autumn DST change.
-            # This happens mainly when __init__ receives a naive datetime
-            # and sets self.timezone = get_default_timezone().
-            pass
-        if name is None:
-            name = self.format('O')
-        return str(name)
-
-    def u(self):
-        "Microseconds; i.e. '000000' to '999999'"
-        return '%06d' % self.data.microsecond
-
-    def Z(self):
+    def write(self, outfile, encoding):
         """
-        Time zone offset in seconds (i.e. '-43200' to '43200'). The offset for
-        timezones west of UTC is always negative, and for those east of UTC is
-        always positive.
-
-        If timezone information is not available, return an empty string.
+        Output the feed in the given encoding to outfile, which is a file-like
+        object. Subclasses should override this.
         """
-        if not self.timezone:
-            return ""
+        raise NotImplementedError('subclasses of SyndicationFeed must provide a write() method')
 
-        try:
-            offset = self.timezone.utcoffset(self.data)
-        except Exception:
-            # pytz raises AmbiguousTimeError during the autumn DST change.
-            # This happens mainly when __init__ receives a naive datetime
-            # and sets self.timezone = get_default_timezone().
-            return ""
-
-        # `offset` is a datetime.timedelta. For negative values (to the west of
-        # UTC) only days can be negative (days=-1) and seconds are always
-        # positive. e.g. UTC-1 -> timedelta(days=-1, seconds=82800, microseconds=0)
-        # Positive offsets have days=0
-        return offset.days * 86400 + offset.seconds
-
-
-class DateFormat(TimeFormat):
-    year_days = [None, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-
-    def b(self):
-        "Month, textual, 3 letters, lowercase; e.g. 'jan'"
-        return MONTHS_3[self.data.month]
-
-    def c(self):
+    def writeString(self, encoding):
         """
-        ISO 8601 Format
-        Example : '2008-01-02T10:30:00.000123'
+        Return the feed in the given encoding as a string.
         """
-        return self.data.isoformat()
+        s = StringIO()
+        self.write(s, encoding)
+        return s.getvalue()
 
-    def d(self):
-        "Day of the month, 2 digits with leading zeros; i.e. '01' to '31'"
-        return '%02d' % self.data.day
+    def latest_post_date(self):
+        """
+        Return the latest item's pubdate or updateddate. If no items
+        have either of these attributes this return the current UTC date/time.
+        """
+        latest_date = None
+        date_keys = ('updateddate', 'pubdate')
 
-    def D(self):
-        "Day of the week, textual, 3 letters; e.g. 'Fri'"
-        return WEEKDAYS_ABBR[self.data.weekday()]
+        for item in self.items:
+            for date_key in date_keys:
+                item_date = item.get(date_key)
+                if item_date:
+                    if latest_date is None or item_date > latest_date:
+                        latest_date = item_date
 
-    def E(self):
-        "Alternative month names as required by some locales. Proprietary extension."
-        return MONTHS_ALT[self.data.month]
+        # datetime.now(tz=utc) is slower, as documented in django.utils.timezone.now
+        return latest_date or datetime.datetime.utcnow().replace(tzinfo=utc)
 
-    def F(self):
-        "Month, textual, long; e.g. 'January'"
-        return MONTHS[self.data.month]
 
-    def I(self):  # NOQA: E743
-        "'1' if Daylight Savings Time, '0' otherwise."
-        try:
-            if self.timezone and self.timezone.dst(self.data):
-                return '1'
-            else:
-                return '0'
-        except Exception:
-            # pytz raises AmbiguousTimeError during the autumn DST change.
-            # This happens mainly when __init__ receives a naive datetime
-            # and sets self.timezone = get_default_timezone().
-            return ''
+class Enclosure:
+    """An RSS enclosure"""
+    def __init__(self, url, length, mime_type):
+        "All args are expected to be strings"
+        self.length, self.mime_type = length, mime_type
+        self.url = iri_to_uri(url)
 
-    def j(self):
-        "Day of the month without leading zeros; i.e. '1' to '31'"
-        return self.data.day
 
-    def l(self):  # NOQA: E743
-        "Day of the week, textual, long; e.g. 'Friday'"
-        return WEEKDAYS[self.data.weekday()]
+class RssFeed(SyndicationFeed):
+    content_type = 'application/rss+xml; charset=utf-8'
 
-    def L(self):
-        "Boolean for whether it is a leap year; i.e. True or False"
-        return calendar.isleap(self.data.year)
+    def write(self, outfile, encoding):
+        handler = SimplerXMLGenerator(outfile, encoding)
+        handler.startDocument()
+        handler.startElement("rss", self.rss_attributes())
+        handler.startElement("channel", self.root_attributes())
+        self.add_root_elements(handler)
+        self.write_items(handler)
+        self.endChannelElement(handler)
+        handler.endElement("rss")
 
-    def m(self):
-        "Month; i.e. '01' to '12'"
-        return '%02d' % self.data.month
+    def rss_attributes(self):
+        return {
+            'version': self._version,
+            'xmlns:atom': 'http://www.w3.org/2005/Atom',
+        }
 
-    def M(self):
-        "Month, textual, 3 letters; e.g. 'Jan'"
-        return MONTHS_3[self.data.month].title()
+    def write_items(self, handler):
+        for item in self.items:
+            handler.startElement('item', self.item_attributes(item))
+            self.add_item_elements(handler, item)
+            handler.endElement("item")
 
-    def n(self):
-        "Month without leading zeros; i.e. '1' to '12'"
-        return self.data.month
+    def add_root_elements(self, handler):
+        handler.addQuickElement("title", self.feed['title'])
+        handler.addQuickElement("link", self.feed['link'])
+        handler.addQuickElement("description", self.feed['description'])
+        if self.feed['feed_url'] is not None:
+            handler.addQuickElement("atom:link", None, {"rel": "self", "href": self.feed['feed_url']})
+        if self.feed['language'] is not None:
+            handler.addQuickElement("language", self.feed['language'])
+        for cat in self.feed['categories']:
+            handler.addQuickElement("category", cat)
+        if self.feed['feed_copyright'] is not None:
+            handler.addQuickElement("copyright", self.feed['feed_copyright'])
+        handler.addQuickElement("lastBuildDate", rfc2822_date(self.latest_post_date()))
+        if self.feed['ttl'] is not None:
+            handler.addQuickElement("ttl", self.feed['ttl'])
 
-    def N(self):
-        "Month abbreviation in Associated Press style. Proprietary extension."
-        return MONTHS_AP[self.data.month]
+    def endChannelElement(self, handler):
+        handler.endElement("channel")
 
-    def o(self):
-        "ISO 8601 year number matching the ISO week number (W)"
-        return self.data.isocalendar()[0]
 
-    def r(self):
-        "RFC 5322 formatted date; e.g. 'Thu, 21 Dec 2000 16:01:07 +0200'"
-        return self.format('D, j M Y H:i:s O')
+class RssUserland091Feed(RssFeed):
+    _version = "0.91"
 
-    def S(self):
-        "English ordinal suffix for the day of the month, 2 characters; i.e. 'st', 'nd', 'rd' or 'th'"
-        if self.data.day in (11, 12, 13):  # Special case
-            return 'th'
-        last = self.data.day % 10
-        if last == 1:
-            return 'st'
-        if last == 2:
-            return 'nd'
-        if last == 3:
-            return 'rd'
-        return 'th'
+    def add_item_elements(self, handler, item):
+        handler.addQuickElement("title", item['title'])
+        handler.addQuickElement("link", item['link'])
+        if item['description'] is not None:
+            handler.addQuickElement("description", item['description'])
 
-    def t(self):
-        "Number of days in the given month; i.e. '28' to '31'"
-        return '%02d' % calendar.monthrange(self.data.year, self.data.month)[1]
 
-    def U(self):
-        "Seconds since the Unix epoch (January 1 1970 00:00:00 GMT)"
-        if isinstance(self.data, datetime.datetime) and is_aware(self.data):
-            return int(calendar.timegm(self.data.utctimetuple()))
+class Rss201rev2Feed(RssFeed):
+    # Spec: https://cyber.harvard.edu/rss/rss.html
+    _version = "2.0"
+
+    def add_item_elements(self, handler, item):
+        handler.addQuickElement("title", item['title'])
+        handler.addQuickElement("link", item['link'])
+        if item['description'] is not None:
+            handler.addQuickElement("description", item['description'])
+
+        # Author information.
+        if item["author_name"] and item["author_email"]:
+            handler.addQuickElement("author", "%s (%s)" % (item['author_email'], item['author_name']))
+        elif item["author_email"]:
+            handler.addQuickElement("author", item["author_email"])
+        elif item["author_name"]:
+            handler.addQuickElement(
+                "dc:creator", item["author_name"], {"xmlns:dc": "http://purl.org/dc/elements/1.1/"}
+            )
+
+        if item['pubdate'] is not None:
+            handler.addQuickElement("pubDate", rfc2822_date(item['pubdate']))
+        if item['comments'] is not None:
+            handler.addQuickElement("comments", item['comments'])
+        if item['unique_id'] is not None:
+            guid_attrs = {}
+            if isinstance(item.get('unique_id_is_permalink'), bool):
+                guid_attrs['isPermaLink'] = str(item['unique_id_is_permalink']).lower()
+            handler.addQuickElement("guid", item['unique_id'], guid_attrs)
+        if item['ttl'] is not None:
+            handler.addQuickElement("ttl", item['ttl'])
+
+        # Enclosure.
+        if item['enclosures']:
+            enclosures = list(item['enclosures'])
+            if len(enclosures) > 1:
+                raise ValueError(
+                    "RSS feed items may only have one enclosure, see "
+                    "http://www.rssboard.org/rss-profile#element-channel-item-enclosure"
+                )
+            enclosure = enclosures[0]
+            handler.addQuickElement('enclosure', '', {
+                'url': enclosure.url,
+                'length': enclosure.length,
+                'type': enclosure.mime_type,
+            })
+
+        # Categories.
+        for cat in item['categories']:
+            handler.addQuickElement("category", cat)
+
+
+class Atom1Feed(SyndicationFeed):
+    # Spec: https://tools.ietf.org/html/rfc4287
+    content_type = 'application/atom+xml; charset=utf-8'
+    ns = "http://www.w3.org/2005/Atom"
+
+    def write(self, outfile, encoding):
+        handler = SimplerXMLGenerator(outfile, encoding)
+        handler.startDocument()
+        handler.startElement('feed', self.root_attributes())
+        self.add_root_elements(handler)
+        self.write_items(handler)
+        handler.endElement("feed")
+
+    def root_attributes(self):
+        if self.feed['language'] is not None:
+            return {"xmlns": self.ns, "xml:lang": self.feed['language']}
         else:
-            return int(time.mktime(self.data.timetuple()))
+            return {"xmlns": self.ns}
 
-    def w(self):
-        "Day of the week, numeric, i.e. '0' (Sunday) to '6' (Saturday)"
-        return (self.data.weekday() + 1) % 7
+    def add_root_elements(self, handler):
+        handler.addQuickElement("title", self.feed['title'])
+        handler.addQuickElement("link", "", {"rel": "alternate", "href": self.feed['link']})
+        if self.feed['feed_url'] is not None:
+            handler.addQuickElement("link", "", {"rel": "self", "href": self.feed['feed_url']})
+        handler.addQuickElement("id", self.feed['id'])
+        handler.addQuickElement("updated", rfc3339_date(self.latest_post_date()))
+        if self.feed['author_name'] is not None:
+            handler.startElement("author", {})
+            handler.addQuickElement("name", self.feed['author_name'])
+            if self.feed['author_email'] is not None:
+                handler.addQuickElement("email", self.feed['author_email'])
+            if self.feed['author_link'] is not None:
+                handler.addQuickElement("uri", self.feed['author_link'])
+            handler.endElement("author")
+        if self.feed['subtitle'] is not None:
+            handler.addQuickElement("subtitle", self.feed['subtitle'])
+        for cat in self.feed['categories']:
+            handler.addQuickElement("category", "", {"term": cat})
+        if self.feed['feed_copyright'] is not None:
+            handler.addQuickElement("rights", self.feed['feed_copyright'])
 
-    def W(self):
-        "ISO-8601 week number of year, weeks starting on Monday"
-        # Algorithm from http://www.personal.ecu.edu/mccartyr/ISOwdALG.txt
-        jan1_weekday = self.data.replace(month=1, day=1).weekday() + 1
-        weekday = self.data.weekday() + 1
-        day_of_year = self.z()
-        if day_of_year <= (8 - jan1_weekday) and jan1_weekday > 4:
-            if jan1_weekday == 5 or (jan1_weekday == 6 and calendar.isleap(self.data.year - 1)):
-                week_number = 53
-            else:
-                week_number = 52
+    def write_items(self, handler):
+        for item in self.items:
+            handler.startElement("entry", self.item_attributes(item))
+            self.add_item_elements(handler, item)
+            handler.endElement("entry")
+
+    def add_item_elements(self, handler, item):
+        handler.addQuickElement("title", item['title'])
+        handler.addQuickElement("link", "", {"href": item['link'], "rel": "alternate"})
+
+        if item['pubdate'] is not None:
+            handler.addQuickElement('published', rfc3339_date(item['pubdate']))
+
+        if item['updateddate'] is not None:
+            handler.addQuickElement('updated', rfc3339_date(item['updateddate']))
+
+        # Author information.
+        if item['author_name'] is not None:
+            handler.startElement("author", {})
+            handler.addQuickElement("name", item['author_name'])
+            if item['author_email'] is not None:
+                handler.addQuickElement("email", item['author_email'])
+            if item['author_link'] is not None:
+                handler.addQuickElement("uri", item['author_link'])
+            handler.endElement("author")
+
+        # Unique ID.
+        if item['unique_id'] is not None:
+            unique_id = item['unique_id']
         else:
-            if calendar.isleap(self.data.year):
-                i = 366
-            else:
-                i = 365
-            if (i - day_of_year) < (4 - weekday):
-                week_number = 1
-            else:
-                j = day_of_year + (7 - weekday) + (jan1_weekday - 1)
-                week_number = j // 7
-                if jan1_weekday > 4:
-                    week_number -= 1
-        return week_number
+            unique_id = get_tag_uri(item['link'], item['pubdate'])
+        handler.addQuickElement("id", unique_id)
 
-    def y(self):
-        "Year, 2 digits; e.g. '99'"
-        return str(self.data.year)[2:]
+        # Summary.
+        if item['description'] is not None:
+            handler.addQuickElement("summary", item['description'], {"type": "html"})
 
-    def Y(self):
-        "Year, 4 digits; e.g. '1999'"
-        return self.data.year
+        # Enclosures.
+        for enclosure in item['enclosures']:
+            handler.addQuickElement('link', '', {
+                'rel': 'enclosure',
+                'href': enclosure.url,
+                'length': enclosure.length,
+                'type': enclosure.mime_type,
+            })
 
-    def z(self):
-        "Day of the year; i.e. '0' to '365'"
-        doy = self.year_days[self.data.month] + self.data.day
-        if self.L() and self.data.month > 2:
-            doy += 1
-        return doy
+        # Categories.
+        for cat in item['categories']:
+            handler.addQuickElement("category", "", {"term": cat})
+
+        # Rights.
+        if item['item_copyright'] is not None:
+            handler.addQuickElement("rights", item['item_copyright'])
 
 
-def format(value, format_string):
-    "Convenience function"
-    df = DateFormat(value)
-    return df.format(format_string)
-
-
-def time_format(value, format_string):
-    "Convenience function"
-    tf = TimeFormat(value)
-    return tf.format(format_string)
+# This isolates the decision of what the system default is, so calling code can
+# do "feedgenerator.DefaultFeed" instead of "feedgenerator.Rss201rev2Feed".
+DefaultFeed = Rss201rev2Feed

@@ -2,225 +2,332 @@
 # See LICENSE for details.
 
 """
-Tests for L{twisted.words.xish.xmlstream}.
+Tests for L{twisted.words.protocols.jabber.error}.
 """
 
 from __future__ import absolute_import, division
 
-from twisted.internet import protocol
-from twisted.python import failure
+from twisted.python.compat import unicode
 from twisted.trial import unittest
-from twisted.words.xish import domish, utility, xmlstream
 
-class XmlStreamTests(unittest.TestCase):
-    def setUp(self):
-        self.connectionLostMsg = "no reason"
-        self.outlist = []
-        self.xmlstream = xmlstream.XmlStream()
-        self.xmlstream.transport = self
-        self.xmlstream.transport.write = self.outlist.append
+from twisted.words.protocols.jabber import error
+from twisted.words.xish import domish
 
+NS_XML = 'http://www.w3.org/XML/1998/namespace'
+NS_STREAMS = 'http://etherx.jabber.org/streams'
+NS_XMPP_STREAMS = 'urn:ietf:params:xml:ns:xmpp-streams'
+NS_XMPP_STANZAS = 'urn:ietf:params:xml:ns:xmpp-stanzas'
 
-    def loseConnection(self):
+class BaseErrorTests(unittest.TestCase):
+
+    def test_getElementPlain(self):
         """
-        Stub loseConnection because we are a transport.
+        Test getting an element for a plain error.
         """
-        self.xmlstream.connectionLost(failure.Failure(
-            Exception(self.connectionLostMsg)))
+        e = error.BaseError('feature-not-implemented')
+        element = e.getElement()
+        self.assertIdentical(element.uri, None)
+        self.assertEqual(len(element.children), 1)
 
-
-    def test_send(self):
+    def test_getElementText(self):
         """
-        Calling L{xmlstream.XmlStream.send} results in the data being written
-        to the transport.
+        Test getting an element for an error with a text.
         """
-        self.xmlstream.connectionMade()
-        self.xmlstream.send(b"<root>")
-        self.assertEqual(self.outlist[0], b"<root>")
+        e = error.BaseError('feature-not-implemented', u'text')
+        element = e.getElement()
+        self.assertEqual(len(element.children), 2)
+        self.assertEqual(unicode(element.text), 'text')
+        self.assertEqual(element.text.getAttribute((NS_XML, 'lang')), None)
 
-
-    def test_receiveRoot(self):
+    def test_getElementTextLang(self):
         """
-        Receiving the starttag of the root element results in stream start.
+        Test getting an element for an error with a text and language.
         """
-        streamStarted = []
+        e = error.BaseError('feature-not-implemented', u'text', 'en_US')
+        element = e.getElement()
+        self.assertEqual(len(element.children), 2)
+        self.assertEqual(unicode(element.text), 'text')
+        self.assertEqual(element.text[(NS_XML, 'lang')], 'en_US')
 
-        def streamStartEvent(rootelem):
-            streamStarted.append(None)
-
-        self.xmlstream.addObserver(xmlstream.STREAM_START_EVENT,
-                                   streamStartEvent)
-        self.xmlstream.connectionMade()
-        self.xmlstream.dataReceived("<root>")
-        self.assertEqual(1, len(streamStarted))
-
-
-    def test_receiveBadXML(self):
+    def test_getElementAppCondition(self):
         """
-        Receiving malformed XML results in an L{STREAM_ERROR_EVENT}.
+        Test getting an element for an error with an app specific condition.
         """
-        streamError = []
-        streamEnd = []
+        ac = domish.Element(('testns', 'myerror'))
+        e = error.BaseError('feature-not-implemented', appCondition=ac)
+        element = e.getElement()
+        self.assertEqual(len(element.children), 2)
+        self.assertEqual(element.myerror, ac)
 
-        def streamErrorEvent(reason):
-            streamError.append(reason)
+class StreamErrorTests(unittest.TestCase):
 
-        def streamEndEvent(_):
-            streamEnd.append(None)
-
-        self.xmlstream.addObserver(xmlstream.STREAM_ERROR_EVENT,
-                                   streamErrorEvent)
-        self.xmlstream.addObserver(xmlstream.STREAM_END_EVENT,
-                                   streamEndEvent)
-        self.xmlstream.connectionMade()
-
-        self.xmlstream.dataReceived("<root>")
-        self.assertEqual(0, len(streamError))
-        self.assertEqual(0, len(streamEnd))
-
-        self.xmlstream.dataReceived("<child><unclosed></child>")
-        self.assertEqual(1, len(streamError))
-        self.assertTrue(streamError[0].check(domish.ParserError))
-        self.assertEqual(1, len(streamEnd))
-
-
-    def test_streamEnd(self):
+    def test_getElementPlain(self):
         """
-        Ending the stream fires a L{STREAM_END_EVENT}.
+        Test namespace of the element representation of an error.
         """
-        streamEnd = []
+        e = error.StreamError('feature-not-implemented')
+        element = e.getElement()
+        self.assertEqual(element.uri, NS_STREAMS)
 
-        def streamEndEvent(reason):
-            streamEnd.append(reason)
+    def test_getElementConditionNamespace(self):
+        """
+        Test that the error condition element has the correct namespace.
+        """
+        e = error.StreamError('feature-not-implemented')
+        element = e.getElement()
+        self.assertEqual(NS_XMPP_STREAMS, getattr(element, 'feature-not-implemented').uri)
 
-        self.xmlstream.addObserver(xmlstream.STREAM_END_EVENT,
-                                   streamEndEvent)
-        self.xmlstream.connectionMade()
-        self.loseConnection()
-        self.assertEqual(1, len(streamEnd))
-        self.assertIsInstance(streamEnd[0], failure.Failure)
-        self.assertEqual(streamEnd[0].getErrorMessage(),
-                self.connectionLostMsg)
+    def test_getElementTextNamespace(self):
+        """
+        Test that the error text element has the correct namespace.
+        """
+        e = error.StreamError('feature-not-implemented', u'text')
+        element = e.getElement()
+        self.assertEqual(NS_XMPP_STREAMS, element.text.uri)
 
 
 
-class DummyProtocol(protocol.Protocol, utility.EventDispatcher):
+class StanzaErrorTests(unittest.TestCase):
     """
-    I am a protocol with an event dispatcher without further processing.
-
-    This protocol is only used for testing XmlStreamFactoryMixin to make
-    sure the bootstrap observers are added to the protocol instance.
+    Tests for L{error.StreamError}.
     """
 
-    def __init__(self, *args, **kwargs):
-        self.args = args
-        self.kwargs = kwargs
-        self.observers = []
 
-        utility.EventDispatcher.__init__(self)
+    def test_typeRemoteServerTimeout(self):
+        """
+        Remote Server Timeout should yield type wait, code 504.
+        """
+        e = error.StanzaError('remote-server-timeout')
+        self.assertEqual('wait', e.type)
+        self.assertEqual('504', e.code)
+
+
+    def test_getElementPlain(self):
+        """
+        Test getting an element for a plain stanza error.
+        """
+        e = error.StanzaError('feature-not-implemented')
+        element = e.getElement()
+        self.assertEqual(element.uri, None)
+        self.assertEqual(element['type'], 'cancel')
+        self.assertEqual(element['code'], '501')
+
+
+    def test_getElementType(self):
+        """
+        Test getting an element for a stanza error with a given type.
+        """
+        e = error.StanzaError('feature-not-implemented', 'auth')
+        element = e.getElement()
+        self.assertEqual(element.uri, None)
+        self.assertEqual(element['type'], 'auth')
+        self.assertEqual(element['code'], '501')
+
+
+    def test_getElementConditionNamespace(self):
+        """
+        Test that the error condition element has the correct namespace.
+        """
+        e = error.StanzaError('feature-not-implemented')
+        element = e.getElement()
+        self.assertEqual(NS_XMPP_STANZAS, getattr(element, 'feature-not-implemented').uri)
+
+
+    def test_getElementTextNamespace(self):
+        """
+        Test that the error text element has the correct namespace.
+        """
+        e = error.StanzaError('feature-not-implemented', text=u'text')
+        element = e.getElement()
+        self.assertEqual(NS_XMPP_STANZAS, element.text.uri)
+
+
+    def test_toResponse(self):
+        """
+        Test an error response is generated from a stanza.
+
+        The addressing on the (new) response stanza should be reversed, an
+        error child (with proper properties) added and the type set to
+        C{'error'}.
+        """
+        stanza = domish.Element(('jabber:client', 'message'))
+        stanza['type'] = 'chat'
+        stanza['to'] = 'user1@example.com'
+        stanza['from'] = 'user2@example.com/resource'
+        e = error.StanzaError('service-unavailable')
+        response = e.toResponse(stanza)
+        self.assertNotIdentical(response, stanza)
+        self.assertEqual(response['from'], 'user1@example.com')
+        self.assertEqual(response['to'], 'user2@example.com/resource')
+        self.assertEqual(response['type'], 'error')
+        self.assertEqual(response.error.children[0].name,
+                         'service-unavailable')
+        self.assertEqual(response.error['type'], 'cancel')
+        self.assertNotEqual(stanza.children, response.children)
 
 
 
-class BootstrapMixinTests(unittest.TestCase):
+class ParseErrorTests(unittest.TestCase):
     """
-    Tests for L{xmlstream.BootstrapMixin}.
-
-    @ivar factory: Instance of the factory or mixin under test.
+    Tests for L{error._parseError}.
     """
 
-    def setUp(self):
-        self.factory = xmlstream.BootstrapMixin()
-
-
-    def test_installBootstraps(self):
-        """
-        Dispatching an event fires registered bootstrap observers.
-        """
-        called = []
-
-        def cb(data):
-            called.append(data)
-
-        dispatcher = DummyProtocol()
-        self.factory.addBootstrap('//event/myevent', cb)
-        self.factory.installBootstraps(dispatcher)
-
-        dispatcher.dispatch(None, '//event/myevent')
-        self.assertEqual(1, len(called))
-
-
-    def test_addAndRemoveBootstrap(self):
-        """
-        Test addition and removal of a bootstrap event handler.
-        """
-
-        called = []
-
-        def cb(data):
-            called.append(data)
-
-        self.factory.addBootstrap('//event/myevent', cb)
-        self.factory.removeBootstrap('//event/myevent', cb)
-
-        dispatcher = DummyProtocol()
-        self.factory.installBootstraps(dispatcher)
-
-        dispatcher.dispatch(None, '//event/myevent')
-        self.assertFalse(called)
-
-
-
-class GenericXmlStreamFactoryTestsMixin(BootstrapMixinTests):
-    """
-    Generic tests for L{XmlStream} factories.
-    """
-
-    def setUp(self):
-        self.factory = xmlstream.XmlStreamFactory()
-
-
-    def test_buildProtocolInstallsBootstraps(self):
-        """
-        The protocol factory installs bootstrap event handlers on the protocol.
-        """
-        called = []
-
-        def cb(data):
-            called.append(data)
-
-        self.factory.addBootstrap('//event/myevent', cb)
-
-        xs = self.factory.buildProtocol(None)
-        xs.dispatch(None, '//event/myevent')
-
-        self.assertEqual(1, len(called))
-
-
-    def test_buildProtocolStoresFactory(self):
-        """
-        The protocol factory is saved in the protocol.
-        """
-        xs = self.factory.buildProtocol(None)
-        self.assertIdentical(self.factory, xs.factory)
-
-
-
-class XmlStreamFactoryMixinTests(GenericXmlStreamFactoryTestsMixin):
-    """
-    Tests for L{xmlstream.XmlStreamFactoryMixin}.
-    """
 
     def setUp(self):
-        self.factory = xmlstream.XmlStreamFactoryMixin(None, test=None)
-        self.factory.protocol = DummyProtocol
+        self.error = domish.Element((None, 'error'))
 
 
-    def test_buildProtocolFactoryArguments(self):
+    def test_empty(self):
         """
-        Arguments passed to the factory are passed to protocol on
-        instantiation.
+        Test parsing of the empty error element.
         """
-        xs = self.factory.buildProtocol(None)
+        result = error._parseError(self.error, 'errorns')
+        self.assertEqual({'condition': None,
+                          'text': None,
+                          'textLang': None,
+                          'appCondition': None}, result)
 
-        self.assertEqual((None,), xs.args)
-        self.assertEqual({'test': None}, xs.kwargs)
+
+    def test_condition(self):
+        """
+        Test parsing of an error element with a condition.
+        """
+        self.error.addElement(('errorns', 'bad-request'))
+        result = error._parseError(self.error, 'errorns')
+        self.assertEqual('bad-request', result['condition'])
+
+
+    def test_text(self):
+        """
+        Test parsing of an error element with a text.
+        """
+        text = self.error.addElement(('errorns', 'text'))
+        text.addContent(u'test')
+        result = error._parseError(self.error, 'errorns')
+        self.assertEqual('test', result['text'])
+        self.assertEqual(None, result['textLang'])
+
+
+    def test_textLang(self):
+        """
+        Test parsing of an error element with a text with a defined language.
+        """
+        text = self.error.addElement(('errorns', 'text'))
+        text[NS_XML, 'lang'] = 'en_US'
+        text.addContent(u'test')
+        result = error._parseError(self.error, 'errorns')
+        self.assertEqual('en_US', result['textLang'])
+
+
+    def test_appCondition(self):
+        """
+        Test parsing of an error element with an app specific condition.
+        """
+        condition = self.error.addElement(('testns', 'condition'))
+        result = error._parseError(self.error, 'errorns')
+        self.assertEqual(condition, result['appCondition'])
+
+
+    def test_appConditionMultiple(self):
+        """
+        Test parsing of an error element with multiple app specific conditions.
+        """
+        self.error.addElement(('testns', 'condition'))
+        condition = self.error.addElement(('testns', 'condition2'))
+        result = error._parseError(self.error, 'errorns')
+        self.assertEqual(condition, result['appCondition'])
+
+
+
+class ExceptionFromStanzaTests(unittest.TestCase):
+
+    def test_basic(self):
+        """
+        Test basic operations of exceptionFromStanza.
+
+        Given a realistic stanza, check if a sane exception is returned.
+
+        Using this stanza::
+
+          <iq type='error'
+              from='pubsub.shakespeare.lit'
+              to='francisco@denmark.lit/barracks'
+              id='subscriptions1'>
+            <pubsub xmlns='http://jabber.org/protocol/pubsub'>
+              <subscriptions/>
+            </pubsub>
+            <error type='cancel'>
+              <feature-not-implemented
+                xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>
+              <unsupported xmlns='http://jabber.org/protocol/pubsub#errors'
+                           feature='retrieve-subscriptions'/>
+            </error>
+          </iq>
+        """
+
+        stanza = domish.Element((None, 'stanza'))
+        p = stanza.addElement(('http://jabber.org/protocol/pubsub', 'pubsub'))
+        p.addElement('subscriptions')
+        e = stanza.addElement('error')
+        e['type'] = 'cancel'
+        e.addElement((NS_XMPP_STANZAS, 'feature-not-implemented'))
+        uc = e.addElement(('http://jabber.org/protocol/pubsub#errors',
+                           'unsupported'))
+        uc['feature'] = 'retrieve-subscriptions'
+
+        result = error.exceptionFromStanza(stanza)
+        self.assertIsInstance(result, error.StanzaError)
+        self.assertEqual('feature-not-implemented', result.condition)
+        self.assertEqual('cancel', result.type)
+        self.assertEqual(uc, result.appCondition)
+        self.assertEqual([p], result.children)
+
+    def test_legacy(self):
+        """
+        Test legacy operations of exceptionFromStanza.
+
+        Given a realistic stanza with only legacy (pre-XMPP) error information,
+        check if a sane exception is returned.
+
+        Using this stanza::
+
+          <message type='error'
+                   to='piers@pipetree.com/Home'
+                   from='qmacro@jaber.org'>
+            <body>Are you there?</body>
+            <error code='502'>Unable to resolve hostname.</error>
+          </message>
+        """
+        stanza = domish.Element((None, 'stanza'))
+        p = stanza.addElement('body', content=u'Are you there?')
+        e = stanza.addElement('error', content=u'Unable to resolve hostname.')
+        e['code'] = '502'
+
+        result = error.exceptionFromStanza(stanza)
+        self.assertIsInstance(result, error.StanzaError)
+        self.assertEqual('service-unavailable', result.condition)
+        self.assertEqual('wait', result.type)
+        self.assertEqual('Unable to resolve hostname.', result.text)
+        self.assertEqual([p], result.children)
+
+class ExceptionFromStreamErrorTests(unittest.TestCase):
+
+    def test_basic(self):
+        """
+        Test basic operations of exceptionFromStreamError.
+
+        Given a realistic stream error, check if a sane exception is returned.
+
+        Using this error::
+
+          <stream:error xmlns:stream='http://etherx.jabber.org/streams'>
+            <xml-not-well-formed xmlns='urn:ietf:params:xml:ns:xmpp-streams'/>
+          </stream:error>
+        """
+
+        e = domish.Element(('http://etherx.jabber.org/streams', 'error'))
+        e.addElement((NS_XMPP_STREAMS, 'xml-not-well-formed'))
+
+        result = error.exceptionFromStreamError(e)
+        self.assertIsInstance(result, error.StreamError)
+        self.assertEqual('xml-not-well-formed', result.condition)

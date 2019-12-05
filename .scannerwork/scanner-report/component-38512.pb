@@ -1,1 +1,1 @@
-ð¬Gvenv/lib64/python3.6/site-packages/docutils/parsers/rst/languages/gl.py 2pyXph
+ð¬Gvenv/lib64/python3.6/site-packages/docutils/parsers/rst/languages/lt.py 2pyXnh

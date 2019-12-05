@@ -1,1 +1,0 @@
-ù»*venv/lib/python3.6/site-packages/static.py 2pyXÉh

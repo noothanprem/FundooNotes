@@ -1,3 +1,3 @@
-o
-pythonS117SRename this parameter "excType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2## p
-pythonS117TRename this parameter "excValue" to match the regular expression ^[_a-z][a-z0-9_]*$. 2##  (
+v
+pythonS117ZRename this local variable "scriptDir" to match the regular expression ^[_a-z][a-z0-9_]*$. 2 w
+pythonS117[Rename this local variable "scriptName" to match the regular expression ^[_a-z][a-z0-9_]*$. 2 

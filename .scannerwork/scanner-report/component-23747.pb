@@ -1,1 +1,1 @@
-ùCvenv/lib/python3.6/site-packages/social_core/backends/wunderlist.py 2pyXh
+ù?venv/lib/python3.6/site-packages/social_core/backends/arcgis.py 2pyX"h

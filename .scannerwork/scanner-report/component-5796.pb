@@ -1,1 +1,0 @@
-¤-Rvenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/oracle/features.py 2pyXh

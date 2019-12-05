@@ -1,1 +1,0 @@
-ǸEvenv/lib/python3.6/site-packages/social_core/tests/test_exceptions.py 2pyXth

@@ -1,4 +1,4 @@
-# Copyright 2013 Donald Stufft and individual contributors
+# Copyright 2016 Donald Stufft and individual contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,47 +14,49 @@
 
 from __future__ import absolute_import, division, print_function
 
-from nacl import exceptions as exc
+import nacl.exceptions as exc
 from nacl._sodium import ffi, lib
 from nacl.exceptions import ensure
 
+BYTES = lib.crypto_shorthash_siphash24_bytes()
+KEYBYTES = lib.crypto_shorthash_siphash24_keybytes()
+XBYTES = lib.crypto_shorthash_siphashx24_bytes()
+XKEYBYTES = lib.crypto_shorthash_siphashx24_keybytes()
 
-crypto_scalarmult_BYTES = lib.crypto_scalarmult_bytes()
-crypto_scalarmult_SCALARBYTES = lib.crypto_scalarmult_scalarbytes()
 
+def crypto_shorthash_siphash24(data, key):
+    """Compute a fast, cryptographic quality, keyed hash of the input data
 
-def crypto_scalarmult_base(n):
+    :param data:
+    :type data: bytes
+    :param key: len(key) must be equal to
+                :py:data:`.KEYBYTES` (16)
+    :type key: bytes
     """
-    Computes and returns the scalar product of a standard group element and an
-    integer ``n``.
+    if len(key) != KEYBYTES:
+        raise exc.ValueError(
+            "Key length must be exactly {0} bytes".format(KEYBYTES))
+    digest = ffi.new("unsigned char[]", BYTES)
+    rc = lib.crypto_shorthash_siphash24(digest, data, len(data), key)
 
-    :param n: bytes
-    :rtype: bytes
+    ensure(rc == 0, raising=exc.RuntimeError)
+    return ffi.buffer(digest, BYTES)[:]
+
+
+def crypto_shorthash_siphashx24(data, key):
+    """Compute a fast, cryptographic quality, keyed hash of the input data
+
+    :param data:
+    :type data: bytes
+    :param key: len(key) must be equal to
+                :py:data:`.XKEYBYTES` (16)
+    :type key: bytes
     """
-    q = ffi.new("unsigned char[]", crypto_scalarmult_BYTES)
+    if len(key) != XKEYBYTES:
+        raise exc.ValueError(
+            "Key length must be exactly {0} bytes".format(XKEYBYTES))
+    digest = ffi.new("unsigned char[]", XBYTES)
+    rc = lib.crypto_shorthash_siphashx24(digest, data, len(data), key)
 
-    rc = lib.crypto_scalarmult_base(q, n)
-    ensure(rc == 0,
-           'Unexpected library error',
-           raising=exc.RuntimeError)
-
-    return ffi.buffer(q, crypto_scalarmult_SCALARBYTES)[:]
-
-
-def crypto_scalarmult(n, p):
-    """
-    Computes and returns the scalar product of the given group element and an
-    integer ``n``.
-
-    :param p: bytes
-    :param n: bytes
-    :rtype: bytes
-    """
-    q = ffi.new("unsigned char[]", crypto_scalarmult_BYTES)
-
-    rc = lib.crypto_scalarmult(q, n, p)
-    ensure(rc == 0,
-           'Unexpected library error',
-           raising=exc.RuntimeError)
-
-    return ffi.buffer(q, crypto_scalarmult_SCALARBYTES)[:]
+    ensure(rc == 0, raising=exc.RuntimeError)
+    return ffi.buffer(digest, XBYTES)[:]

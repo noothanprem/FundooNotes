@@ -1,1 +1,1 @@
-ğ«1venv/lib64/python3.6/site-packages/docutils/utils :ï«ÿ«€¬¬‰¬Š¬Œ¬
+ğ«1venv/lib64/python3.6/site-packages/docutils/utils :ï«ÿ«€¬¬‰¬‹¬Œ¬

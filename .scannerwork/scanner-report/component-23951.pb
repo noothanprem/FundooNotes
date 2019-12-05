@@ -1,1 +1,1 @@
-èª?venv/lib/python3.6/site-packages/social_core/backends/strava.py 2pyX0h
+èª=venv/lib/python3.6/site-packages/social_core/backends/saml.py 2pyX‘h

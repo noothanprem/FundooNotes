@@ -1,1 +1,1 @@
-ÇºIvenv/lib/python3.6/site-packages/django_extensions/jobs/daily/__init__.py 2pyXh
+Çº=venv/lib/python3.6/site-packages/django_extensions/jobs/daily :	ÅºÉºáº

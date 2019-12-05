@@ -1,16 +1,35 @@
-"""Matchers of collections."""
-from __future__ import absolute_import
-from .isdict_containing import has_entry
-from .isdict_containingentries import has_entries
-from .isdict_containingkey import has_key
-from .isdict_containingvalue import has_value
-from .isin import is_in
-from .issequence_containing import has_item, has_items
-from .issequence_containinginanyorder import contains_inanyorder
-from .issequence_containinginorder import contains
-from .issequence_onlycontaining import only_contains
-from .is_empty import empty
+from hamcrest.core.base_matcher import BaseMatcher
 
 __author__ = "Chris Rose"
-__copyright__ = "Copyright 2013 hamcrest.org"
+__copyright__ = "Copyright 2012 hamcrest.org"
 __license__ = "BSD, see License.txt"
+
+
+class IsEmpty(BaseMatcher):
+
+    def matches(self, item, mismatch_description=None):
+        try:
+            if len(item) == 0:
+                return True
+
+            if mismatch_description:
+                mismatch_description \
+                    .append_text('has %d item(s)' % len(item))
+
+        except TypeError:
+            if mismatch_description:
+                mismatch_description \
+                    .append_text('does not support length')
+
+            return False
+
+    def describe_to(self, description):
+        description.append_text('an empty collection')
+
+
+def empty():
+    """
+    This matcher matches any collection-like object that responds to the
+    __len__ method, and has a length of 0.
+    """
+    return IsEmpty()

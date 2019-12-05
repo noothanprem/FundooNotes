@@ -1,362 +1,362 @@
 # -*- coding: utf-8 -*-
-r"""
-    werkzeug.contrib.securecookie
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+"""
+    werkzeug.contrib.atom
+    ~~~~~~~~~~~~~~~~~~~~~
 
-    This module implements a cookie that is not alterable from the client
-    because it adds a checksum the server checks for.  You can use it as
-    session replacement if all you have is a user id or something to mark
-    a logged in user.
+    This module provides a class called :class:`AtomFeed` which can be
+    used to generate feeds in the Atom syndication format (see :rfc:`4287`).
 
-    Keep in mind that the data is still readable from the client as a
-    normal cookie is.  However you don't have to store and flush the
-    sessions you have at the server.
+    Example::
 
-    Example usage:
-
-    >>> from werkzeug.contrib.securecookie import SecureCookie
-    >>> x = SecureCookie({"foo": 42, "baz": (1, 2, 3)}, "deadbeef")
-
-    Dumping into a string so that one can store it in a cookie:
-
-    >>> value = x.serialize()
-
-    Loading from that string again:
-
-    >>> x = SecureCookie.unserialize(value, "deadbeef")
-    >>> x["baz"]
-    (1, 2, 3)
-
-    If someone modifies the cookie and the checksum is wrong the unserialize
-    method will fail silently and return a new empty `SecureCookie` object.
-
-    Keep in mind that the values will be visible in the cookie so do not
-    store data in a cookie you don't want the user to see.
-
-    Application Integration
-    =======================
-
-    If you are using the werkzeug request objects you could integrate the
-    secure cookie into your application like this::
-
-        from werkzeug.utils import cached_property
-        from werkzeug.wrappers import BaseRequest
-        from werkzeug.contrib.securecookie import SecureCookie
-
-        # don't use this key but a different one; you could just use
-        # os.urandom(20) to get something random
-        SECRET_KEY = '\xfa\xdd\xb8z\xae\xe0}4\x8b\xea'
-
-        class Request(BaseRequest):
-
-            @cached_property
-            def client_session(self):
-                data = self.cookies.get('session_data')
-                if not data:
-                    return SecureCookie(secret_key=SECRET_KEY)
-                return SecureCookie.unserialize(data, SECRET_KEY)
-
-        def application(environ, start_response):
-            request = Request(environ)
-
-            # get a response object here
-            response = ...
-
-            if request.client_session.should_save:
-                session_data = request.client_session.serialize()
-                response.set_cookie('session_data', session_data,
-                                    httponly=True)
-            return response(environ, start_response)
-
-    A less verbose integration can be achieved by using shorthand methods::
-
-        class Request(BaseRequest):
-
-            @cached_property
-            def client_session(self):
-                return SecureCookie.load_cookie(self, secret_key=COOKIE_SECRET)
-
-        def application(environ, start_response):
-            request = Request(environ)
-
-            # get a response object here
-            response = ...
-
-            request.client_session.save_cookie(response)
-            return response(environ, start_response)
+        def atom_feed(request):
+            feed = AtomFeed("My Blog", feed_url=request.url,
+                            url=request.host_url,
+                            subtitle="My example blog for a feed test.")
+            for post in Post.query.limit(10).all():
+                feed.add(post.title, post.body, content_type='html',
+                         author=post.author, url=post.url, id=post.uid,
+                         updated=post.last_update, published=post.pub_date)
+            return feed.get_response()
 
     :copyright: 2007 Pallets
     :license: BSD-3-Clause
 """
-import base64
-import pickle
 import warnings
-from hashlib import sha1 as _default_hash
-from hmac import new as hmac
-from time import time
+from datetime import datetime
 
-from .._compat import iteritems
-from .._compat import text_type
-from .._compat import to_bytes
-from .._compat import to_native
-from .._internal import _date_to_unix
-from ..contrib.sessions import ModificationTrackingDict
-from ..security import safe_str_cmp
-from ..urls import url_quote_plus
-from ..urls import url_unquote_plus
+from .._compat import implements_to_string
+from .._compat import string_types
+from ..utils import escape
+from ..wrappers import BaseResponse
 
 warnings.warn(
-    "'werkzeug.contrib.securecookie' is deprecated as of version 0.15"
-    " and will be removed in version 1.0. It has moved to"
-    " https://github.com/pallets/secure-cookie.",
+    "'werkzeug.contrib.atom' is deprecated as of version 0.15 and will"
+    " be removed in version 1.0.",
     DeprecationWarning,
     stacklevel=2,
 )
 
-
-class UnquoteError(Exception):
-    """Internal exception used to signal failures on quoting."""
+XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
 
 
-class SecureCookie(ModificationTrackingDict):
-    """Represents a secure cookie.  You can subclass this class and provide
-    an alternative mac method.  The import thing is that the mac method
-    is a function with a similar interface to the hashlib.  Required
-    methods are update() and digest().
+def _make_text_block(name, content, content_type=None):
+    """Helper function for the builder that creates an XML text block."""
+    if content_type == "xhtml":
+        return u'<%s type="xhtml"><div xmlns="%s">%s</div></%s>\n' % (
+            name,
+            XHTML_NAMESPACE,
+            content,
+            name,
+        )
+    if not content_type:
+        return u"<%s>%s</%s>\n" % (name, escape(content), name)
+    return u'<%s type="%s">%s</%s>\n' % (name, content_type, escape(content), name)
 
-    Example usage:
 
-    >>> x = SecureCookie({"foo": 42, "baz": (1, 2, 3)}, "deadbeef")
-    >>> x["foo"]
-    42
-    >>> x["baz"]
-    (1, 2, 3)
-    >>> x["blafasel"] = 23
-    >>> x.should_save
-    True
+def format_iso8601(obj):
+    """Format a datetime object for iso8601"""
+    iso8601 = obj.isoformat()
+    if obj.tzinfo:
+        return iso8601
+    return iso8601 + "Z"
 
-    :param data: the initial data.  Either a dict, list of tuples or `None`.
-    :param secret_key: the secret key.  If not set `None` or not specified
-                       it has to be set before :meth:`serialize` is called.
-    :param new: The initial value of the `new` flag.
+
+@implements_to_string
+class AtomFeed(object):
+
+    """A helper class that creates Atom feeds.
+
+    :param title: the title of the feed. Required.
+    :param title_type: the type attribute for the title element.  One of
+                       ``'html'``, ``'text'`` or ``'xhtml'``.
+    :param url: the url for the feed (not the url *of* the feed)
+    :param id: a globally unique id for the feed.  Must be an URI.  If
+               not present the `feed_url` is used, but one of both is
+               required.
+    :param updated: the time the feed was modified the last time.  Must
+                    be a :class:`datetime.datetime` object.  If not
+                    present the latest entry's `updated` is used.
+                    Treated as UTC if naive datetime.
+    :param feed_url: the URL to the feed.  Should be the URL that was
+                     requested.
+    :param author: the author of the feed.  Must be either a string (the
+                   name) or a dict with name (required) and uri or
+                   email (both optional).  Can be a list of (may be
+                   mixed, too) strings and dicts, too, if there are
+                   multiple authors. Required if not every entry has an
+                   author element.
+    :param icon: an icon for the feed.
+    :param logo: a logo for the feed.
+    :param rights: copyright information for the feed.
+    :param rights_type: the type attribute for the rights element.  One of
+                        ``'html'``, ``'text'`` or ``'xhtml'``.  Default is
+                        ``'text'``.
+    :param subtitle: a short description of the feed.
+    :param subtitle_type: the type attribute for the subtitle element.
+                          One of ``'text'``, ``'html'``, ``'text'``
+                          or ``'xhtml'``.  Default is ``'text'``.
+    :param links: additional links.  Must be a list of dictionaries with
+                  href (required) and rel, type, hreflang, title, length
+                  (all optional)
+    :param generator: the software that generated this feed.  This must be
+                      a tuple in the form ``(name, url, version)``.  If
+                      you don't want to specify one of them, set the item
+                      to `None`.
+    :param entries: a list with the entries for the feed. Entries can also
+                    be added later with :meth:`add`.
+
+    For more information on the elements see
+    http://www.atomenabled.org/developers/syndication/
+
+    Everywhere where a list is demanded, any iterable can be used.
     """
 
-    #: The hash method to use.  This has to be a module with a new function
-    #: or a function that creates a hashlib object.  Such as `hashlib.md5`
-    #: Subclasses can override this attribute.  The default hash is sha1.
-    #: Make sure to wrap this in staticmethod() if you store an arbitrary
-    #: function there such as hashlib.sha1 which  might be implemented
-    #: as a function.
-    hash_method = staticmethod(_default_hash)
+    default_generator = ("Werkzeug", None, None)
 
-    #: The module used for serialization. Should have a ``dumps`` and a
-    #: ``loads`` method that takes bytes. The default is :mod:`pickle`.
-    #:
-    #: .. versionchanged:: 0.15
-    #:     The default of ``pickle`` will change to :mod:`json` in 1.0.
-    serialization_method = pickle
+    def __init__(self, title=None, entries=None, **kwargs):
+        self.title = title
+        self.title_type = kwargs.get("title_type", "text")
+        self.url = kwargs.get("url")
+        self.feed_url = kwargs.get("feed_url", self.url)
+        self.id = kwargs.get("id", self.feed_url)
+        self.updated = kwargs.get("updated")
+        self.author = kwargs.get("author", ())
+        self.icon = kwargs.get("icon")
+        self.logo = kwargs.get("logo")
+        self.rights = kwargs.get("rights")
+        self.rights_type = kwargs.get("rights_type")
+        self.subtitle = kwargs.get("subtitle")
+        self.subtitle_type = kwargs.get("subtitle_type", "text")
+        self.generator = kwargs.get("generator")
+        if self.generator is None:
+            self.generator = self.default_generator
+        self.links = kwargs.get("links", [])
+        self.entries = list(entries) if entries else []
 
-    #: if the contents should be base64 quoted.  This can be disabled if the
-    #: serialization process returns cookie safe strings only.
-    quote_base64 = True
+        if not hasattr(self.author, "__iter__") or isinstance(
+            self.author, string_types + (dict,)
+        ):
+            self.author = [self.author]
+        for i, author in enumerate(self.author):
+            if not isinstance(author, dict):
+                self.author[i] = {"name": author}
 
-    def __init__(self, data=None, secret_key=None, new=True):
-        ModificationTrackingDict.__init__(self, data or ())
-        # explicitly convert it into a bytestring because python 2.6
-        # no longer performs an implicit string conversion on hmac
-        if secret_key is not None:
-            secret_key = to_bytes(secret_key, "utf-8")
-        self.secret_key = secret_key
-        self.new = new
+        if not self.title:
+            raise ValueError("title is required")
+        if not self.id:
+            raise ValueError("id is required")
+        for author in self.author:
+            if "name" not in author:
+                raise TypeError("author must contain at least a name")
 
-        if self.serialization_method is pickle:
-            warnings.warn(
-                "The default 'SecureCookie.serialization_method' will"
-                " change from pickle to json in version 1.0. To upgrade"
-                " existing tokens, override 'unquote' to try pickle if"
-                " json fails.",
-                stacklevel=2,
-            )
+    def add(self, *args, **kwargs):
+        """Add a new entry to the feed.  This function can either be called
+        with a :class:`FeedEntry` or some keyword and positional arguments
+        that are forwarded to the :class:`FeedEntry` constructor.
+        """
+        if len(args) == 1 and not kwargs and isinstance(args[0], FeedEntry):
+            self.entries.append(args[0])
+        else:
+            kwargs["feed_url"] = self.feed_url
+            self.entries.append(FeedEntry(*args, **kwargs))
 
     def __repr__(self):
-        return "<%s %s%s>" % (
+        return "<%s %r (%d entries)>" % (
             self.__class__.__name__,
-            dict.__repr__(self),
-            "*" if self.should_save else "",
+            self.title,
+            len(self.entries),
         )
 
-    @property
-    def should_save(self):
-        """True if the session should be saved.  By default this is only true
-        for :attr:`modified` cookies, not :attr:`new`.
-        """
-        return self.modified
+    def generate(self):
+        """Return a generator that yields pieces of XML."""
+        # atom demands either an author element in every entry or a global one
+        if not self.author:
+            if any(not e.author for e in self.entries):
+                self.author = ({"name": "Unknown author"},)
 
-    @classmethod
-    def quote(cls, value):
-        """Quote the value for the cookie.  This can be any object supported
-        by :attr:`serialization_method`.
+        if not self.updated:
+            dates = sorted([entry.updated for entry in self.entries])
+            self.updated = dates[-1] if dates else datetime.utcnow()
 
-        :param value: the value to quote.
-        """
-        if cls.serialization_method is not None:
-            value = cls.serialization_method.dumps(value)
-        if cls.quote_base64:
-            value = b"".join(
-                base64.b64encode(to_bytes(value, "utf8")).splitlines()
-            ).strip()
-        return value
-
-    @classmethod
-    def unquote(cls, value):
-        """Unquote the value for the cookie.  If unquoting does not work a
-        :exc:`UnquoteError` is raised.
-
-        :param value: the value to unquote.
-        """
-        try:
-            if cls.quote_base64:
-                value = base64.b64decode(value)
-            if cls.serialization_method is not None:
-                value = cls.serialization_method.loads(value)
-            return value
-        except Exception:
-            # unfortunately pickle and other serialization modules can
-            # cause pretty every error here.  if we get one we catch it
-            # and convert it into an UnquoteError
-            raise UnquoteError()
-
-    def serialize(self, expires=None):
-        """Serialize the secure cookie into a string.
-
-        If expires is provided, the session will be automatically invalidated
-        after expiration when you unseralize it. This provides better
-        protection against session cookie theft.
-
-        :param expires: an optional expiration date for the cookie (a
-                        :class:`datetime.datetime` object)
-        """
-        if self.secret_key is None:
-            raise RuntimeError("no secret key defined")
-        if expires:
-            self["_expires"] = _date_to_unix(expires)
-        result = []
-        mac = hmac(self.secret_key, None, self.hash_method)
-        for key, value in sorted(self.items()):
-            result.append(
-                (
-                    "%s=%s" % (url_quote_plus(key), self.quote(value).decode("ascii"))
-                ).encode("ascii")
+        yield u'<?xml version="1.0" encoding="utf-8"?>\n'
+        yield u'<feed xmlns="http://www.w3.org/2005/Atom">\n'
+        yield "  " + _make_text_block("title", self.title, self.title_type)
+        yield u"  <id>%s</id>\n" % escape(self.id)
+        yield u"  <updated>%s</updated>\n" % format_iso8601(self.updated)
+        if self.url:
+            yield u'  <link href="%s" />\n' % escape(self.url)
+        if self.feed_url:
+            yield u'  <link href="%s" rel="self" />\n' % escape(self.feed_url)
+        for link in self.links:
+            yield u"  <link %s/>\n" % "".join(
+                '%s="%s" ' % (k, escape(link[k])) for k in link
             )
-            mac.update(b"|" + result[-1])
-        return b"?".join([base64.b64encode(mac.digest()).strip(), b"&".join(result)])
+        for author in self.author:
+            yield u"  <author>\n"
+            yield u"    <name>%s</name>\n" % escape(author["name"])
+            if "uri" in author:
+                yield u"    <uri>%s</uri>\n" % escape(author["uri"])
+            if "email" in author:
+                yield "    <email>%s</email>\n" % escape(author["email"])
+            yield "  </author>\n"
+        if self.subtitle:
+            yield "  " + _make_text_block("subtitle", self.subtitle, self.subtitle_type)
+        if self.icon:
+            yield u"  <icon>%s</icon>\n" % escape(self.icon)
+        if self.logo:
+            yield u"  <logo>%s</logo>\n" % escape(self.logo)
+        if self.rights:
+            yield "  " + _make_text_block("rights", self.rights, self.rights_type)
+        generator_name, generator_url, generator_version = self.generator
+        if generator_name or generator_url or generator_version:
+            tmp = [u"  <generator"]
+            if generator_url:
+                tmp.append(u' uri="%s"' % escape(generator_url))
+            if generator_version:
+                tmp.append(u' version="%s"' % escape(generator_version))
+            tmp.append(u">%s</generator>\n" % escape(generator_name))
+            yield u"".join(tmp)
+        for entry in self.entries:
+            for line in entry.generate():
+                yield u"  " + line
+        yield u"</feed>\n"
 
-    @classmethod
-    def unserialize(cls, string, secret_key):
-        """Load the secure cookie from a serialized string.
+    def to_string(self):
+        """Convert the feed into a string."""
+        return u"".join(self.generate())
 
-        :param string: the cookie value to unserialize.
-        :param secret_key: the secret key used to serialize the cookie.
-        :return: a new :class:`SecureCookie`.
-        """
-        if isinstance(string, text_type):
-            string = string.encode("utf-8", "replace")
-        if isinstance(secret_key, text_type):
-            secret_key = secret_key.encode("utf-8", "replace")
-        try:
-            base64_hash, data = string.split(b"?", 1)
-        except (ValueError, IndexError):
-            items = ()
-        else:
-            items = {}
-            mac = hmac(secret_key, None, cls.hash_method)
-            for item in data.split(b"&"):
-                mac.update(b"|" + item)
-                if b"=" not in item:
-                    items = None
-                    break
-                key, value = item.split(b"=", 1)
-                # try to make the key a string
-                key = url_unquote_plus(key.decode("ascii"))
-                try:
-                    key = to_native(key)
-                except UnicodeError:
-                    pass
-                items[key] = value
+    def get_response(self):
+        """Return a response object for the feed."""
+        return BaseResponse(self.to_string(), mimetype="application/atom+xml")
 
-            # no parsing error and the mac looks okay, we can now
-            # sercurely unpickle our cookie.
-            try:
-                client_hash = base64.b64decode(base64_hash)
-            except TypeError:
-                items = client_hash = None
-            if items is not None and safe_str_cmp(client_hash, mac.digest()):
-                try:
-                    for key, value in iteritems(items):
-                        items[key] = cls.unquote(value)
-                except UnquoteError:
-                    items = ()
-                else:
-                    if "_expires" in items:
-                        if time() > items["_expires"]:
-                            items = ()
-                        else:
-                            del items["_expires"]
-            else:
-                items = ()
-        return cls(items, secret_key, False)
+    def __call__(self, environ, start_response):
+        """Use the class as WSGI response object."""
+        return self.get_response()(environ, start_response)
 
-    @classmethod
-    def load_cookie(cls, request, key="session", secret_key=None):
-        """Loads a :class:`SecureCookie` from a cookie in request.  If the
-        cookie is not set, a new :class:`SecureCookie` instanced is
-        returned.
+    def __str__(self):
+        return self.to_string()
 
-        :param request: a request object that has a `cookies` attribute
-                        which is a dict of all cookie values.
-        :param key: the name of the cookie.
-        :param secret_key: the secret key used to unquote the cookie.
-                           Always provide the value even though it has
-                           no default!
-        """
-        data = request.cookies.get(key)
-        if not data:
-            return cls(secret_key=secret_key)
-        return cls.unserialize(data, secret_key)
 
-    def save_cookie(
-        self,
-        response,
-        key="session",
-        expires=None,
-        session_expires=None,
-        max_age=None,
-        path="/",
-        domain=None,
-        secure=None,
-        httponly=False,
-        force=False,
-    ):
-        """Saves the SecureCookie in a cookie on response object.  All
-        parameters that are not described here are forwarded directly
-        to :meth:`~BaseResponse.set_cookie`.
+@implements_to_string
+class FeedEntry(object):
 
-        :param response: a response object that has a
-                         :meth:`~BaseResponse.set_cookie` method.
-        :param key: the name of the cookie.
-        :param session_expires: the expiration date of the secure cookie
-                                stored information.  If this is not provided
-                                the cookie `expires` date is used instead.
-        """
-        if force or self.should_save:
-            data = self.serialize(session_expires or expires)
-            response.set_cookie(
-                key,
-                data,
-                expires=expires,
-                max_age=max_age,
-                path=path,
-                domain=domain,
-                secure=secure,
-                httponly=httponly,
+    """Represents a single entry in a feed.
+
+    :param title: the title of the entry. Required.
+    :param title_type: the type attribute for the title element.  One of
+                       ``'html'``, ``'text'`` or ``'xhtml'``.
+    :param content: the content of the entry.
+    :param content_type: the type attribute for the content element.  One
+                         of ``'html'``, ``'text'`` or ``'xhtml'``.
+    :param summary: a summary of the entry's content.
+    :param summary_type: the type attribute for the summary element.  One
+                         of ``'html'``, ``'text'`` or ``'xhtml'``.
+    :param url: the url for the entry.
+    :param id: a globally unique id for the entry.  Must be an URI.  If
+               not present the URL is used, but one of both is required.
+    :param updated: the time the entry was modified the last time.  Must
+                    be a :class:`datetime.datetime` object.  Treated as
+                    UTC if naive datetime. Required.
+    :param author: the author of the entry.  Must be either a string (the
+                   name) or a dict with name (required) and uri or
+                   email (both optional).  Can be a list of (may be
+                   mixed, too) strings and dicts, too, if there are
+                   multiple authors. Required if the feed does not have an
+                   author element.
+    :param published: the time the entry was initially published.  Must
+                      be a :class:`datetime.datetime` object.  Treated as
+                      UTC if naive datetime.
+    :param rights: copyright information for the entry.
+    :param rights_type: the type attribute for the rights element.  One of
+                        ``'html'``, ``'text'`` or ``'xhtml'``.  Default is
+                        ``'text'``.
+    :param links: additional links.  Must be a list of dictionaries with
+                  href (required) and rel, type, hreflang, title, length
+                  (all optional)
+    :param categories: categories for the entry. Must be a list of dictionaries
+                       with term (required), scheme and label (all optional)
+    :param xml_base: The xml base (url) for this feed item.  If not provided
+                     it will default to the item url.
+
+    For more information on the elements see
+    http://www.atomenabled.org/developers/syndication/
+
+    Everywhere where a list is demanded, any iterable can be used.
+    """
+
+    def __init__(self, title=None, content=None, feed_url=None, **kwargs):
+        self.title = title
+        self.title_type = kwargs.get("title_type", "text")
+        self.content = content
+        self.content_type = kwargs.get("content_type", "html")
+        self.url = kwargs.get("url")
+        self.id = kwargs.get("id", self.url)
+        self.updated = kwargs.get("updated")
+        self.summary = kwargs.get("summary")
+        self.summary_type = kwargs.get("summary_type", "html")
+        self.author = kwargs.get("author", ())
+        self.published = kwargs.get("published")
+        self.rights = kwargs.get("rights")
+        self.links = kwargs.get("links", [])
+        self.categories = kwargs.get("categories", [])
+        self.xml_base = kwargs.get("xml_base", feed_url)
+
+        if not hasattr(self.author, "__iter__") or isinstance(
+            self.author, string_types + (dict,)
+        ):
+            self.author = [self.author]
+        for i, author in enumerate(self.author):
+            if not isinstance(author, dict):
+                self.author[i] = {"name": author}
+
+        if not self.title:
+            raise ValueError("title is required")
+        if not self.id:
+            raise ValueError("id is required")
+        if not self.updated:
+            raise ValueError("updated is required")
+
+    def __repr__(self):
+        return "<%s %r>" % (self.__class__.__name__, self.title)
+
+    def generate(self):
+        """Yields pieces of ATOM XML."""
+        base = ""
+        if self.xml_base:
+            base = ' xml:base="%s"' % escape(self.xml_base)
+        yield u"<entry%s>\n" % base
+        yield u"  " + _make_text_block("title", self.title, self.title_type)
+        yield u"  <id>%s</id>\n" % escape(self.id)
+        yield u"  <updated>%s</updated>\n" % format_iso8601(self.updated)
+        if self.published:
+            yield u"  <published>%s</published>\n" % format_iso8601(self.published)
+        if self.url:
+            yield u'  <link href="%s" />\n' % escape(self.url)
+        for author in self.author:
+            yield u"  <author>\n"
+            yield u"    <name>%s</name>\n" % escape(author["name"])
+            if "uri" in author:
+                yield u"    <uri>%s</uri>\n" % escape(author["uri"])
+            if "email" in author:
+                yield u"    <email>%s</email>\n" % escape(author["email"])
+            yield u"  </author>\n"
+        for link in self.links:
+            yield u"  <link %s/>\n" % "".join(
+                '%s="%s" ' % (k, escape(link[k])) for k in link
             )
+        for category in self.categories:
+            yield u"  <category %s/>\n" % "".join(
+                '%s="%s" ' % (k, escape(category[k])) for k in category
+            )
+        if self.summary:
+            yield u"  " + _make_text_block("summary", self.summary, self.summary_type)
+        if self.content:
+            yield u"  " + _make_text_block("content", self.content, self.content_type)
+        yield u"</entry>\n"
+
+    def to_string(self):
+        """Convert the feed item into a unicode object."""
+        return u"".join(self.generate())
+
+    def __str__(self):
+        return self.to_string()

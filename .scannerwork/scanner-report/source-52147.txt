@@ -1,5 +1,9 @@
-from __future__ import absolute_import
+from .base import *
+from dotenv import load_dotenv, find_dotenv
+from pathlib import *
+try:
+    from .base import *
+except ImportError:
+    print("Import error")
 
-from .celery import app as celery_app
-
-__all__ = ['celery_app']
+TEST_TOKEN = os.getenv('TEST_TOKEN')

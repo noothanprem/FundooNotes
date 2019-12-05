@@ -1,1 +1,1 @@
-ƥ@venv/lib/python3.6/site-packages/twisted/internet/_posixstdio.py 2pyX�h
+ƥ:venv/lib/python3.6/site-packages/twisted/internet/_idna.py 2pyX7h

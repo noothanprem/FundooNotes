@@ -1,101 +1,98 @@
-# Copyright (c) 2010 Guilherme Gondim. All rights reserved.
-# Copyright (c) 2009 Simon Willison. All rights reserved.
-# Copyright (c) 2002 Drew Perttula. All rights reserved.
-#
-# License:
-#   Python Software Foundation License version 2
-#
-# See the file "LICENSE" for terms & conditions for usage, and a DISCLAIMER OF
-# ALL WARRANTIES.
-#
-# This Baseconv distribution contains no GNU General Public Licensed (GPLed)
-# code so it may be used in proprietary projects just like prior ``baseconv``
-# distributions.
-#
-# All trademarks referenced herein are property of their respective holders.
-#
-
-"""
-Convert numbers from base 10 integers to base X strings and back again.
-
-Sample usage::
-
-  >>> base20 = BaseConverter('0123456789abcdefghij')
-  >>> base20.encode(1234)
-  '31e'
-  >>> base20.decode('31e')
-  1234
-  >>> base20.encode(-1234)
-  '-31e'
-  >>> base20.decode('-31e')
-  -1234
-  >>> base11 = BaseConverter('0123456789-', sign='$')
-  >>> base11.encode('$1234')
-  '$-22'
-  >>> base11.decode('$-22')
-  '$1234'
-
-"""
-
-BASE2_ALPHABET = '01'
-BASE16_ALPHABET = '0123456789ABCDEF'
-BASE56_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz'
-BASE36_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz'
-BASE62_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-BASE64_ALPHABET = BASE62_ALPHABET + '-_'
+import copy
+import os
+from importlib import import_module
+from importlib.util import find_spec as importlib_find
 
 
-class BaseConverter:
-    decimal_digits = '0123456789'
+def import_string(dotted_path):
+    """
+    Import a dotted module path and return the attribute/class designated by the
+    last name in the path. Raise ImportError if the import failed.
+    """
+    try:
+        module_path, class_name = dotted_path.rsplit('.', 1)
+    except ValueError as err:
+        raise ImportError("%s doesn't look like a module path" % dotted_path) from err
 
-    def __init__(self, digits, sign='-'):
-        self.sign = sign
-        self.digits = digits
-        if sign in self.digits:
-            raise ValueError('Sign character found in converter base digits.')
+    module = import_module(module_path)
 
-    def __repr__(self):
-        return "<%s: base%s (%s)>" % (self.__class__.__name__, len(self.digits), self.digits)
-
-    def encode(self, i):
-        neg, value = self.convert(i, self.decimal_digits, self.digits, '-')
-        if neg:
-            return self.sign + value
-        return value
-
-    def decode(self, s):
-        neg, value = self.convert(s, self.digits, self.decimal_digits, self.sign)
-        if neg:
-            value = '-' + value
-        return int(value)
-
-    def convert(self, number, from_digits, to_digits, sign):
-        if str(number)[0] == sign:
-            number = str(number)[1:]
-            neg = 1
-        else:
-            neg = 0
-
-        # make an integer out of the number
-        x = 0
-        for digit in str(number):
-            x = x * len(from_digits) + from_digits.index(digit)
-
-        # create the result in base 'len(to_digits)'
-        if x == 0:
-            res = to_digits[0]
-        else:
-            res = ''
-            while x > 0:
-                digit = x % len(to_digits)
-                res = to_digits[digit] + res
-                x = int(x // len(to_digits))
-        return neg, res
+    try:
+        return getattr(module, class_name)
+    except AttributeError as err:
+        raise ImportError('Module "%s" does not define a "%s" attribute/class' % (
+            module_path, class_name)
+        ) from err
 
 
-base2 = BaseConverter(BASE2_ALPHABET)
-base16 = BaseConverter(BASE16_ALPHABET)
-base36 = BaseConverter(BASE36_ALPHABET)
-base56 = BaseConverter(BASE56_ALPHABET)
-base62 = BaseConverter(BASE62_ALPHABET)
-base64 = BaseConverter(BASE64_ALPHABET, sign='$')
+def autodiscover_modules(*args, **kwargs):
+    """
+    Auto-discover INSTALLED_APPS modules and fail silently when
+    not present. This forces an import on them to register any admin bits they
+    may want.
+
+    You may provide a register_to keyword parameter as a way to access a
+    registry. This register_to object must have a _registry instance variable
+    to access it.
+    """
+    from django.apps import apps
+
+    register_to = kwargs.get('register_to')
+    for app_config in apps.get_app_configs():
+        for module_to_search in args:
+            # Attempt to import the app's module.
+            try:
+                if register_to:
+                    before_import_registry = copy.copy(register_to._registry)
+
+                import_module('%s.%s' % (app_config.name, module_to_search))
+            except Exception:
+                # Reset the registry to the state before the last import
+                # as this import will have to reoccur on the next request and
+                # this could raise NotRegistered and AlreadyRegistered
+                # exceptions (see #8245).
+                if register_to:
+                    register_to._registry = before_import_registry
+
+                # Decide whether to bubble up this error. If the app just
+                # doesn't have the module in question, we can ignore the error
+                # attempting to import it, otherwise we want it to bubble up.
+                if module_has_submodule(app_config.module, module_to_search):
+                    raise
+
+
+def module_has_submodule(package, module_name):
+    """See if 'module' is in 'package'."""
+    try:
+        package_name = package.__name__
+        package_path = package.__path__
+    except AttributeError:
+        # package isn't a package.
+        return False
+
+    full_module_name = package_name + '.' + module_name
+    try:
+        return importlib_find(full_module_name, package_path) is not None
+    except (ImportError, AttributeError):
+        # When module_name is an invalid dotted path, Python raises ImportError
+        # (or ModuleNotFoundError in Python 3.6+). AttributeError may be raised
+        # if the penultimate part of the path is not a package.
+        # (https://bugs.python.org/issue30436)
+        return False
+
+
+def module_dir(module):
+    """
+    Find the name of the directory that contains a module, if possible.
+
+    Raise ValueError otherwise, e.g. for namespace packages that are split
+    over several directories.
+    """
+    # Convert to list because _NamespacePath does not support indexing on 3.3.
+    paths = list(getattr(module, '__path__', []))
+    if len(paths) == 1:
+        return paths[0]
+    else:
+        filename = getattr(module, '__file__', None)
+        if filename is not None:
+            return os.path.dirname(filename)
+    raise ValueError("Cannot determine directory containing %s" % module)

@@ -1,1 +1,0 @@
-êaEvenv/lib/python3.6/site-packages/docutils/parsers/rst/languages/cs.py 2pyXmh

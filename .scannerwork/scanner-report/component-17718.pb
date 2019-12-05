@@ -1,1 +1,0 @@
-¶Š@venv/lib/python3.6/site-packages/django_inlinecss/css_loaders.py 2pyX+h

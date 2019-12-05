@@ -1,1 +1,1 @@
-ìƒRvenv/lib64/python3.6/site-packages/social_core/tests/backends/test_digitalocean.py 2pyX#h
+ìƒOvenv/lib64/python3.6/site-packages/social_core/tests/backends/test_bitbucket.py 2pyX¨h

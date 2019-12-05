@@ -3,121 +3,130 @@
 # This file is part of gunicorn released under the MIT license.
 # See the NOTICE for more information.
 
-"Bare-bones implementation of statsD's protocol, client-side"
+import os
+import os.path
+import re
+import sys
+import time
+import threading
 
-import socket
-import logging
-from re import sub
+COMPILED_EXT_RE = re.compile(r'py[co]$')
 
-from gunicorn.glogging import Logger
-from gunicorn import six
 
-# Instrumentation constants
-METRIC_VAR = "metric"
-VALUE_VAR = "value"
-MTYPE_VAR = "mtype"
-GAUGE_TYPE = "gauge"
-COUNTER_TYPE = "counter"
-HISTOGRAM_TYPE = "histogram"
+class Reloader(threading.Thread):
+    def __init__(self, extra_files=None, interval=1, callback=None):
+        super(Reloader, self).__init__()
+        self.setDaemon(True)
+        self._extra_files = set(extra_files or ())
+        self._extra_files_lock = threading.RLock()
+        self._interval = interval
+        self._callback = callback
 
-class Statsd(Logger):
-    """statsD-based instrumentation, that passes as a logger
-    """
-    def __init__(self, cfg):
-        """host, port: statsD server
-        """
-        Logger.__init__(self, cfg)
-        self.prefix = sub(r"^(.+[^.]+)\.*$", "\\g<1>.", cfg.statsd_prefix)
-        try:
-            host, port = cfg.statsd_host
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.sock.connect((host, int(port)))
-        except Exception:
-            self.sock = None
+    def add_extra_file(self, filename):
+        with self._extra_files_lock:
+            self._extra_files.add(filename)
 
-    # Log errors and warnings
-    def critical(self, msg, *args, **kwargs):
-        Logger.critical(self, msg, *args, **kwargs)
-        self.increment("gunicorn.log.critical", 1)
+    def get_files(self):
+        fnames = [
+            COMPILED_EXT_RE.sub('py', module.__file__)
+            for module in tuple(sys.modules.values())
+            if getattr(module, '__file__', None)
+        ]
 
-    def error(self, msg, *args, **kwargs):
-        Logger.error(self, msg, *args, **kwargs)
-        self.increment("gunicorn.log.error", 1)
+        with self._extra_files_lock:
+            fnames.extend(self._extra_files)
 
-    def warning(self, msg, *args, **kwargs):
-        Logger.warning(self, msg, *args, **kwargs)
-        self.increment("gunicorn.log.warning", 1)
+        return fnames
 
-    def exception(self, msg, *args, **kwargs):
-        Logger.exception(self, msg, *args, **kwargs)
-        self.increment("gunicorn.log.exception", 1)
+    def run(self):
+        mtimes = {}
+        while True:
+            for filename in self.get_files():
+                try:
+                    mtime = os.stat(filename).st_mtime
+                except OSError:
+                    continue
+                old_time = mtimes.get(filename)
+                if old_time is None:
+                    mtimes[filename] = mtime
+                    continue
+                elif mtime > old_time:
+                    if self._callback:
+                        self._callback(filename)
+            time.sleep(self._interval)
 
-    # Special treatement for info, the most common log level
-    def info(self, msg, *args, **kwargs):
-        self.log(logging.INFO, msg, *args, **kwargs)
+has_inotify = False
+if sys.platform.startswith('linux'):
+    try:
+        from inotify.adapters import Inotify
+        import inotify.constants
+        has_inotify = True
+    except ImportError:
+        pass
 
-    # skip the run-of-the-mill logs
-    def debug(self, msg, *args, **kwargs):
-        self.log(logging.DEBUG, msg, *args, **kwargs)
 
-    def log(self, lvl, msg, *args, **kwargs):
-        """Log a given statistic if metric, value and type are present
-        """
-        try:
-            extra = kwargs.get("extra", None)
-            if extra is not None:
-                metric = extra.get(METRIC_VAR, None)
-                value = extra.get(VALUE_VAR, None)
-                typ = extra.get(MTYPE_VAR, None)
-                if metric and value and typ:
-                    if typ == GAUGE_TYPE:
-                        self.gauge(metric, value)
-                    elif typ == COUNTER_TYPE:
-                        self.increment(metric, value)
-                    elif typ == HISTOGRAM_TYPE:
-                        self.histogram(metric, value)
-                    else:
-                        pass
+if has_inotify:
 
-            # Log to parent logger only if there is something to say
-            if msg:
-                Logger.log(self, lvl, msg, *args, **kwargs)
-        except Exception:
-            Logger.warning(self, "Failed to log to statsd", exc_info=True)
+    class InotifyReloader(threading.Thread):
+        event_mask = (inotify.constants.IN_CREATE | inotify.constants.IN_DELETE
+                      | inotify.constants.IN_DELETE_SELF | inotify.constants.IN_MODIFY
+                      | inotify.constants.IN_MOVE_SELF | inotify.constants.IN_MOVED_FROM
+                      | inotify.constants.IN_MOVED_TO)
 
-    # access logging
-    def access(self, resp, req, environ, request_time):
-        """Measure request duration
-        request_time is a datetime.timedelta
-        """
-        Logger.access(self, resp, req, environ, request_time)
-        duration_in_ms = request_time.seconds * 1000 + float(request_time.microseconds) / 10 ** 3
-        status = resp.status
-        if isinstance(status, str):
-            status = int(status.split(None, 1)[0])
-        self.histogram("gunicorn.request.duration", duration_in_ms)
-        self.increment("gunicorn.requests", 1)
-        self.increment("gunicorn.request.status.%d" % status, 1)
+        def __init__(self, extra_files=None, callback=None):
+            super(InotifyReloader, self).__init__()
+            self.setDaemon(True)
+            self._callback = callback
+            self._dirs = set()
+            self._watcher = Inotify()
 
-    # statsD methods
-    # you can use those directly if you want
-    def gauge(self, name, value):
-        self._sock_send("{0}{1}:{2}|g".format(self.prefix, name, value))
+            for extra_file in extra_files:
+                self.add_extra_file(extra_file)
 
-    def increment(self, name, value, sampling_rate=1.0):
-        self._sock_send("{0}{1}:{2}|c|@{3}".format(self.prefix, name, value, sampling_rate))
+        def add_extra_file(self, filename):
+            dirname = os.path.dirname(filename)
 
-    def decrement(self, name, value, sampling_rate=1.0):
-        self._sock_send("{0}{1}:-{2}|c|@{3}".format(self.prefix, name, value, sampling_rate))
+            if dirname in self._dirs:
+                return
 
-    def histogram(self, name, value):
-        self._sock_send("{0}{1}:{2}|ms".format(self.prefix, name, value))
+            self._watcher.add_watch(dirname, mask=self.event_mask)
+            self._dirs.add(dirname)
 
-    def _sock_send(self, msg):
-        try:
-            if isinstance(msg, six.text_type):
-                msg = msg.encode("ascii")
-            if self.sock:
-                self.sock.send(msg)
-        except Exception:
-            Logger.warning(self, "Error sending message to statsd", exc_info=True)
+        def get_dirs(self):
+            fnames = [
+                os.path.dirname(COMPILED_EXT_RE.sub('py', module.__file__))
+                for module in tuple(sys.modules.values())
+                if hasattr(module, '__file__')
+            ]
+
+            return set(fnames)
+
+        def run(self):
+            self._dirs = self.get_dirs()
+
+            for dirname in self._dirs:
+                self._watcher.add_watch(dirname, mask=self.event_mask)
+
+            for event in self._watcher.event_gen():
+                if event is None:
+                    continue
+
+                filename = event[3]
+
+                self._callback(filename)
+
+else:
+
+    class InotifyReloader(object):
+        def __init__(self, callback=None):
+            raise ImportError('You must have the inotify module installed to '
+                              'use the inotify reloader')
+
+
+preferred_reloader = InotifyReloader if has_inotify else Reloader
+
+reloader_engines = {
+    'auto': preferred_reloader,
+    'poll': Reloader,
+    'inotify': InotifyReloader,
+}

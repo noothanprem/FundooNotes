@@ -1,364 +1,341 @@
-# Copyright 2013 Donald Stufft and individual contributors
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+"""
+This module implements connections for MySQLdb. Presently there is
+only one class: Connection. Others are unlikely. However, you might
+want to make your own subclasses. In most cases, you will probably
+override Connection.default_cursor with a non-standard Cursor class.
+"""
+import re
+import sys
 
-from __future__ import absolute_import, division, print_function
+from MySQLdb import cursors, _mysql
+from MySQLdb.compat import unicode, PY2
+from MySQLdb._exceptions import (
+    Warning, Error, InterfaceError, DataError,
+    DatabaseError, OperationalError, IntegrityError, InternalError,
+    NotSupportedError, ProgrammingError,
+)
 
-import nacl.bindings
-from nacl import encoding
-from nacl import exceptions as exc
-from nacl.utils import EncryptedMessage, StringFixer, random
+# Mapping from MySQL charset name to Python codec name
+_charset_to_encoding = {
+    "utf8mb4": "utf8",
+    "utf8mb3": "utf8",
+    "latin1": "cp1252",
+    "koi8r": "koi8_r",
+    "koi8u": "koi8_u",
+}
 
+re_numeric_part = re.compile(r"^(\d+)")
 
-class PublicKey(encoding.Encodable, StringFixer, object):
-    """
-    The public key counterpart to an Curve25519 :class:`nacl.public.PrivateKey`
-    for encrypting messages.
+def numeric_part(s):
+    """Returns the leading numeric part of a string.
 
-    :param public_key: [:class:`bytes`] Encoded Curve25519 public key
-    :param encoder: A class that is able to decode the `public_key`
-
-    :cvar SIZE: The size that the public key is required to be
-    """
-
-    SIZE = nacl.bindings.crypto_box_PUBLICKEYBYTES
-
-    def __init__(self, public_key, encoder=encoding.RawEncoder):
-        self._public_key = encoder.decode(public_key)
-        if not isinstance(self._public_key, bytes):
-            raise exc.TypeError("PublicKey must be created from 32 bytes")
-
-        if len(self._public_key) != self.SIZE:
-            raise exc.ValueError(
-                "The public key must be exactly {0} bytes long".format(
-                    self.SIZE
-                )
-            )
-
-    def __bytes__(self):
-        return self._public_key
-
-    def __hash__(self):
-        return hash(bytes(self))
-
-    def __eq__(self, other):
-        if not isinstance(other, self.__class__):
-            return False
-        return nacl.bindings.sodium_memcmp(bytes(self), bytes(other))
-
-    def __ne__(self, other):
-        return not (self == other)
-
-
-class PrivateKey(encoding.Encodable, StringFixer, object):
-    """
-    Private key for decrypting messages using the Curve25519 algorithm.
-
-    .. warning:: This **must** be protected and remain secret. Anyone who
-        knows the value of your :class:`~nacl.public.PrivateKey` can decrypt
-        any message encrypted by the corresponding
-        :class:`~nacl.public.PublicKey`
-
-    :param private_key: The private key used to decrypt messages
-    :param encoder: The encoder class used to decode the given keys
-
-    :cvar SIZE: The size that the private key is required to be
-    :cvar SEED_SIZE: The size that the seed used to generate the
-                     private key is required to be
+    >>> numeric_part("20-alpha")
+    20
+    >>> numeric_part("foo")
+    >>> numeric_part("16b")
+    16
     """
 
-    SIZE = nacl.bindings.crypto_box_SECRETKEYBYTES
-    SEED_SIZE = nacl.bindings.crypto_box_SEEDBYTES
+    m = re_numeric_part.match(s)
+    if m:
+        return int(m.group(1))
+    return None
 
-    def __init__(self, private_key, encoder=encoding.RawEncoder):
-        # Decode the secret_key
-        private_key = encoder.decode(private_key)
-        # verify the given secret key type and size are correct
-        if not (isinstance(private_key, bytes) and
-                len(private_key) == self.SIZE):
-            raise exc.TypeError(("PrivateKey must be created from a {0} "
-                                 "bytes long raw secret key").format(self.SIZE)
-                                )
 
-        raw_public_key = nacl.bindings.crypto_scalarmult_base(private_key)
+class Connection(_mysql.connection):
+    """MySQL Database Connection Object"""
 
-        self._private_key = private_key
-        self.public_key = PublicKey(raw_public_key)
+    default_cursor = cursors.Cursor
 
-    @classmethod
-    def from_seed(cls, seed, encoder=encoding.RawEncoder):
+    def __init__(self, *args, **kwargs):
         """
-        Generate a PrivateKey using a deterministic construction
-        starting from a caller-provided seed
+        Create a connection to the database. It is strongly recommended
+        that you only use keyword parameters. Consult the MySQL C API
+        documentation for more information.
 
-        .. warning:: The seed **must** be high-entropy; therefore,
-            its generator **must** be a cryptographic quality
-            random function like, for example, :func:`~nacl.utils.random`.
+        :param str host:        host to connect
+        :param str user:        user to connect as
+        :param str password:    password to use
+        :param str passwd:      alias of password, for backward compatibility
+        :param str database:    database to use
+        :param str db:          alias of database, for backward compatibility
+        :param int port:        TCP/IP port to connect to
+        :param str unix_socket: location of unix_socket to use
+        :param dict conv:       conversion dictionary, see MySQLdb.converters
+        :param int connect_timeout:
+            number of seconds to wait before the connection attempt fails.
 
-        .. warning:: The seed **must** be protected and remain secret.
-            Anyone who knows the seed is really in possession of
-            the corresponding PrivateKey.
+        :param bool compress:   if set, compression is enabled
+        :param str named_pipe:  if set, a named pipe is used to connect (Windows only)
+        :param str init_command:
+            command which is run once the connection is created
 
-        :param seed: The seed used to generate the private key
-        :rtype: :class:`~nacl.public.PrivateKey`
+        :param str read_default_file:
+            file from which default client values are read
+
+        :param str read_default_group:
+            configuration group to use from the default file
+
+        :param type cursorclass:
+            class object, used to create cursors (keyword only)
+
+        :param bool use_unicode:
+            If True, text-like columns are returned as unicode objects
+            using the connection's character set. Otherwise, text-like
+            columns are returned as bytes. Unicode objects will always
+            be encoded to the connection's character set regardless of
+            this setting.
+            Default to False on Python 2 and True on Python 3
+            so that you can always get python `str` object by default.
+
+        :param str charset:
+            If supplied, the connection character set will be changed
+            to this character set.
+            On Python 2, this option changes default value of `use_unicode`
+            option from False to True.
+
+        :param str auth_plugin:
+            If supplied, the connection default authentication plugin will be
+            changed to this value. Example values:
+            `mysql_native_password` or `caching_sha2_password`
+
+        :param str sql_mode:
+            If supplied, the session SQL mode will be changed to this
+            setting.
+            For more details and legal values, see the MySQL documentation.
+
+        :param int client_flag:
+            flags to use or 0 (see MySQL docs or constants/CLIENTS.py)
+
+        :param dict ssl:
+            dictionary or mapping contains SSL connection parameters;
+            see the MySQL documentation for more details
+            (mysql_ssl_set()).  If this is set, and the client does not
+            support SSL, NotSupportedError will be raised.
+
+        :param bool local_infile:
+            enables LOAD LOCAL INFILE; zero disables
+
+        :param bool autocommit:
+            If False (default), autocommit is disabled.
+            If True, autocommit is enabled.
+            If None, autocommit isn't set and server default is used.
+
+        :param bool binary_prefix:
+            If set, the '_binary' prefix will be used for raw byte query
+            arguments (e.g. Binary). This is disabled by default.
+
+        There are a number of undocumented, non-standard methods. See the
+        documentation for the MySQL C API for some hints on what they do.
         """
-        # decode the seed
-        seed = encoder.decode(seed)
-        # Verify the given seed type and size are correct
-        if not (isinstance(seed, bytes) and len(seed) == cls.SEED_SIZE):
-            raise exc.TypeError(("PrivateKey seed must be a {0} bytes long "
-                                 "binary sequence").format(cls.SEED_SIZE)
-                                )
-        # generate a raw keypair from the given seed
-        raw_pk, raw_sk = nacl.bindings.crypto_box_seed_keypair(seed)
-        # construct a instance from the raw secret key
-        return cls(raw_sk)
+        from MySQLdb.constants import CLIENT, FIELD_TYPE
+        from MySQLdb.converters import conversions, _bytes_or_str
+        from weakref import proxy
 
-    def __bytes__(self):
-        return self._private_key
+        kwargs2 = kwargs.copy()
 
-    def __hash__(self):
-        return hash((type(self), bytes(self.public_key)))
+        if 'database' in kwargs2:
+            kwargs2['db'] = kwargs2.pop('database')
+        if 'password' in kwargs2:
+            kwargs2['passwd'] = kwargs2.pop('password')
 
-    def __eq__(self, other):
-        if not isinstance(other, self.__class__):
-            return False
-        return self.public_key == other.public_key
-
-    def __ne__(self, other):
-        return not (self == other)
-
-    @classmethod
-    def generate(cls):
-        """
-        Generates a random :class:`~nacl.public.PrivateKey` object
-
-        :rtype: :class:`~nacl.public.PrivateKey`
-        """
-        return cls(random(PrivateKey.SIZE), encoder=encoding.RawEncoder)
-
-
-class Box(encoding.Encodable, StringFixer, object):
-    """
-    The Box class boxes and unboxes messages between a pair of keys
-
-    The ciphertexts generated by :class:`~nacl.public.Box` include a 16
-    byte authenticator which is checked as part of the decryption. An invalid
-    authenticator will cause the decrypt function to raise an exception. The
-    authenticator is not a signature. Once you've decrypted the message you've
-    demonstrated the ability to create arbitrary valid message, so messages you
-    send are repudiable. For non-repudiable messages, sign them after
-    encryption.
-
-    :param private_key: :class:`~nacl.public.PrivateKey` used to encrypt and
-        decrypt messages
-    :param public_key: :class:`~nacl.public.PublicKey` used to encrypt and
-        decrypt messages
-
-    :cvar NONCE_SIZE: The size that the nonce is required to be.
-    """
-
-    NONCE_SIZE = nacl.bindings.crypto_box_NONCEBYTES
-
-    def __init__(self, private_key, public_key):
-        if private_key and public_key:
-            if ((not isinstance(private_key, PrivateKey) or
-                 not isinstance(public_key, PublicKey))):
-                raise exc.TypeError("Box must be created from "
-                                    "a PrivateKey and a PublicKey")
-            self._shared_key = nacl.bindings.crypto_box_beforenm(
-                public_key.encode(encoder=encoding.RawEncoder),
-                private_key.encode(encoder=encoding.RawEncoder),
-            )
+        if 'conv' in kwargs:
+            conv = kwargs['conv']
         else:
-            self._shared_key = None
+            conv = conversions
 
-    def __bytes__(self):
-        return self._shared_key
+        conv2 = {}
+        for k, v in conv.items():
+            if isinstance(k, int) and isinstance(v, list):
+                conv2[k] = v[:]
+            else:
+                conv2[k] = v
+        kwargs2['conv'] = conv2
 
-    @classmethod
-    def decode(cls, encoded, encoder=encoding.RawEncoder):
-        # Create an empty box
-        box = cls(None, None)
+        cursorclass = kwargs2.pop('cursorclass', self.default_cursor)
+        charset = kwargs2.get('charset', '')
 
-        # Assign our decoded value to the shared key of the box
-        box._shared_key = encoder.decode(encoded)
-
-        return box
-
-    def encrypt(self, plaintext, nonce=None, encoder=encoding.RawEncoder):
-        """
-        Encrypts the plaintext message using the given `nonce` (or generates
-        one randomly if omitted) and returns the ciphertext encoded with the
-        encoder.
-
-        .. warning:: It is **VITALLY** important that the nonce is a nonce,
-            i.e. it is a number used only once for any given key. If you fail
-            to do this, you compromise the privacy of the messages encrypted.
-
-        :param plaintext: [:class:`bytes`] The plaintext message to encrypt
-        :param nonce: [:class:`bytes`] The nonce to use in the encryption
-        :param encoder: The encoder to use to encode the ciphertext
-        :rtype: [:class:`nacl.utils.EncryptedMessage`]
-        """
-        if nonce is None:
-            nonce = random(self.NONCE_SIZE)
-
-        if len(nonce) != self.NONCE_SIZE:
-            raise exc.ValueError("The nonce must be exactly %s bytes long" %
-                                 self.NONCE_SIZE)
-
-        ciphertext = nacl.bindings.crypto_box_afternm(
-            plaintext,
-            nonce,
-            self._shared_key,
-        )
-
-        encoded_nonce = encoder.encode(nonce)
-        encoded_ciphertext = encoder.encode(ciphertext)
-
-        return EncryptedMessage._from_parts(
-            encoded_nonce,
-            encoded_ciphertext,
-            encoder.encode(nonce + ciphertext),
-        )
-
-    def decrypt(self, ciphertext, nonce=None, encoder=encoding.RawEncoder):
-        """
-        Decrypts the ciphertext using the `nonce` (explicitly, when passed as a
-        parameter or implicitly, when omitted, as part of the ciphertext) and
-        returns the plaintext message.
-
-        :param ciphertext: [:class:`bytes`] The encrypted message to decrypt
-        :param nonce: [:class:`bytes`] The nonce used when encrypting the
-            ciphertext
-        :param encoder: The encoder used to decode the ciphertext.
-        :rtype: [:class:`bytes`]
-        """
-        # Decode our ciphertext
-        ciphertext = encoder.decode(ciphertext)
-
-        if nonce is None:
-            # If we were given the nonce and ciphertext combined, split them.
-            nonce = ciphertext[:self.NONCE_SIZE]
-            ciphertext = ciphertext[self.NONCE_SIZE:]
-
-        if len(nonce) != self.NONCE_SIZE:
-            raise exc.ValueError("The nonce must be exactly %s bytes long" %
-                                 self.NONCE_SIZE)
-
-        plaintext = nacl.bindings.crypto_box_open_afternm(
-            ciphertext,
-            nonce,
-            self._shared_key,
-        )
-
-        return plaintext
-
-    def shared_key(self):
-        """
-        Returns the Curve25519 shared secret, that can then be used as a key in
-        other symmetric ciphers.
-
-        .. warning:: It is **VITALLY** important that you use a nonce with your
-            symmetric cipher. If you fail to do this, you compromise the
-            privacy of the messages encrypted. Ensure that the key length of
-            your cipher is 32 bytes.
-        :rtype: [:class:`bytes`]
-        """
-
-        return self._shared_key
-
-
-class SealedBox(encoding.Encodable, StringFixer, object):
-    """
-    The SealedBox class boxes and unboxes messages addressed to
-    a specified key-pair by using ephemeral sender's keypairs,
-    whose private part will be discarded just after encrypting
-    a single plaintext message.
-
-    The ciphertexts generated by :class:`~nacl.public.SecretBox` include
-    the public part of the ephemeral key before the :class:`~nacl.public.Box`
-    ciphertext.
-
-    :param public_key: :class:`~nacl.public.PublicKey` used to encrypt
-        messages and derive nonces
-    :param private_key: :class:`~nacl.public.PrivateKey` used to decrypt
-        messages
-
-    .. versionadded:: 1.2
-    """
-
-    def __init__(self, recipient_key):
-
-        if isinstance(recipient_key, PublicKey):
-            self._public_key = recipient_key.encode(
-                encoder=encoding.RawEncoder)
-            self._private_key = None
-        elif isinstance(recipient_key, PrivateKey):
-            self._private_key = recipient_key.encode(
-                encoder=encoding.RawEncoder)
-            self._public_key = recipient_key.public_key.encode(
-                encoder=encoding.RawEncoder)
+        if charset or not PY2:
+            use_unicode = True
         else:
-            raise exc.TypeError("SealedBox must be created from "
-                                "a PublicKey or a PrivateKey")
+            use_unicode = False
 
-    def __bytes__(self):
-        return self._public_key
+        use_unicode = kwargs2.pop('use_unicode', use_unicode)
+        sql_mode = kwargs2.pop('sql_mode', '')
+        self._binary_prefix = kwargs2.pop('binary_prefix', False)
 
-    def encrypt(self, plaintext, encoder=encoding.RawEncoder):
+        client_flag = kwargs.get('client_flag', 0)
+        client_version = tuple([ numeric_part(n) for n in _mysql.get_client_info().split('.')[:2] ])
+        if client_version >= (4, 1):
+            client_flag |= CLIENT.MULTI_STATEMENTS
+        if client_version >= (5, 0):
+            client_flag |= CLIENT.MULTI_RESULTS
+
+        kwargs2['client_flag'] = client_flag
+
+        # PEP-249 requires autocommit to be initially off
+        autocommit = kwargs2.pop('autocommit', False)
+
+        super(Connection, self).__init__(*args, **kwargs2)
+        self.cursorclass = cursorclass
+        self.encoders = dict([ (k, v) for k, v in conv.items()
+                               if type(k) is not int ])
+
+        # XXX THIS IS GARBAGE: While this is just a garbage and undocumented,
+        # Django 1.11 depends on it.  And they don't fix it because
+        # they are in security-only fix mode.
+        # So keep this garbage for now.  This will be removed in 1.5.
+        # See PyMySQL/mysqlclient-python#306
+        self.encoders[bytes] = bytes
+
+        self._server_version = tuple([ numeric_part(n) for n in self.get_server_info().split('.')[:2] ])
+
+        self.encoding = 'ascii'  # overridden in set_character_set()
+        db = proxy(self)
+
+        def unicode_literal(u, dummy=None):
+            return db.string_literal(u.encode(db.encoding))
+
+        if not charset:
+            charset = self.character_set_name()
+        self.set_character_set(charset)
+
+        if sql_mode:
+            self.set_sql_mode(sql_mode)
+
+        if use_unicode:
+            for t in (FIELD_TYPE.STRING, FIELD_TYPE.VAR_STRING, FIELD_TYPE.VARCHAR, FIELD_TYPE.TINY_BLOB,
+                      FIELD_TYPE.MEDIUM_BLOB, FIELD_TYPE.LONG_BLOB, FIELD_TYPE.BLOB):
+                self.converter[t] = _bytes_or_str
+            # Unlike other string/blob types, JSON is always text.
+            # MySQL may return JSON with charset==binary.
+            self.converter[FIELD_TYPE.JSON] = unicode
+
+        self.encoders[unicode] = unicode_literal
+        self._transactional = self.server_capabilities & CLIENT.TRANSACTIONS
+        if self._transactional:
+            if autocommit is not None:
+                self.autocommit(autocommit)
+        self.messages = []
+
+    def autocommit(self, on):
+        on = bool(on)
+        if self.get_autocommit() != on:
+            _mysql.connection.autocommit(self, on)
+
+    def cursor(self, cursorclass=None):
         """
-        Encrypts the plaintext message using a random-generated ephemeral
-        keypair and returns a "composed ciphertext", containing both
-        the public part of the keypair and the ciphertext proper,
-        encoded with the encoder.
-
-        The private part of the ephemeral key-pair will be scrubbed before
-        returning the ciphertext, therefore, the sender will not be able to
-        decrypt the generated ciphertext.
-
-        :param plaintext: [:class:`bytes`] The plaintext message to encrypt
-        :param encoder: The encoder to use to encode the ciphertext
-        :return bytes: encoded ciphertext
+        Create a cursor on which queries may be performed. The
+        optional cursorclass parameter is used to create the
+        Cursor. By default, self.cursorclass=cursors.Cursor is
+        used.
         """
+        return (cursorclass or self.cursorclass)(self)
 
-        ciphertext = nacl.bindings.crypto_box_seal(
-            plaintext,
-            self._public_key
-        )
+    def query(self, query):
+        # Since _mysql releases GIL while querying, we need immutable buffer.
+        if isinstance(query, bytearray):
+            query = bytes(query)
+        _mysql.connection.query(self, query)
 
-        encoded_ciphertext = encoder.encode(ciphertext)
+    def _bytes_literal(self, bs):
+        assert isinstance(bs, (bytes, bytearray))
+        x = self.string_literal(bs)  # x is escaped and quoted bytes
+        if self._binary_prefix:
+            return b'_binary' + x
+        return x
 
-        return encoded_ciphertext
+    def _tuple_literal(self, t):
+        return b"(%s)" % (b','.join(map(self.literal, t)))
 
-    def decrypt(self, ciphertext, encoder=encoding.RawEncoder):
+    def literal(self, o):
+        """If o is a single object, returns an SQL literal as a string.
+        If o is a non-string sequence, the items of the sequence are
+        converted and returned as a sequence.
+
+        Non-standard. For internal use; do not use this in your
+        applications.
         """
-        Decrypts the ciphertext using the ephemeral public key enclosed
-        in the ciphertext and the SealedBox private key, returning
-        the plaintext message.
+        if isinstance(o, unicode):
+            s = self.string_literal(o.encode(self.encoding))
+        elif isinstance(o, bytearray):
+            s = self._bytes_literal(o)
+        elif isinstance(o, bytes):
+            if PY2:
+                s = self.string_literal(o)
+            else:
+                s = self._bytes_literal(o)
+        elif isinstance(o, (tuple, list)):
+            s = self._tuple_literal(o)
+        else:
+            s = self.escape(o, self.encoders)
+            if isinstance(s, unicode):
+                s = s.encode(self.encoding)
+        assert isinstance(s, bytes)
+        return s
 
-        :param ciphertext: [:class:`bytes`] The encrypted message to decrypt
-        :param encoder: The encoder used to decode the ciphertext.
-        :return bytes: The original plaintext
+    def begin(self):
+        """Explicitly begin a connection.
+
+        This method is not used when autocommit=False (default).
         """
-        # Decode our ciphertext
-        ciphertext = encoder.decode(ciphertext)
+        self.query(b"BEGIN")
 
-        plaintext = nacl.bindings.crypto_box_seal_open(
-            ciphertext,
-            self._public_key,
-            self._private_key,
-        )
+    if not hasattr(_mysql.connection, 'warning_count'):
 
-        return plaintext
+        def warning_count(self):
+            """Return the number of warnings generated from the
+            last query. This is derived from the info() method."""
+            info = self.info()
+            if info:
+                return int(info.split()[-1])
+            else:
+                return 0
+
+    def set_character_set(self, charset):
+        """Set the connection character set to charset. The character
+        set can only be changed in MySQL-4.1 and newer. If you try
+        to change the character set from the current value in an
+        older version, NotSupportedError will be raised."""
+        py_charset = _charset_to_encoding.get(charset, charset)
+        if self.character_set_name() != charset:
+            try:
+                super(Connection, self).set_character_set(charset)
+            except AttributeError:
+                if self._server_version < (4, 1):
+                    raise NotSupportedError("server is too old to set charset")
+                self.query('SET NAMES %s' % charset)
+                self.store_result()
+        self.encoding = py_charset
+
+    def set_sql_mode(self, sql_mode):
+        """Set the connection sql_mode. See MySQL documentation for
+        legal values."""
+        if self._server_version < (4, 1):
+            raise NotSupportedError("server is too old to set sql_mode")
+        self.query("SET SESSION sql_mode='%s'" % sql_mode)
+        self.store_result()
+
+    def show_warnings(self):
+        """Return detailed information about warnings as a
+        sequence of tuples of (Level, Code, Message). This
+        is only supported in MySQL-4.1 and up. If your server
+        is an earlier version, an empty sequence is returned."""
+        if self._server_version < (4,1): return ()
+        self.query("SHOW WARNINGS")
+        r = self.store_result()
+        warnings = r.fetch_row(0)
+        return warnings
+
+    Warning = Warning
+    Error = Error
+    InterfaceError = InterfaceError
+    DatabaseError = DatabaseError
+    DataError = DataError
+    OperationalError = OperationalError
+    IntegrityError = IntegrityError
+    InternalError = InternalError
+    ProgrammingError = ProgrammingError
+    NotSupportedError = NotSupportedError
+
+# vim: colorcolumn=100

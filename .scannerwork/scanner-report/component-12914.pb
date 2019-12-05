@@ -1,1 +1,1 @@
-ÚdCvenv/lib/python3.6/site-packages/macaroonbakery/checkers/_caveat.py 2pyXÅh
+ÚdIvenv/lib/python3.6/site-packages/macaroonbakery/checkers/_auth_context.py 2pyX;h

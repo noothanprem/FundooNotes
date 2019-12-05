@@ -1,1 +1,1 @@
-¾e8venv/lib/python3.6/site-packages/chardet/gb2312prober.py 2pyX/h
+¾e9venv/lib/python3.6/site-packages/chardet/langthaimodel.py 2pyXÈh

@@ -1,1 +1,0 @@
-ûIvenv/lib64/python3.6/site-packages/django/conf/locale/zh_Hans/__init__.py 2pyXh

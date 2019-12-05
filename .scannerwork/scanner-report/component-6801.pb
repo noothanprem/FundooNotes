@@ -1,1 +1,1 @@
-‘5Ivenv/lib/python3.6/site-packages/django/contrib/postgres/fields/citext.py 2pyXh
+‘5Hvenv/lib/python3.6/site-packages/django/contrib/postgres/fields/jsonb.py 2pyX»h

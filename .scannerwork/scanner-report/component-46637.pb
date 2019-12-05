@@ -1,1 +1,1 @@
-нь<venv/lib64/python3.6/site-packages/requests_unixsocket/tests :ль
+ньBvenv/lib64/python3.6/site-packages/requests_unixsocket/__init__.py 2pyXNh

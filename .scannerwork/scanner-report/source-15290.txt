@@ -1,146 +1,171 @@
-# Copyright 2012-2013 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2014 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
 # the License is located at
-
+#
 #     http://aws.amazon.com/apache2.0/
-
+#
 # or in the "license" file accompanying this file. This file is
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-import awscli.clidriver
-import sys
-import logging
-import copy
-
-LOG = logging.getLogger(__name__)
+from collections import defaultdict
 
 
-class Completer(object):
+class ParameterRequiredError(ValueError):
+    pass
 
-    def __init__(self, driver=None):
-        if driver is not None:
-            self.driver = driver
+
+class SchemaTransformer(object):
+    """
+    Transforms a custom argument parameter schema into an internal
+    model representation so that it can be treated like a normal
+    service model. This includes shorthand JSON parsing and
+    automatic documentation generation. The format of the schema
+    follows JSON Schema, which can be found here:
+
+    http://json-schema.org/
+
+    Only a relevant subset of features is supported here:
+
+    * Types: `object`, `array`, `string`, `integer`, `boolean`
+    * Properties: `type`, `description`, `required`, `enum`
+
+    For example::
+
+    {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "arg1": {
+                    "type": "string",
+                    "required": True,
+                    "enum": [
+                        "Value1",
+                        "Value2",
+                        "Value3"
+                    ]
+                },
+                "arg2": {
+                    "type": "integer",
+                    "description": "The number of calls"
+                }
+            }
+        }
+    }
+
+    Assuming the schema is applied to a service named `foo`, with an
+    operation named `bar` and that the parameter is called `baz`, you
+    could call it with the shorthand JSON like so::
+
+        $ aws foo bar --baz arg1=Value1,arg2=5 arg1=Value2
+
+    """
+    JSON_SCHEMA_TO_AWS_TYPES = {
+        'object': 'structure',
+        'array': 'list',
+    }
+
+    def __init__(self):
+        self._shape_namer = ShapeNameGenerator()
+
+    def transform(self, schema):
+        """Convert JSON schema to the format used internally by the AWS CLI.
+
+        :type schema: dict
+        :param schema: The JSON schema describing the argument model.
+
+        :rtype: dict
+        :return: The transformed model in a form that can be consumed
+            internally by the AWS CLI.  The dictionary returned will
+            have a list of shapes, where the shape representing the
+            transformed schema is always named ``InputShape`` in the
+            returned dictionary.
+
+        """
+        shapes = {}
+        self._transform(schema, shapes, 'InputShape')
+        return shapes
+
+    def _transform(self, schema, shapes, shape_name):
+        if 'type' not in schema:
+            raise ParameterRequiredError("Missing required key: 'type'")
+        if schema['type'] == 'object':
+            shapes[shape_name] = self._transform_structure(schema, shapes)
+        elif schema['type'] == 'array':
+            shapes[shape_name] = self._transform_list(schema, shapes)
+        elif schema['type'] == 'map':
+            shapes[shape_name] = self._transform_map(schema, shapes)
         else:
-            self.driver = awscli.clidriver.create_clidriver()
-        self.main_help = self.driver.create_help_command()
-        self.main_options = self._get_documented_completions(
-            self.main_help.arg_table)
+            shapes[shape_name] = self._transform_scalar(schema)
+        return shapes
 
-    def complete(self, cmdline, point=None):
-        if point is None:
-            point = len(cmdline)
+    def _transform_scalar(self, schema):
+        return self._populate_initial_shape(schema)
 
-        args = cmdline[0:point].split()
-        current_arg = args[-1]
-        cmd_args = [w for w in args if not w.startswith('-')]
-        opts = [w for w in args if w.startswith('-')]
+    def _transform_structure(self, schema, shapes):
+        # Transforming a structure involves:
+        # 1. Generating the shape definition for the structure
+        # 2. Generating the shape definitions for its members
+        structure_shape = self._populate_initial_shape(schema)
+        members = {}
+        required_members = []
 
-        cmd_name, cmd = self._get_command(self.main_help, cmd_args)
-        subcmd_name, subcmd = self._get_command(cmd, cmd_args)
+        for key, value in schema['properties'].items():
+            current_type_name = self._json_schema_to_aws_type(value)
+            current_shape_name = self._shape_namer.new_shape_name(
+                current_type_name)
+            members[key] = {'shape': current_shape_name}
+            if value.get('required', False):
+                required_members.append(key)
+            self._transform(value, shapes, current_shape_name)
+        structure_shape['members'] = members
+        if required_members:
+            structure_shape['required'] = required_members
+        return structure_shape
 
-        if cmd_name is None:
-            # If we didn't find any command names in the cmdline
-            # lets try to complete provider options
-            return self._complete_provider(current_arg, opts)
-        elif subcmd_name is None:
-            return self._complete_command(cmd_name, cmd, current_arg, opts)
-        return self._complete_subcommand(subcmd_name, subcmd, current_arg, opts)
+    def _transform_map(self, schema, shapes):
+        structure_shape = self._populate_initial_shape(schema)
+        for attribute in ['key', 'value']:
+            type_name = self._json_schema_to_aws_type(schema[attribute])
+            shape_name = self._shape_namer.new_shape_name(type_name)
+            structure_shape[attribute] = {'shape': shape_name}
+            self._transform(schema[attribute], shapes, shape_name)
+        return structure_shape
 
-    def _complete_command(self, command_name, command_help, current_arg, opts):
-        if current_arg == command_name:
-            if command_help:
-                return self._get_documented_completions(
-                    command_help.command_table)
-        elif current_arg.startswith('-'):
-            return self._find_possible_options(current_arg, opts)
-        elif command_help is not None:
-            # See if they have entered a partial command name
-            return self._get_documented_completions(
-                command_help.command_table, current_arg)
-        return []
+    def _transform_list(self, schema, shapes):
+        # Transforming a structure involves:
+        # 1. Generating the shape definition for the structure
+        # 2. Generating the shape definitions for its 'items' member
+        list_shape = self._populate_initial_shape(schema)
+        member_type = self._json_schema_to_aws_type(schema['items'])
+        member_shape_name = self._shape_namer.new_shape_name(member_type)
+        list_shape['member'] = {'shape': member_shape_name}
+        self._transform(schema['items'], shapes, member_shape_name)
+        return list_shape
 
-    def _complete_subcommand(self, subcmd_name, subcmd_help, current_arg, opts):
-        if current_arg != subcmd_name and current_arg.startswith('-'):
-            return self._find_possible_options(current_arg, opts, subcmd_help)
-        return []
+    def _populate_initial_shape(self, schema):
+        shape = {'type': self._json_schema_to_aws_type(schema)}
+        if 'description' in schema:
+            shape['documentation'] = schema['description']
+        if 'enum' in schema:
+            shape['enum'] = schema['enum']
+        return shape
 
-    def _complete_option(self, option_name):
-        if option_name == '--endpoint-url':
-            return []
-        if option_name == '--output':
-            cli_data = self.driver.session.get_data('cli')
-            return cli_data['options']['output']['choices']
-        if option_name == '--profile':
-            return self.driver.session.available_profiles
-        return []
-
-    def _complete_provider(self, current_arg, opts):
-        if current_arg.startswith('-'):
-            return self._find_possible_options(current_arg, opts)
-        elif current_arg == 'aws':
-            return self._get_documented_completions(
-                self.main_help.command_table)
-        else:
-            # Otherwise, see if they have entered a partial command name
-            return self._get_documented_completions(
-                self.main_help.command_table, current_arg)
-
-    def _get_command(self, command_help, command_args):
-        if command_help is not None and command_help.command_table is not None:
-            for command_name in command_args:
-                if command_name in command_help.command_table:
-                    cmd_obj = command_help.command_table[command_name]
-                    return command_name, cmd_obj.create_help_command()
-        return None, None
-
-    def _get_documented_completions(self, table, startswith=None):
-        names = []
-        for key, command in table.items():
-            if getattr(command, '_UNDOCUMENTED', False):
-                # Don't tab complete undocumented commands/params
-                continue
-            if startswith is not None and not key.startswith(startswith):
-                continue
-            if getattr(command, 'positional_arg', False):
-                continue
-            names.append(key)
-        return names
-
-    def _find_possible_options(self, current_arg, opts, subcmd_help=None):
-        all_options = copy.copy(self.main_options)
-        if subcmd_help is not None:
-            all_options += self._get_documented_completions(
-                subcmd_help.arg_table)
-
-        for option in opts:
-            # Look through list of options on cmdline. If there are
-            # options that have already been specified and they are
-            # not the current word, remove them from list of possibles.
-            if option != current_arg:
-                stripped_opt = option.lstrip('-')
-                if stripped_opt in all_options:
-                    all_options.remove(stripped_opt)
-        cw = current_arg.lstrip('-')
-        possibilities = ['--' + n for n in all_options if n.startswith(cw)]
-        if len(possibilities) == 1 and possibilities[0] == current_arg:
-            return self._complete_option(possibilities[0])
-        return possibilities
+    def _json_schema_to_aws_type(self, schema):
+        if 'type' not in schema:
+            raise ParameterRequiredError("Missing required key: 'type'")
+        type_name = schema['type']
+        return self.JSON_SCHEMA_TO_AWS_TYPES.get(type_name, type_name)
 
 
-def complete(cmdline, point):
-    choices = Completer().complete(cmdline, point)
-    print(' \n'.join(choices))
+class ShapeNameGenerator(object):
+    def __init__(self):
+        self._name_cache = defaultdict(int)
 
-
-if __name__ == '__main__':
-    if len(sys.argv) == 3:
-        cmdline = sys.argv[1]
-        point = int(sys.argv[2])
-    elif len(sys.argv) == 2:
-        cmdline = sys.argv[1]
-    else:
-        print('usage: %s <cmdline> <point>' % sys.argv[0])
-        sys.exit(1)
-    print(complete(cmdline, point))
+    def new_shape_name(self, type_name):
+        self._name_cache[type_name] += 1
+        current_index = self._name_cache[type_name]
+        return '%sType%s' % (type_name.capitalize(), current_index)

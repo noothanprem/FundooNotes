@@ -1,1 +1,1 @@
-è˜Evenv/lib/python3.6/site-packages/social_django/migrations/__init__.py 2pyXh
+è˜9venv/lib/python3.6/site-packages/social_django/migrations :ç˜é˜ê˜ë˜ì˜í˜î˜ñ˜ù˜

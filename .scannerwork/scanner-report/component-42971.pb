@@ -1,1 +1,1 @@
-шоGvenv/lib64/python3.6/site-packages/google/protobuf/pyext/cpp_message.py 2pyXBh
+шоDvenv/lib64/python3.6/site-packages/google/protobuf/pyext/__init__.py 2pyXh

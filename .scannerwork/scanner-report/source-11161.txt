@@ -1,173 +1,398 @@
 # coding=utf-8
-
 from __future__ import unicode_literals
-
-from datetime import datetime
-
-from .. import BaseProvider
+from .. import Provider as PersonProvider
 
 
-class Provider(BaseProvider):
-    user_agents = (
-        'chrome', 'firefox', 'internet_explorer', 'opera', 'safari',
+class Provider(PersonProvider):
+    formats_male = (
+        '{{first_name_male}} {{last_name}} {{last_name}}',
+        '{{first_name_male}} {{last_name}} {{last_name}}',
+        '{{first_name_male}} {{last_name}} {{last_name}}',
+        '{{first_name_male}} {{last_name}} {{last_name}}',
+        '{{first_name_male}} {{last_name}} {{last_name}}',
+        '{{first_name_male}} {{last_name}} {{last_name}}',
+        '{{first_name_male}} {{last_name}}',
+        '{{first_name_male}} {{prefix}} {{last_name}}',
+        '{{first_name_male}} {{last_name}}-{{last_name}}',
+        '{{first_name_male}} {{first_name_male}} {{last_name}} {{last_name}}',
     )
 
-    windows_platform_tokens = (
-        'Windows 95', 'Windows 98', 'Windows 98; Win 9x 4.90', 'Windows CE',
-        'Windows NT 4.0', 'Windows NT 5.0', 'Windows NT 5.01',
-        'Windows NT 5.1', 'Windows NT 5.2', 'Windows NT 6.0', 'Windows NT 6.1',
-        'Windows NT 6.2',
+    formats_female = (
+        '{{first_name_female}} {{last_name}} {{last_name}}',
+        '{{first_name_female}} {{last_name}} {{last_name}}',
+        '{{first_name_female}} {{last_name}} {{last_name}}',
+        '{{first_name_female}} {{last_name}} {{last_name}}',
+        '{{first_name_female}} {{last_name}} {{last_name}}',
+        '{{first_name_female}} {{last_name}} {{last_name}}',
+        '{{first_name_female}} {{last_name}}',
+        '{{first_name_female}} {{prefix}} {{last_name}}',
+        '{{first_name_female}} {{last_name}}-{{last_name}}',
+        '{{first_name_female}} {{first_name_female}} {{last_name}} {{last_name}}',
     )
 
-    linux_processors = ('i686', 'x86_64',)
+    formats = formats_male + formats_female
 
-    mac_processors = ('Intel', 'PPC', 'U; Intel', 'U; PPC',)
+    first_names_male = (
+        'Antonio',
+        'Jose',
+        'Manuel',
+        'Francisco',
+        'Juan',
+        'David',
+        'Jose Antonio',
+        'Jose Luis',
+        'Javier',
+        'Jesús',
+        'Francisco Javier',
+        'Daniel',
+        'Carlos',
+        'Miguel',
+        'Rafael',
+        'Jose Manuel',
+        'Alejandro',
+        'Pedro',
+        'Ángel',
+        'Miguel Ángel',
+        'Jose Maria',
+        'Fernando',
+        'Luís',
+        'Pablo',
+        'Sergio',
+        'Jorge',
+        'Alberto',
+        'Juan Carlos',
+        'Juan José',
+        'Diego',
+        'Alvaro',
+        'Adrián',
+        'Juan Antonio',
+        'Enrique',
+        'Raul',
+        'Ramon',
+        'Vicente',
+        'Ivan',
+        'Ruben',
+        'Andrés',
+        'Joaquin',
+        'Óscar',
+        'Juan Manuel',
+        'Santiago',
+        'Eduardo',
+        'Victor',
+        'Roberto',
+        'Jaime',
+        'Francisco Jose',
+        'Ignacio',
+        'Mario',
+        'Alfonso',
+        'Salvador',
+        'Ricardo',
+        'Jordi',
+        'Marcos',
+        'Emilio',
+        'Julian',
+        'Julio',
+        'Guillermo',
+        'Tomás',
+        'Gabriel',
+        'Agustín',
+        'Jose Miguel',
+        'Felix',
+        'Jose Ramon',
+        'Gonzalo',
+        'Marc',
+        'Mohamed',
+        'Joan',
+        'Hugo',
+        'Ismael',
+        'Cristian',
+        'Nicolás',
+        'Mariano',
+        'Josep',
+        'Domingo',
+        'Samuel',
+        'Juan Francisco',
+        'Alfredo',
+        'Sebastian',
+        'Aitor',
+        'Jose Carlos',
+        'Martin',
+        'Felipe',
+        'Cesar',
+        'Hector',
+        'Jose Angel',
+        'Jose Ignacio',
+        'Victor Manuel',
+        'Gregorio',
+        'Luis Miguel',
+        'Iker',
+        'Jose Francisco',
+        'Juan Luis',
+        'Albert',
+        'Lorenzo',
+        'Alex',
+        'Xavier',
+        'Rodrigo')
 
-    def mac_processor(self):
-        return self.random_element(self.mac_processors)
+    first_names_female = (
+        'María',
+        'Carmen',
+        'Ana',
+        'Isabel',
+        'Dolores',
+        'Pilar',
+        'Josefa',
+        'Teresa',
+        'Rosa',
+        'Cristina',
+        'Ángeles',
+        'Antonia',
+        'Laura',
+        'Francisca',
+        'Elena',
+        'Mercedes',
+        'Luisa',
+        'Marta',
+        'Concepción',
+        'Rosario',
+        'Lucía',
+        'Juana',
+        'Manuela',
+        'Sara',
+        'Paula',
+        'Raquel',
+        'Beatriz',
+        'Eva',
+        'Patricia',
+        'Victoria',
+        'Rocio',
+        'Encarnacion',
+        'Julia',
+        'Belen',
+        'Silvia',
+        'Esther',
+        'Andrea',
+        'Montserrat',
+        'Nuria',
+        'Angela',
+        'Irene',
+        'Inmaculada',
+        'Mónica',
+        'Sandra',
+        'Margarita',
+        'Yolanda',
+        'Alba',
+        'Sonia',
+        'Alicia',
+        'Mar',
+        'Susana',
+        'Marina',
+        'Amparo',
+        'Natalia',
+        'Nieves',
+        'Gloria',
+        'Claudia',
+        'Soledad',
+        'Ines',
+        'Lourdes',
+        'Verónica',
+        'Carolina',
+        'Luz',
+        'Consuelo',
+        'Noelia',
+        'Asunción',
+        'Lorena',
+        'Sofia',
+        'Milagros',
+        'Catalina',
+        'Esperanza',
+        'Olga',
+        'Alejandra',
+        'Carla',
+        'Emilia',
+        'Fátima',
+        'Aurora',
+        'Blanca',
+        'Magdalena',
+        'Miriam',
+        'Lidia',
+        'Nerea',
+        'Clara',
+        'Daniela',
+        'Anna',
+        'Celia',
+        'Elisa',
+        'Eugenia',
+        'Josefina',
+        'Virginia',
+        'Purificación',
+        'Vanesa',
+        'Remedios',
+        'Trinidad',
+        'Gema',
+        'Adriana',
+        'Vicenta',
+        'Mireia',
+        'Begoña')
 
-    def linux_processor(self):
-        return self.random_element(self.linux_processors)
+    first_names = first_names_male + first_names_female
 
-    def user_agent(self):
-        name = self.random_element(self.user_agents)
-        return getattr(self, name)()
+    last_names = (
+        'Abad', 'Abascal', 'Abella', 'Abellán', 'Abril', 'Acedo', 'Acero',
+        'Acevedo', 'Acosta', 'Acuña', 'Adadia', 'Adán', 'Aguado', 'Agudo',
+        'Aguilar', 'Aguilera', 'Aguiló', 'Aguirre', 'Agullo', 'Agustí', 'Agustín',
+        'Alarcón', 'Alba', 'Alberdi', 'Albero', 'Alberola', 'Alberto', 'Alcalde',
+        'Alcalá', 'Alcaraz', 'Alcolea', 'Alcántara', 'Alcázar', 'Alegre', 'Alegria',
+        'Alemany', 'Alemán', 'Alfaro', 'Alfonso', 'Aliaga', 'Aller', 'Almagro',
+        'Almansa', 'Almazán', 'Almeida', 'Alonso', 'Alsina', 'Alvarado', 'Alvarez',
+        'Amador', 'Amat', 'Amaya', 'Amigó', 'Amo', 'Amor', 'Amores',
+        'Amorós', 'Anaya', 'Andrade', 'Andres', 'Andreu', 'Andrés', 'Anglada',
+        'Anguita', 'Angulo', 'Antón', 'Antúnez', 'Aparicio', 'Aragonés', 'Aragón',
+        'Aramburu', 'Arana', 'Aranda', 'Araujo', 'Arce', 'Arco', 'Arcos',
+        'Arellano', 'Arenas', 'Arias', 'Ariza', 'Ariño', 'Arjona', 'Armas',
+        'Armengol', 'Arnaiz', 'Arnal', 'Arnau', 'Aroca', 'Arranz', 'Arregui',
+        'Arribas', 'Arrieta', 'Arroyo', 'Arteaga', 'Artigas', 'Arévalo', 'Asenjo',
+        'Asensio', 'Atienza', 'Avilés', 'Ayala', 'Ayllón', 'Ayuso', 'Azcona',
+        'Aznar', 'Azorin', 'Badía', 'Baena', 'Baeza', 'Balaguer', 'Ballester',
+        'Ballesteros', 'Baquero', 'Barba', 'Barbero', 'Barberá', 'Barceló', 'Barco',
+        'Barragán', 'Barral', 'Barranco', 'Barreda', 'Barrena', 'Barrera', 'Barriga',
+        'Barrio', 'Barrios', 'Barros', 'Barroso', 'Bartolomé', 'Baró', 'Barón',
+        'Bas', 'Bastida', 'Batalla', 'Batlle', 'Bautista', 'Bauzà', 'Bayo',
+        'Bayona', 'Bayón', 'Baños', 'Becerra', 'Bejarano', 'Belda', 'Bellido',
+        'Bello', 'Belmonte', 'Beltran', 'Beltrán', 'Benavent', 'Benavente', 'Benavides',
+        'Benet', 'Benitez', 'Benito', 'Benítez', 'Berenguer', 'Bermejo', 'Bermudez',
+        'Bermúdez', 'Bernad', 'Bernal', 'Bernat', 'Berrocal', 'Bertrán', 'Bilbao',
+        'Blanca', 'Blanch', 'Blanco', 'Blanes', 'Blasco', 'Blazquez', 'Blázquez',
+        'Boada', 'Boix', 'Bolaños', 'Bonet', 'Bonilla', 'Borja', 'Borrego',
+        'Borrell', 'Borrás', 'Bosch', 'Botella', 'Bou', 'Bravo', 'Briones',
+        'Bru', 'Buendía', 'Bueno', 'Burgos', 'Busquets', 'Bustamante', 'Bustos',
+        'Báez', 'Bárcena', 'Caballero', 'Cabanillas', 'Cabañas', 'Cabello', 'Cabeza',
+        'Cabezas', 'Cabo', 'Cabrera', 'Cabrero', 'Cadenas', 'Cal', 'Calatayud',
+        'Calderon', 'Calderón', 'Calleja', 'Calvet', 'Calvo', 'Calzada', 'Camacho',
+        'Camino', 'Campillo', 'Campo', 'Campos', 'Campoy', 'Camps', 'Canales',
+        'Canals', 'Canet', 'Cano', 'Cantero', 'Cantón', 'Caparrós', 'Capdevila',
+        'Carbajo', 'Carballo', 'Carbonell', 'Carbó', 'Cardona', 'Carlos', 'Carmona',
+        'Carnero', 'Caro', 'Carpio', 'Carranza', 'Carrasco', 'Carrera', 'Carreras',
+        'Carretero', 'Carreño', 'Carrillo', 'Carrión', 'Carro', 'Carvajal', 'Casado',
+        'Casal', 'Casals', 'Casanova', 'Casanovas', 'Casares', 'Casas', 'Cases',
+        'Castañeda', 'Castejón', 'Castell', 'Castellanos', 'Castells', 'Castelló', 'Castilla',
+        'Castillo', 'Castrillo', 'Castro', 'Catalá', 'Catalán', 'Cazorla', 'Cañas',
+        'Cañellas', 'Cañete', 'Cañizares', 'Cepeda', 'Cerdá', 'Cerdán', 'Cerezo',
+        'Cerro', 'Cervantes', 'Cervera', 'Chacón', 'Chamorro', 'Chaparro', 'Chaves',
+        'Checa', 'Chico', 'Cid', 'Cifuentes', 'Cisneros', 'Clavero', 'Clemente',
+        'Cobo', 'Cobos', 'Coca', 'Codina', 'Coello', 'Coll', 'Collado',
+        'Colom', 'Coloma', 'Colomer', 'Comas', 'Company', 'Conde', 'Conesa',
+        'Contreras', 'Corbacho', 'Cordero', 'Cornejo', 'Corominas', 'Coronado', 'Corral',
+        'Correa', 'Cortes', 'Cortina', 'Cortés', 'Costa', 'Crespi', 'Crespo',
+        'Criado', 'Cruz', 'Cuadrado', 'Cuenca', 'Cuervo', 'Cuesta', 'Cueto',
+        'Cuevas', 'Cuéllar', 'Cáceres', 'Cámara', 'Cánovas', 'Cárdenas', 'Céspedes',
+        'Córdoba', 'Cózar', 'Dalmau', 'Daza', 'Delgado', 'Diaz', 'Diego',
+        'Diez', 'Diéguez', 'Domingo', 'Dominguez', 'Doménech', 'Domínguez', 'Donaire',
+        'Donoso', 'Duarte', 'Dueñas', 'Duque', 'Duran', 'Durán', 'Dávila',
+        'Díaz', 'Díez', 'Echevarría', 'Echeverría', 'Egea', 'Elorza', 'Elías',
+        'Enríquez', 'Escalona', 'Escamilla', 'Escobar', 'Escolano', 'Escribano', 'Escrivá',
+        'Escudero', 'Espada', 'Esparza', 'España', 'Español', 'Espejo', 'Espinosa',
+        'Esteban', 'Esteve', 'Estevez', 'Estrada', 'Estévez', 'Exposito', 'Expósito',
+        'Fabra', 'Fabregat', 'Fajardo', 'Falcó', 'Falcón', 'Farré', 'Feijoo',
+        'Feliu', 'Fernandez', 'Fernández', 'Ferrando', 'Ferrer', 'Ferrera', 'Ferreras',
+        'Ferrero', 'Ferrán', 'Ferrández', 'Ferrándiz', 'Figueras', 'Figueroa', 'Figuerola',
+        'Fiol', 'Flor', 'Flores', 'Folch', 'Fonseca', 'Font', 'Fortuny',
+        'Franch', 'Francisco', 'Franco', 'Frutos', 'Frías', 'Fuente', 'Fuentes',
+        'Fuertes', 'Fuster', 'Fábregas', 'Gabaldón', 'Galan', 'Galiano', 'Galindo',
+        'Gallardo', 'Gallart', 'Gallego', 'Gallo', 'Galvez', 'Galván', 'Galán',
+        'Garay', 'Garcia', 'Garcés', 'García', 'Gargallo', 'Garmendia', 'Garrido',
+        'Garriga', 'Garzón', 'Gascón', 'Gaya', 'Gelabert', 'Gibert', 'Gil',
+        'Gilabert', 'Gimenez', 'Gimeno', 'Giménez', 'Giner', 'Giralt', 'Girona',
+        'Girón', 'Gisbert', 'Godoy', 'Goicoechea', 'Gomez', 'Gomila', 'Gomis',
+        'Gonzalez', 'Gonzalo', 'González', 'Gordillo', 'Goñi', 'Gracia', 'Granados',
+        'Grande', 'Gras', 'Grau', 'Gual', 'Guardia', 'Guardiola', 'Guerra',
+        'Guerrero', 'Guijarro', 'Guillen', 'Guillén', 'Guitart', 'Gutierrez', 'Gutiérrez',
+        'Guzman', 'Guzmán', 'Gálvez', 'Gámez', 'Gárate', 'Gómez', 'Haro',
+        'Heras', 'Heredia', 'Hernandez', 'Hernando', 'Hernández', 'Herranz', 'Herrera',
+        'Herrero', 'Hervia', 'Hervás', 'Hidalgo', 'Hierro', 'Higueras', 'Hoyos',
+        'Hoz', 'Huerta', 'Huertas', 'Huguet', 'Hurtado', 'Ibarra', 'Ibañez',
+        'Iborra', 'Ibáñez', 'Iglesia', 'Iglesias', 'Infante', 'Iniesta', 'Iriarte',
+        'Isern', 'Izaguirre', 'Izquierdo', 'Iñiguez', 'Jara', 'Jaume', 'Jaén',
+        'Jerez', 'Jimenez', 'Jiménez', 'Jordá', 'Jordán', 'Jove', 'Jover',
+        'Juan', 'Juliá', 'Julián', 'Jurado', 'Juárez', 'Jáuregui', 'Jódar',
+        'Lago', 'Laguna', 'Lamas', 'Landa', 'Lara', 'Larrañaga', 'Larrea',
+        'Lasa', 'Lastra', 'Leal', 'Ledesma', 'Leiva', 'Leon', 'Lerma',
+        'León', 'Lillo', 'Linares', 'Llabrés', 'Lladó', 'Llamas', 'Llano',
+        'Llanos', 'Lledó', 'Llobet', 'Llopis', 'Llorens', 'Llorente', 'Lloret',
+        'Lluch', 'Lobato', 'Lobo', 'Lopez', 'Lorenzo', 'Losa', 'Losada',
+        'Lozano', 'Lucas', 'Lucena', 'Luján', 'Lumbreras', 'Luna', 'Luque',
+        'Luz', 'Luís', 'López', 'Machado', 'Macias', 'Macías', 'Madrid',
+        'Madrigal', 'Maestre', 'Maldonado', 'Malo', 'Mancebo', 'Manjón', 'Manrique',
+        'Manso', 'Manuel', 'Manzanares', 'Manzano', 'Marco', 'Marcos', 'Marin',
+        'Mariscal', 'Mariño', 'Marquez', 'Marqués', 'Marti', 'Martin', 'Martinez',
+        'Martorell', 'Martí', 'Martín', 'Martínez', 'Marí', 'Marín', 'Mas',
+        'Mascaró', 'Mata', 'Matas', 'Mate', 'Mateo', 'Mateos', 'Mateu',
+        'Mayo', 'Mayol', 'Mayoral', 'Maza', 'Medina', 'Melero', 'Meléndez',
+        'Mena', 'Mendez', 'Mendizábal', 'Mendoza', 'Menendez', 'Menéndez', 'Mercader',
+        'Merino', 'Mesa', 'Miguel', 'Milla', 'Millán', 'Mir', 'Miralles',
+        'Miranda', 'Miró', 'Moles', 'Molina', 'Moliner', 'Molins', 'Moll',
+        'Monreal', 'Montalbán', 'Montaña', 'Montenegro', 'Montero', 'Montes', 'Montesinos',
+        'Montoya', 'Montserrat', 'Mora', 'Moraleda', 'Morales', 'Morante', 'Morata',
+        'Morcillo', 'Morell', 'Moreno', 'Morera', 'Morillo', 'Morán', 'Mosquera',
+        'Moya', 'Mulet', 'Mur', 'Murcia', 'Murillo', 'Muro', 'Muñoz',
+        'Mármol', 'Márquez', 'Méndez', 'Mínguez', 'Múgica', 'Múñiz', 'Nadal',
+        'Naranjo', 'Narváez', 'Navarrete', 'Navarro', 'Navas', 'Nebot', 'Neira',
+        'Nevado', 'Nicolau', 'Nicolás', 'Nieto', 'Niño', 'Nogueira', 'Noguera',
+        'Nogués', 'Noriega', 'Novoa', 'Nuñez', 'Núñez', 'Ocaña', 'Ochoa',
+        'Ojeda', 'Oliva', 'Olivares', 'Oliver', 'Olivera', 'Oliveras', 'Olivé',
+        'Oller', 'Olmedo', 'Olmo', 'Ordóñez', 'Orozco', 'Ortega', 'Ortiz',
+        'Ortuño', 'Osorio', 'Osuna', 'Otero', 'Pablo', 'Pacheco', 'Padilla',
+        'Pagès', 'Palacio', 'Palacios', 'Palau', 'Pallarès', 'Palma', 'Palmer',
+        'Palomar', 'Palomares', 'Palomino', 'Palomo', 'Paniagua', 'Pardo', 'Paredes',
+        'Pareja', 'Parejo', 'Parra', 'Pascual', 'Pastor', 'Patiño', 'Pavón',
+        'Paz', 'Pazos', 'Pedraza', 'Pedrero', 'Pedro', 'Pedrosa', 'Peinado',
+        'Peiró', 'Pelayo', 'Pellicer', 'Peláez', 'Pera', 'Peral', 'Perales',
+        'Peralta', 'Perea', 'Pereira', 'Perelló', 'Perera', 'Perez', 'Peña',
+        'Peñalver', 'Peñas', 'Pi', 'Pina', 'Pineda', 'Pinedo', 'Pinilla',
+        'Pino', 'Pinto', 'Pintor', 'Piquer', 'Pizarro', 'Piña', 'Piñeiro',
+        'Piñol', 'Pla', 'Plana', 'Planas', 'Plaza', 'Pol', 'Polo',
+        'Pomares', 'Pombo', 'Ponce', 'Pons', 'Pont', 'Porcel', 'Porras',
+        'Porta', 'Portero', 'Portillo', 'Posada', 'Pou', 'Poza', 'Pozo',
+        'Pozuelo', 'Prada', 'Prado', 'Prat', 'Prats', 'Priego', 'Prieto',
+        'Puente', 'Puerta', 'Puga', 'Puig', 'Pujadas', 'Pujol', 'Pulido',
+        'Páez', 'Pérez', 'Quero', 'Querol', 'Quesada', 'Quevedo', 'Quintana',
+        'Quintanilla', 'Quintero', 'Quiroga', 'Quirós', 'Ramirez', 'Ramis', 'Ramos',
+        'Ramírez', 'Ramón', 'Raya', 'Real', 'Rebollo', 'Recio', 'Redondo',
+        'Reguera', 'Reig', 'Reina', 'Requena', 'Revilla', 'Rey', 'Reyes',
+        'Riba', 'Ribas', 'Ribera', 'Ribes', 'Ricart', 'Rico', 'Riera',
+        'Rincón', 'Rios', 'Ripoll', 'Riquelme', 'Rius', 'Rivas', 'Rivera',
+        'Rivero', 'Robledo', 'Robles', 'Roca', 'Rocamora', 'Rocha', 'Roda',
+        'Rodrigo', 'Rodriguez', 'Rodríguez', 'Roig', 'Rojas', 'Roldan', 'Roldán',
+        'Roma', 'Roman', 'Romero', 'Romeu', 'Román', 'Ropero', 'Ros',
+        'Rosa', 'Rosado', 'Rosales', 'Rosell', 'Roselló', 'Rosselló', 'Roura',
+        'Rovira', 'Royo', 'Rozas', 'Ruano', 'Rubio', 'Rueda', 'Ruiz',
+        'Río', 'Ríos', 'Ródenas', 'Saavedra', 'Sabater', 'Sacristán', 'Saez',
+        'Sainz', 'Sala', 'Salamanca', 'Salas', 'Salazar', 'Salcedo', 'Saldaña',
+        'Sales', 'Salgado', 'Salinas', 'Salmerón', 'Salom', 'Salvador', 'Salvà',
+        'Samper', 'Sanabria', 'Sanchez', 'Sancho', 'Sandoval', 'Sanjuan', 'Sanmartín',
+        'Sanmiguel', 'Sans', 'Santamaria', 'Santamaría', 'Santana', 'Santiago', 'Santos',
+        'Sanz', 'Sarabia', 'Sarmiento', 'Sastre', 'Saura', 'Sebastián', 'Seco',
+        'Sedano', 'Segarra', 'Segovia', 'Segura', 'Seguí', 'Serna', 'Serra',
+        'Serrano', 'Sevilla', 'Sevillano', 'Sierra', 'Silva', 'Simó', 'Sobrino',
+        'Sola', 'Solana', 'Solano', 'Soler', 'Solera', 'Solsona', 'Solé',
+        'Solís', 'Somoza', 'Soria', 'Soriano', 'Sosa', 'Sotelo', 'Soto',
+        'Suarez', 'Sureda', 'Suárez', 'Sáenz', 'Sáez', 'Sánchez', 'Taboada',
+        'Talavera', 'Tamarit', 'Tamayo', 'Tapia', 'Tejada', 'Tejedor', 'Tejera',
+        'Tejero', 'Tello', 'Tena', 'Tenorio', 'Terrón', 'Teruel', 'Tirado',
+        'Toledo', 'Tolosa', 'Tomas', 'Tomás', 'Tomé', 'Tormo', 'Toro',
+        'Torralba', 'Torre', 'Torrecilla', 'Torrens', 'Torrent', 'Torrents', 'Torres',
+        'Torrijos', 'Tovar', 'Trillo', 'Trujillo', 'Tudela', 'Tur', 'Téllez',
+        'Ugarte', 'Ureña', 'Uriarte', 'Uribe', 'Urrutia', 'Uría', 'Valbuena',
+        'Valcárcel', 'Valderrama', 'Valdés', 'Valencia', 'Valenciano', 'Valentín', 'Valenzuela',
+        'Valera', 'Valero', 'Vall', 'Valle', 'Vallejo', 'Valls', 'Vallés',
+        'Valverde', 'Vaquero', 'Vara', 'Varela', 'Vargas', 'Vazquez', 'Vega',
+        'Velasco', 'Velázquez', 'Vendrell', 'Vera', 'Verdejo', 'Verdugo', 'Verdú',
+        'Vergara', 'Viana', 'Vicens', 'Vicente', 'Vidal', 'Vigil', 'Vila',
+        'Vilalta', 'Vilanova', 'Vilaplana', 'Vilar', 'Villa', 'Villalba', 'Villalobos',
+        'Villalonga', 'Villanueva', 'Villar', 'Villaverde', 'Villegas', 'Villena', 'Vives',
+        'Vizcaíno', 'Viña', 'Viñas', 'Vázquez', 'Vélez', 'Yuste', 'Yáñez',
+        'Zabala', 'Zabaleta', 'Zamora', 'Zamorano', 'Zapata', 'Zaragoza', 'Zorrilla',
+        'Zurita', 'Águila', 'Álamo', 'Álvarez', 'Álvaro', 'Ángel', 'Ávila'
+    )
 
-    def chrome(self, version_from=13, version_to=63,
-               build_from=800, build_to=899):
-        saf = str(self.generator.random.randint(531, 536)) + \
-            str(self.generator.random.randint(0, 2))
-        tmplt = '({0}) AppleWebKit/{1} (KHTML, like Gecko)' \
-                ' Chrome/{2}.0.{3}.0 Safari/{4}'
-        platforms = (
-            tmplt.format(self.linux_platform_token(),
-                         saf,
-                         self.generator.random.randint(version_from, version_to),
-                         self.generator.random.randint(build_from, build_to),
-                         saf),
-            tmplt.format(self.windows_platform_token(),
-                         saf,
-                         self.generator.random.randint(version_from, version_to),
-                         self.generator.random.randint(build_from, build_to),
-                         saf),
-            tmplt.format(self.mac_platform_token(),
-                         saf,
-                         self.generator.random.randint(version_from, version_to),
-                         self.generator.random.randint(build_from, build_to),
-                         saf),
-        )
-
-        return 'Mozilla/5.0 ' + self.random_element(platforms)
-
-    def firefox(self):
-        ver = (
-            'Gecko/{0} Firefox/{1}.0'.format(
-                self.generator.date_time_between(
-                    datetime(2011, 1, 1)
-                ),
-                self.generator.random.randint(4, 15)
-            ),
-            'Gecko/{0} Firefox/3.6.{1}'.format(
-                self.generator.date_time_between(
-                    datetime(2010, 1, 1)
-                ),
-                self.generator.random.randint(1, 20)),
-            'Gecko/{0} Firefox/3.8'.format(
-                self.generator.date_time_between(datetime(2010, 1, 1)),
-            ),
-        )
-        tmplt_win = '({0}; {1}; rv:1.9.{2}.20) {3}'
-        tmplt_lin = '({0}; rv:1.9.{1}.20) {2}'
-        tmplt_mac = '({0}; rv:1.9.{1}.20) {2}'
-        platforms = (
-            tmplt_win.format(self.windows_platform_token(),
-                             self.generator.locale().replace('_', '-'),
-                             self.generator.random.randint(0, 2),
-                             self.generator.random.choice(ver)),
-            tmplt_lin.format(self.linux_platform_token(),
-                             self.generator.random.randint(5, 7),
-                             self.generator.random.choice(ver)),
-            tmplt_mac.format(self.mac_platform_token(),
-                             self.generator.random.randint(2, 6),
-                             self.generator.random.choice(ver)),
-        )
-
-        return 'Mozilla/5.0 ' + self.random_element(platforms)
-
-    def safari(self):
-        saf = "{0}.{1}.{2}".format(self.generator.random.randint(531, 535),
-                                   self.generator.random.randint(1, 50),
-                                   self.generator.random.randint(1, 7))
-        if not self.generator.random.getrandbits(1):
-            ver = "{0}.{1}".format(self.generator.random.randint(4, 5),
-                                   self.generator.random.randint(0, 1))
-        else:
-            ver = "{0}.0.{1}".format(self.generator.random.randint(4, 5),
-                                     self.generator.random.randint(1, 5))
-        tmplt_win = '(Windows; U; {0}) AppleWebKit/{1} (KHTML, like Gecko)' \
-                    ' Version/{2} Safari/{3}'
-        tmplt_mac = '({0} rv:{1}.0; {2}) AppleWebKit/{3} (KHTML, like Gecko)' \
-                    ' Version/{4} Safari/{5}'
-        tmplt_ipod = '(iPod; U; CPU iPhone OS {0}_{1} like Mac OS X; {2})' \
-                     ' AppleWebKit/{3} (KHTML, like Gecko) Version/{4}.0.5' \
-                     ' Mobile/8B{5} Safari/6{6}'
-        locale = self.generator.locale().replace('_', '-')
-        platforms = (
-            tmplt_win.format(self.windows_platform_token(),
-                             saf,
-                             ver,
-                             saf),
-            tmplt_mac.format(self.mac_platform_token(),
-                             self.generator.random.randint(2, 6),
-                             locale,
-                             saf,
-                             ver,
-                             saf),
-            tmplt_ipod.format(self.generator.random.randint(3, 4),
-                              self.generator.random.randint(0, 3),
-                              locale,
-                              saf,
-                              self.generator.random.randint(3, 4),
-                              self.generator.random.randint(111, 119),
-                              saf),
-        )
-
-        return 'Mozilla/5.0 ' + self.random_element(platforms)
-
-    def opera(self):
-        platform = '({0}; {1}) Presto/2.9.{2} Version/{3}.00'.format(
-            (
-                self.linux_platform_token()
-                if self.generator.random.getrandbits(1)
-                else self.windows_platform_token()
-            ),
-            self.generator.locale().replace('_', '-'),
-            self.generator.random.randint(160, 190),
-            self.generator.random.randint(10, 12),
-        )
-        return 'Opera/{0}.{1}.{2}'.format(
-            self.generator.random.randint(8, 9),
-            self.generator.random.randint(10, 99),
-            platform,
-        )
-
-    def internet_explorer(self):
-        tmplt = 'Mozilla/5.0 (compatible; MSIE {0}.0; {1}; Trident/{2}.{3})'
-        return tmplt.format(self.generator.random.randint(5, 9),
-                            self.windows_platform_token(),
-                            self.generator.random.randint(3, 5),
-                            self.generator.random.randint(0, 1))
-
-    def windows_platform_token(self):
-        return self.random_element(self.windows_platform_tokens)
-
-    def linux_platform_token(self):
-        return 'X11; Linux {0}'.format(
-            self.random_element(self.linux_processors))
-
-    def mac_platform_token(self):
-        return 'Macintosh; {0} Mac OS X 10_{1}_{2}'.format(
-            self.random_element(self.mac_processors),
-            self.generator.random.randint(5, 12),
-            self.generator.random.randint(0, 9),
-        )
+    prefixes = ('de', 'del')

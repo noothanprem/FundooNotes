@@ -1,1 +1,1 @@
-ވ^venv/lib64/python3.6/site-packages/django_extensions/management/commands/update_permissions.py 2pyX@h
+ވWvenv/lib64/python3.6/site-packages/django_extensions/management/commands/create_jobs.py 2pyXAh

@@ -24,131 +24,110 @@
 #
 ###############################################################################
 
+from __future__ import absolute_import
 
-from __future__ import absolute_import, print_function
+import hashlib
 
-from autobahn.wamp.cryptosign import HAS_CRYPTOSIGN, SigningKey
+from twisted.internet.defer import Deferred
+from twisted.internet.address import IPv4Address, UNIXAddress
+try:
+    from twisted.internet.stdio import PipeAddress
+except ImportError:
+    # stdio.PipeAddress is only avail on Twisted 13.0+
+    PipeAddress = type(None)
 
-from twisted.internet.defer import inlineCallbacks, returnValue
+try:
+    from twisted.internet.address import IPv6Address
+    _HAS_IPV6 = True
+except ImportError:
+    _HAS_IPV6 = False
 
-__all__ = [
-    'HAS_CRYPTOSIGN_SSHAGENT'
-]
+__all = (
+    'sleep',
+    'peer2str',
+    'transport_channel_id'
+)
 
-if HAS_CRYPTOSIGN:
-    try:
-        # WAMP-cryptosign support for SSH agent is currently
-        # only available on Twisted (on Python 2)
-        from twisted.internet.protocol import Factory
-        from twisted.internet.endpoints import UNIXClientEndpoint
-        from twisted.conch.ssh.agent import SSHAgentClient
-    except ImportError:
-        # twisted.conch is not yet fully ported to Python 3
-        HAS_CRYPTOSIGN_SSHAGENT = False
+
+def sleep(delay, reactor=None):
+    """
+    Inline sleep for use in co-routines (Twisted ``inlineCallback`` decorated functions).
+
+    .. seealso::
+       * `twisted.internet.defer.inlineCallbacks <http://twistedmatrix.com/documents/current/api/twisted.internet.defer.html#inlineCallbacks>`__
+       * `twisted.internet.interfaces.IReactorTime <http://twistedmatrix.com/documents/current/api/twisted.internet.interfaces.IReactorTime.html>`__
+
+    :param delay: Time to sleep in seconds.
+    :type delay: float
+    :param reactor: The Twisted reactor to use.
+    :type reactor: None or provider of ``IReactorTime``.
+    """
+    if not reactor:
+        from twisted.internet import reactor
+    d = Deferred()
+    reactor.callLater(delay, d.callback, None)
+    return d
+
+
+def peer2str(addr):
+    """
+    Convert a Twisted address as returned from ``self.transport.getPeer()`` to a string.
+
+    :returns: Returns a string representation of the peer on a Twisted transport.
+    :rtype: unicode
+    """
+    if isinstance(addr, IPv4Address):
+        res = u"tcp4:{0}:{1}".format(addr.host, addr.port)
+    elif _HAS_IPV6 and isinstance(addr, IPv6Address):
+        res = u"tcp6:{0}:{1}".format(addr.host, addr.port)
+    elif isinstance(addr, UNIXAddress):
+        res = u"unix:{0}".format(addr.name)
+    elif isinstance(addr, PipeAddress):
+        res = u"<pipe>"
     else:
-        HAS_CRYPTOSIGN_SSHAGENT = True
-        __all__.append('SSHAgentSigningKey')
+        # gracefully fallback if we can't map the peer's address
+        res = u"?:{0}".format(addr)
+
+    return res
 
 
-if HAS_CRYPTOSIGN_SSHAGENT:
+def transport_channel_id(transport, is_server, channel_id_type):
+    """
+    Application-layer user authentication protocols are vulnerable to generic
+    credential forwarding attacks, where an authentication credential sent by
+    a client C to a server M may then be used by M to impersonate C at another
+    server S. To prevent such credential forwarding attacks, modern authentication
+    protocols rely on channel bindings. For example, WAMP-cryptosign can use
+    the tls-unique channel identifier provided by the TLS layer to strongly bind
+    authentication credentials to the underlying channel, so that a credential
+    received on one TLS channel cannot be forwarded on another.
 
-    import os
-    from nacl import signing
-    from autobahn.wamp.cryptosign import _read_ssh_ed25519_pubkey, _unpack, _pack
+    """
+    if channel_id_type not in [u'tls-unique']:
+        raise Exception("invalid channel ID type {}".format(channel_id_type))
 
-    class SSHAgentSigningKey(SigningKey):
-        """
-        A WAMP-cryptosign signing key that is a proxy to a private Ed25510 key
-        actually held in SSH agent.
+    if hasattr(transport, '_tlsConnection'):
+        # Obtain latest TLS Finished message that we expected from peer, or None if handshake is not completed.
+        # http://www.pyopenssl.org/en/stable/api/ssl.html#OpenSSL.SSL.Connection.get_peer_finished
 
-        An instance of this class must be create via the class method new().
-        The instance only holds the public key part, whereas the private key
-        counterpart is held in SSH agent.
-        """
+        if is_server:
+            # for routers (=servers), the channel ID is based on the TLS Finished message we
+            # expected to receive from the client
+            tls_finished_msg = transport._tlsConnection.get_peer_finished()
+        else:
+            # for clients, the channel ID is based on the TLS Finished message we sent
+            # to the router (=server)
+            tls_finished_msg = transport._tlsConnection.get_finished()
 
-        def __init__(self, key, comment=None, reactor=None):
-            SigningKey.__init__(self, key, comment)
-            if not reactor:
-                from twisted.internet import reactor
-            self._reactor = reactor
+        if tls_finished_msg is None:
+            # this can occur if we made a successful connection (in a
+            # TCP sense) but something failed with the TLS handshake
+            # (e.g. invalid certificate)
+            return None
 
-        @classmethod
-        def new(cls, pubkey=None, reactor=None):
-            """
-            Create a proxy for a key held in SSH agent.
+        m = hashlib.sha256()
+        m.update(tls_finished_msg)
+        return m.digest()
 
-            :param pubkey: A string with a public Ed25519 key in SSH format.
-            :type pubkey: unicode
-            """
-            if not HAS_CRYPTOSIGN_SSHAGENT:
-                raise Exception("SSH agent integration is not supported on this platform")
-
-            pubkey, _ = _read_ssh_ed25519_pubkey(pubkey)
-
-            if not reactor:
-                from twisted.internet import reactor
-
-            if "SSH_AUTH_SOCK" not in os.environ:
-                raise Exception("no ssh-agent is running!")
-
-            factory = Factory()
-            factory.noisy = False
-            factory.protocol = SSHAgentClient
-            endpoint = UNIXClientEndpoint(reactor, os.environ["SSH_AUTH_SOCK"])
-            d = endpoint.connect(factory)
-
-            @inlineCallbacks
-            def on_connect(agent):
-                keys = yield agent.requestIdentities()
-
-                # if the key is found in ssh-agent, the raw public key (32 bytes), and the
-                # key comment as returned from ssh-agent
-                key_data = None
-                key_comment = None
-
-                for blob, comment in keys:
-                    raw = _unpack(blob)
-                    algo = raw[0]
-                    if algo == u'ssh-ed25519':
-                        algo, _pubkey = raw
-                        if _pubkey == pubkey:
-                            key_data = _pubkey
-                            key_comment = comment.decode('utf8')
-                            break
-
-                agent.transport.loseConnection()
-
-                if key_data:
-                    key = signing.VerifyKey(key_data)
-                    returnValue(cls(key, key_comment, reactor))
-                else:
-                    raise Exception("Ed25519 key not held in ssh-agent")
-
-            return d.addCallback(on_connect)
-
-        def sign(self, challenge):
-            if "SSH_AUTH_SOCK" not in os.environ:
-                raise Exception("no ssh-agent is running!")
-
-            factory = Factory()
-            factory.noisy = False
-            factory.protocol = SSHAgentClient
-            endpoint = UNIXClientEndpoint(self._reactor, os.environ["SSH_AUTH_SOCK"])
-            d = endpoint.connect(factory)
-
-            @inlineCallbacks
-            def on_connect(agent):
-                # we are now connected to the locally running ssh-agent
-                # that agent might be the openssh-agent, or eg on Ubuntu 14.04 by
-                # default the gnome-keyring / ssh-askpass-gnome application
-                blob = _pack(['ssh-ed25519', self.public_key(binary=True)])
-
-                # now ask the agent
-                signature_blob = yield agent.signData(blob, challenge)
-                algo, signature = _unpack(signature_blob)
-
-                agent.transport.loseConnection()
-
-                returnValue(signature)
-
-            return d.addCallback(on_connect)
+    else:
+        return None

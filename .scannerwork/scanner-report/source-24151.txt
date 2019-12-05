@@ -1,141 +1,90 @@
 # -*- coding: utf-8 -*-
-"""
-sqldns.py
+from __future__ import print_function
 
-Prints Data Source Name on stdout
-"""
-
+import asyncore
 import sys
-from django.conf import settings
+from logging import getLogger
+from smtpd import SMTPServer
+
 from django.core.management.base import BaseCommand, CommandError
-from django.core.management.color import color_style
+
+from django_extensions.management.utils import setup_logger, signalcommand
+
+logger = getLogger(__name__)
+
+
+class ExtensionDebuggingServer(SMTPServer):
+    """Duplication of smtpd.DebuggingServer, but using logging instead of print."""
+
+    # Do something with the gathered message
+    def process_message(self, peer, mailfrom, rcpttos, data, **kwargs):
+        """Output will be sent to the module logger at INFO level."""
+        inheaders = 1
+        lines = data.split('\n')
+        logger.info('---------- MESSAGE FOLLOWS ----------')
+        for line in lines:
+            # headers first
+            if inheaders and not line:
+                logger.info('X-Peer: %s' % peer[0])
+                inheaders = 0
+            logger.info(line)
+        logger.info('------------ END MESSAGE ------------')
 
 
 class Command(BaseCommand):
-    help = """Prints DSN on stdout, as specified in settings.py
-
-    ./manage.py sqldsn [--router=<routername>] [--style=pgpass]"""
+    help = "Starts a test mail server for development."
+    args = '[optional port number or ippaddr:port]'
 
     requires_system_checks = False
-    can_import_settings = True
 
     def add_arguments(self, parser):
         super(Command, self).add_arguments(parser)
         parser.add_argument(
-            '-R', '--router', action='store',
-            dest='router', default='default',
-            help='Use this router-database other then default'
+            '--output', dest='output_file', default=None,
+            help='Specifies an output file to send a copy of all messages (not flushed immediately).'
         )
         parser.add_argument(
-            '-s', '--style', action='store',
-            dest='style', default=None,
-            help='DSN format style: keyvalue, uri, pgpass, all'
-        )
-        parser.add_argument(
-            '-a', '--all', action='store_true',
-            dest='all', default=False,
-            help='Show DSN for all database routes'
-        )
-        parser.add_argument(
-            '-q', '--quiet', action='store_true',
-            dest='quiet', default=False,
-            help='Quiet mode only show DSN'
+            '--use-settings', dest='use_settings',
+            action='store_true', default=False,
+            help='Uses EMAIL_HOST and HOST_PORT from Django settings.'
         )
 
-    def handle(self, *args, **options):
-        self.style = color_style()
-        all_routers = options['all']
-
-        if all_routers:
-            routers = settings.DATABASES.keys()
+    @signalcommand
+    def handle(self, addrport='', *args, **options):
+        if not addrport:
+            if options['use_settings']:
+                from django.conf import settings
+                addr = getattr(settings, 'EMAIL_HOST', '')
+                port = str(getattr(settings, 'EMAIL_PORT', '1025'))
+            else:
+                addr = ''
+                port = '1025'
         else:
-            routers = [options['router']]
+            try:
+                addr, port = addrport.split(':')
+            except ValueError:
+                addr, port = '', addrport
+        if not addr:
+            addr = '127.0.0.1'
 
-        for i, router in enumerate(routers):
-            if i != 0:
-                sys.stdout.write("\n")
-            self.show_dsn(router, options)
-
-    def show_dsn(self, router, options):
-        dbinfo = settings.DATABASES.get(router)
-        quiet = options['quiet']
-        dsn_style = options['style']
-
-        if dbinfo is None:
-            raise CommandError("Unknown database router %s" % router)
-
-        engine = dbinfo.get('ENGINE').split('.')[-1]
-        dbuser = dbinfo.get('USER')
-        dbpass = dbinfo.get('PASSWORD')
-        dbname = dbinfo.get('NAME')
-        dbhost = dbinfo.get('HOST')
-        dbport = dbinfo.get('PORT')
-
-        dsn = []
-
-        if engine == 'mysql':
-            dsn.append(self._mysql(dbhost, dbport, dbname, dbuser, dbpass))
-        elif engine in ['postgresql', 'postgresql_psycopg2', 'postgis']:
-            dsn.extend(self._postgresql(
-                dbhost, dbport, dbname, dbuser, dbpass, dsn_style=dsn_style))
-        elif engine == 'sqlite3':
-            dsn.append('{}'.format(dbname))
+        if not port.isdigit():
+            raise CommandError("%r is not a valid port number." % port)
         else:
-            dsn.append(self.style.ERROR('Unknown database, can''t generate DSN'))
+            port = int(port)
 
-        if not quiet:
-            sys.stdout.write(self.style.SQL_TABLE("DSN for router '%s' with engine '%s':\n" % (router, engine)))
+        # Add console handler
+        setup_logger(logger, stream=self.stdout, filename=options['output_file'])
 
-        for output in dsn:
-            sys.stdout.write("{}\n".format(output))
+        def inner_run():
+            quit_command = (sys.platform == 'win32') and 'CTRL-BREAK' or 'CONTROL-C'
+            print("Now accepting mail at %s:%s -- use %s to quit" % (addr, port, quit_command))
+            if sys.version_info < (3, 5):
+                ExtensionDebuggingServer((addr, port), None)
+            else:
+                ExtensionDebuggingServer((addr, port), None, decode_data=True)
+            asyncore.loop()
 
-    def _mysql(self, dbhost, dbport, dbname, dbuser, dbpass):
-        dsnstr = 'host="{0}", db="{2}", user="{3}", passwd="{4}"'
-
-        if dbport is not None:
-            dsnstr += ', port="{1}"'
-
-        return dsnstr.format(dbhost, dbport, dbname, dbuser, dbpass)
-
-    def _postgresql(self, dbhost, dbport, dbname, dbuser, dbpass, dsn_style=None):  # noqa
-        """PostgreSQL psycopg2 driver accepts two syntaxes
-
-        Plus a string for .pgpass file
-        """
-        dsn = []
-
-        if dsn_style is None or dsn_style == 'all' or dsn_style == 'keyvalue':
-            dsnstr = "host='{0}' dbname='{2}' user='{3}' password='{4}'"
-
-            if dbport is not None:
-                dsnstr += " port='{1}'"
-
-            dsn.append(dsnstr.format(dbhost,
-                                     dbport,
-                                     dbname,
-                                     dbuser,
-                                     dbpass,))
-
-        if dsn_style == 'all' or dsn_style == 'kwargs':
-            dsnstr = "host='{0}', database='{2}', user='{3}', password='{4}'"
-            if dbport is not None:
-                dsnstr += ", port='{1}'"
-
-            dsn.append(dsnstr.format(dbhost,
-                                     dbport,
-                                     dbname,
-                                     dbuser,
-                                     dbpass))
-
-        if dsn_style == 'all' or dsn_style == 'uri':
-            dsnstr = "postgresql://{user}:{password}@{host}/{name}"
-
-            dsn.append(dsnstr.format(
-                host="{host}:{port}".format(host=dbhost, port=dbport) if dbport else dbhost,  # noqa
-                name=dbname, user=dbuser, password=dbpass))
-
-        if dsn_style == 'all' or dsn_style == 'pgpass':
-            dsn.append(':'.join(map(str, filter(
-                None, [dbhost, dbport, dbname, dbuser, dbpass]))))
-
-        return dsn
+        try:
+            inner_run()
+        except KeyboardInterrupt:
+            pass

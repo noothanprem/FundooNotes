@@ -1,1 +1,1 @@
-®²`venv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_ordering_geo_spatial.py 2pyXph
+®²Zvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_more_like_this.py 2pyXŸh

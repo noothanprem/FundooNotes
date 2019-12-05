@@ -1,1 +1,1 @@
-ç7venv/lib/python3.6/site-packages/celery/app/__init__.py 2pyXQh
+ç7venv/lib/python3.6/site-packages/celery/app/registry.py 2pyXFh

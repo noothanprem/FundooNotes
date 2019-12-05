@@ -1,1 +1,1 @@
-ËEAvenv/lib/python3.6/site-packages/django/conf/locale/ca/formats.py 2pyXh
+ËE6venv/lib/python3.6/site-packages/django/conf/locale/ca :ÊEÌE

@@ -1,39 +1,39 @@
-from hamcrest.library.text.substringmatcher import SubstringMatcher
-from hamcrest.core.helpers.hasmethod import hasmethod
-
 __author__ = "Jon Reid"
 __copyright__ = "Copyright 2011 hamcrest.org"
 __license__ = "BSD, see License.txt"
 
+from hamcrest.library.text.substringmatcher import SubstringMatcher
+from hamcrest.core.helpers.hasmethod import hasmethod
 
-class StringEndsWith(SubstringMatcher):
+
+class StringStartsWith(SubstringMatcher):
 
     def __init__(self, substring):
-        super(StringEndsWith, self).__init__(substring)
+        super(StringStartsWith, self).__init__(substring)
 
     def _matches(self, item):
-        if not hasmethod(item, 'endswith'):
+        if not hasmethod(item, 'startswith'):
             return False
-        return item.endswith(self.substring)
+        return item.startswith(self.substring)
 
     def relationship(self):
-        return 'ending with'
+        return 'starting with'
 
 
-def ends_with(string):
-    """Matches if object is a string ending with a given string.
+def starts_with(substring):
+    """Matches if object is a string starting with a given string.
 
     :param string: The string to search for.
 
     This matcher first checks whether the evaluated object is a string. If so,
-    it checks if ``string`` matches the ending characters of the evaluated
+    it checks if ``string`` matches the beginning characters of the evaluated
     object.
 
     Example::
 
-        ends_with("bar")
+        starts_with("foo")
 
     will match "foobar".
 
     """
-    return StringEndsWith(string)
+    return StringStartsWith(substring)

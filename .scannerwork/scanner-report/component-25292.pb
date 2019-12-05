@@ -1,1 +1,1 @@
-ле2venv/lib/python3.6/site-packages/dateutil/zoneinfo :мене
+ле2venv/lib/python3.6/site-packages/dateutil/zoneinfo :кене

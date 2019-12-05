@@ -1,1 +1,1 @@
-·J?venv/lib/python3.6/site-packages/django_redis/client/default.py 2pyX¨h
+·J?venv/lib/python3.6/site-packages/django_redis/client/sharded.py 2pyXâh

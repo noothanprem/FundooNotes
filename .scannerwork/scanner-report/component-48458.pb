@@ -1,1 +1,1 @@
-Êú8venv/lib64/python3.6/site-packages/twisted/conch/scripts :ÉúËúÌúÍúÓú
+Êú8venv/lib64/python3.6/site-packages/twisted/conch/scripts :ÉúËúÌúÍúÔú

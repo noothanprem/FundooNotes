@@ -1,1 +1,1 @@
-πù3venv/lib64/python3.6/site-packages/channels/testing :∏ù∫ùªù¡ù
+πù3venv/lib64/python3.6/site-packages/channels/testing :∏ù∫ùªù¿ù

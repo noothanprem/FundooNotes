@@ -1,1 +1,1 @@
-Ëó7venv/lib64/python3.6/site-packages/twisted/copyright.py 2pyX,h
+Ëó*venv/lib64/python3.6/site-packages/twisted :Êóëóïôåõ¥÷

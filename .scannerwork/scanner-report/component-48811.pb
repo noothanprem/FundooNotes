@@ -1,1 +1,1 @@
-«ý?venv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf :*ªý¬ý­ý®ý¯ý°ýåýæýïýûýýýþýãþåþ
+«ý?venv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf :*ªý¬ý­ý®ý¯ý°ýäýåýñýüýýýþýäþåþ

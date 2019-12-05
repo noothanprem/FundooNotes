@@ -1,1 +1,1 @@
-œ¼Nvenv/lib/python3.6/site-packages/django_extensions/templatetags/indent_text.py 2pyX8h
+œ¼Pvenv/lib/python3.6/site-packages/django_extensions/templatetags/debugger_tags.py 2pyX&h

@@ -1,1 +1,1 @@
-öº?venv/lib/python3.6/site-packages/social_core/backends/deezer.py 2pyX2h
+öºAvenv/lib/python3.6/site-packages/social_core/backends/linkedin.py 2pyX‚h

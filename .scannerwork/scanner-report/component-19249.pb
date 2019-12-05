@@ -1,1 +1,1 @@
-±–_venv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/sbcharsetprober.py 2pyXyh
+±–Vvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/compat.py 2pyX#h

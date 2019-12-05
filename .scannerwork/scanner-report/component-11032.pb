@@ -1,1 +1,1 @@
-˜V=venv/lib/python3.6/site-packages/faker/providers/person/lt_LT :—V
+˜V=venv/lib/python3.6/site-packages/faker/providers/person/lt_LT :–V

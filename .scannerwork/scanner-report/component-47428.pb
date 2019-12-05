@@ -1,1 +1,1 @@
-Äò6venv/lib64/python3.6/site-packages/twisted/application :ÃòÕòÖò×òØòèò
+Äò6venv/lib64/python3.6/site-packages/twisted/application :ÃòÕòÖò×òØòçò

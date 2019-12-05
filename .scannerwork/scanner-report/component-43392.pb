@@ -1,1 +1,0 @@
-€Ó5venv/lib64/python3.6/site-packages/kombu/utils/url.py 2pyX{h

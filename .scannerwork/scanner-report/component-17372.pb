@@ -1,1 +1,1 @@
-܇Dvenv/lib/python3.6/site-packages/kombu/asynchronous/aws/sqs/queue.py 2pyX�h
+܇@venv/lib/python3.6/site-packages/kombu/asynchronous/semaphore.py 2pyXmh

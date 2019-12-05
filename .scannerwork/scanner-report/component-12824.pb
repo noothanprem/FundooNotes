@@ -1,1 +1,1 @@
-˜dAvenv/lib/python3.6/site-packages/macaroonbakery/tests/__init__.py 2pyXh
+˜dEvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_checker.py 2pyX³h

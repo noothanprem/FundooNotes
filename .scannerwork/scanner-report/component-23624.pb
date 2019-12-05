@@ -1,1 +1,1 @@
-ȸFvenv/lib/python3.6/site-packages/social_core/tests/actions/__init__.py 2pyXh
+ȸEvenv/lib/python3.6/site-packages/social_core/tests/test_exceptions.py 2pyXth

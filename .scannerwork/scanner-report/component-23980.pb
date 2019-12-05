@@ -1,1 +1,1 @@
-¬»=venv/lib/python3.6/site-packages/social_core/pipeline/mail.py 2pyXh
+¬»5venv/lib/python3.6/site-packages/social_core/pipeline :«»­»®»¯»°»º»»»¼»

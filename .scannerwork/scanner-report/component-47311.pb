@@ -1,1 +1,0 @@
-ÏñOvenv/lib64/python3.6/site-packages/twisted/internet/test/test_filedescriptor.py 2pyXdh

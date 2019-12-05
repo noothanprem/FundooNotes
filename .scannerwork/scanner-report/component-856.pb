@@ -1,1 +1,1 @@
-Ø;venv/lib/python3.6/site-packages/celery/concurrency/solo.py 2pyXh
+Ø=venv/lib/python3.6/site-packages/celery/concurrency/gevent.py 2pyX|h

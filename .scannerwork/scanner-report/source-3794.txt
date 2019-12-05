@@ -1,93 +1,63 @@
-from django.core.cache import InvalidCacheBackendError, caches
-from django.core.cache.utils import make_template_fragment_key
-from django.template import (
-    Library, Node, TemplateSyntaxError, VariableDoesNotExist,
-)
+from django.template import Library, Node, TemplateSyntaxError
+from django.utils import formats
 
 register = Library()
 
 
-class CacheNode(Node):
-    def __init__(self, nodelist, expire_time_var, fragment_name, vary_on, cache_name):
+@register.filter(is_safe=False)
+def localize(value):
+    """
+    Force a value to be rendered as a localized value,
+    regardless of the value of ``settings.USE_L10N``.
+    """
+    return str(formats.localize(value, use_l10n=True))
+
+
+@register.filter(is_safe=False)
+def unlocalize(value):
+    """
+    Force a value to be rendered as a non-localized value,
+    regardless of the value of ``settings.USE_L10N``.
+    """
+    return str(formats.localize(value, use_l10n=False))
+
+
+class LocalizeNode(Node):
+    def __init__(self, nodelist, use_l10n):
         self.nodelist = nodelist
-        self.expire_time_var = expire_time_var
-        self.fragment_name = fragment_name
-        self.vary_on = vary_on
-        self.cache_name = cache_name
+        self.use_l10n = use_l10n
+
+    def __repr__(self):
+        return '<%s>' % self.__class__.__name__
 
     def render(self, context):
-        try:
-            expire_time = self.expire_time_var.resolve(context)
-        except VariableDoesNotExist:
-            raise TemplateSyntaxError('"cache" tag got an unknown variable: %r' % self.expire_time_var.var)
-        if expire_time is not None:
-            try:
-                expire_time = int(expire_time)
-            except (ValueError, TypeError):
-                raise TemplateSyntaxError('"cache" tag got a non-integer timeout value: %r' % expire_time)
-        if self.cache_name:
-            try:
-                cache_name = self.cache_name.resolve(context)
-            except VariableDoesNotExist:
-                raise TemplateSyntaxError('"cache" tag got an unknown variable: %r' % self.cache_name.var)
-            try:
-                fragment_cache = caches[cache_name]
-            except InvalidCacheBackendError:
-                raise TemplateSyntaxError('Invalid cache name specified for cache tag: %r' % cache_name)
-        else:
-            try:
-                fragment_cache = caches['template_fragments']
-            except InvalidCacheBackendError:
-                fragment_cache = caches['default']
-
-        vary_on = [var.resolve(context) for var in self.vary_on]
-        cache_key = make_template_fragment_key(self.fragment_name, vary_on)
-        value = fragment_cache.get(cache_key)
-        if value is None:
-            value = self.nodelist.render(context)
-            fragment_cache.set(cache_key, value, expire_time)
-        return value
+        old_setting = context.use_l10n
+        context.use_l10n = self.use_l10n
+        output = self.nodelist.render(context)
+        context.use_l10n = old_setting
+        return output
 
 
-@register.tag('cache')
-def do_cache(parser, token):
+@register.tag('localize')
+def localize_tag(parser, token):
     """
-    This will cache the contents of a template fragment for a given amount
-    of time.
+    Force or prevents localization of values, regardless of the value of
+    `settings.USE_L10N`.
 
-    Usage::
+    Sample usage::
 
-        {% load cache %}
-        {% cache [expire_time] [fragment_name] %}
-            .. some expensive processing ..
-        {% endcache %}
-
-    This tag also supports varying by a list of arguments::
-
-        {% load cache %}
-        {% cache [expire_time] [fragment_name] [var1] [var2] .. %}
-            .. some expensive processing ..
-        {% endcache %}
-
-    Optionally the cache to use may be specified thus::
-
-        {% cache ....  using="cachename" %}
-
-    Each unique set of arguments will result in a unique cache entry.
+        {% localize off %}
+            var pi = {{ 3.1415 }};
+        {% endlocalize %}
     """
-    nodelist = parser.parse(('endcache',))
-    parser.delete_first_token()
-    tokens = token.split_contents()
-    if len(tokens) < 3:
-        raise TemplateSyntaxError("'%r' tag requires at least 2 arguments." % tokens[0])
-    if len(tokens) > 3 and tokens[-1].startswith('using='):
-        cache_name = parser.compile_filter(tokens[-1][len('using='):])
-        tokens = tokens[:-1]
+    use_l10n = None
+    bits = list(token.split_contents())
+    if len(bits) == 1:
+        use_l10n = True
+    elif len(bits) > 2 or bits[1] not in ('on', 'off'):
+        raise TemplateSyntaxError("%r argument should be 'on' or 'off'" % bits[0])
     else:
-        cache_name = None
-    return CacheNode(
-        nodelist, parser.compile_filter(tokens[1]),
-        tokens[2],  # fragment_name can't be a variable.
-        [parser.compile_filter(t) for t in tokens[3:]],
-        cache_name,
-    )
+        use_l10n = bits[1] == 'on'
+    nodelist = parser.parse(('endlocalize',))
+    parser.delete_first_token()
+    return LocalizeNode(nodelist, use_l10n)

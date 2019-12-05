@@ -1,1 +1,1 @@
-ç>venv/lib/python3.6/site-packages/django/db/backends/postgresql :æéëìíîùúû
+çEvenv/lib/python3.6/site-packages/django/db/backends/ddl_references.py 2pyXÂh

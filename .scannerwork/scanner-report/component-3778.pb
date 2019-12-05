@@ -1,1 +1,1 @@
-ÂDvenv/lib/python3.6/site-packages/django/template/loaders/__init__.py 2pyXh
+Â8venv/lib/python3.6/site-packages/django/template/loaders :ÁÃÄÅÍÎ

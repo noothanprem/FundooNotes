@@ -1,1 +1,1 @@
-ÿ±Wvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_serializers.py 2pyXÞh
+ÿ±Jvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/constants.py 2pyXÿh

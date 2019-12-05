@@ -1,1 +1,1 @@
-¬¸Hvenv/lib/python3.6/site-packages/social_core/tests/backends/test_xing.py 2pyX«h
+¬¸Ivenv/lib/python3.6/site-packages/social_core/tests/backends/test_asana.py 2pyX#h

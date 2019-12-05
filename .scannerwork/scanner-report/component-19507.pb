@@ -1,1 +1,1 @@
-³˜6venv/lib/python3.6/site-packages/amqp/serialization.py 2pyXÃh
+³˜3venv/lib/python3.6/site-packages/amqp/exceptions.py 2pyX¤h

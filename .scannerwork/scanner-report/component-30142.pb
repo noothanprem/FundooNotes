@@ -1,1 +1,1 @@
-ѕл:venv/lib64/python3.6/site-packages/django/contrib/humanize :ЅлОн
+ѕлFvenv/lib64/python3.6/site-packages/django/contrib/humanize/__init__.py 2pyXh

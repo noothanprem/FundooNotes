@@ -1,7 +1,6 @@
-r
-pythonS100VRename method "abortConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2%% q
-pythonS100URename method "loseConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2-- s
-pythonS100WRename method "registerProducer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 200 u
-pythonS100YRename method "unregisterProducer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 244 j
-pythonS100NRename method "getPeer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 288 j
-pythonS100NRename method "getHost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2>> 
+k
+pythonS100ORename method "getChild" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2PP v
+pythonS100ZRename method "getChildWithDefault" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ff k
+pythonS100ORename method "putChild" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ll t
+pythonS117XRename this parameter "wsgiResource" to match the regular expression ^[_a-z][a-z0-9_]*$. 2DD #j
+pythonS116NRename this field "isLeaf" to match the regular expression ^[_a-z][_a-z0-9]*$. 2[[ 

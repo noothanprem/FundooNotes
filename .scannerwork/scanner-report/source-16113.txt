@@ -1,50 +1,106 @@
-from gevent import monkey; monkey.patch_all()
-import gevent.hub
+import socket
 
-# check that the locks initialized by 'threading' did not init the hub
-assert gevent.hub._get_hub() is None, 'monkey.patch_all() should not init hub'
-
-import gevent
 import gevent.testing as greentest
-import threading
+import gevent
+from gevent import pywsgi
+
+import test__server
 
 
-def helper():
-    threading.currentThread()
-    gevent.sleep(0.2)
+def application(environ, start_response):
+    if environ['PATH_INFO'] == '/':
+        start_response("200 OK", [])
+        return [b"PONG"]
+    if environ['PATH_INFO'] == '/ping':
+        start_response("200 OK", [])
+        return [b"PONG"]
+    if environ['PATH_INFO'] == '/short':
+        gevent.sleep(0.5)
+        start_response("200 OK", [])
+        return []
+    if environ['PATH_INFO'] == '/long':
+        gevent.sleep(10)
+        start_response("200 OK", [])
+        return []
+
+    start_response("404 pywsgi WTF?", [])
+    return []
 
 
-class Test(greentest.TestCase):
-
-    def _do_test(self, spawn):
-        before = len(threading._active)
-        g = spawn(helper)
-        gevent.sleep(0.1)
-        self.assertEqual(len(threading._active), before + 1)
-        try:
-            g.join()
-        except AttributeError:
-            while not g.dead:
-                gevent.sleep()
-            # Raw greenlet has no join(), uses a weakref to cleanup.
-            # so the greenlet has to die. On CPython, it's enough to
-            # simply delete our reference.
-            del g
-            # On PyPy, it might take a GC, but for some reason, even
-            # running several GC's doesn't clean it up under 5.6.0.
-            # So we skip the test.
-            #import gc
-            #gc.collect()
-
-        self.assertEqual(len(threading._active), before)
+class SimpleWSGIServer(pywsgi.WSGIServer):
+    application = staticmethod(application)
 
 
-    def test_cleanup_gevent(self):
-        self._do_test(gevent.spawn)
+internal_error_start = b'HTTP/1.1 500 Internal Server Error\n'.replace(b'\n', b'\r\n')
+internal_error_end = b'\n\nInternal Server Error'.replace(b'\n', b'\r\n')
 
-    @greentest.skipOnPyPy("weakref is not cleaned up in a timely fashion")
-    def test_cleanup_raw(self):
-        self._do_test(gevent.spawn_raw)
+internal_error503 = b'''HTTP/1.1 503 Service Unavailable
+Connection: close
+Content-type: text/plain
+Content-length: 31
+
+Service Temporarily Unavailable'''.replace(b'\n', b'\r\n')
+
+
+class Settings(test__server.Settings):
+    ServerClass = pywsgi.WSGIServer
+    ServerSubClass = SimpleWSGIServer
+    close_socket_detected = True
+    restartable = False
+    close_socket_detected = False
+
+    @staticmethod
+    def assert500(inst):
+        conn = inst.makefile()
+        conn.write(b'GET / HTTP/1.0\r\n\r\n')
+        result = conn.read()
+        inst.assertTrue(result.startswith(internal_error_start),
+                        (result, internal_error_start))
+        inst.assertTrue(result.endswith(internal_error_end),
+                        (result, internal_error_end))
+
+    @staticmethod
+    def assert503(inst):
+        conn = inst.makefile()
+        conn.write(b'GET / HTTP/1.0\r\n\r\n')
+        result = conn.read()
+        inst.assertEqual(result, internal_error503)
+
+    @staticmethod
+    def assertPoolFull(inst):
+        with inst.assertRaises(socket.timeout):
+            inst.assertRequestSucceeded()
+
+    @staticmethod
+    def assertAcceptedConnectionError(inst):
+        conn = inst.makefile()
+        result = conn.read()
+        inst.assertFalse(result)
+
+    @staticmethod
+    def fill_default_server_args(inst, kwargs):
+        kwargs = test__server.Settings.fill_default_server_args(inst, kwargs)
+        kwargs.setdefault('log', pywsgi._NoopLog())
+        return kwargs
+
+
+class TestCase(test__server.TestCase):
+    Settings = Settings
+
+class TestDefaultSpawn(test__server.TestDefaultSpawn):
+    Settings = Settings
+
+class TestSSLSocketNotAllowed(test__server.TestSSLSocketNotAllowed):
+    Settings = Settings
+
+class TestRawSpawn(test__server.TestRawSpawn):
+    Settings = Settings
+
+class TestSSLGetCertificate(test__server.TestSSLGetCertificate):
+    Settings = Settings
+
+class TestPoolSpawn(test__server.TestPoolSpawn):
+    Settings = Settings
 
 if __name__ == '__main__':
     greentest.main()

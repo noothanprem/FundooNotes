@@ -1,1 +1,1 @@
-Úe=venv/lib/python3.6/site-packages/chardet/langcyrillicmodel.py 2pyXÎh
+Úe4venv/lib/python3.6/site-packages/chardet/big5freq.py 2pyXƒh

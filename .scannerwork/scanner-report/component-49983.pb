@@ -1,1 +1,1 @@
-¿†Hvenv/lib64/python3.6/site-packages/social_core/backends/nationbuilder.py 2pyX1h
+¿†@venv/lib64/python3.6/site-packages/social_core/backends/slack.py 2pyX>h

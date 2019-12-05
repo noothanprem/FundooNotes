@@ -1,1 +1,0 @@
-ı›<venv/lib64/python3.6/site-packages/zope/interface/_compat.py 2pyX;h

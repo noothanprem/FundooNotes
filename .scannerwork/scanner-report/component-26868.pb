@@ -1,1 +1,1 @@
-Ù—>venv/lib64/python3.6/site-packages/celery/events/dispatcher.py 2pyXËh
+Ù—:venv/lib64/python3.6/site-packages/celery/fixups/django.py 2pyXÃh

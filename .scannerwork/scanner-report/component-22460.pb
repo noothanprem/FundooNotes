@@ -1,1 +1,1 @@
-¼¯5venv/lib/python3.6/site-packages/twisted/scripts/test :»¯½¯
+¼¯Evenv/lib/python3.6/site-packages/twisted/scripts/test/test_scripts.py 2pyX•h

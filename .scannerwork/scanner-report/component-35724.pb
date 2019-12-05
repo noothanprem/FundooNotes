@@ -1,1 +1,1 @@
-Œ—8venv/lib64/python3.6/site-packages/autobahn/wamp/role.py 2pyX´h
+Œ—>venv/lib64/python3.6/site-packages/autobahn/wamp/cryptosign.py 2pyXäh

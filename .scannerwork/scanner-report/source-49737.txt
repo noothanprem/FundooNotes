@@ -1,47 +1,46 @@
+# -*- coding: utf-8 -*-
 """
-RunKeeper OAuth2 backend, docs at:
-    https://python-social-auth.readthedocs.io/en/latest/backends/runkeeper.html
+Pinterest OAuth2 backend, docs at:
+    https://developers.pinterest.com/docs/api/authentication/
 """
+
+from __future__ import unicode_literals
+
+import ssl
+
 from .oauth import BaseOAuth2
 
 
-class RunKeeperOAuth2(BaseOAuth2):
-    """RunKeeper OAuth authentication backend"""
-    name = 'runkeeper'
-    AUTHORIZATION_URL = 'https://runkeeper.com/apps/authorize'
-    ACCESS_TOKEN_URL = 'https://runkeeper.com/apps/token'
+class PinterestOAuth2(BaseOAuth2):
+    name = 'pinterest'
+    ID_KEY = 'user_id'
+    AUTHORIZATION_URL = 'https://api.pinterest.com/oauth/'
+    ACCESS_TOKEN_URL = 'https://api.pinterest.com/v1/oauth/token'
+    REDIRECT_STATE = False
     ACCESS_TOKEN_METHOD = 'POST'
-    EXTRA_DATA = [
-        ('userID', 'id'),
-    ]
+    SSL_PROTOCOL = ssl.PROTOCOL_TLSv1
 
-    def get_user_id(self, details, response):
-        return response['userID']
+    def user_data(self, access_token, *args, **kwargs):
+        response = self.get_json('https://api.pinterest.com/v1/me/',
+                                 params={'access_token': access_token})
+
+        if 'data' in response:
+            username = response['data']['url'].strip('/').split('/')[-1]
+            response = {
+                'user_id': response['data']['id'],
+                'first_name': response['data']['first_name'],
+                'last_name': response['data']['last_name'],
+                'username': username,
+            }
+        return response
 
     def get_user_details(self, response):
-        """Parse username from profile link"""
-        username = None
-        profile_url = response.get('profile')
-        if len(profile_url):
-            profile_url_parts = profile_url.split('http://runkeeper.com/user/')
-            if len(profile_url_parts) > 1 and len(profile_url_parts[1]):
-                username = profile_url_parts[1]
         fullname, first_name, last_name = self.get_user_names(
-            fullname=response.get('name')
-        )
-        return {'username': username,
-                'email': response.get('email') or '',
+            first_name=response['first_name'],
+            last_name=response['last_name'])
+
+        return {'username': response.get('username'),
+                'email': None,
                 'fullname': fullname,
                 'first_name': first_name,
                 'last_name': last_name}
-
-    def user_data(self, access_token, *args, **kwargs):
-        # We need to use the /user endpoint to get the user id, the /profile
-        # endpoint contains name, user name, location, gender
-        user_data = self._user_data(access_token, '/user')
-        profile_data = self._user_data(access_token, '/profile')
-        return dict(user_data, **profile_data)
-
-    def _user_data(self, access_token, path):
-        url = 'https://api.runkeeper.com{0}'.format(path)
-        return self.get_json(url, params={'access_token': access_token})

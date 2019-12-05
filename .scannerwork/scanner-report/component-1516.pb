@@ -1,1 +1,1 @@
-ì:venv/lib/python3.6/site-packages/nacl/bindings/__init__.py 2pyX‹h
+ì<venv/lib/python3.6/site-packages/nacl/bindings/crypto_box.py 2pyXºh

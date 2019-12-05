@@ -1,1664 +1,2445 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/graphics/charts/piecharts.py
-# experimental pie chart script.  Two types of pie - one is a monolithic
-#widget with all top-level properties, the other delegates most stuff to
-#a wedges collection whic lets you customize the group or every individual
-#wedge.
-
 __version__='3.3.0'
-__doc__="""Basic Pie Chart class.
+__doc__="""Collection of axes for charts.
 
-This permits you to customize and pop out individual wedges;
-supports elliptical and circular pies.
+The current collection comprises axes for charts using cartesian
+coordinate systems. All axes might have tick marks and labels.
+There are two dichotomies for axes: one of X and Y flavours and
+another of category and value flavours.
+
+Category axes have an ordering but no metric. They are divided
+into a number of equal-sized buckets. Their tick marks or labels,
+if available, go BETWEEN the buckets, and the labels are placed
+below to/left of the X/Y-axis, respectively.
+
+  Value axes have an ordering AND metric. They correspond to a nu-
+  meric quantity. Value axis have a real number quantity associated
+  with it. The chart tells it where to go.
+  The most basic axis divides the number line into equal spaces
+  and has tickmarks and labels associated with each; later we
+  will add variants where you can specify the sampling
+  interval.
+
+The charts using axis tell them where the labels should be placed.
+
+Axes of complementary X/Y flavours can be connected to each other
+in various ways, i.e. with a specific reference point, like an
+x/value axis to a y/value (or category) axis. In this case the
+connection can be either at the top or bottom of the former or
+at any absolute value (specified in points) or at some value of
+the former axes in its own coordinate system.
 """
 
-import copy, functools
-from math import sin, cos, pi
-
-from reportlab.lib import colors
-from reportlab.lib.validators import isColor, isNumber, isListOfNumbersOrNone,\
-                                    isListOfNumbers, isColorOrNone, isString,\
-                                    isListOfStringsOrNone, OneOf, SequenceOf,\
-                                    isBoolean, isListOfColors, isNumberOrNone,\
-                                    isNoneOrListOfNoneOrStrings, isTextAnchor,\
-                                    isNoneOrListOfNoneOrNumbers, isBoxAnchor,\
-                                    isStringOrNone, NoneOr, EitherOr,\
-                                    isNumberInRange
-from reportlab.graphics.widgets.markers import uSymbol2Symbol, isSymbol
+from reportlab.lib.validators import    isNumber, isNumberOrNone, isListOfStringsOrNone, isListOfNumbers, \
+                                        isListOfNumbersOrNone, isColorOrNone, OneOf, isBoolean, SequenceOf, \
+                                        isString, EitherOr, Validator, NoneOr, isInstanceOf, \
+                                        isNormalDate, isNoneOrCallable
 from reportlab.lib.attrmap import *
-from reportlab.pdfgen.canvas import Canvas
-from reportlab.graphics.shapes import Group, Drawing, Ellipse, Wedge, String, STATE_DEFAULTS, ArcPath, Polygon, Rect, PolyLine, Line
-from reportlab.graphics.widgetbase import Widget, TypedPropertyCollection, PropHolder
-from reportlab.graphics.charts.areas import PlotArea
-from reportlab.graphics.charts.legends import _objStr
-from reportlab.graphics.charts.textlabels import Label
-from reportlab import xrange, ascii, cmp
+from reportlab.lib import normalDate
+from reportlab.graphics.shapes import Drawing, Line, PolyLine, Rect, Group, STATE_DEFAULTS, _textBoxLimits, _rotatedBoxLimits
+from reportlab.graphics.widgetbase import Widget, TypedPropertyCollection
+from reportlab.graphics.charts.textlabels import Label, PMVLabel
+from reportlab.graphics.charts.utils import nextRoundNumber
+from reportlab.graphics.widgets.grids import ShadedRect
+from reportlab.lib.colors import Color
+from reportlab.lib.utils import isSeq
+from reportlab import xrange
+import copy
+try:
+    reduce  # Python 2.x
+except NameError:
+    from functools import reduce
 
-_ANGLE2BOXANCHOR={0:'w', 45:'sw', 90:'s', 135:'se', 180:'e', 225:'ne', 270:'n', 315: 'nw', -45: 'nw'}
-_ANGLE2RBOXANCHOR={0:'e', 45:'ne', 90:'n', 135:'nw', 180:'w', 225:'sw', 270:'s', 315: 'se', -45: 'se'}
+# Helpers.
+def _findMinMaxValue(V, x, default, func, special=None):
+    if isSeq(V[0][0]):
+        if special:
+            f=lambda T,x=x,special=special,func=func: special(T,x,func)
+        else:
+            f=lambda T,x=x: T[x]
+        V=list(map(lambda e,f=f: list(map(f,e)),V))
+    V = list(filter(len,[[x for x in x if x is not None] for x in V]))
+    if len(V)==0: return default
+    return func(list(map(func,V)))
 
-_ANGLELO    = 1e-7
-_ANGLEHI    = 360.0 - _ANGLELO
+def _findMin(V, x, default,special=None):
+    '''find minimum over V[i][x]'''
+    return _findMinMaxValue(V,x,default,min,special=special)
 
-class WedgeLabel(Label):
-    def _checkDXY(self,ba):
-        pass
-    def _getBoxAnchor(self):
-        ba = self.boxAnchor
-        if ba in ('autox','autoy'):
-            na = (int((self._pmv%360)/45.)*45)%360
-            if not (na % 90): # we have a right angle case
-                da = (self._pmv - na) % 360
-                if abs(da)>5:
-                    na += (da>0 and 45 or -45)
-            ba = (getattr(self,'_anti',None) and _ANGLE2RBOXANCHOR or _ANGLE2BOXANCHOR)[na]
-            self._checkDXY(ba)
-        return ba
+def _findMax(V, x, default,special=None):
+    '''find maximum over V[i][x]'''
+    return _findMinMaxValue(V,x,default,max,special=special)
 
-class WedgeProperties(PropHolder):
-    """This holds descriptive information about the wedges in a pie chart.
+def _allInt(values):
+    '''true if all values are int'''
+    for v in values:
+        try:
+            if int(v)!=v: return 0
+        except:
+            return 0
+    return 1
 
-    It is not to be confused with the 'wedge itself'; this just holds
-    a recipe for how to format one, and does not allow you to hack the
-    angles.  It can format a genuine Wedge object for you with its
-    format method.
-    """
+class AxisLabelAnnotation:
+    '''Create a grid like line using the given user value to draw the line
+    v       value to use
+    kwds may contain
+    scaleValue  True/not given --> scale the value
+                otherwise use the absolute value
+    labelClass  the label class to use default Label
+    all Label keywords are acceptable (including say _text)
+    '''
+    def __init__(self,v,**kwds):
+        self._v = v
+        self._kwds = kwds
+
+    def __call__(self,axis):
+        kwds = self._kwds.copy()
+        labelClass = kwds.pop('labelClass',Label)
+        scaleValue = kwds.pop('scaleValue',True)
+        if not hasattr(axis,'_tickValues'):
+            axis._pseudo_configure()
+        sv = (axis.scale if scaleValue else lambda x: x)(self._v)
+        if axis.isYAxis:
+            x = axis._x
+            y = sv
+        else:
+            x = sv
+            y = axis._y
+        kwds['x'] = x
+        kwds['y'] = y
+        return labelClass(**kwds)
+
+class AxisLineAnnotation:
+    '''Create a grid like line using the given user value to draw the line
+    kwds may contain
+    startOffset if true v is offset from the default grid start position
+    endOffset   if true v is offset from the default grid end position
+    scaleValue  True/not given --> scale the value
+                otherwise use the absolute value
+    lo          lowest coordinate to draw default 0
+    hi          highest coordinate to draw at default = length
+    drawAtLimit True draw line at appropriate limit if its coordinate exceeds the lo, hi range
+                False ignore if it's outside the range
+    all Line keywords are acceptable
+    '''
+    def __init__(self,v,**kwds):
+        self._v = v
+        self._kwds = kwds
+
+    def __call__(self,axis):
+        kwds = self._kwds.copy()
+        scaleValue = kwds.pop('scaleValue',True)
+        endOffset = kwds.pop('endOffset',False)
+        startOffset = kwds.pop('startOffset',False)
+        if axis.isYAxis:
+            offs = axis._x
+            d0 = axis._y
+        else:
+            offs = axis._y
+            d0 = axis._x
+        s = kwds.pop('start',None)
+        e = kwds.pop('end',None)
+        if s is None or e is None:
+            dim = getattr(getattr(axis,'joinAxis',None),'getGridDims',None)
+            if dim and hasattr(dim,'__call__'):
+                dim = dim()
+            if dim:
+                if s is None: s = dim[0]
+                if e is None: e = dim[1]
+            else:
+                if s is None: s = 0
+                if e is None: e = 0
+        hi = kwds.pop('hi',axis._length)+d0
+        lo = kwds.pop('lo',0)+d0
+        lo,hi=min(lo,hi),max(lo,hi)
+        drawAtLimit = kwds.pop('drawAtLimit',False)
+        oaglp = axis._get_line_pos
+        if not scaleValue:
+            axis._get_line_pos = lambda x: x
+        try:
+            v = self._v
+            if endOffset:
+                v = v + hi
+            elif startOffset:
+                v = v + lo
+            func = axis._getLineFunc(s-offs,e-offs,kwds.pop('parent',None))
+            if not hasattr(axis,'_tickValues'):
+                axis._pseudo_configure()
+            d = axis._get_line_pos(v)
+            if d<lo or d>hi:
+                if not drawAtLimit: return None
+                if d<lo:
+                    d = lo
+                else:
+                    d = hi
+                axis._get_line_pos = lambda x: d
+            L = func(v)
+            for k,v in kwds.items():
+                setattr(L,k,v)
+        finally:
+            axis._get_line_pos = oaglp
+        return L
+
+class AxisBackgroundAnnotation:
+    '''Create a set of coloured bars on the background of a chart using axis ticks as the bar borders
+    colors is a set of colors to use for the background bars. A colour of None is just a skip.
+    Special effects if you pass a rect or Shaded rect instead.
+    '''
+    def __init__(self,colors,**kwds):
+        self._colors = colors
+        self._kwds = kwds
+
+    def __call__(self,axis):
+        colors = self._colors
+        if not colors: return
+        kwds = self._kwds.copy()
+        isYAxis = axis.isYAxis
+        if isYAxis:
+            offs = axis._x
+            d0 = axis._y
+        else:
+            offs = axis._y
+            d0 = axis._x
+        s = kwds.pop('start',None)
+        e = kwds.pop('end',None)
+        if s is None or e is None:
+            dim = getattr(getattr(axis,'joinAxis',None),'getGridDims',None)
+            if dim and hasattr(dim,'__call__'):
+                dim = dim()
+            if dim:
+                if s is None: s = dim[0]
+                if e is None: e = dim[1]
+            else:
+                if s is None: s = 0
+                if e is None: e = 0
+        if not hasattr(axis,'_tickValues'):
+            axis._pseudo_configure()
+        tv = getattr(axis,'_tickValues',None)
+        if not tv: return
+        G = Group()
+        ncolors = len(colors)
+        v0 = axis._get_line_pos(tv[0])
+        for i in range(1,len(tv)):
+            v1 = axis._get_line_pos(tv[i])
+            c = colors[(i-1)%ncolors]
+            if c:
+                if isYAxis:
+                    y = v0
+                    x = s
+                    height = v1-v0
+                    width = e-s
+                else:
+                    x = v0
+                    y = s
+                    width = v1-v0
+                    height = e-s
+                if isinstance(c,Color):
+                    r = Rect(x,y,width,height,fillColor=c,strokeColor=None)
+                elif isinstance(c,Rect):
+                    r = Rect(x,y,width,height)
+                    for k in c.__dict__:
+                        if k not in ('x','y','width','height'):
+                            setattr(r,k,getattr(c,k))
+                elif isinstance(c,ShadedRect):
+                    r = ShadedRect(x=x,y=y,width=width,height=height)
+                    for k in c.__dict__:
+                        if k not in ('x','y','width','height'):
+                            setattr(r,k,getattr(c,k))
+                G.add(r)
+            v0 = v1
+        return G
+
+class TickLU:
+    '''lookup special cases for tick values'''
+    def __init__(self,*T,**kwds):
+        self.accuracy = kwds.pop('accuracy',1e-8)
+        self.T = T
+    def __contains__(self,t):
+        accuracy = self.accuracy
+        for x,v in self.T:
+            if abs(x-t)<accuracy:
+                return True
+        return False
+    def __getitem__(self,t):
+        accuracy = self.accuracy
+        for x,v in self.T:
+            if abs(x-t)<self.accuracy:
+                return v
+        raise IndexError('cannot locate index %r' % t)
+
+class _AxisG(Widget):
+    def _get_line_pos(self,v):
+        v = self.scale(v)
+        try:
+            v = v[0]
+        except:
+            pass
+        return v
+
+    def _cxLine(self,x,start,end):
+        x = self._get_line_pos(x)
+        return Line(x, self._y + start, x, self._y + end)
+
+    def _cyLine(self,y,start,end):
+        y = self._get_line_pos(y)
+        return Line(self._x + start, y, self._x + end, y)
+
+    def _cxLine3d(self,x,start,end,_3d_dx,_3d_dy):
+        x = self._get_line_pos(x)
+        y0 = self._y + start
+        y1 = self._y + end
+        y0, y1 = min(y0,y1),max(y0,y1)
+        x1 = x + _3d_dx
+        return PolyLine([x,y0,x1,y0+_3d_dy,x1,y1+_3d_dy],strokeLineJoin=1)
+
+    def _cyLine3d(self,y,start,end,_3d_dx,_3d_dy):
+        y = self._get_line_pos(y)
+        x0 = self._x + start
+        x1 = self._x + end
+        x0, x1 = min(x0,x1),max(x0,x1)
+        y1 = y + _3d_dy
+        return PolyLine([x0,y,x0+_3d_dx,y1,x1+_3d_dx,y1],strokeLineJoin=1)
+
+    def _getLineFunc(self, start, end, parent=None):
+        _3d_dx = getattr(parent,'_3d_dx',None)
+        if _3d_dx is not None:
+            _3d_dy = getattr(parent,'_3d_dy',None)
+            f = self.isYAxis and self._cyLine3d or self._cxLine3d
+            return lambda v, s=start, e=end, f=f,_3d_dx=_3d_dx,_3d_dy=_3d_dy: f(v,s,e,_3d_dx=_3d_dx,_3d_dy=_3d_dy)
+        else:
+            f = self.isYAxis and self._cyLine or self._cxLine
+            return lambda v, s=start, e=end, f=f: f(v,s,e)
+
+    def _makeLines(self,g,start,end,strokeColor,strokeWidth,strokeDashArray,strokeLineJoin,strokeLineCap,strokeMiterLimit,parent=None,exclude=[],specials={}):
+        func = self._getLineFunc(start,end,parent)
+        if not hasattr(self,'_tickValues'):
+            self._pseudo_configure()
+        if exclude:
+            exf = self.isYAxis and (lambda l: l.y1 in exclude) or (lambda l: l.x1 in exclude)
+        else:
+            exf = None
+        for t in self._tickValues:
+                L = func(t)
+                if exf and exf(L): continue
+                L.strokeColor = strokeColor
+                L.strokeWidth = strokeWidth
+                L.strokeDashArray = strokeDashArray
+                L.strokeLineJoin = strokeLineJoin
+                L.strokeLineCap = strokeLineCap
+                L.strokeMiterLimit = strokeMiterLimit
+                if t in specials:
+                    for a,v in specials[t].items():
+                        setattr(L,a,v)
+                g.add(L)
+
+    def makeGrid(self,g,dim=None,parent=None,exclude=[]):
+        '''this is only called by a container object'''
+        c = self.gridStrokeColor
+        w = self.gridStrokeWidth or 0
+        if w and c and self.visibleGrid:
+            s = self.gridStart
+            e = self.gridEnd
+            if s is None or e is None:
+                if dim and hasattr(dim,'__call__'):
+                    dim = dim()
+                if dim:
+                    if s is None: s = dim[0]
+                    if e is None: e = dim[1]
+                else:
+                    if s is None: s = 0
+                    if e is None: e = 0
+            if s or e:
+                if self.isYAxis: offs = self._x
+                else: offs = self._y
+                self._makeLines(g,s-offs,e-offs,c,w,self.gridStrokeDashArray,self.gridStrokeLineJoin,self.gridStrokeLineCap,self.gridStrokeMiterLimit,parent=parent,exclude=exclude,specials=getattr(self,'_gridSpecials',{}))
+        self._makeSubGrid(g,dim,parent,exclude=[])
+
+    def _makeSubGrid(self,g,dim=None,parent=None,exclude=[]):
+        '''this is only called by a container object'''
+        if not (getattr(self,'visibleSubGrid',0) and self.subTickNum>0): return
+        c = self.subGridStrokeColor
+        w = self.subGridStrokeWidth or 0
+        if not(w and c): return
+        s = self.subGridStart
+        e = self.subGridEnd
+        if s is None or e is None:
+            if dim and hasattr(dim,'__call__'):
+                dim = dim()
+            if dim:
+                if s is None: s = dim[0]
+                if e is None: e = dim[1]
+            else:
+                if s is None: s = 0
+                if e is None: e = 0
+        if s or e:
+            if self.isYAxis: offs = self._x
+            else: offs = self._y
+            otv = self._calcSubTicks()
+            try:
+                self._makeLines(g,s-offs,e-offs,c,w,self.subGridStrokeDashArray,self.subGridStrokeLineJoin,self.subGridStrokeLineCap,self.subGridStrokeMiterLimit,parent=parent,exclude=exclude)
+            finally:
+                self._tickValues = otv
+
+    def getGridDims(self,start=None,end=None):
+        if start is None: start = (self._x,self._y)[self.isYAxis]
+        if end is None: end = start+self._length
+        return start,end
+
+    def isYAxis(self):
+        if getattr(self,'_dataIndex',None)==1: return True
+        acn = self.__class__.__name__
+        return acn[0]=='Y' or acn[:4]=='AdjY'
+    isYAxis = property(isYAxis)
+
+    def isXAxis(self):
+        if getattr(self,'_dataIndex',None)==0: return True
+        acn = self.__class__.__name__
+        return acn[0]=='X' or acn[:11]=='NormalDateX'
+    isXAxis = property(isXAxis)
+
+    def addAnnotations(self,g,A=None):
+        if A is None: getattr(self,'annotations',[])
+        for x in A:
+            g.add(x(self))
+
+    def _splitAnnotations(self):
+        A = getattr(self,'annotations',[])[:]
+        D = {}
+        for v in ('early','beforeAxis','afterAxis','beforeTicks',
+                'afterTicks','beforeTickLabels',
+                'afterTickLabels','late'):
+            R = [].append
+            P = [].append
+            for a in A:
+                if getattr(a,v,0):
+                    R(a)
+                else:
+                    P(a)
+            D[v] = R.__self__
+            A[:] = P.__self__
+        D['late'] += A
+        return D
+
+    def draw(self):
+        g = Group()
+        A = self._splitAnnotations()
+        self.addAnnotations(g,A['early'])
+
+        if self.visible:
+            self.addAnnotations(g,A['beforeAxis'])
+            g.add(self.makeAxis())
+            self.addAnnotations(g,A['afterAxis'])
+            self.addAnnotations(g,A['beforeTicks'])
+            g.add(self.makeTicks())
+            self.addAnnotations(g,A['afterTicks'])
+            self.addAnnotations(g,A['beforeTickLabels'])
+            g.add(self.makeTickLabels())
+            self.addAnnotations(g,A['afterTickLabels'])
+
+        self.addAnnotations(g,A['late'])
+        return g
+
+class CALabel(PMVLabel):
+    _attrMap = AttrMap(BASE=PMVLabel,
+        labelPosFrac = AttrMapValue(isNumber, desc='where in the category range [0,1] the labels should be anchored'),
+        )
+    def __init__(self,**kw):
+        PMVLabel.__init__(self,**kw)
+        self._setKeywords(
+                labelPosFrac = 0.5,
+                )
+
+# Category axes.
+class CategoryAxis(_AxisG):
+    "Abstract category axis, unusable in itself."
+    _nodoc = 1
     _attrMap = AttrMap(
-        strokeWidth = AttrMapValue(isNumber,desc='Width of the wedge border'),
-        fillColor = AttrMapValue(isColorOrNone,desc='Filling color of the wedge'),
-        strokeColor = AttrMapValue(isColorOrNone,desc='Color of the wedge border'),
-        strokeDashArray = AttrMapValue(isListOfNumbersOrNone,desc='Style of the wedge border, expressed as a list of lengths of alternating dashes and blanks'),
+        visible = AttrMapValue(isBoolean, desc='Display entire object, if true.'),
+        visibleAxis = AttrMapValue(isBoolean, desc='Display axis line, if true.'),
+        visibleTicks = AttrMapValue(isBoolean, desc='Display axis ticks, if true.'),
+        visibleLabels = AttrMapValue(isBoolean, desc='Display axis labels, if true.'),
+        visibleGrid = AttrMapValue(isBoolean, desc='Display axis grid, if true.'),
+        strokeWidth = AttrMapValue(isNumber, desc='Width of axis line and ticks.'),
+        strokeColor = AttrMapValue(isColorOrNone, desc='Color of axis line and ticks.'),
+        strokeDashArray = AttrMapValue(isListOfNumbersOrNone, desc='Dash array used for axis line.'),
         strokeLineCap = AttrMapValue(OneOf(0,1,2),desc="Line cap 0=butt, 1=round & 2=square"),
         strokeLineJoin = AttrMapValue(OneOf(0,1,2),desc="Line join 0=miter, 1=round & 2=bevel"),
-        strokeMiterLimit = AttrMapValue(isNumber,desc='Miter limit control miter line joins'),
-        popout = AttrMapValue(isNumber,desc="How far of centre a wedge to pop"),
-        fontName = AttrMapValue(isString,desc='Name of the font of the label text'),
-        fontSize = AttrMapValue(isNumber,desc='Size of the font of the label text in points'),
-        fontColor = AttrMapValue(isColorOrNone,desc='Color of the font of the label text'),
-        labelRadius = AttrMapValue(isNumber,desc='Distance between the center of the label box and the center of the pie, expressed in times the radius of the pie'),
-        label_dx = AttrMapValue(isNumber,desc='X Offset of the label'),
-        label_dy = AttrMapValue(isNumber,desc='Y Offset of the label'),
-        label_angle = AttrMapValue(isNumber,desc='Angle of the label, default (0) is horizontal, 90 is vertical, 180 is upside down'),
-        label_boxAnchor = AttrMapValue(isBoxAnchor,desc='Anchoring point of the label'),
-        label_boxStrokeColor = AttrMapValue(isColorOrNone,desc='Border color for the label box'),
-        label_boxStrokeWidth = AttrMapValue(isNumber,desc='Border width for the label box'),
-        label_boxFillColor = AttrMapValue(isColorOrNone,desc='Filling color of the label box'),
-        label_strokeColor = AttrMapValue(isColorOrNone,desc='Border color for the label text'),
-        label_strokeWidth = AttrMapValue(isNumber,desc='Border width for the label text'),
-        label_text = AttrMapValue(isStringOrNone,desc='Text of the label'),
-        label_leading = AttrMapValue(isNumberOrNone,desc=''),
-        label_width = AttrMapValue(isNumberOrNone,desc='Width of the label'),
-        label_maxWidth = AttrMapValue(isNumberOrNone,desc='Maximum width the label can grow to'),
-        label_height = AttrMapValue(isNumberOrNone,desc='Height of the label'),
-        label_textAnchor = AttrMapValue(isTextAnchor,desc='Maximum height the label can grow to'),
-        label_visible = AttrMapValue(isBoolean,desc="True if the label is to be drawn"),
-        label_topPadding = AttrMapValue(isNumber,'Padding at top of box'),
-        label_leftPadding = AttrMapValue(isNumber,'Padding at left of box'),
-        label_rightPadding = AttrMapValue(isNumber,'Padding at right of box'),
-        label_bottomPadding = AttrMapValue(isNumber,'Padding at bottom of box'),
-        label_simple_pointer = AttrMapValue(isBoolean,'Set to True for simple pointers'),
-        label_pointer_strokeColor = AttrMapValue(isColorOrNone,desc='Color of indicator line'),
-        label_pointer_strokeWidth = AttrMapValue(isNumber,desc='StrokeWidth of indicator line'),
-        label_pointer_elbowLength = AttrMapValue(isNumber,desc='Length of final indicator line segment'),
-        label_pointer_edgePad = AttrMapValue(isNumber,desc='pad between pointer label and box'),
-        label_pointer_piePad = AttrMapValue(isNumber,desc='pad between pointer label and pie'),
-        swatchMarker = AttrMapValue(NoneOr(isSymbol), desc="None or makeMarker('Diamond') ...",advancedUsage=1),
-        visible = AttrMapValue(isBoolean,'Set to false to skip displaying'),
+        strokeMiterLimit = AttrMapValue(isNumber,desc="miter limit control miter line joins"),
+        gridStrokeWidth = AttrMapValue(isNumber, desc='Width of grid lines.'),
+        gridStrokeColor = AttrMapValue(isColorOrNone, desc='Color of grid lines.'),
+        gridStrokeDashArray = AttrMapValue(isListOfNumbersOrNone, desc='Dash array used for grid lines.'),
+        gridStrokeLineCap = AttrMapValue(OneOf(0,1,2),desc="Grid Line cap 0=butt, 1=round & 2=square"),
+        gridStrokeLineJoin = AttrMapValue(OneOf(0,1,2),desc="Grid Line join 0=miter, 1=round & 2=bevel"),
+        gridStrokeMiterLimit = AttrMapValue(isNumber,desc="Grid miter limit control miter line joins"),
+        gridStart = AttrMapValue(isNumberOrNone, desc='Start of grid lines wrt axis origin'),
+        gridEnd = AttrMapValue(isNumberOrNone, desc='End of grid lines wrt axis origin'),
+        drawGridLast = AttrMapValue(isBoolean, desc='if true draw gridlines after everything else.'),
+        labels = AttrMapValue(None, desc='Handle of the axis labels.'),
+        categoryNames = AttrMapValue(isListOfStringsOrNone, desc='List of category names.'),
+        joinAxis = AttrMapValue(None, desc='Join both axes if true.'),
+        joinAxisPos = AttrMapValue(isNumberOrNone, desc='Position at which to join with other axis.'),
+        reverseDirection = AttrMapValue(isBoolean, desc='If true reverse category direction.'),
+        style = AttrMapValue(OneOf('parallel','stacked','parallel_3d'),"How common category bars are plotted"),
+        labelAxisMode = AttrMapValue(OneOf('high','low','axis', 'axispmv'), desc="Like joinAxisMode, but for the axis labels"),
+        tickShift = AttrMapValue(isBoolean, desc='Tick shift typically'),
+        loPad = AttrMapValue(isNumber, desc='extra inner space before start of the axis'),
+        hiPad = AttrMapValue(isNumber, desc='extra inner space after end of the axis'),
+        annotations = AttrMapValue(None,desc='list of annotations'),
+        loLLen = AttrMapValue(isNumber, desc='extra line length before start of the axis'),
+        hiLLen = AttrMapValue(isNumber, desc='extra line length after end of the axis'),
+        skipGrid = AttrMapValue(OneOf('none','top','both','bottom'),"grid lines to skip top bottom both none"),
+        innerTickDraw = AttrMapValue(isNoneOrCallable, desc="Callable to replace _drawInnerTicks"),
         )
 
     def __init__(self):
-        self.strokeWidth = 0
-        self.fillColor = None
-        self.strokeColor = STATE_DEFAULTS["strokeColor"]
-        self.strokeDashArray = STATE_DEFAULTS["strokeDashArray"]
-        self.strokeLineJoin = 1
-        self.strokeLineCap = 0
-        self.strokeMiterLimit = 0
-        self.popout = 0
-        self.fontName = STATE_DEFAULTS["fontName"]
-        self.fontSize = STATE_DEFAULTS["fontSize"]
-        self.fontColor = STATE_DEFAULTS["fillColor"]
-        self.labelRadius = 1.2
-        self.label_dx = self.label_dy = self.label_angle = 0
-        self.label_text = None
-        self.label_topPadding = self.label_leftPadding = self.label_rightPadding = self.label_bottomPadding = 0
-        self.label_boxAnchor = 'autox'
-        self.label_boxStrokeColor = None    #boxStroke
-        self.label_boxStrokeWidth = 0.5 #boxStrokeWidth
-        self.label_boxFillColor = None
-        self.label_strokeColor = None
-        self.label_strokeWidth = 0.1
-        self.label_leading =    self.label_width = self.label_maxWidth = self.label_height = None
-        self.label_textAnchor = 'start'
-        self.label_simple_pointer = 0
-        self.label_visible = 1
-        self.label_pointer_strokeColor = colors.black
-        self.label_pointer_strokeWidth = 0.5
-        self.label_pointer_elbowLength = 3
-        self.label_pointer_edgePad = 2
-        self.label_pointer_piePad = 3
+        assert self.__class__.__name__!='CategoryAxis', "Abstract Class CategoryAxis Instantiated"
+        # private properties set by methods.  The initial values
+        # here are to make demos easy; they would always be
+        # overridden in real life.
+        self._x = 50
+        self._y = 50
+        self._length = 100
+        self._catCount = 0
+
+        # public properties
         self.visible = 1
+        self.visibleAxis = 1
+        self.visibleTicks = 1
+        self.visibleLabels = 1
+        self.visibleGrid = 0
+        self.drawGridLast = False
 
-def _addWedgeLabel(self,text,angle,labelX,labelY,wedgeStyle,labelClass=WedgeLabel):
-    # now draw a label
-    if self.simpleLabels:
-        theLabel = String(labelX, labelY, text)
-        if not self.sideLabels:
-            theLabel.textAnchor = "middle"
+        self.strokeWidth = 1
+        self.strokeColor = STATE_DEFAULTS['strokeColor']
+        self.strokeDashArray = STATE_DEFAULTS['strokeDashArray']
+
+        self.gridStrokeLineJoin = self.strokeLineJoin = STATE_DEFAULTS['strokeLineJoin']
+        self.gridStrokeLineCap = self.strokeLineCap = STATE_DEFAULTS['strokeLineCap']
+        self.gridStrokeMiterLimit = self.strokeMiterLimit = STATE_DEFAULTS['strokeMiterLimit']
+        self.gridStrokeWidth = 0.25
+        self.gridStrokeColor = STATE_DEFAULTS['strokeColor']
+        self.gridStrokeDashArray = STATE_DEFAULTS['strokeDashArray']
+        self.gridStart = self.gridEnd = None
+
+        self.strokeLineJoin = STATE_DEFAULTS['strokeLineJoin']
+        self.strokeLineCap = STATE_DEFAULTS['strokeLineCap']
+        self.strokeMiterLimit = STATE_DEFAULTS['strokeMiterLimit']
+
+        self.labels = TypedPropertyCollection(CALabel)
+        # if None, they don't get labels. If provided,
+        # you need one name per data point and they are
+        # used for label text.
+        self.categoryNames = None
+        self.joinAxis = None
+        self.joinAxisPos = None
+        self.joinAxisMode = None
+        self.labelAxisMode = 'axis'
+        self.reverseDirection = 0
+        self.style = 'parallel'
+
+        #various private things which need to be initialized
+        self._labelTextFormat = None
+        self.tickShift = 0
+        self.loPad = 0
+        self.hiPad = 0
+        self.loLLen = 0
+        self.hiLLen = 0
+
+    def setPosition(self, x, y, length):
+        # ensure floating point
+        self._x = float(x)
+        self._y = float(y)
+        self._length = float(length)
+
+    def configure(self, multiSeries,barWidth=None):
+        self._catCount = max(list(map(len,multiSeries)))
+        self._barWidth = barWidth or ((self._length-self.loPad-self.hiPad)/float(self._catCount or 1))
+        self._calcTickmarkPositions()
+        if self.labelAxisMode == 'axispmv':
+            self._pmv = [sum([series[i] for series in multiSeries]) for i in xrange(self._catCount)]
+
+    def _calcTickmarkPositions(self):
+        n = self._catCount
+        if self.tickShift:
+            self._tickValues = [t+0.5 for t in range(n)]
         else:
-            if (abs(angle) < 90 ) or (angle >270 and angle<450) or (-450< angle <-270):
-                theLabel.textAnchor = "start"
+            if self.reverseDirection:
+                self._tickValues = list(range(-1,n))
             else:
-                theLabel.textAnchor = "end"
-        theLabel._pmv = angle
-        theLabel._simple_pointer = 0
-    else:
-        theLabel = labelClass()
-        theLabel._pmv = angle
-        theLabel.x = labelX
-        theLabel.y = labelY
-        theLabel.dx = wedgeStyle.label_dx
-        if not self.sideLabels:
-            theLabel.dy = wedgeStyle.label_dy
-            theLabel.boxAnchor = wedgeStyle.label_boxAnchor
-        else:
-            if wedgeStyle.fontSize is None:
-                sideLabels_dy = self.fontSize / 2.5
+                self._tickValues = list(range(n+1))
+
+    def _scale(self,idx):
+        if self.reverseDirection: idx = self._catCount-idx-1
+        return idx
+
+def _assertYAxis(axis):
+    assert axis.isYAxis, "Cannot connect to other axes (%s), but Y- ones." % axis.__class__.__name__
+def _assertXAxis(axis):
+    assert axis.isXAxis, "Cannot connect to other axes (%s), but X- ones." % axis.__class__.__name__
+
+class _XTicks:
+    _tickTweaks = 0 #try 0.25-0.5
+
+    def _drawTicksInner(self,tU,tD,g):
+        itd = getattr(self,'innerTickDraw',None)
+        if itd:
+            itd(self,tU,tD,g)
+        elif tU or tD:
+            sW = self.strokeWidth
+            tW = self._tickTweaks
+            if tW:
+                if tU and not tD:
+                    tD = tW*sW
+                elif tD and not tU:
+                    tU = tW*sW
+            self._makeLines(g,tU,-tD,self.strokeColor,sW,self.strokeDashArray,self.strokeLineJoin,self.strokeLineCap,self.strokeMiterLimit)
+
+    def _drawTicks(self,tU,tD,g=None):
+        g = g or Group()
+        if self.visibleTicks:
+            self._drawTicksInner(tU,tD,g)
+        return g
+
+    def _calcSubTicks(self):
+        if not hasattr(self,'_tickValues'):
+            self._pseudo_configure()
+        otv = self._tickValues
+        if not hasattr(self,'_subTickValues'):
+            acn = self.__class__.__name__
+            if acn[:11]=='NormalDateX':
+                iFuzz = 0
+                dCnv = int
             else:
-                sideLabels_dy = wedgeStyle.fontSize / 2.5
-            if wedgeStyle.label_dy is None:
-                theLabel.dy = sideLabels_dy
+                iFuzz = 1e-8
+                dCnv = lambda x:x
+
+            OTV = [tv for tv in otv if getattr(tv,'_doSubTicks',1)]
+            T = [].append
+            nst = int(self.subTickNum)
+            i = len(OTV)
+            if i<2:
+                self._subTickValues = []
             else:
-                theLabel.dy = wedgeStyle.label_dy + sideLabels_dy
-            if (abs(angle) < 90 ) or (angle >270 and angle<450) or (-450< angle <-270):
-                theLabel.boxAnchor = 'w'
-            else:
-                theLabel.boxAnchor = 'e'
-        theLabel.angle = wedgeStyle.label_angle
-        theLabel.boxStrokeColor = wedgeStyle.label_boxStrokeColor
-        theLabel.boxStrokeWidth = wedgeStyle.label_boxStrokeWidth
-        theLabel.boxFillColor = wedgeStyle.label_boxFillColor
-        theLabel.strokeColor = wedgeStyle.label_strokeColor
-        theLabel.strokeWidth = wedgeStyle.label_strokeWidth
-        _text = wedgeStyle.label_text
-        if _text is None: _text = text
-        theLabel._text = _text
-        theLabel.leading = wedgeStyle.label_leading
-        theLabel.width = wedgeStyle.label_width
-        theLabel.maxWidth = wedgeStyle.label_maxWidth
-        theLabel.height = wedgeStyle.label_height
-        theLabel.textAnchor = wedgeStyle.label_textAnchor
-        theLabel.visible = wedgeStyle.label_visible
-        theLabel.topPadding = wedgeStyle.label_topPadding
-        theLabel.leftPadding = wedgeStyle.label_leftPadding
-        theLabel.rightPadding = wedgeStyle.label_rightPadding
-        theLabel.bottomPadding = wedgeStyle.label_bottomPadding
-        theLabel._simple_pointer = wedgeStyle.label_simple_pointer
-    theLabel.fontSize = wedgeStyle.fontSize
-    theLabel.fontName = wedgeStyle.fontName
-    theLabel.fillColor = wedgeStyle.fontColor
-    return theLabel
+                if i==2:
+                    dst = OTV[1]-OTV[0]
+                elif i==3:
+                    dst = max(OTV[1]-OTV[0],OTV[2]-OTV[1])
+                else:
+                    i >>= 1
+                    dst = OTV[i+1] - OTV[i]
+                fuzz = dst*iFuzz
+                vn = self._valueMin+fuzz
+                vx = self._valueMax-fuzz
+                if OTV[0]>vn: OTV.insert(0,OTV[0]-dst)
+                if OTV[-1]<vx: OTV.append(OTV[-1]+dst)
+                dst /= float(nst+1)
+                for i,x in enumerate(OTV[:-1]):
+                    for j in range(nst):
+                        t = x+dCnv((j+1)*dst)
+                        if t<=vn or t>=vx: continue
+                        T(t)
+                self._subTickValues = T.__self__
+        self._tickValues = self._subTickValues
+        return otv
 
-def _fixLabels(labels,n):
-    if labels is None:
-        labels = [''] * n
-    else:
-        i = n-len(labels)
-        if i>0: labels = list(labels)+['']*i
-    return labels
+    def _drawSubTicks(self,tU,tD,g):
+        if getattr(self,'visibleSubTicks',0) and self.subTickNum>0:
+            otv = self._calcSubTicks()
+            try:
+                self._subTicking = 1
+                self._drawTicksInner(tU,tD,g)
+            finally:
+                del self._subTicking
+                self._tickValues = otv
 
-class AbstractPieChart(PlotArea):
-
-    def makeSwatchSample(self, rowNo, x, y, width, height):
-        baseStyle = self.slices
-        styleIdx = rowNo % len(baseStyle)
-        style = baseStyle[styleIdx]
-        strokeColor = getattr(style, 'strokeColor', getattr(baseStyle,'strokeColor',None))
-        fillColor = getattr(style, 'fillColor', getattr(baseStyle,'fillColor',None))
-        strokeDashArray = getattr(style, 'strokeDashArray', getattr(baseStyle,'strokeDashArray',None))
-        strokeWidth = getattr(style, 'strokeWidth', getattr(baseStyle, 'strokeWidth',None))
-        swatchMarker = getattr(style, 'swatchMarker', getattr(baseStyle, 'swatchMarker',None))
-        if swatchMarker:
-            return uSymbol2Symbol(swatchMarker,x+width/2.,y+height/2.,fillColor)
-        return Rect(x,y,width,height,strokeWidth=strokeWidth,strokeColor=strokeColor,
-                    strokeDashArray=strokeDashArray,fillColor=fillColor)
-
-    def getSeriesName(self,i,default=None):
-        '''return series name i or default'''
+    def makeTicks(self):
+        yold=self._y
         try:
-            text = _objStr(self.labels[i])
-        except:
-            text = default
-        if not self.simpleLabels:
-            _text = getattr(self.slices[i],'label_text','')
-            if _text is not None: text = _text
-        return text
+            self._y = self._labelAxisPos(getattr(self,'tickAxisMode','axis'))
+            g = self._drawTicks(self.tickUp,self.tickDown)
+            self._drawSubTicks(getattr(self,'subTickHi',0),getattr(self,'subTickLo',0),g)
+            return g
+        finally:
+            self._y = yold
 
-def boundsOverlap(P,Q):
-    return not(P[0]>Q[2]-1e-2 or Q[0]>P[2]-1e-2 or P[1]>(0.5*(Q[1]+Q[3]))-1e-2 or Q[1]>(0.5*(P[1]+P[3]))-1e-2)
+    def _labelAxisPos(self,mode=None):
+        axis = self.joinAxis
+        if axis:
+            mode = mode or self.labelAxisMode
+            if mode == 'low':
+                return axis._y
+            elif mode == 'high':
+                return axis._y + axis._length
+        return self._y
 
-def _findOverlapRun(B,i,wrap):
-    '''find overlap run containing B[i]'''
-    n = len(B)
-    R = [i]
-    while 1:
-        i = R[-1]
-        j = (i+1)%n
-        if j in R or not boundsOverlap(B[i],B[j]): break
-        R.append(j)
-    while 1:
-        i = R[0]
-        j = (i-1)%n
-        if j in R or not boundsOverlap(B[i],B[j]): break
-        R.insert(0,j)
-    return R
+class _YTicks(_XTicks):
 
-def findOverlapRun(B,wrap=1):
-    '''determine a set of overlaps in bounding boxes B or return None'''
-    n = len(B)
-    if n>1:
-        for i in xrange(n-1):
-            R = _findOverlapRun(B,i,wrap)
-            if len(R)>1: return R
-    return None
+    def _labelAxisPos(self,mode=None):
+        axis = self.joinAxis
+        if axis:
+            mode = mode or self.labelAxisMode
+            if mode == 'low':
+                return axis._x
+            elif mode == 'high':
+                return axis._x + axis._length
+        return self._x
 
-def fixLabelOverlaps(L, sideLabels=False, mult0=1.0):
-    nL = len(L)
-    if nL<2: return
-    B = [l._origdata['bounds'] for l in L]
-    OK = 1
-    RP = []
-    iter = 0
-    mult0 = float(mult0 + 0)
-    mult = mult0
+    def makeTicks(self):
+        xold=self._x
+        try:
+            self._x = self._labelAxisPos(getattr(self,'tickAxisMode','axis'))
+            g = self._drawTicks(self.tickRight,self.tickLeft)
+            self._drawSubTicks(getattr(self,'subTickHi',0),getattr(self,'subTickLo',0),g)
+            return g
+        finally:
+            self._x = xold
 
-    if not sideLabels:
-        while iter<30:
-            R = findOverlapRun(B)
-            if not R: break
-            nR = len(R)
-            if nR==nL: break
-            if not [r for r in RP if r in R]:
-                mult = mult0
-            da = 0
-            r0 = R[0]
-            rL = R[-1]
-            bi = B[r0]
-            taa = aa = _360(L[r0]._pmv)
-            for r in R[1:]:
-                b = B[r]
-                da = max(da,min(b[2]-bi[0],bi[2]-b[0]))
-                bi = b
-                aa += L[r]._pmv
-            aa = aa/float(nR)
-            utaa = abs(L[rL]._pmv-taa)
-            ntaa = _360(utaa)
-            da *= mult*(nR-1)/ntaa
-    
-            for r in R:
-                l = L[r]
-                orig = l._origdata
-                angle = l._pmv = _360(l._pmv+da*(_360(l._pmv)-aa))
-                rad = angle/_180_pi
-                l.x = orig['cx'] + orig['rx']*cos(rad)
-                l.y = orig['cy'] + orig['ry']*sin(rad)
-                B[r] = l.getBounds()
-            RP = R
-            mult *= 1.05
-            iter += 1
+class XCategoryAxis(_XTicks,CategoryAxis):
+    "X/category axis"
 
-    else:
-        while iter<30:
-            R = findOverlapRun(B)
-            if not R: break
-            nR = len(R)
-            if nR == nL: break
-            l1 = L[-1]
-            orig1 = l1._origdata
-            bounds1 = orig1['bounds']
-            for i,r in enumerate(R):
-                l = L[r]
-                orig = l._origdata
-                bounds = orig['bounds']
-                diff1 = 0
-                diff2 = 0
-                if not i == nR-1:
-                    if not bounds == bounds1:
-                        if bounds[3]>bounds1[1] and bounds1[1]<bounds[1]:
-                            diff1 = bounds[3]-bounds1[1]
-                        if bounds1[3]>bounds[1] and bounds[1]<bounds1[1]:
-                            diff2 = bounds1[3]-bounds[1]
-                        if diff1 > diff2: 
-                            l.y +=0.5*(bounds1[3]-bounds1[1])
-                        elif diff2 >= diff1:
-                            l.y -= 0.5*(bounds1[3]-bounds1[1])
-                    B[r] = l.getBounds()
-            iter += 1
-    
-def intervalIntersection(A,B):
-    x,y = max(min(A),min(B)),min(max(A),max(B))
-    if x>=y: return None
-    return x,y
-
-def _makeSideArcDefs(sa,direction):
-    sa %= 360
-    if 90<=sa<270:
-        if direction=='clockwise':
-            a = (0,90,sa),(1,-90,90),(0,-360+sa,-90)
-        else:
-            a = (0,sa,270),(1,270,450),(0,450,360+sa)
-    else:
-        offs = sa>=270 and 360 or 0
-        if direction=='clockwise':
-            a = (1,offs-90,sa),(0,offs-270,offs-90),(1,-360+sa,offs-270)
-        else:
-            a = (1,sa,offs+90),(0,offs+90,offs+270),(1,offs+270,360+sa)
-    return tuple([a for a in a if a[1]<a[2]])
-
-def _keyFLA(x,y):
-    return cmp(y[1]-y[0],x[1]-x[0])
-_keyFLA = functools.cmp_to_key(_keyFLA)
-
-def _findLargestArc(xArcs,side):
-    a = [a[1] for a in xArcs if a[0]==side and a[1] is not None]
-    if not a: return None
-    if len(a)>1: a.sort(key=_keyFLA)
-    return a[0]
-
-def _fPLSide(l,width,side=None):
-    data = l._origdata
-    if side is None:
-        li = data['li']
-        ri = data['ri']
-        if li is None:
-            side = 1
-            i = ri
-        elif ri is None:
-            side = 0
-            i = li
-        elif li[1]-li[0]>ri[1]-ri[0]:
-            side = 0
-            i = li
-        else:
-            side = 1
-            i = ri
-    w = data['width']
-    edgePad = data['edgePad']
-    if not side:    #on left
-        l._pmv = 180
-        l.x = edgePad+w
-        i = data['li']
-    else:
-        l._pmv = 0
-        l.x = width - w - edgePad
-        i = data['ri']
-    mid = data['mid'] = (i[0]+i[1])*0.5
-    data['smid'] = sin(mid/_180_pi)
-    data['cmid'] = cos(mid/_180_pi)
-    data['side'] = side
-    return side,w
-
-#key functions
-def _fPLCF(a,b): 
-    return cmp(b._origdata['smid'],a._origdata['smid'])
-_fPLCF = functools.cmp_to_key(_fPLCF)
-
-def _arcCF(a):
-    return a[1]
-
-def _fixPointerLabels(n,L,x,y,width,height,side=None):
-    LR = [],[]
-    mlr = [0,0]
-    for l in L:
-        i,w = _fPLSide(l,width,side)
-        LR[i].append(l)
-        mlr[i] = max(w,mlr[i])
-    mul = 1
-    G = n*[None]
-    mel = 0
-    hh = height*0.5
-    yhh = y+hh
-    m = max(mlr)
-    for i in (0,1):
-        T = LR[i]
-        if T:
-            B = []
-            aB = B.append
-            S = []
-            aS = S.append
-            T.sort(key=_fPLCF)
-            p = 0
-            yh = y+height
-            for l in T:
-                data = l._origdata
-                inc = x+mul*(m-data['width'])
-                l.x += inc
-                G[data['index']] = l
-                ly = yhh+data['smid']*hh
-                b = data['bounds']
-                b2 = (b[3]-b[1])*0.5
-                if ly+b2>yh: ly = yh-b2
-                if ly-b2<y: ly = y+b2
-                data['bounds'] = b = (b[0],ly-b2,b[2],ly+b2)
-                aB(b)
-                l.y = ly
-                aS(max(0,yh-ly-b2))
-                yh = ly-b2
-                p = max(p,data['edgePad']+data['piePad'])
-                mel = max(mel,abs(data['smid']*(hh+data['elbowLength']))-hh)
-            aS(yh-y)
-
-            iter = 0
-            nT = len(T)
-            while iter<30:
-                R = findOverlapRun(B,wrap=0)
-                if not R: break
-                nR = len(R)
-                if nR==nT: break
-                j0 = R[0]
-                j1 = R[-1]
-                jl = j1+1
-                sAbove = sum(S[:j0+1])
-                sFree = sAbove+sum(S[jl:])
-                sNeed = sum([b[3]-b[1] for b in B[j0:jl]])+jl-j0-(B[j0][3]-B[j1][1])
-                if sNeed>sFree: break
-                yh = B[j0][3]+sAbove*sNeed/sFree
-                for r in R:
-                    l = T[r]
-                    data = l._origdata
-                    b = data['bounds']
-                    b2 = (b[3]-b[1])*0.5
-                    yh -= 0.5
-                    ly = l.y = yh-b2
-                    B[r] = data['bounds'] = (b[0],ly-b2,b[2],yh)
-                    yh = ly - b2 - 0.5
-            mlr[i] = m+p
-        mul = -1
-    return G, mlr[0], mlr[1], mel
-
-def theta0(data, direction):
-    fac = (2*pi)/sum(data)
-    rads = [d*fac for d in data]
-    
-    r0 = 0
-    hrads = []
-    for r in rads:
-        hrads.append(r0+r*0.5)
-        r0 += r
-    
-    vstar = len(data)*1e6
-    rstar = 0
-    delta = pi/36.0
-    for i in range(36):
-        r = i*delta
-        v = sum([abs(sin(r+a)) for a in hrads])
-        if v < vstar:
-            if direction == 'clockwise':
-                rstar=-r
-            else:
-                rstar=r
-            vstar = v
-    return rstar*180/pi
-
-
-class AngleData(float):
-    '''use this to carry the data along with the angle'''
-    def __new__(cls,angle,data):
-        self = float.__new__(cls,angle)
-        self._data = data
-        return self
-
-class Pie(AbstractPieChart):
-    _attrMap = AttrMap(BASE=AbstractPieChart,
-        data = AttrMapValue(isListOfNumbers, desc='List of numbers defining wedge sizes; need not sum to 1'),
-        labels = AttrMapValue(isListOfStringsOrNone, desc="Optional list of labels to use for each data point"),
-        startAngle = AttrMapValue(isNumber, desc="Angle of first slice; 0 is due East"),
-        direction = AttrMapValue(OneOf('clockwise', 'anticlockwise'), desc="'clockwise' or 'anticlockwise'"),
-        slices = AttrMapValue(None, desc="Collection of wedge descriptor objects"),
-        simpleLabels = AttrMapValue(isBoolean, desc="If true(default) use a simple String not an advanced WedgeLabel. A WedgeLabel is customisable using the properties prefixed label_ in the collection slices."),
-        other_threshold = AttrMapValue(isNumber, desc='A value for doing threshholding, not used yet.',advancedUsage=1),
-        checkLabelOverlap = AttrMapValue(EitherOr((isNumberInRange(0.05,1),isBoolean)), desc="If true check and attempt to fix\n standard label overlaps(default off)",advancedUsage=1),
-        pointerLabelMode = AttrMapValue(OneOf(None,'LeftRight','LeftAndRight'), desc='',advancedUsage=1),
-        sameRadii = AttrMapValue(isBoolean, desc="If true make x/y radii the same(default off)",advancedUsage=1),
-        orderMode = AttrMapValue(OneOf('fixed','alternate'),advancedUsage=1),
-        xradius = AttrMapValue(isNumberOrNone, desc="X direction Radius"),
-        yradius = AttrMapValue(isNumberOrNone, desc="Y direction Radius"),
-        innerRadiusFraction = AttrMapValue(isNumberOrNone, desc="fraction of radii to start wedges at"),
-        wedgeRecord = AttrMapValue(None, desc="callable(wedge,*args,**kwds)",advancedUsage=1),
-        sideLabels = AttrMapValue(isBoolean, desc="If true attempt to make piechart with labels along side and pointers"),
-        sideLabelsOffset = AttrMapValue(isNumber, desc="The fraction of the pie width that the labels are situated at from the edges of the pie"),
+    _attrMap = AttrMap(BASE=CategoryAxis,
+        tickUp = AttrMapValue(isNumber,
+            desc='Tick length up the axis.'),
+        tickDown = AttrMapValue(isNumber,
+            desc='Tick length down the axis.'),
+        joinAxisMode = AttrMapValue(OneOf('bottom', 'top', 'value', 'points', None),
+            desc="Mode used for connecting axis ('bottom', 'top', 'value', 'points', None)."),
         )
-    other_threshold=None
 
-    def __init__(self,**kwd):
-        PlotArea.__init__(self)
-        self.x = 0
-        self.y = 0
-        self.width = 100
-        self.height = 100
-        self.data = [1,2.3,1.7,4.2]
-        self.labels = None  # or list of strings
-        self.startAngle = 90
-        self.direction = "clockwise"
-        self.simpleLabels = 1
-        self.checkLabelOverlap = 0
-        self.pointerLabelMode = None
-        self.sameRadii = False
-        self.orderMode = 'fixed'
-        self.xradius = self.yradius = self.innerRadiusFraction = None
-        self.sideLabels = 0
-        self.sideLabelsOffset = 0.1
+    _dataIndex = 0
 
-        self.slices = TypedPropertyCollection(WedgeProperties)
-        self.slices[0].fillColor = colors.darkcyan
-        self.slices[1].fillColor = colors.blueviolet
-        self.slices[2].fillColor = colors.blue
-        self.slices[3].fillColor = colors.cyan
-        self.slices[4].fillColor = colors.pink
-        self.slices[5].fillColor = colors.magenta
-        self.slices[6].fillColor = colors.yellow
+    def __init__(self):
+        CategoryAxis.__init__(self)
+        self.labels.boxAnchor = 'n' #north - top edge
+        self.labels.dy = -5
+        # ultra-simple tick marks for now go between categories
+        # and have same line style as axis - need more
+        self.tickUp = 0  # how far into chart does tick go?
+        self.tickDown = 5  # how far below axis does tick go?
 
     def demo(self):
+        self.setPosition(30, 70, 140)
+        self.configure([(10,20,30,40,50)])
+
+        self.categoryNames = ['One','Two','Three','Four','Five']
+        # all labels top-centre aligned apart from the last
+        self.labels.boxAnchor = 'n'
+        self.labels[4].boxAnchor = 'e'
+        self.labels[4].angle = 90
+
         d = Drawing(200, 100)
-
-        pc = Pie()
-        pc.x = 50
-        pc.y = 10
-        pc.width = 100
-        pc.height = 80
-        pc.data = [10,20,30,40,50,60]
-        pc.labels = ['a','b','c','d','e','f']
-
-        pc.slices.strokeWidth=0.5
-        pc.slices[3].popout = 10
-        pc.slices[3].strokeWidth = 2
-        pc.slices[3].strokeDashArray = [2,2]
-        pc.slices[3].labelRadius = 1.75
-        pc.slices[3].fontColor = colors.red
-        pc.slices[0].fillColor = colors.darkcyan
-        pc.slices[1].fillColor = colors.blueviolet
-        pc.slices[2].fillColor = colors.blue
-        pc.slices[3].fillColor = colors.cyan
-        pc.slices[4].fillColor = colors.aquamarine
-        pc.slices[5].fillColor = colors.cadetblue
-        pc.slices[6].fillColor = colors.lightcoral
-
-        d.add(pc)
+        d.add(self)
         return d
 
-    def makePointerLabels(self,angles,plMode):
-        class PL:
-            def __init__(self,centerx,centery,xradius,yradius,data,lu=0,ru=0):
-                self.centerx = centerx
-                self.centery = centery
-                self.xradius = xradius
-                self.yradius = yradius
-                self.data = data
-                self.lu = lu
-                self.ru = ru
+    def joinToAxis(self, yAxis, mode='bottom', pos=None):
+        "Join with y-axis using some mode."
+        _assertYAxis(yAxis)
+        if mode == 'bottom':
+            self._y = yAxis._y
+        elif mode == 'top':
+            self._y = yAxis._y + yAxis._length
+        elif mode == 'value':
+            self._y = yAxis.scale(pos)
+        elif mode == 'points':
+            self._y = pos
 
-        labelX = self.width-2
-        labelY = self.height
-        n = nr = nl = maxW = sumH = 0
-        styleCount = len(self.slices)
-        L=[]
-        L_add = L.append
-        refArcs = _makeSideArcDefs(self.startAngle,self.direction)
-        for i, A in angles:
-            if A[1] is None: continue
-            sn = self.getSeriesName(i,'')
-            if not sn: continue
-            style = self.slices[i%styleCount]
-            if not style.label_visible or not style.visible: continue
-            n += 1
-            l=_addWedgeLabel(self,sn,180,labelX,labelY,style,labelClass=WedgeLabel)
-            L_add(l)
-            b = l.getBounds()
-            w = b[2]-b[0]
-            h = b[3]-b[1]
-            ri = [(a[0],intervalIntersection(A,(a[1],a[2]))) for a in refArcs]
-            li = _findLargestArc(ri,0)
-            ri = _findLargestArc(ri,1)
-            if li and ri:
-                if plMode=='LeftAndRight':
-                    if li[1]-li[0]<ri[1]-ri[0]:
-                        li = None
-                    else:
-                        ri = None
-                else:
-                    if li[1]-li[0]<0.02*(ri[1]-ri[0]):
-                        li = None
-                    elif (li[1]-li[0])*0.02>ri[1]-ri[0]:
-                        ri = None
-            if ri: nr += 1
-            if li: nl += 1
-            l._origdata = dict(bounds=b,width=w,height=h,li=li,ri=ri,index=i,edgePad=style.label_pointer_edgePad,piePad=style.label_pointer_piePad,elbowLength=style.label_pointer_elbowLength)
-            maxW = max(w,maxW)
-            sumH += h+2
+    def _joinToAxis(self):
+        ja = self.joinAxis
+        if ja:
+            jam = self.joinAxisMode
+            if jam in ('bottom', 'top'):
+                self.joinToAxis(ja, mode=jam)
+            elif jam in ('value', 'points'):
+                self.joinToAxis(ja, mode=jam, pos=self.joinAxisPos)
 
-        if not n:   #we have no labels
-            xradius = self.width*0.5
-            yradius = self.height*0.5
-            centerx = self.x+xradius
-            centery = self.y+yradius
-            if self.xradius: xradius = self.xradius
-            if self.yradius: yradius = self.yradius
-            if self.sameRadii: xradius=yradius=min(xradius,yradius)
-            return PL(centerx,centery,xradius,yradius,[])
+    def scale(self, idx):
+        """returns the x position and width in drawing units of the slice"""
+        return (self._x + self.loPad + self._scale(idx)*self._barWidth, self._barWidth)
 
-        aonR = nr==n
-        if sumH<self.height and (aonR or nl==n):
-            side=int(aonR)
-        else:
-            side=None
-        G,lu,ru,mel = _fixPointerLabels(len(angles),L,self.x,self.y,self.width,self.height,side=side)
-        if plMode=='LeftAndRight':
-            lu = ru = max(lu,ru)
-        x0 = self.x+lu
-        x1 = self.x+self.width-ru
-        xradius = (x1-x0)*0.5
-        yradius = self.height*0.5-mel
-        centerx = x0+xradius
-        centery = self.y+yradius+mel
-        if self.xradius: xradius = self.xradius
-        if self.yradius: yradius = self.yradius
-        if self.sameRadii: xradius=yradius=min(xradius,yradius)
-        return PL(centerx,centery,xradius,yradius,G,lu,ru)
-
-    def normalizeData(self,keepData=False):
-        data = list(map(abs,self.data))
-        s = self._sum = float(sum(data))
-        f = 360./s if s!=0 else 1
-        if keepData:
-            return [AngleData(f*x,x) for x in data]
-        else:
-            return [f*x for x in data]
-
-    def makeAngles(self):
-        wr = getattr(self,'wedgeRecord',None)
-        if self.sideLabels:
-            startAngle = theta0(self.data, self.direction)
-            self.slices.label_visible = 1
-        else:
-            startAngle = self.startAngle % 360
-        whichWay = self.direction == "clockwise" and -1 or 1
-        D = [a for a in enumerate(self.normalizeData(keepData=wr))]
-        if self.orderMode=='alternate' and not self.sideLabels:
-            W = [a for a in D if abs(a[1])>=1e-5]
-            W.sort(key=_arcCF)
-            T = [[],[]]
-            i = 0
-            while W:
-                if i<2:
-                    a = W.pop(0)
-                else:
-                    a = W.pop(-1)
-                T[i%2].append(a)
-                i += 1
-                i %= 4
-            T[1].reverse()
-            D = T[0]+T[1] + [a for a in D if abs(a[1])<1e-5]
-        A = []
-        a = A.append
-        for i, angle in D:
-            endAngle = (startAngle + (angle * whichWay))
-            if abs(angle)>=_ANGLELO:
-                if startAngle >= endAngle:
-                    aa = endAngle,startAngle
-                else:
-                    aa = startAngle,endAngle
-            else:
-                aa = startAngle, None
-            if wr:
-                aa = (AngleData(aa[0],angle._data),aa[1])
-            startAngle = endAngle
-            a((i,aa))
-        return A
-
-    def makeWedges(self):
-        angles = self.makeAngles()
-        #Checking to see whether there are too many wedges packed in too small a space
-        halfAngles = []
-        for i,(a1,a2) in angles:
-            if a2 is None:
-                halfAngle = a1
-            else:
-                halfAngle = 0.5*(a2+a1)
-            halfAngles.append(halfAngle)
-        sideLabels = self.sideLabels
-        n = len(angles)
-        labels = _fixLabels(self.labels,n)
-        wr = getattr(self,'wedgeRecord',None)
-
-        self._seriesCount = n
-        styleCount = len(self.slices)
-
-        plMode = self.pointerLabelMode
-        if sideLabels:
-            plMode = None
-        if plMode:
-            checkLabelOverlap = False
-            PL=self.makePointerLabels(angles,plMode)
-            xradius = PL.xradius
-            yradius = PL.yradius
-            centerx = PL.centerx
-            centery = PL.centery
-            PL_data = PL.data
-            gSN = lambda i: ''
-        else:
-            xradius = self.width*0.5
-            yradius = self.height*0.5
-            centerx = self.x + xradius
-            centery = self.y + yradius
-            if self.xradius: xradius = self.xradius
-            if self.yradius: yradius = self.yradius
-            if self.sameRadii: xradius=yradius=min(xradius,yradius)
-            checkLabelOverlap = self.checkLabelOverlap
-            gSN = lambda i: self.getSeriesName(i,'')
-
+    def makeAxis(self):
         g = Group()
-        g_add = g.add
-        L = []
-        L_add = L.append
+        self._joinToAxis()
+        if not self.visibleAxis: return g
 
-        innerRadiusFraction = self.innerRadiusFraction
-
-        for i,(a1,a2) in angles:
-            if a2 is None: continue
-            #if we didn't use %stylecount here we'd end up with the later wedges
-            #all having the default style
-            wedgeStyle = self.slices[i%styleCount]
-            if not wedgeStyle.visible: continue
-            aa = abs(a2-a1)
-
-            # is it a popout?
-            cx, cy = centerx, centery
-            text = gSN(i)
-            popout = wedgeStyle.popout
-            if text or popout:
-                averageAngle = (a1+a2)/2.0
-                aveAngleRadians = averageAngle/_180_pi
-                cosAA = cos(aveAngleRadians)
-                sinAA = sin(aveAngleRadians)
-                if popout and aa<_ANGLEHI:
-                    # pop out the wedge
-                    cx = centerx + popout*cosAA
-                    cy = centery + popout*sinAA
-
-            if innerRadiusFraction:
-                theWedge = Wedge(cx, cy, xradius, a1, a2, yradius=yradius,
-                        radius1=xradius*innerRadiusFraction,yradius1=yradius*innerRadiusFraction)
-            else:
-                if aa>=_ANGLEHI:
-                    theWedge = Ellipse(cx, cy, xradius, yradius)
-                else:
-                    theWedge = Wedge(cx, cy, xradius, a1, a2, yradius=yradius)
-
-
-            theWedge.fillColor = wedgeStyle.fillColor
-            theWedge.strokeColor = wedgeStyle.strokeColor
-            theWedge.strokeWidth = wedgeStyle.strokeWidth
-            theWedge.strokeLineJoin = wedgeStyle.strokeLineJoin
-            theWedge.strokeLineCap = wedgeStyle.strokeLineCap
-            theWedge.strokeMiterLimit = wedgeStyle.strokeMiterLimit
-            theWedge.strokeWidth = wedgeStyle.strokeWidth
-            theWedge.strokeDashArray = wedgeStyle.strokeDashArray
-
-            g_add(theWedge)
-            if wr:
-                wr(theWedge,value=a1._data,label=text)
-            if wedgeStyle.label_visible:
-                if not sideLabels:
-                    if text:
-                        labelRadius = wedgeStyle.labelRadius
-                        rx = xradius*labelRadius
-                        ry = yradius*labelRadius
-                        labelX = cx + rx*cosAA
-                        labelY = cy + ry*sinAA
-                        l = _addWedgeLabel(self,text,averageAngle,labelX,labelY,wedgeStyle)
-                        L_add(l)
-                        if not plMode and l._simple_pointer:
-                            l._aax = cx+xradius*cosAA
-                            l._aay = cy+yradius*sinAA
-                        if checkLabelOverlap:
-                            l._origdata = { 'x': labelX, 'y':labelY, 'angle': averageAngle,
-                                            'rx': rx, 'ry':ry, 'cx':cx, 'cy':cy,
-                                            'bounds': l.getBounds(), 'angles':(a1,a2),
-                                            }
-                    elif plMode and PL_data:
-                        l = PL_data[i]
-                        if l:
-                            data = l._origdata
-                            sinM = data['smid']
-                            cosM = data['cmid']
-                            lX = cx + xradius*cosM
-                            lY = cy + yradius*sinM
-                            lpel = wedgeStyle.label_pointer_elbowLength
-                            lXi = lX + lpel*cosM
-                            lYi = lY + lpel*sinM
-                            L_add(PolyLine((lX,lY,lXi,lYi,l.x,l.y),
-                                    strokeWidth=wedgeStyle.label_pointer_strokeWidth,
-                                    strokeColor=wedgeStyle.label_pointer_strokeColor))
-                            L_add(l)
-                else:
-                    if text:
-                        slices_popout = self.slices.popout
-                        m=0
-                        for n, angle in angles:
-                            if self.slices[n].fillColor:
-                                m += 1
-                            else:
-                                r = n%m
-                                self.slices[n].fillColor = self.slices[r].fillColor
-                                self.slices[n].popout = self.slices[r].popout
-                        for j in range(0,m-1):
-                            if self.slices[j].popout > slices_popout:
-                                slices_popout = self.slices[j].popout
-                        labelRadius = wedgeStyle.labelRadius
-                        ry = yradius*labelRadius
-                        if (abs(averageAngle) < 90 ) or (averageAngle >270 and averageAngle <450) or (-450< 
-                                averageAngle <-270):
-                            labelX = (1+self.sideLabelsOffset)*self.width + self.x + slices_popout
-                            rx = 0
-                        else:
-                            labelX = self.x - (self.sideLabelsOffset)*self.width - slices_popout
-                            rx = 0
-                        labelY = cy + ry*sinAA
-                        l = _addWedgeLabel(self,text,averageAngle,labelX,labelY,wedgeStyle)
-                        L_add(l)
-                        if not plMode:
-                            l._aax = cx+xradius*cosAA
-                            l._aay = cy+yradius*sinAA
-                        if checkLabelOverlap:
-                            l._origdata = { 'x': labelX, 'y':labelY, 'angle': averageAngle,
-                                            'rx': rx, 'ry':ry, 'cx':cx, 'cy':cy,
-                                            'bounds': l.getBounds(),
-                                            }
-                        x1,y1,x2,y2 = l.getBounds()
-        
-        if checkLabelOverlap and L:
-            fixLabelOverlaps(L, sideLabels, mult0=checkLabelOverlap)
-        for l in L: g_add(l)
-
-        if not plMode:
-            for l in L:
-                if l._simple_pointer and not sideLabels:
-                    g_add(Line(l.x,l.y,l._aax,l._aay,
-                        strokeWidth=wedgeStyle.label_pointer_strokeWidth,
-                        strokeColor=wedgeStyle.label_pointer_strokeColor))
-                elif sideLabels:
-                    x1,y1,x2,y2 = l.getBounds()
-                    #add pointers
-                    if l.x == (1+self.sideLabelsOffset)*self.width + self.x:
-                        g_add(Line(l._aax,l._aay,0.5*(l._aax+l.x),l.y+(0.25*(y2-y1)),
-                            strokeWidth=wedgeStyle.label_pointer_strokeWidth,
-                            strokeColor=wedgeStyle.label_pointer_strokeColor))
-                        g_add(Line(0.5*(l._aax+l.x),l.y+(0.25*(y2-y1)),l.x,l.y+(0.25*(y2-y1)),
-                            strokeWidth=wedgeStyle.label_pointer_strokeWidth,
-                            strokeColor=wedgeStyle.label_pointer_strokeColor))
-                    else:
-                        g_add(Line(l._aax,l._aay,0.5*(l._aax+l.x),l.y+(0.25*(y2-y1)),
-                            strokeWidth=wedgeStyle.label_pointer_strokeWidth,
-                            strokeColor=wedgeStyle.label_pointer_strokeColor))
-                        g_add(Line(0.5*(l._aax+l.x),l.y+(0.25*(y2-y1)),l.x,l.y+(0.25*(y2-y1)),
-                            strokeWidth=wedgeStyle.label_pointer_strokeWidth,
-                            strokeColor=wedgeStyle.label_pointer_strokeColor))
+        axis = Line(self._x-self.loLLen, self._y, self._x + self._length+self.hiLLen, self._y)
+        axis.strokeColor = self.strokeColor
+        axis.strokeWidth = self.strokeWidth
+        axis.strokeDashArray = self.strokeDashArray
+        g.add(axis)
 
         return g
 
-    def draw(self):
-        G = self.makeBackground()
-        w = self.makeWedges()
-        if G: return Group(G,w)
-        return w
+    def makeTickLabels(self):
+        g = Group()
 
-class LegendedPie(Pie):
-    """Pie with a two part legend (one editable with swatches, one hidden without swatches)."""
+        if not self.visibleLabels: return g
 
-    _attrMap = AttrMap(BASE=Pie,
-        drawLegend = AttrMapValue(isBoolean, desc="If true then create and draw legend"),
-        legend1 = AttrMapValue(None, desc="Handle to legend for pie"),
-        legendNumberFormat = AttrMapValue(None, desc="Formatting routine for number on right hand side of legend."),
-        legendNumberOffset = AttrMapValue(isNumber, desc="Horizontal space between legend and numbers on r/hand side"),
-        pieAndLegend_colors = AttrMapValue(isListOfColors, desc="Colours used for both swatches and pie"),
-        legend_names = AttrMapValue(isNoneOrListOfNoneOrStrings, desc="Names used in legend (or None)"),
-        legend_data = AttrMapValue(isNoneOrListOfNoneOrNumbers, desc="Numbers used on r/hand side of legend (or None)"),
-        leftPadding = AttrMapValue(isNumber, desc='Padding on left of drawing'),
-        rightPadding = AttrMapValue(isNumber, desc='Padding on right of drawing'),
-        topPadding = AttrMapValue(isNumber, desc='Padding at top of drawing'),
-        bottomPadding = AttrMapValue(isNumber, desc='Padding at bottom of drawing'),
+        categoryNames = self.categoryNames
+        if categoryNames is not None:
+            catCount = self._catCount
+            n = len(categoryNames)
+            reverseDirection = self.reverseDirection
+            barWidth = self._barWidth
+            _y = self._labelAxisPos()
+            _x = self._x
+            pmv = self._pmv if self.labelAxisMode=='axispmv' else None
+
+            for i in range(catCount):
+                if reverseDirection: ic = catCount-i-1
+                else: ic = i
+                if ic>=n: continue
+                label=i-catCount
+                if label in self.labels:
+                    label = self.labels[label]
+                else:
+                    label = self.labels[i]
+                if pmv:
+                    _dy = label.dy
+                    v = label._pmv = pmv[ic]
+                    if v<0: _dy *= -2
+                else:
+                    _dy = 0
+                lpf = label.labelPosFrac
+                x = _x + (i+lpf) * barWidth
+                label.setOrigin(x,_y+_dy)
+                label.setText(categoryNames[ic] or '')
+                g.add(label)
+
+        return g
+
+class YCategoryAxis(_YTicks,CategoryAxis):
+    "Y/category axis"
+
+    _attrMap = AttrMap(BASE=CategoryAxis,
+        tickLeft = AttrMapValue(isNumber,
+            desc='Tick length left of the axis.'),
+        tickRight = AttrMapValue(isNumber,
+            desc='Tick length right of the axis.'),
+        joinAxisMode = AttrMapValue(OneOf(('left', 'right', 'value', 'points', None)),
+            desc="Mode used for connecting axis ('left', 'right', 'value', 'points', None)."),
         )
 
+    _dataIndex = 1
+
     def __init__(self):
-        Pie.__init__(self)
-        self.x = 0
-        self.y = 0
-        self.height = 100
-        self.width = 100
-        self.data = [38.4, 20.7, 18.9, 15.4, 6.6]
-        self.labels = None
-        self.direction = 'clockwise'
-        PCMYKColor, black = colors.PCMYKColor, colors.black
-        self.pieAndLegend_colors = [PCMYKColor(11,11,72,0,spotName='PANTONE 458 CV'),
-                                    PCMYKColor(100,65,0,30,spotName='PANTONE 288 CV'),
-                                    PCMYKColor(11,11,72,0,spotName='PANTONE 458 CV',density=75),
-                                    PCMYKColor(100,65,0,30,spotName='PANTONE 288 CV',density=75),
-                                    PCMYKColor(11,11,72,0,spotName='PANTONE 458 CV',density=50),
-                                    PCMYKColor(100,65,0,30,spotName='PANTONE 288 CV',density=50)]
+        CategoryAxis.__init__(self)
+        self.labels.boxAnchor = 'e' #east - right edge
+        self.labels.dx = -5
+        # ultra-simple tick marks for now go between categories
+        # and have same line style as axis - need more
+        self.tickLeft = 5  # how far left of axis does tick go?
+        self.tickRight = 0  # how far right of axis does tick go?
 
-        #Allows us up to six 'wedges' to be coloured
-        self.slices[0].fillColor=self.pieAndLegend_colors[0]
-        self.slices[1].fillColor=self.pieAndLegend_colors[1]
-        self.slices[2].fillColor=self.pieAndLegend_colors[2]
-        self.slices[3].fillColor=self.pieAndLegend_colors[3]
-        self.slices[4].fillColor=self.pieAndLegend_colors[4]
-        self.slices[5].fillColor=self.pieAndLegend_colors[5]
+    def demo(self):
+        self.setPosition(50, 10, 80)
+        self.configure([(10,20,30)])
+        self.categoryNames = ['One','Two','Three']
+        # all labels top-centre aligned apart from the last
+        self.labels.boxAnchor = 'e'
+        self.labels[2].boxAnchor = 's'
+        self.labels[2].angle = 90
 
-        self.slices.strokeWidth = 0.75
-        self.slices.strokeColor = black
+        d = Drawing(200, 100)
+        d.add(self)
+        return d
 
-        legendOffset = 17
-        self.legendNumberOffset = 51
-        self.legendNumberFormat = '%.1f%%'
-        self.legend_data = self.data
+    def joinToAxis(self, xAxis, mode='left', pos=None):
+        "Join with x-axis using some mode."
 
-        #set up the legends
-        from reportlab.graphics.charts.legends import Legend
-        self.legend1 = Legend()
-        self.legend1.x = self.width+legendOffset
-        self.legend1.y = self.height
-        self.legend1.deltax = 5.67
-        self.legend1.deltay = 14.17
-        self.legend1.dxTextSpace = 11.39
-        self.legend1.dx = 5.67
-        self.legend1.dy = 5.67
-        self.legend1.columnMaximum = 7
-        self.legend1.alignment = 'right'
-        self.legend_names = ['AAA:','AA:','A:','BBB:','NR:']
-        for f in range(len(self.data)):
-            self.legend1.colorNamePairs.append((self.pieAndLegend_colors[f], self.legend_names[f]))
-        self.legend1.fontName = "Helvetica-Bold"
-        self.legend1.fontSize = 6
-        self.legend1.strokeColor = black
-        self.legend1.strokeWidth = 0.5
+        _assertXAxis(xAxis)
+        if mode == 'left':
+            self._x = xAxis._x * 1.0
+        elif mode == 'right':
+            self._x = (xAxis._x + xAxis._length) * 1.0
+        elif mode == 'value':
+            self._x = xAxis.scale(pos) * 1.0
+        elif mode == 'points':
+            self._x = pos * 1.0
 
-        self._legend2 = Legend()
-        self._legend2.dxTextSpace = 0
-        self._legend2.dx = 0
-        self._legend2.alignment = 'right'
-        self._legend2.fontName = "Helvetica-Oblique"
-        self._legend2.fontSize = 6
-        self._legend2.strokeColor = self.legend1.strokeColor
+    def _joinToAxis(self):
+        ja = self.joinAxis
+        if ja:
+            jam = self.joinAxisMode
+            if jam in ('left', 'right'):
+                self.joinToAxis(ja, mode=jam)
+            elif jam in ('value', 'points'):
+                self.joinToAxis(ja, mode=jam, pos=self.joinAxisPos)
 
-        self.leftPadding = 5
-        self.rightPadding = 5
-        self.topPadding = 5
-        self.bottomPadding = 5
-        self.drawLegend = 1
+    def scale(self, idx):
+        "Returns the y position and width in drawing units of the slice."
+        return (self._y + self._scale(idx)*self._barWidth, self._barWidth)
 
-    def draw(self):
-        if self.drawLegend:
-            self.legend1.colorNamePairs = []
-            self._legend2.colorNamePairs = []
-        for f in range(len(self.data)):
-            if self.legend_names == None:
-                self.slices[f].fillColor = self.pieAndLegend_colors[f]
-                self.legend1.colorNamePairs.append((self.pieAndLegend_colors[f], None))
-            else:
-                try:
-                    self.slices[f].fillColor = self.pieAndLegend_colors[f]
-                    self.legend1.colorNamePairs.append((self.pieAndLegend_colors[f], self.legend_names[f]))
-                except IndexError:
-                    self.slices[f].fillColor = self.pieAndLegend_colors[f%len(self.pieAndLegend_colors)]
-                    self.legend1.colorNamePairs.append((self.pieAndLegend_colors[f%len(self.pieAndLegend_colors)], self.legend_names[f]))
-            if self.legend_data != None:
-                ldf = self.legend_data[f]
-                lNF = self.legendNumberFormat
-                if ldf is None or lNF is None:
-                    pass
-                elif isinstance(lNF,str):
-                    ldf = lNF % ldf
-                elif hasattr(lNF,'__call__'):
-                    ldf = lNF(ldf)
+    def makeAxis(self):
+        g = Group()
+        self._joinToAxis()
+        if not self.visibleAxis: return g
+
+        axis = Line(self._x, self._y-self.loLLen, self._x, self._y + self._length+self.hiLLen)
+        axis.strokeColor = self.strokeColor
+        axis.strokeWidth = self.strokeWidth
+        axis.strokeDashArray = self.strokeDashArray
+        g.add(axis)
+
+        return g
+
+    def makeTickLabels(self):
+        g = Group()
+
+        if not self.visibleLabels: return g
+
+        categoryNames = self.categoryNames
+        if categoryNames is not None:
+            catCount = self._catCount
+            n = len(categoryNames)
+            reverseDirection = self.reverseDirection
+            barWidth = self._barWidth
+            labels = self.labels
+            _x = self._labelAxisPos()
+            _y = self._y
+            pmv = self._pmv if self.labelAxisMode=='axispmv' else None
+
+            for i in range(catCount):
+                if reverseDirection: ic = catCount-i-1
+                else: ic = i
+                if ic>=n: continue
+                label=i-catCount
+                if label in self.labels:
+                    label = self.labels[label]
                 else:
-                    raise ValueError("Unknown formatter type %s, expected string or function" % ascii(self.legendNumberFormat))
-                self._legend2.colorNamePairs.append((None,ldf))
-        p = Pie.draw(self)
-        if self.drawLegend:
-            p.add(self.legend1)
-            #hide from user - keeps both sides lined up!
-            self._legend2.x = self.legend1.x+self.legendNumberOffset
-            self._legend2.y = self.legend1.y
-            self._legend2.deltax = self.legend1.deltax
-            self._legend2.deltay = self.legend1.deltay
-            self._legend2.dy = self.legend1.dy
-            self._legend2.columnMaximum = self.legend1.columnMaximum
-            p.add(self._legend2)
-        p.shift(self.leftPadding, self.bottomPadding)
-        return p
+                    label = self.labels[i]
+                lpf = label.labelPosFrac
+                y = _y + (i+lpf) * barWidth
+                if pmv:
+                    _dx = label.dx
+                    v = label._pmv = pmv[ic]
+                    if v<0: _dx *= -2
+                else:
+                    _dx = 0
+                label.setOrigin(_x+_dx, y)
+                label.setText(categoryNames[ic] or '')
+                g.add(label)
+        return g
 
-    def _getDrawingDimensions(self):
-        tx = self.rightPadding
-        if self.drawLegend:
-            tx += self.legend1.x+self.legendNumberOffset #self._legend2.x
-            tx += self._legend2._calculateMaxWidth(self._legend2.colorNamePairs)
-        ty = self.bottomPadding+self.height+self.topPadding
-        return (tx,ty)
+class TickLabeller:
+    '''Abstract base class which may be used to indicate a change
+    in the call signature for callable label formats
+    '''
+    def __call__(self,axis,value):
+        return 'Abstract class instance called'
 
-    def demo(self, drawing=None):
-        if not drawing:
-            tx,ty = self._getDrawingDimensions()
-            drawing = Drawing(tx, ty)
-        drawing.add(self.draw())
+#this matches the old python str behaviour
+_defaultLabelFormatter = lambda x: '%.12g' % x
+
+# Value axes.
+class ValueAxis(_AxisG):
+    "Abstract value axis, unusable in itself."
+
+    _attrMap = AttrMap(
+        forceZero = AttrMapValue(EitherOr((isBoolean,OneOf('near'))), desc='Ensure zero in range if true.'),
+        visible = AttrMapValue(isBoolean, desc='Display entire object, if true.'),
+        visibleAxis = AttrMapValue(isBoolean, desc='Display axis line, if true.'),
+        visibleLabels = AttrMapValue(isBoolean, desc='Display axis labels, if true.'),
+        visibleTicks = AttrMapValue(isBoolean, desc='Display axis ticks, if true.'),
+        visibleGrid = AttrMapValue(isBoolean, desc='Display axis grid, if true.'),
+        strokeWidth = AttrMapValue(isNumber, desc='Width of axis line and ticks.'),
+        strokeColor = AttrMapValue(isColorOrNone, desc='Color of axis line and ticks.'),
+        strokeDashArray = AttrMapValue(isListOfNumbersOrNone, desc='Dash array used for axis line.'),
+        strokeLineCap = AttrMapValue(OneOf(0,1,2),desc="Line cap 0=butt, 1=round & 2=square"),
+        strokeLineJoin = AttrMapValue(OneOf(0,1,2),desc="Line join 0=miter, 1=round & 2=bevel"),
+        strokeMiterLimit = AttrMapValue(isNumber,desc="miter limit control miter line joins"),
+        gridStrokeWidth = AttrMapValue(isNumber, desc='Width of grid lines.'),
+        gridStrokeColor = AttrMapValue(isColorOrNone, desc='Color of grid lines.'),
+        gridStrokeDashArray = AttrMapValue(isListOfNumbersOrNone, desc='Dash array used for grid lines.'),
+        gridStrokeLineCap = AttrMapValue(OneOf(0,1,2),desc="Grid Line cap 0=butt, 1=round & 2=square"),
+        gridStrokeLineJoin = AttrMapValue(OneOf(0,1,2),desc="Grid Line join 0=miter, 1=round & 2=bevel"),
+        gridStrokeMiterLimit = AttrMapValue(isNumber,desc="Grid miter limit control miter line joins"),
+        gridStart = AttrMapValue(isNumberOrNone, desc='Start of grid lines wrt axis origin'),
+        gridEnd = AttrMapValue(isNumberOrNone, desc='End of grid lines wrt axis origin'),
+        drawGridLast = AttrMapValue(isBoolean, desc='if true draw gridlines after everything else.'),
+        minimumTickSpacing = AttrMapValue(isNumber, desc='Minimum value for distance between ticks.'),
+        maximumTicks = AttrMapValue(isNumber, desc='Maximum number of ticks.'),
+        labels = AttrMapValue(None, desc='Handle of the axis labels.'),
+        labelAxisMode = AttrMapValue(OneOf('high','low','axis'), desc="Like joinAxisMode, but for the axis labels"),
+        labelTextFormat = AttrMapValue(None, desc='Formatting string or function used for axis labels.'),
+        labelTextPostFormat = AttrMapValue(None, desc='Extra Formatting string.'),
+        labelTextScale = AttrMapValue(isNumberOrNone, desc='Scaling for label tick values.'),
+        valueMin = AttrMapValue(isNumberOrNone, desc='Minimum value on axis.'),
+        valueMax = AttrMapValue(isNumberOrNone, desc='Maximum value on axis.'),
+        valueStep = AttrMapValue(isNumberOrNone, desc='Step size used between ticks.'),
+        valueSteps = AttrMapValue(isListOfNumbersOrNone, desc='List of step sizes used between ticks.'),
+        avoidBoundFrac = AttrMapValue(EitherOr((isNumberOrNone,SequenceOf(isNumber,emptyOK=0,lo=2,hi=2))), desc='Fraction of interval to allow above and below.'),
+        avoidBoundSpace = AttrMapValue(EitherOr((isNumberOrNone,SequenceOf(isNumber,emptyOK=0,lo=2,hi=2))), desc='Space to allow above and below.'),
+        abf_ignore_zero = AttrMapValue(EitherOr((NoneOr(isBoolean),SequenceOf(isBoolean,emptyOK=0,lo=2,hi=2))), desc='Set to True to make the avoidBoundFrac calculations treat zero as non-special'),
+        rangeRound=AttrMapValue(OneOf('none','both','ceiling','floor'),'How to round the axis limits'),
+        zrangePref = AttrMapValue(isNumberOrNone, desc='Zero range axis limit preference.'),
+        style = AttrMapValue(OneOf('normal','stacked','parallel_3d'),"How values are plotted!"),
+        skipEndL = AttrMapValue(OneOf('none','start','end','both'), desc='Skip high/low tick labels'),
+        origShiftIPC = AttrMapValue(isNumberOrNone, desc='Lowest label shift interval ratio.'),
+        origShiftMin = AttrMapValue(isNumberOrNone, desc='Minimum amount to shift.'),
+        origShiftSpecialValue = AttrMapValue(isNumberOrNone, desc='special value for shift'),
+        tickAxisMode = AttrMapValue(OneOf('high','low','axis'), desc="Like joinAxisMode, but for the ticks"),
+        reverseDirection = AttrMapValue(isBoolean, desc='If true reverse category direction.'),
+        annotations = AttrMapValue(None,desc='list of annotations'),
+        loLLen = AttrMapValue(isNumber, desc='extra line length before start of the axis'),
+        hiLLen = AttrMapValue(isNumber, desc='extra line length after end of the axis'),
+        subTickNum = AttrMapValue(isNumber, desc='Number of axis sub ticks, if >0'),
+        subTickLo = AttrMapValue(isNumber, desc='sub tick down or left'),
+        subTickHi = AttrMapValue(isNumber, desc='sub tick up or right'),
+        visibleSubTicks = AttrMapValue(isBoolean, desc='Display axis sub ticks, if true.'),
+        visibleSubGrid = AttrMapValue(isBoolean, desc='Display axis sub grid, if true.'),
+        subGridStrokeWidth = AttrMapValue(isNumber, desc='Width of grid lines.'),
+        subGridStrokeColor = AttrMapValue(isColorOrNone, desc='Color of grid lines.'),
+        subGridStrokeDashArray = AttrMapValue(isListOfNumbersOrNone, desc='Dash array used for grid lines.'),
+        subGridStrokeLineCap = AttrMapValue(OneOf(0,1,2),desc="Grid Line cap 0=butt, 1=round & 2=square"),
+        subGridStrokeLineJoin = AttrMapValue(OneOf(0,1,2),desc="Grid Line join 0=miter, 1=round & 2=bevel"),
+        subGridStrokeMiterLimit = AttrMapValue(isNumber,desc="Grid miter limit control miter line joins"),
+        subGridStart = AttrMapValue(isNumberOrNone, desc='Start of grid lines wrt axis origin'),
+        subGridEnd = AttrMapValue(isNumberOrNone, desc='End of grid lines wrt axis origin'),
+        keepTickLabelsInside = AttrMapValue(isBoolean, desc='Ensure tick labels do not project beyond bounds of axis if true'),
+        skipGrid = AttrMapValue(OneOf('none','top','both','bottom'),"grid lines to skip top bottom both none"),
+        requiredRange = AttrMapValue(isNumberOrNone, desc='Minimum required value range.'),
+        innerTickDraw = AttrMapValue(isNoneOrCallable, desc="Callable to replace _drawInnerTicks"),
+        )
+
+    def __init__(self,**kw):
+        assert self.__class__.__name__!='ValueAxis', 'Abstract Class ValueAxis Instantiated'
+        self._setKeywords(**kw)
+        self._setKeywords(
+                        _configured = 0,
+                        # private properties set by methods.  The initial values
+                        # here are to make demos easy; they would always be
+                        # overridden in real life.
+                        _x = 50,
+                        _y = 50,
+                        _length = 100,
+
+                        # public properties
+                        visible = 1,
+                        visibleAxis = 1,
+                        visibleLabels = 1,
+                        visibleTicks = 1,
+                        visibleGrid = 0,
+                        forceZero = 0,
+
+                        strokeWidth = 1,
+                        strokeColor = STATE_DEFAULTS['strokeColor'],
+                        strokeDashArray = STATE_DEFAULTS['strokeDashArray'],
+                        strokeLineJoin =  STATE_DEFAULTS['strokeLineJoin'],
+                        strokeLineCap = STATE_DEFAULTS['strokeLineCap'],
+                        strokeMiterLimit = STATE_DEFAULTS['strokeMiterLimit'],
+                        gridStrokeWidth = 0.25,
+                        gridStrokeColor = STATE_DEFAULTS['strokeColor'],
+                        gridStrokeDashArray = STATE_DEFAULTS['strokeDashArray'],
+                        gridStrokeLineJoin =  STATE_DEFAULTS['strokeLineJoin'],
+                        gridStrokeLineCap = STATE_DEFAULTS['strokeLineCap'],
+                        gridStrokeMiterLimit = STATE_DEFAULTS['strokeMiterLimit'],
+                        gridStart = None,
+                        gridEnd = None,
+                        drawGridLast = False,
+                        visibleSubGrid = 0,
+                        visibleSubTicks = 0,
+                        subTickNum = 0,
+                        subTickLo = 0,
+                        subTickHi = 0,
+                        subGridStrokeLineJoin = STATE_DEFAULTS['strokeLineJoin'],
+                        subGridStrokeLineCap = STATE_DEFAULTS['strokeLineCap'],
+                        subGridStrokeMiterLimit = STATE_DEFAULTS['strokeMiterLimit'],
+                        subGridStrokeWidth = 0.25,
+                        subGridStrokeColor = STATE_DEFAULTS['strokeColor'],
+                        subGridStrokeDashArray = STATE_DEFAULTS['strokeDashArray'],
+                        subGridStart = None,
+                        subGridEnd = None,
+                        labels = TypedPropertyCollection(Label),
+                        keepTickLabelsInside = 0,
+
+                        # how close can the ticks be?
+                        minimumTickSpacing = 10,
+                        maximumTicks = 7,
+
+                        # a format string like '%0.2f'
+                        # or a function which takes the value as an argument and returns a string
+                        _labelTextFormat = None,
+                        labelAxisMode = 'axis',
+                        labelTextFormat = None,
+                        labelTextPostFormat = None,
+                        labelTextScale = None,
+
+                        # if set to None, these will be worked out for you.
+                        # if you override any or all of them, your values
+                        # will be used.
+                        valueMin = None,
+                        valueMax = None,
+                        valueStep = None,
+                        avoidBoundFrac = None,
+                        avoidBoundSpace = None,
+                        abf_ignore_zero = False,
+                        rangeRound = 'none',
+                        zrangePref = 0,
+                        style = 'normal',
+                        skipEndL='none',
+                        origShiftIPC = None,
+                        origShiftMin = None,
+                        origShiftSpecialValue = None,
+                        tickAxisMode = 'axis',
+                        reverseDirection=0,
+                        loLLen=0,
+                        hiLLen=0,
+                        requiredRange=0,
+                        )
+        self.labels.angle = 0
+
+    def setPosition(self, x, y, length):
+        # ensure floating point
+        self._x = float(x)
+        self._y = float(y)
+        self._length = float(length)
+
+    def configure(self, dataSeries):
+        """Let the axis configure its scale and range based on the data.
+
+        Called after setPosition. Let it look at a list of lists of
+        numbers determine the tick mark intervals.  If valueMin,
+        valueMax and valueStep are configured then it
+        will use them; if any of them are set to None it
+        will look at the data and make some sensible decision.
+        You may override this to build custom axes with
+        irregular intervals.  It creates an internal
+        variable self._values, which is a list of numbers
+        to use in plotting.
+        """
+        self._setRange(dataSeries)
+        self._configure_end()
+
+    def _configure_end(self):
+        self._calcTickmarkPositions()
+        self._calcScaleFactor()
+        self._configured = 1
+
+    def _getValueStepAndTicks(self, valueMin, valueMax,cache={}):
+        try:
+            K = (valueMin,valueMax)
+            r = cache[K]
+        except:
+            self._valueMin = valueMin
+            self._valueMax = valueMax
+            valueStep,T = self._calcStepAndTickPositions()
+            r = cache[K] = valueStep, T, valueStep*1e-8
+        return r
+
+    def _preRangeAdjust(self,valueMin,valueMax):
+        rr = self.requiredRange
+        if rr>0:
+            r = valueMax - valueMin
+            if r<rr:
+                m = 0.5*(valueMax+valueMin)
+                rr *= 0.5
+                y1 = min(m-rr,valueMin)
+                y2 = max(m+rr,valueMax)
+                if valueMin>=100 and y1<100:
+                    y2 = y2 + 100 - y1
+                    y1 = 100
+                elif valueMin>=0 and y1<0:
+                    y2 = y2 - y1
+                    y1 = 0
+                valueMin = self._cValueMin = y1
+                valueMax = self._cValueMax = y2
+        return valueMin,valueMax
+
+
+    def _setRange(self, dataSeries):
+        """Set minimum and maximum axis values.
+
+        The dataSeries argument is assumed to be a list of data
+        vectors. Each vector is itself a list or tuple of numbers.
+
+        Returns a min, max tuple.
+        """
+
+        oMin = valueMin = self.valueMin
+        oMax = valueMax = self.valueMax
+        if valueMin is None: valueMin = self._cValueMin = _findMin(dataSeries,self._dataIndex,0)
+        if valueMax is None: valueMax = self._cValueMax = _findMax(dataSeries,self._dataIndex,0)
+        if valueMin == valueMax:
+            if valueMax==0:
+                if oMin is None and oMax is None:
+                    zrp = getattr(self,'zrangePref',0)
+                    if zrp>0:
+                        valueMax = zrp
+                        valueMin = 0
+                    elif zrp<0:
+                        valueMax = 0
+                        valueMin = zrp
+                    else:
+                        valueMax = 0.01
+                        valueMin = -0.01
+                elif self.valueMin is None:
+                    valueMin = -0.01
+                else:
+                    valueMax = 0.01
+            else:
+                if valueMax>0:
+                    valueMax = 1.2*valueMax
+                    valueMin = 0.0
+                else:
+                    valueMax = 0.0
+                    valueMin = 1.2*valueMin
+
+        if getattr(self,'_bubblePlot',None):
+            bubbleMax = float(_findMax(dataSeries,2,0))
+            frac=.25
+            bubbleV=frac*(valueMax-valueMin)
+            self._bubbleV = bubbleV
+            self._bubbleMax = bubbleMax
+            self._bubbleRadius = frac*self._length
+            def special(T,x,func,bubbleV=bubbleV,bubbleMax=bubbleMax):
+                try:
+                    v = T[2]
+                except IndexError:
+                    v = bubbleMAx*0.1
+                bubbleV *= (v/bubbleMax)**0.5
+                return func(T[x]+bubbleV,T[x]-bubbleV)
+            if oMin is None: valueMin = self._cValueMin = _findMin(dataSeries,self._dataIndex,0,special=special)
+            if oMax is None: valueMax = self._cValueMax = _findMax(dataSeries,self._dataIndex,0,special=special)
+
+        valueMin, valueMax = self._preRangeAdjust(valueMin,valueMax)
+
+        rangeRound = self.rangeRound
+
+        cMin = valueMin
+        cMax = valueMax
+        forceZero = self.forceZero
+        if forceZero:
+            if forceZero=='near':
+                forceZero = min(abs(valueMin),abs(valueMax)) <= 5*(valueMax-valueMin)
+            if forceZero:
+                if valueMax<0: valueMax=0
+                elif valueMin>0: valueMin = 0
+
+        abf = self.avoidBoundFrac
+        do_rr = not getattr(self,'valueSteps',None)
+        do_abf = abf and do_rr
+        if not isSeq(abf):
+            abf = abf, abf
+        abfiz = getattr(self,'abf_ignore_zero', False)
+        if not isSeq(abfiz):
+            abfiz = abfiz, abfiz
+        do_rr = rangeRound is not 'none' and do_rr
+        if do_rr:
+            rrn = rangeRound in ['both','floor']
+            rrx = rangeRound in ['both','ceiling']
+        else:
+            rrn = rrx = 0
+
+        abS = self.avoidBoundSpace
+        do_abs = abS
+        if do_abs:
+            if not isSeq(abS):
+                abS = abS, abS
+        aL = float(self._length)
+
+        go = do_rr or do_abf or do_abs
+        cache = {}
+        iter = 0
+        while go and iter<=10:
+            iter += 1
+            go = 0
+            if do_abf or do_abs:
+                valueStep, T, fuzz = self._getValueStepAndTicks(valueMin, valueMax, cache)
+                if do_abf:
+                    i0 = valueStep*abf[0]
+                    i1 = valueStep*abf[1]
+                else:
+                    i0 = i1 = 0
+                if do_abs:
+                    sf = (valueMax-valueMin)/aL
+                    i0 = max(i0,abS[0]*sf)
+                    i1 = max(i1,abS[1]*sf)
+                if rrn: v = T[0]
+                else: v = valueMin
+                u = cMin-i0
+                if (abfiz[0] or abs(v)>fuzz) and v>=u+fuzz:
+                    valueMin = u
+                    go = 1
+                if rrx: v = T[-1]
+                else: v = valueMax
+                u = cMax+i1
+                if (abfiz[1] or abs(v)>fuzz) and v<=u-fuzz:
+                    valueMax = u
+                    go = 1
+
+            if do_rr:
+                valueStep, T, fuzz = self._getValueStepAndTicks(valueMin, valueMax, cache)
+                if rrn:
+                    if valueMin<T[0]-fuzz:
+                        valueMin = T[0]-valueStep
+                        go = 1
+                    else:
+                        go = valueMin>=T[0]+fuzz
+                        valueMin = T[0]
+                if rrx:
+                    if valueMax>T[-1]+fuzz:
+                        valueMax = T[-1]+valueStep
+                        go = 1
+                    else:
+                        go = valueMax<=T[-1]-fuzz
+                        valueMax = T[-1]
+        if iter and not go:
+            self._computedValueStep = valueStep
+        else:
+            self._computedValueStep = None
+
+        self._valueMin = valueMin
+        self._valueMax = valueMax
+
+        origShiftIPC = self.origShiftIPC
+        origShiftMin = self.origShiftMin
+        if origShiftMin is not None or origShiftIPC is not None:
+            origShiftSpecialValue = self.origShiftSpecialValue
+            self._calcValueStep()
+            valueMax, valueMin = self._valueMax, self._valueMin
+            if origShiftSpecialValue is None or abs(origShiftSpecialValue-valueMin)<1e-6:
+                if origShiftIPC:
+                    m = origShiftIPC*self._valueStep
+                else:
+                    m = 0
+                if origShiftMin:
+                    m = max(m,(valueMax-valueMin)*origShiftMin/self._length)
+                self._valueMin -= m
+
+        self._rangeAdjust()
+
+    def _pseudo_configure(self):
+        self._valueMin = self.valueMin
+        self._valueMax = self.valueMax
+        self._configure_end()
+
+    def _rangeAdjust(self):
+        """Override this if you want to alter the calculated range.
+
+        E.g. if want a minumamum range of 30% or don't want 100%
+        as the first point.
+        """
+        pass
+
+    def _adjustAxisTicks(self):
+        '''Override if you want to put slack at the ends of the axis
+        eg if you don't want the last tick to be at the bottom etc
+        '''
+        pass
+
+    def _calcScaleFactor(self):
+        """Calculate the axis' scale factor.
+        This should be called only *after* the axis' range is set.
+        Returns a number.
+        """
+        self._scaleFactor = self._length / float(self._valueMax - self._valueMin)
+        return self._scaleFactor
+
+    def _calcStepAndTickPositions(self):
+        valueStep = getattr(self,'_computedValueStep',None)
+        if valueStep:
+            del self._computedValueStep
+            self._valueStep = valueStep
+        else:
+            self._calcValueStep()
+            valueStep = self._valueStep
+        valueMin = self._valueMin
+        valueMax = self._valueMax
+        fuzz = 1e-8*valueStep
+        rangeRound = self.rangeRound
+        i0 = int(float(valueMin)/valueStep)
+        v = i0*valueStep
+        if rangeRound in ('both','floor'):
+            if v>valueMin+fuzz: i0 -= 1
+        elif v<valueMin-fuzz: i0 += 1
+        i1 = int(float(valueMax)/valueStep)
+        v = i1*valueStep
+        if rangeRound in ('both','ceiling'):
+            if v<valueMax-fuzz: i1 += 1
+        elif v>valueMax+fuzz: i1 -= 1
+        return valueStep,[i*valueStep for i in range(i0,i1+1)]
+
+    def _calcTickPositions(self):
+        return self._calcStepAndTickPositions()[1]
+
+    def _calcTickmarkPositions(self):
+        """Calculate a list of tick positions on the axis.  Returns a list of numbers."""
+        self._tickValues = getattr(self,'valueSteps',None)
+        if self._tickValues: return self._tickValues
+        self._tickValues = self._calcTickPositions()
+        self._adjustAxisTicks()
+        return self._tickValues
+
+    def _calcValueStep(self):
+        '''Calculate _valueStep for the axis or get from valueStep.'''
+        if self.valueStep is None:
+            rawRange = self._valueMax - self._valueMin
+            rawInterval = rawRange / min(float(self.maximumTicks-1),(float(self._length)/self.minimumTickSpacing))
+            self._valueStep = nextRoundNumber(rawInterval)
+        else:
+            self._valueStep = self.valueStep
+
+    def _allIntTicks(self):
+        return _allInt(self._tickValues)
+
+    def makeTickLabels(self):
+        g = Group()
+        if not self.visibleLabels: return g
+
+        f = self._labelTextFormat       # perhaps someone already set it
+        if f is None:
+            f = self.labelTextFormat or (self._allIntTicks() and '%.0f' or _defaultLabelFormatter)
+        elif f is str and self._allIntTicks(): f = '%.0f'
+        elif hasattr(f,'calcPlaces'):
+            f.calcPlaces(self._tickValues)
+        post = self.labelTextPostFormat
+        scl = self.labelTextScale
+        pos = [self._x, self._y]
+        d = self._dataIndex
+        pos[1-d] = self._labelAxisPos()
+        labels = self.labels
+        if self.skipEndL!='none':
+            if self.isXAxis:
+                sk = self._x
+            else:
+                sk = self._y
+            if self.skipEndL=='start':
+                sk = [sk]
+            else:
+                sk = [sk,sk+self._length]
+                if self.skipEndL=='end':
+                    del sk[0]
+        else:
+            sk = []
+
+        nticks = len(self._tickValues)
+        nticks1 = nticks - 1
+        for i,tick in enumerate(self._tickValues):
+            label = i-nticks
+            if label in labels:
+                label = labels[label]
+            else:
+                label = labels[i]
+            if f and label.visible:
+                v = self.scale(tick)
+                if sk:
+                    for skv in sk:
+                        if abs(skv-v)<1e-6:
+                            v = None
+                            break
+                if v is not None:
+                    if scl is not None:
+                        t = tick*scl
+                    else:
+                        t = tick
+                    if isinstance(f, str): txt = f % t
+                    elif isSeq(f):
+                        #it's a list, use as many items as we get
+                        if i < len(f):
+                            txt = f[i]
+                        else:
+                            txt = ''
+                    elif hasattr(f,'__call__'):
+                        if isinstance(f,TickLabeller):
+                            txt = f(self,t)
+                        else:
+                            txt = f(t)
+                    else:
+                        raise ValueError('Invalid labelTextFormat %s' % f)
+                    if post: txt = post % txt
+                    pos[d] = v
+                    label.setOrigin(*pos)
+                    label.setText(txt)
+
+                    #special property to ensure a label doesn't project beyond the bounds of an x-axis
+                    if self.keepTickLabelsInside: 
+                        if isinstance(self, XValueAxis):  #not done yet for y axes
+                            a_x = self._x
+                            if not i:  #first one
+                                x0, y0, x1, y1 = label.getBounds()
+                                if x0 < a_x:
+                                    label = label.clone(dx=label.dx + a_x - x0)
+                            if i==nticks1:  #final one
+                                a_x1 = a_x +self._length
+                                x0, y0, x1, y1 = label.getBounds()
+                                if x1 > a_x1:
+                                    label=label.clone(dx=label.dx-x1+a_x1)
+                    g.add(label)
+
+        return g
+
+    def scale(self, value):
+        """Converts a numeric value to a plotarea position.
+        The chart first configures the axis, then asks it to
+        """
+        assert self._configured, "Axis cannot scale numbers before it is configured"
+        if value is None: value = 0
+
+        #this could be made more efficient by moving the definition of org and sf into the configuration
+        org = (self._x, self._y)[self._dataIndex]
+        sf = self._scaleFactor
+        if self.reverseDirection:
+            sf = -sf
+            org += self._length
+        return org + sf*(value - self._valueMin)
+
+class XValueAxis(_XTicks,ValueAxis):
+    "X/value axis"
+
+    _attrMap = AttrMap(BASE=ValueAxis,
+        tickUp = AttrMapValue(isNumber,
+            desc='Tick length up the axis.'),
+        tickDown = AttrMapValue(isNumber,
+            desc='Tick length down the axis.'),
+        joinAxis = AttrMapValue(None,
+            desc='Join both axes if true.'),
+        joinAxisMode = AttrMapValue(OneOf('bottom', 'top', 'value', 'points', None),
+            desc="Mode used for connecting axis ('bottom', 'top', 'value', 'points', None)."),
+        joinAxisPos = AttrMapValue(isNumberOrNone,
+            desc='Position at which to join with other axis.'),
+        )
+
+    # Indicate the dimension of the data we're interested in.
+    _dataIndex = 0
+
+    def __init__(self,**kw):
+        ValueAxis.__init__(self,**kw)
+
+        self.labels.boxAnchor = 'n'
+        self.labels.dx = 0
+        self.labels.dy = -5
+
+        self.tickUp = 0
+        self.tickDown = 5
+
+        self.joinAxis = None
+        self.joinAxisMode = None
+        self.joinAxisPos = None
+
+    def demo(self):
+        self.setPosition(20, 50, 150)
+        self.configure([(10,20,30,40,50)])
+
+        d = Drawing(200, 100)
+        d.add(self)
+        return d
+
+    def joinToAxis(self, yAxis, mode='bottom', pos=None):
+        "Join with y-axis using some mode."
+        _assertYAxis(yAxis)
+        if mode == 'bottom':
+            self._y = yAxis._y * 1.0
+        elif mode == 'top':
+            self._y = (yAxis._y + yAxis._length) * 1.0
+        elif mode == 'value':
+            self._y = yAxis.scale(pos) * 1.0
+        elif mode == 'points':
+            self._y = pos * 1.0
+
+    def _joinToAxis(self):
+        ja = self.joinAxis
+        if ja:
+            jam = self.joinAxisMode or 'bottom'
+            if jam in ('bottom', 'top'):
+                self.joinToAxis(ja, mode=jam)
+            elif jam in ('value', 'points'):
+                self.joinToAxis(ja, mode=jam, pos=self.joinAxisPos)
+
+    def makeAxis(self):
+        g = Group()
+        self._joinToAxis()
+        if not self.visibleAxis: return g
+
+        axis = Line(self._x-self.loLLen, self._y, self._x + self._length+self.hiLLen, self._y)
+        axis.strokeColor = self.strokeColor
+        axis.strokeWidth = self.strokeWidth
+        axis.strokeDashArray = self.strokeDashArray
+        g.add(axis)
+
+        return g
+
+#additional utilities to help specify calendar dates on which tick marks
+#are to be plotted.  After some thought, when the magic algorithm fails,
+#we can let them specify a number of days-of-the-year to tick in any given
+#year.
+
+#################################################################################
+#
+#   Preliminary support objects/functions for the axis used in time series charts
+#
+#################################################################################
+_months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
+_maxDays = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+def parseDayAndMonth(dmstr):
+    """This accepts and validates strings like "31-Dec" i.e. dates
+    of no particular year.  29 Feb is allowed.  These can be used
+    for recurring dates.  It returns a (dd, mm) pair where mm is the
+    month integer.  If the text is not valid it raises an error.
+    """
+
+    dstr, mstr = dmstr.split('-')
+    dd = int(dstr)
+    mstr = mstr.lower()
+    mm = _months.index(mstr) + 1
+    assert dd <= _maxDays[mm-1]
+    return (dd, mm)
+
+class _isListOfDaysAndMonths(Validator):
+    """This accepts and validates lists of strings like "31-Dec" i.e. dates
+    of no particular year.  29 Feb is allowed.  These can be used
+    for recurring dates.
+    """
+    def test(self,x):
+        if isSeq(x):
+            answer = True
+            for element in x:
+                try:
+                    dd, mm = parseDayAndMonth(element)
+                except:
+                    answer = False
+            return answer
+        else:
+            return False
+
+    def normalize(self,x):
+        #we store them as presented, it's the most presentable way
+        return x
+
+isListOfDaysAndMonths = _isListOfDaysAndMonths()
+
+_NDINTM = 1,2,3,6,12,24,60,120,180,240,300,360,420,480,540,600,720,840,960,1080,1200,2400
+class NormalDateXValueAxis(XValueAxis):
+    """An X axis applying additional rules.
+
+    Depending on the data and some built-in rules, the axis
+    displays normalDate values as nicely formatted dates.
+
+    The client chart should have NormalDate X values.
+    """
+
+    _attrMap = AttrMap(BASE = XValueAxis,
+        bottomAxisLabelSlack = AttrMapValue(isNumber, desc="Fractional amount used to adjust label spacing"),
+        niceMonth = AttrMapValue(isBoolean, desc="Flag for displaying months 'nicely'."),
+        forceEndDate = AttrMapValue(isBoolean, desc='Flag for enforced displaying of last date value.'),
+        forceFirstDate = AttrMapValue(isBoolean, desc='Flag for enforced displaying of first date value.'),
+        forceDatesEachYear = AttrMapValue(isListOfDaysAndMonths, desc='List of dates in format "31-Dec",' +
+            '"1-Jan".  If present they will always be used for tick marks in the current year, rather ' +
+            'than the dates chosen by the automatic algorithm. Hyphen compulsory, case of month optional.'),
+        xLabelFormat = AttrMapValue(None, desc="Label format string (e.g. '{mm}/{yy}') or function."),
+        dayOfWeekName = AttrMapValue(SequenceOf(isString,emptyOK=0,lo=7,hi=7), desc='Weekday names.'),
+        monthName = AttrMapValue(SequenceOf(isString,emptyOK=0,lo=12,hi=12), desc='Month names.'),
+        dailyFreq = AttrMapValue(isBoolean, desc='True if we are to assume daily data to be ticked at end of month.'),
+        specifiedTickDates = AttrMapValue(NoneOr(SequenceOf(isNormalDate)), desc='Actual tick values to use; no calculations done'),
+        specialTickClear = AttrMapValue(isBoolean, desc='clear rather than delete close ticks when forced first/end dates'),
+        skipGrid = AttrMapValue(OneOf('none','top','both','bottom'),"grid lines to skip top bottom both none"),
+        )
+
+    _valueClass = normalDate.ND
+
+    def __init__(self,**kw):
+        XValueAxis.__init__(self,**kw)
+
+        # some global variables still used...
+        self.bottomAxisLabelSlack = 0.1
+        self.niceMonth = 1
+        self.forceEndDate = 0
+        self.forceFirstDate = 0
+        self.forceDatesEachYear = []
+        self.dailyFreq = 0
+        self.xLabelFormat = "{mm}/{yy}"
+        self.dayOfWeekName = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        self.monthName = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+                            'August', 'September', 'October', 'November', 'December']
+        self.specialTickClear = 0
+        self.valueSteps = self.specifiedTickDates = None
+
+    def _scalar2ND(self, x):
+        "Convert a scalar to a NormalDate value."
+        d = self._valueClass()
+        d.normalize(x)
+        return d
+
+    def _dateFormatter(self, v):
+        "Create a formatted label for some value."
+        if not isinstance(v,normalDate.NormalDate):
+            v = self._scalar2ND(v)
+        d, m = normalDate._dayOfWeekName, normalDate._monthName
+        try:
+            normalDate._dayOfWeekName, normalDate._monthName = self.dayOfWeekName, self.monthName
+            return v.formatMS(self.xLabelFormat)
+        finally:
+            normalDate._dayOfWeekName, normalDate._monthName = d, m
+
+    def _xAxisTicker(self, xVals):
+        """Complex stuff...
+
+        Needs explanation...
+
+        Yes please says Andy :-(.  Modified on 19 June 2006 to attempt to allow
+        a mode where one can specify recurring days and months.
+        """
+        VC = self._valueClass
+        axisLength = self._length
+        formatter = self._dateFormatter
+        if isinstance(formatter,TickLabeller):
+            def formatter(tick):
+                return self._dateFormatter(self,tick)
+        firstDate = xVals[0] if not self.valueMin else VC(self.valueMin)
+        endDate = xVals[-1] if not self.valueMax else VC(self.valueMax)
+        labels = self.labels
+        fontName, fontSize, leading = labels.fontName, labels.fontSize, labels.leading
+        textAnchor, boxAnchor, angle = labels.textAnchor, labels.boxAnchor, labels.angle
+        RBL = _textBoxLimits(formatter(firstDate).split('\n'),fontName,
+                    fontSize,leading or 1.2*fontSize,textAnchor,boxAnchor)
+        RBL = _rotatedBoxLimits(RBL[0],RBL[1],RBL[2],RBL[3], angle)
+        xLabelW = RBL[1]-RBL[0]
+        xLabelH = RBL[3]-RBL[2]
+        w = max(xLabelW,labels.width or 0,self.minimumTickSpacing)
+
+        W = w+w*self.bottomAxisLabelSlack
+        ticks = []
+        labels = []
+        maximumTicks = self.maximumTicks
+
+        if self.specifiedTickDates:
+            ticks = [VC(x) for x in self.specifiedTickDates]
+            labels = [formatter(d) for d in ticks]
+            if self.forceFirstDate and firstDate==ticks[0] and (axisLength/float(ticks[-1]-ticks[0]))*(ticks[1]-ticks[0])<=W:
+                if self.specialTickClear:
+                    labels[1] = ''
+                else:
+                    del ticks[1], labels[1]
+            if self.forceEndDate and endDate==ticks[-1] and (axisLength/float(ticks[-1]-ticks[0]))*(ticks[-1]-ticks[-2])<=W:
+                if self.specialTickClear:
+                    labels[-2] = ''
+                else:
+                    del ticks[-2], labels[-2]
+            return ticks, labels
+
+        #AR 20060619 - first we try the approach where the user has explicitly
+        #specified the days of year to be ticked.  Other explicit routes may
+        #be added.
+        if self.forceDatesEachYear:
+            forcedPartialDates = list(map(parseDayAndMonth, self.forceDatesEachYear))
+            #generate the list of dates in the range.
+            #print 'dates range from %s to %s' % (firstDate, endDate)
+            firstYear = firstDate.year()
+            lastYear = endDate.year()
+            ticks = []
+            labels = []
+            yyyy = firstYear
+            #generate all forced dates between the year it starts and the year it
+            #ends, adding them if within range.
+            while yyyy <= lastYear:
+                for (dd, mm) in forcedPartialDates:
+                    theDate = normalDate.ND((yyyy, mm, dd))
+                    if theDate >= firstDate and theDate <= endDate:
+                        ticks.append(theDate)
+                        labels.append(formatter(theDate))
+                yyyy += 1
+
+            #first and last may still be forced in.
+            if self.forceFirstDate and firstDate!=ticks[0]:
+                ticks.insert(0, firstDate)
+                labels.insert(0,formatter(firstDate))
+                if (axisLength/float(ticks[-1]-ticks[0]))*(ticks[1]-ticks[0])<=W:
+                    if self.specialTickClear:
+                        labels[1] = ''
+                    else:
+                        del ticks[1], labels[1]
+            if self.forceEndDate and endDate!=ticks[-1]:
+                ticks.append(endDate)
+                labels.append(formatter(endDate))
+                if (axisLength/float(ticks[-1]-ticks[0]))*(ticks[-1]-ticks[-2])<=W:
+                    if self.specialTickClear:
+                        labels[-2] = ''
+                    else:
+                        del ticks[-2], labels[-2]
+
+            #print 'xVals found on forced dates =', ticks
+            return ticks, labels
+
+        def addTick(i, xVals=xVals, formatter=formatter, ticks=ticks, labels=labels):
+            ticks.insert(0,xVals[i])
+            labels.insert(0,formatter(xVals[i]))
+
+        n = len(xVals)
+        #otherwise, we apply the 'magic algorithm...' which looks for nice spacing
+        #based on the size and separation of the labels.
+        for d in _NDINTM:
+            k = n/d
+            if k<=maximumTicks and k*W <= axisLength:
+                i = n-1
+                if self.niceMonth:
+                    j = endDate.month() % (d<=12 and d or 12)
+                    if j:
+                        if self.forceEndDate:
+                            addTick(i)
+                            ticks[0]._doSubTicks=0
+                        i -= j
+
+                #weird first date ie not at end of month
+                try:
+                    wfd = firstDate.month() == xVals[1].month()
+                except:
+                    wfd = 0
+
+                while i>=wfd:
+                    addTick(i)
+                    i -= d
+
+                if self.forceFirstDate and ticks[0]!=firstDate:
+                    addTick(0)
+                    ticks[0]._doSubTicks=0
+                    if (axisLength/float(ticks[-1]-ticks[0]))*(ticks[1]-ticks[0])<=W:
+                        if self.specialTickClear:
+                            labels[1] = ''
+                        else:
+                            del ticks[1], labels[1]
+                if self.forceEndDate and self.niceMonth and j:
+                    if (axisLength/float(ticks[-1]-ticks[0]))*(ticks[-1]-ticks[-2])<=W:
+                        if self.specialTickClear:
+                            labels[-2] = ''
+                        else:
+                            del ticks[-2], labels[-2]
+                try:
+                    if labels[0] and labels[0]==labels[1]:
+                        del ticks[1], labels[1]
+                except IndexError:
+                    pass
+
+                return ticks, labels
+        raise ValueError('Problem selecting NormalDate value axis tick positions')
+
+    def _convertXV(self,data):
+        '''Convert all XValues to a standard normalDate type'''
+
+        VC = self._valueClass
+        for D in data:
+            for i in range(len(D)):
+                x, y = D[i]
+                if not isinstance(x,VC):
+                    D[i] = (VC(x),y)
+
+    def _getStepsAndLabels(self,xVals):
+        if self.dailyFreq:
+            xEOM = []
+            pm = 0
+            px = xVals[0]
+            for x in xVals:
+                m = x.month()
+                if pm!=m:
+                    if pm: xEOM.append(px)
+                    pm = m
+                px = x
+            px = xVals[-1]
+            if xEOM[-1]!=x: xEOM.append(px)
+            steps, labels = self._xAxisTicker(xEOM)
+        else:
+            steps, labels = self._xAxisTicker(xVals)
+        return steps, labels
+
+    def configure(self, data):
+        self._convertXV(data)
+        xVals = set()
+        for x in data:
+            for dv in x:
+                xVals.add(dv[0])
+        xVals = list(xVals)
+        xVals.sort()
+        VC = self._valueClass
+        steps,labels = self._getStepsAndLabels(xVals)
+        valueMin, valueMax = self.valueMin, self.valueMax
+        valueMin = xVals[0]  if valueMin is None else VC(valueMin)
+        valueMax = xVals[-1] if valueMax is None else VC(valueMax)
+        self._valueMin, self._valueMax = valueMin, valueMax
+        self._tickValues = steps
+        self._labelTextFormat = labels
+
+        self._scaleFactor = self._length / float(valueMax - valueMin)
+        self._tickValues = steps
+        self._configured = 1
+
+class YValueAxis(_YTicks,ValueAxis):
+    "Y/value axis"
+
+    _attrMap = AttrMap(BASE=ValueAxis,
+        tickLeft = AttrMapValue(isNumber,
+            desc='Tick length left of the axis.'),
+        tickRight = AttrMapValue(isNumber,
+            desc='Tick length right of the axis.'),
+        joinAxis = AttrMapValue(None,
+            desc='Join both axes if true.'),
+        joinAxisMode = AttrMapValue(OneOf(('left', 'right', 'value', 'points', None)),
+            desc="Mode used for connecting axis ('left', 'right', 'value', 'points', None)."),
+        joinAxisPos = AttrMapValue(isNumberOrNone,
+            desc='Position at which to join with other axis.'),
+        )
+
+    # Indicate the dimension of the data we're interested in.
+    _dataIndex = 1
+
+    def __init__(self):
+        ValueAxis.__init__(self)
+
+        self.labels.boxAnchor = 'e'
+        self.labels.dx = -5
+        self.labels.dy = 0
+
+        self.tickRight = 0
+        self.tickLeft = 5
+
+        self.joinAxis = None
+        self.joinAxisMode = None
+        self.joinAxisPos = None
+
+    def demo(self):
+        data = [(10, 20, 30, 42)]
+        self.setPosition(100, 10, 80)
+        self.configure(data)
+
+        drawing = Drawing(200, 100)
+        drawing.add(self)
         return drawing
 
-from reportlab.graphics.charts.utils3d import _getShaded, _2rad, _360, _pi_2, _2pi, _180_pi
-class Wedge3dProperties(PropHolder):
-    """This holds descriptive information about the wedges in a pie chart.
+    def joinToAxis(self, xAxis, mode='left', pos=None):
+        "Join with x-axis using some mode."
+        _assertXAxis(xAxis)
+        if mode == 'left':
+            self._x = xAxis._x * 1.0
+        elif mode == 'right':
+            self._x = (xAxis._x + xAxis._length) * 1.0
+        elif mode == 'value':
+            self._x = xAxis.scale(pos) * 1.0
+        elif mode == 'points':
+            self._x = pos * 1.0
 
-    It is not to be confused with the 'wedge itself'; this just holds
-    a recipe for how to format one, and does not allow you to hack the
-    angles.  It can format a genuine Wedge object for you with its
-    format method.
-    """
-    _attrMap = AttrMap(
-        fillColor = AttrMapValue(isColorOrNone,desc=''),
-        fillColorShaded = AttrMapValue(isColorOrNone,desc=''),
-        fontColor = AttrMapValue(isColorOrNone,desc=''),
-        fontName = AttrMapValue(isString,desc=''),
-        fontSize = AttrMapValue(isNumber,desc=''),
-        label_angle = AttrMapValue(isNumber,desc=''),
-        label_bottomPadding = AttrMapValue(isNumber,'padding at bottom of box'),
-        label_boxAnchor = AttrMapValue(isBoxAnchor,desc=''),
-        label_boxFillColor = AttrMapValue(isColorOrNone,desc=''),
-        label_boxStrokeColor = AttrMapValue(isColorOrNone,desc=''),
-        label_boxStrokeWidth = AttrMapValue(isNumber,desc=''),
-        label_dx = AttrMapValue(isNumber,desc=''),
-        label_dy = AttrMapValue(isNumber,desc=''),
-        label_height = AttrMapValue(isNumberOrNone,desc=''),
-        label_leading = AttrMapValue(isNumberOrNone,desc=''),
-        label_leftPadding = AttrMapValue(isNumber,'padding at left of box'),
-        label_maxWidth = AttrMapValue(isNumberOrNone,desc=''),
-        label_rightPadding = AttrMapValue(isNumber,'padding at right of box'),
-        label_simple_pointer = AttrMapValue(isBoolean,'set to True for simple pointers'),
-        label_strokeColor = AttrMapValue(isColorOrNone,desc=''),
-        label_strokeWidth = AttrMapValue(isNumber,desc=''),
-        label_text = AttrMapValue(isStringOrNone,desc=''),
-        label_textAnchor = AttrMapValue(isTextAnchor,desc=''),
-        label_topPadding = AttrMapValue(isNumber,'padding at top of box'),
-        label_visible = AttrMapValue(isBoolean,desc="True if the label is to be drawn"),
-        label_width = AttrMapValue(isNumberOrNone,desc=''),
-        labelRadius = AttrMapValue(isNumber,desc=''),
-        popout = AttrMapValue(isNumber,desc=''),
-        shading = AttrMapValue(isNumber,desc=''),
-        strokeColor = AttrMapValue(isColorOrNone,desc=''),
-        strokeColorShaded = AttrMapValue(isColorOrNone,desc=''),
-        strokeDashArray = AttrMapValue(isListOfNumbersOrNone,desc=''),
-        strokeWidth = AttrMapValue(isNumber,desc=''),
-        visible = AttrMapValue(isBoolean,'set to false to skip displaying'),
-        )
+    def _joinToAxis(self):
+        ja = self.joinAxis
+        if ja:
+            jam = self.joinAxisMode
+            if jam in ('left', 'right'):
+                self.joinToAxis(ja, mode=jam)
+            elif jam in ('value', 'points'):
+                self.joinToAxis(ja, mode=jam, pos=self.joinAxisPos)
 
-    def __init__(self):
-        self.strokeWidth = 0
-        self.shading = 0.3
-        self.visible = 1
-        self.strokeColorShaded = self.fillColorShaded = self.fillColor = None
-        self.strokeColor = STATE_DEFAULTS["strokeColor"]
-        self.strokeDashArray = STATE_DEFAULTS["strokeDashArray"]
-        self.popout = 0
-        self.fontName = STATE_DEFAULTS["fontName"]
-        self.fontSize = STATE_DEFAULTS["fontSize"]
-        self.fontColor = STATE_DEFAULTS["fillColor"]
-        self.labelRadius = 1.2
-        self.label_dx = self.label_dy = self.label_angle = 0
-        self.label_text = None
-        self.label_topPadding = self.label_leftPadding = self.label_rightPadding = self.label_bottomPadding = 0
-        self.label_boxAnchor = 'autox'
-        self.label_boxStrokeColor = None    #boxStroke
-        self.label_boxStrokeWidth = 0.5 #boxStrokeWidth
-        self.label_boxFillColor = None
-        self.label_strokeColor = None
-        self.label_strokeWidth = 0.1
-        self.label_leading =    self.label_width = self.label_maxWidth = self.label_height = None
-        self.label_textAnchor = 'start'
-        self.label_visible = 1
-        self.label_simple_pointer = 0
-
-class _SL3D:
-    def __init__(self,lo,hi):
-        if lo<0:
-            lo += 360
-            hi += 360
-        self.lo = lo
-        self.hi = hi
-        self.mid = (lo+hi)*0.5
-        self.not360 = abs(hi-lo) < _ANGLEHI
-
-    def __str__(self):
-        return '_SL3D(%.2f,%.2f)' % (self.lo,self.hi)
-
-def _keyS3D(a,b):
-    return -cmp(a[0],b[0])
-_keyS3D = functools.cmp_to_key(_keyS3D)
-
-_270r = _2rad(270)
-class Pie3d(Pie):
-    _attrMap = AttrMap(BASE=Pie,
-        perspective = AttrMapValue(isNumber, desc='A flattening parameter.'),
-        depth_3d = AttrMapValue(isNumber, desc='depth of the pie.'),
-        angle_3d = AttrMapValue(isNumber, desc='The view angle.'),
-        )
-    perspective = 70
-    depth_3d = 25
-    angle_3d = 180
-
-    def _popout(self,i):
-        return self._sl3d[i].not360 and self.slices[i].popout or 0
-
-    def CX(self, i,d ):
-        return self._cx+(d and self._xdepth_3d or 0)+self._popout(i)*cos(_2rad(self._sl3d[i].mid))
-    def CY(self,i,d):
-        return self._cy+(d and self._ydepth_3d or 0)+self._popout(i)*sin(_2rad(self._sl3d[i].mid))
-    def OX(self,i,o,d):
-        return self.CX(i,d)+self._radiusx*cos(_2rad(o))
-    def OY(self,i,o,d):
-        return self.CY(i,d)+self._radiusy*sin(_2rad(o))
-
-    def rad_dist(self,a):
-        _3dva = self._3dva
-        return min(abs(a-_3dva),abs(a-_3dva+360))
-
-    def __init__(self):
-        Pie.__init__(self)
-        self.slices[4].fillColor = colors.azure
-        self.slices[5].fillColor = colors.crimson
-        self.slices[6].fillColor = colors.darkviolet
-        self.slices = TypedPropertyCollection(Wedge3dProperties)
-        self.xradius = self.yradius = None
-        self.width = 300
-        self.height = 200
-        self.data = [12.50,20.10,2.00,22.00,5.00,18.00,13.00]
-
-    def _fillSide(self,L,i,angle,strokeColor,strokeWidth,fillColor):
-        rd = self.rad_dist(angle)
-        if rd<self.rad_dist(self._sl3d[i].mid):
-            p = [self.CX(i,0),self.CY(i,0),
-                self.CX(i,1),self.CY(i,1),
-                self.OX(i,angle,1),self.OY(i,angle,1),
-                self.OX(i,angle,0),self.OY(i,angle,0)]
-            L.append((rd,Polygon(p, strokeColor=strokeColor, fillColor=fillColor,strokeWidth=strokeWidth,strokeLineJoin=1)))
-
-    def draw(self):
-        slices = self.slices
-        _3d_angle = self.angle_3d
-        _3dva = self._3dva = _360(_3d_angle+90)
-        a0 = _2rad(_3dva)
-        depth_3d = self.depth_3d
-        self._xdepth_3d = cos(a0)*depth_3d
-        self._ydepth_3d = sin(a0)*depth_3d
-        self._cx = self.x+self.width/2.0
-        self._cy = self.y+(self.height - self._ydepth_3d)/2.0
-        radiusx = radiusy = self._cx-self.x
-        if self.xradius: radiusx = self.xradius
-        if self.yradius: radiusy = self.yradius
-        self._radiusx = radiusx
-        self._radiusy = radiusy = (1.0 - self.perspective/100.0)*radiusy
-        data = self.normalizeData()
-        sum = self._sum
-
-        CX = self.CX
-        CY = self.CY
-        OX = self.OX
-        OY = self.OY
-        rad_dist = self.rad_dist
-        _fillSide = self._fillSide
-        self._seriesCount = n = len(data)
-        _sl3d = self._sl3d = []
+    def makeAxis(self):
         g = Group()
-        last = _360(self.startAngle)
-        a0 = self.direction=='clockwise' and -1 or 1
-        for v in data:
-            v *= a0
-            angle1, angle0 = last, v+last
-            last = angle0
-            if a0>0: angle0, angle1 = angle1, angle0
-            _sl3d.append(_SL3D(angle0,angle1))
+        self._joinToAxis()
+        if not self.visibleAxis: return g
 
-        labels = _fixLabels(self.labels,n)
-        a0 = _3d_angle
-        a1 = _3d_angle+180
-        T = []
-        S = []
-        L = []
-
-        class WedgeLabel3d(WedgeLabel):
-            _ydepth_3d = self._ydepth_3d
-            def _checkDXY(self,ba):
-                if ba[0]=='n':
-                    if not hasattr(self,'_ody'):
-                        self._ody = self.dy
-                        self.dy = -self._ody + self._ydepth_3d
-    
-        checkLabelOverlap = self.checkLabelOverlap
-
-        for i in range(n):
-            style = slices[i]
-            if not style.visible: continue
-            sl = _sl3d[i]
-            lo = angle0 = sl.lo
-            hi = angle1 = sl.hi
-            aa = abs(hi-lo)
-            if aa<_ANGLELO: continue
-            fillColor = _getShaded(style.fillColor,style.fillColorShaded,style.shading)
-            strokeColor = _getShaded(style.strokeColor,style.strokeColorShaded,style.shading) or fillColor
-            strokeWidth = style.strokeWidth
-            cx0 = CX(i,0)
-            cy0 = CY(i,0)
-            cx1 = CX(i,1)
-            cy1 = CY(i,1)
-            if depth_3d:
-                #background shaded pie bottom
-                g.add(Wedge(cx1,cy1,radiusx, lo, hi,yradius=radiusy,
-                                strokeColor=strokeColor,strokeWidth=strokeWidth,fillColor=fillColor,
-                                strokeLineJoin=1))
-                #connect to top
-                if lo < a0 < hi: angle0 = a0
-                if lo < a1 < hi: angle1 = a1
-                p = ArcPath(strokeColor=strokeColor, fillColor=fillColor,strokeWidth=strokeWidth,strokeLineJoin=1)
-                p.addArc(cx1,cy1,radiusx,angle0,angle1,yradius=radiusy,moveTo=1)
-                p.lineTo(OX(i,angle1,0),OY(i,angle1,0))
-                p.addArc(cx0,cy0,radiusx,angle0,angle1,yradius=radiusy,reverse=1)
-                p.closePath()
-                if angle0<=_3dva and angle1>=_3dva:
-                    rd = 0
-                else:
-                    rd = min(rad_dist(angle0),rad_dist(angle1))
-                S.append((rd,p))
-                _fillSide(S,i,lo,strokeColor,strokeWidth,fillColor)
-                _fillSide(S,i,hi,strokeColor,strokeWidth,fillColor)
-
-            #bright shaded top
-            fillColor = style.fillColor
-            strokeColor = style.strokeColor or fillColor
-            T.append(Wedge(cx0,cy0,radiusx,lo,hi,yradius=radiusy,
-                            strokeColor=strokeColor,strokeWidth=strokeWidth,fillColor=fillColor,strokeLineJoin=1))
-            if aa>=_ANGLEHI:
-                theWedge = Ellipse(cx0, cy0, radiusx, radiusy,
-                            strokeColor=strokeColor,strokeWidth=strokeWidth,fillColor=fillColor,strokeLineJoin=1)
-            else:
-                theWedge = Wedge(cx0,cy0,radiusx,lo,hi,yradius=radiusy,
-                            strokeColor=strokeColor,strokeWidth=strokeWidth,fillColor=fillColor,strokeLineJoin=1)
-            T.append(theWedge)
-
-            text = labels[i]
-            if style.label_visible and text:
-                rat = style.labelRadius
-                self._radiusx *= rat
-                self._radiusy *= rat
-                mid = sl.mid
-                labelX = OX(i,mid,0)
-                labelY = OY(i,mid,0)
-                l=_addWedgeLabel(self,text,mid,labelX,labelY,style,labelClass=WedgeLabel3d)
-                L.append(l)
-                if checkLabelOverlap:
-                    l._origdata = { 'x': labelX, 'y':labelY, 'angle': mid,
-                                    'rx': self._radiusx, 'ry':self._radiusy, 'cx':CX(i,0), 'cy':CY(i,0),
-                                    'bounds': l.getBounds(),
-                                    }
-                self._radiusx = radiusx
-                self._radiusy = radiusy
-
-        S.sort(key=_keyS3D)
-        if checkLabelOverlap and L:
-            fixLabelOverlaps(L,sideLabels)
-        for x in ([s[1] for s in S]+T+L):
-            g.add(x)
+        axis = Line(self._x, self._y-self.loLLen, self._x, self._y + self._length+self.hiLLen)
+        axis.strokeColor = self.strokeColor
+        axis.strokeWidth = self.strokeWidth
+        axis.strokeDashArray = self.strokeDashArray
+        g.add(axis)
         return g
 
-    def demo(self):
-        d = Drawing(200, 100)
+class TimeValueAxis:
+    _mc = 60
+    _hc = 60*_mc
+    _dc = 24*_hc
 
-        pc = Pie()
-        pc.x = 50
-        pc.y = 10
-        pc.width = 100
-        pc.height = 80
-        pc.data = [10,20,30,40,50,60]
-        pc.labels = ['a','b','c','d','e','f']
+    def __init__(self,*args,**kwds):
+        if not self.labelTextFormat:
+            self.labelTextFormat = self.timeLabelTextFormatter
+        self._saved_tickInfo = {}
 
-        pc.slices.strokeWidth=0.5
-        pc.slices[3].popout = 10
-        pc.slices[3].strokeWidth = 2
-        pc.slices[3].strokeDashArray = [2,2]
-        pc.slices[3].labelRadius = 1.75
-        pc.slices[3].fontColor = colors.red
-        pc.slices[0].fillColor = colors.darkcyan
-        pc.slices[1].fillColor = colors.blueviolet
-        pc.slices[2].fillColor = colors.blue
-        pc.slices[3].fillColor = colors.cyan
-        pc.slices[4].fillColor = colors.aquamarine
-        pc.slices[5].fillColor = colors.cadetblue
-        pc.slices[6].fillColor = colors.lightcoral
-        self.slices[1].visible = 0
-        self.slices[3].visible = 1
-        self.slices[4].visible = 1
-        self.slices[5].visible = 1
-        self.slices[6].visible = 0
+    def _calcValueStep(self):
+        '''Calculate _valueStep for the axis or get from valueStep.'''
+        if self.valueStep is None:
+            rawRange = self._valueMax - self._valueMin
+            rawInterval = rawRange / min(float(self.maximumTicks-1),(float(self._length)/self.minimumTickSpacing))
+            #here's where we try to choose the correct value for the unit
+            if rawInterval >= self._dc:
+                d = self._dc
+                self._unit = 'days'
+            elif rawInterval >= self._hc:
+                d = self._hc
+                self._unit = 'hours'
+            elif rawInterval >= self._mc:
+                d = self._mc
+                self._unit = 'minutes'
+            else:
+                d = 1
+                self._unit = 'seconds'
+            self._unitd = d
+            if d>1:
+                rawInterval = int(rawInterval/d)
+            self._valueStep = nextRoundNumber(rawInterval) * d
+        else:
+            self._valueStep = self.valueStep
 
-        d.add(pc)
-        return d
+    def timeLabelTextFormatter(self,val):
+        u = self._unitd
+        k = (u,tuple(self._tickValues))
+        if k in self._saved_tickInfo:
+            fmt = self._saved_tickInfo[k]
+        else:
+            uf = float(u)
+            tv = [v/uf for v in self._tickValues]
+            s = self._unit[0]
+            if _allInt(tv):
+                fmt = lambda x, uf=uf, s=s: '%.0f%s' % (x/uf,s)
+            else:
+                stv = ['%.10f' % v for v in tv]
+                stvl = max((len(v.rstrip('0'))-v.index('.')-1) for v in stv)
+                if u==1:
+                    fmt = lambda x,uf=uf,fmt='%%.%dfs' % stvl: fmt % (x/uf)
+                else:
+                    #see if we can represent fractions
+                    fm = 24 if u==self._dc else 60
+                    fv = [(v - int(v))*fm for v in tv]
+                    if _allInt(fv):
+                        s1 = 'h' if u==self._dc else ('m' if u==self._mc else 's')
+                        fmt = lambda x,uf=uf,fm=fm, fmt='%%d%s%%d%%s' % (s,s1): fmt % (int(x/uf),int((x/uf - int(x/uf))*fm))
+                    else:
+                        fmt = lambda x,uf=uf,fmt='%%.%df%s' % (stvl,s): fmt % (x/uf)
+            self._saved_tickInfo[k] = fmt
+
+        return fmt(val)
+        
 
 
+class XTimeValueAxis(TimeValueAxis,XValueAxis):
+    def __init__(self,*args,**kwds):
+        XValueAxis.__init__(self,*args,**kwds)
+        TimeValueAxis.__init__(self,*args,**kwds)
+
+class AdjYValueAxis(YValueAxis):
+    """A Y-axis applying additional rules.
+
+    Depending on the data and some built-in rules, the axis
+    may choose to adjust its range and origin.
+    """
+    _attrMap = AttrMap(BASE = YValueAxis,
+        leftAxisPercent = AttrMapValue(isBoolean, desc='When true add percent sign to label values.'),
+        leftAxisOrigShiftIPC = AttrMapValue(isNumber, desc='Lowest label shift interval ratio.'),
+        leftAxisOrigShiftMin = AttrMapValue(isNumber, desc='Minimum amount to shift.'),
+        leftAxisSkipLL0 = AttrMapValue(EitherOr((isBoolean,isListOfNumbers)), desc='Skip/Keep lowest tick label when true/false.\nOr skiplist'),
+        labelVOffset = AttrMapValue(isNumber, desc='add this to the labels'),
+        )
+
+    def __init__(self,**kw):
+        YValueAxis.__init__(self,**kw)
+        self.requiredRange = 30
+        self.leftAxisPercent = 1
+        self.leftAxisOrigShiftIPC = 0.15
+        self.leftAxisOrigShiftMin = 12
+        self.leftAxisSkipLL0 = self.labelVOffset = 0
+        self.valueSteps = None
+
+    def _rangeAdjust(self):
+        "Adjusts the value range of the axis."
+
+        from reportlab.graphics.charts.utils import find_good_grid, ticks
+        y_min, y_max = self._valueMin, self._valueMax
+        m = self.maximumTicks
+        n = list(filter(lambda x,m=m: x<=m,[4,5,6,7,8,9]))
+        if not n: n = [m]
+
+        valueStep, requiredRange = self.valueStep, self.requiredRange
+        if requiredRange and y_max - y_min < requiredRange:
+            y1, y2 = find_good_grid(y_min, y_max,n=n,grid=valueStep)[:2]
+            if y2 - y1 < requiredRange:
+                ym = (y1+y2)*0.5
+                y1 = min(ym-requiredRange*0.5,y_min)
+                y2 = max(ym+requiredRange*0.5,y_max)
+                if y_min>=100 and y1<100:
+                    y2 = y2 + 100 - y1
+                    y1 = 100
+                elif y_min>=0 and y1<0:
+                    y2 = y2 - y1
+                    y1 = 0
+            self._valueMin, self._valueMax = y1, y2
+
+        T, L = ticks(self._valueMin, self._valueMax, split=1, n=n, percent=self.leftAxisPercent,grid=valueStep, labelVOffset=self.labelVOffset)
+        abf = self.avoidBoundFrac
+        if abf:
+            i1 = (T[1]-T[0])
+            if not isSeq(abf):
+                i0 = i1 = i1*abf
+            else:
+                i0 = i1*abf[0]
+                i1 = i1*abf[1]
+            _n = getattr(self,'_cValueMin',T[0])
+            _x = getattr(self,'_cValueMax',T[-1])
+            if _n - T[0] < i0: self._valueMin = self._valueMin - i0
+            if T[-1]-_x < i1: self._valueMax = self._valueMax + i1
+            T, L = ticks(self._valueMin, self._valueMax, split=1, n=n, percent=self.leftAxisPercent,grid=valueStep, labelVOffset=self.labelVOffset)
+
+        self._valueMin = T[0]
+        self._valueMax = T[-1]
+        self._tickValues = T
+        if self.labelTextFormat is None:
+            self._labelTextFormat = L
+        else:
+            self._labelTextFormat = self.labelTextFormat
+
+        if abs(self._valueMin-100)<1e-6:
+            self._calcValueStep()
+            vMax, vMin = self._valueMax, self._valueMin
+            m = max(self.leftAxisOrigShiftIPC*self._valueStep,
+                    (vMax-vMin)*self.leftAxisOrigShiftMin/self._length)
+            self._valueMin = self._valueMin - m
+
+        if self.leftAxisSkipLL0:
+            if isSeq(self.leftAxisSkipLL0):
+                for x in self.leftAxisSkipLL0:
+                    try:
+                        L[x] = ''
+                    except IndexError:
+                        pass
+            L[0] = ''
+
+# Sample functions.
 def sample0a():
-    "Make a degenerated pie chart with only one slice."
+    "Sample drawing with one xcat axis and two buckets."
 
-    d = Drawing(400, 200)
+    drawing = Drawing(400, 200)
 
-    pc = Pie()
-    pc.x = 150
-    pc.y = 50
-    pc.data = [10]
-    pc.labels = ['a']
-    pc.slices.strokeWidth=1#0.5
+    data = [(10, 20)]
 
-    d.add(pc)
-
-    return d
-
+    xAxis = XCategoryAxis()
+    xAxis.setPosition(75, 75, 300)
+    xAxis.configure(data)
+    xAxis.categoryNames = ['Ying', 'Yang']
+    xAxis.labels.boxAnchor = 'n'
+    drawing.add(xAxis)
+    return drawing
 
 def sample0b():
-    "Make a degenerated pie chart with only one slice."
+    "Sample drawing with one xcat axis and one bucket only."
 
-    d = Drawing(400, 200)
+    drawing = Drawing(400, 200)
 
-    pc = Pie()
-    pc.x = 150
-    pc.y = 50
-    pc.width = 120
-    pc.height = 100
-    pc.data = [10]
-    pc.labels = ['a']
-    pc.slices.strokeWidth=1#0.5
+    data = [(10,)]
 
-    d.add(pc)
-
-    return d
-
+    xAxis = XCategoryAxis()
+    xAxis.setPosition(75, 75, 300)
+    xAxis.configure(data)
+    xAxis.categoryNames = ['Ying']
+    xAxis.labels.boxAnchor = 'n'
+    drawing.add(xAxis)
+    return drawing
 
 def sample1():
-    "Make a typical pie chart with with one slice treated in a special way."
-
-    d = Drawing(400, 200)
-
-    pc = Pie()
-    pc.x = 150
-    pc.y = 50
-    pc.data = [10, 20, 30, 40, 50, 60]
-    pc.labels = ['a', 'b', 'c', 'd', 'e', 'f']
-
-    pc.slices.strokeWidth=1#0.5
-    pc.slices[3].popout = 20
-    pc.slices[3].strokeWidth = 2
-    pc.slices[3].strokeDashArray = [2,2]
-    pc.slices[3].labelRadius = 1.75
-    pc.slices[3].fontColor = colors.red
-
-    d.add(pc)
-
-    return d
-
-
-def sample2():
-    "Make a pie chart with nine slices."
-
-    d = Drawing(400, 200)
-
-    pc = Pie()
-    pc.x = 125
-    pc.y = 25
-    pc.data = [0.31, 0.148, 0.108,
-               0.076, 0.033, 0.03,
-               0.019, 0.126, 0.15]
-    pc.labels = ['1', '2', '3', '4', '5', '6', '7', '8', 'X']
-
-    pc.width = 150
-    pc.height = 150
-    pc.slices.strokeWidth=1#0.5
-
-    pc.slices[0].fillColor = colors.steelblue
-    pc.slices[1].fillColor = colors.thistle
-    pc.slices[2].fillColor = colors.cornflower
-    pc.slices[3].fillColor = colors.lightsteelblue
-    pc.slices[4].fillColor = colors.aquamarine
-    pc.slices[5].fillColor = colors.cadetblue
-    pc.slices[6].fillColor = colors.lightcoral
-    pc.slices[7].fillColor = colors.tan
-    pc.slices[8].fillColor = colors.darkseagreen
-
-    d.add(pc)
-
-    return d
-
-
-def sample3():
-    "Make a pie chart with a very slim slice."
-
-    d = Drawing(400, 200)
-
-    pc = Pie()
-    pc.x = 125
-    pc.y = 25
-
-    pc.data = [74, 1, 25]
-
-    pc.width = 150
-    pc.height = 150
-    pc.slices.strokeWidth=1#0.5
-    pc.slices[0].fillColor = colors.steelblue
-    pc.slices[1].fillColor = colors.thistle
-    pc.slices[2].fillColor = colors.cornflower
-
-    d.add(pc)
-
-    return d
-
-
-def sample4():
-    "Make a pie chart with several very slim slices."
-
-    d = Drawing(400, 200)
-
-    pc = Pie()
-    pc.x = 125
-    pc.y = 25
-
-    pc.data = [74, 1, 1, 1, 1, 22]
-
-    pc.width = 150
-    pc.height = 150
-    pc.slices.strokeWidth=1#0.5
-    pc.slices[0].fillColor = colors.steelblue
-    pc.slices[1].fillColor = colors.thistle
-    pc.slices[2].fillColor = colors.cornflower
-    pc.slices[3].fillColor = colors.lightsteelblue
-    pc.slices[4].fillColor = colors.aquamarine
-    pc.slices[5].fillColor = colors.cadetblue
-
-    d.add(pc)
-
-    return d
-
-def sample5():
-    "Make a pie with side labels."
-
-    d = Drawing(400, 200)
-
-    pc = Pie()
-    pc.x = 125
-    pc.y = 25
-
-    pc.data = [7, 1, 1, 1, 1, 2]
-    pc.labels = ['example1', 'example2', 'example3', 'example4', 'example5', 'example6']
-    pc.sideLabels = 1
-
-    pc.width = 150
-    pc.height = 150
-    pc.slices.strokeWidth=1#0.5
-    pc.slices[0].fillColor = colors.steelblue
-    pc.slices[1].fillColor = colors.thistle
-    pc.slices[2].fillColor = colors.cornflower
-    pc.slices[3].fillColor = colors.lightsteelblue
-    pc.slices[4].fillColor = colors.aquamarine
-    pc.slices[5].fillColor = colors.cadetblue
-
-    d.add(pc)
-
-    return d
-
-def sample6():
-
-    "Illustrates the pie moving to leave space for the left labels"
-
-    d = Drawing(400, 200)
-
-    pc = Pie()
-    "The x value of the pie chart is 0"
-    pc.x = 0
-    pc.y = 25
-
-    pc.data = [74, 1, 1, 1, 1, 22]
-    pc.labels = ['example1', 'example2', 'example3', 'example4', 'example5', 'example6']
-    pc.sideLabels = 1
-
-    pc.width = 150
-    pc.height = 150
-    pc.slices.strokeWidth=1#0.5
-    pc.slices[0].fillColor = colors.steelblue
-    pc.slices[1].fillColor = colors.thistle
-    pc.slices[2].fillColor = colors.cornflower
-    pc.slices[3].fillColor = colors.lightsteelblue
-    pc.slices[4].fillColor = colors.aquamarine
-    pc.slices[5].fillColor = colors.cadetblue
-
-    l = Line(0,0,0,200)
-
-    d.add(pc)
-    d.add(l)
-
-    return d
-
-def sample7():
-
-    "Case with overlapping pointers"
-
-    d = Drawing(400, 200)
-
-    pc = Pie()   
-    pc.y = 50
-    pc.x = 150
-    pc.width = 100
-    pc.height = 100
-
-    pc.data = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-    pc.labels = ['example1', 'example2', 'example3', 'example4', 'example5', 'example6', 'example7', 
-                'example8', 'example9', 'example10', 'example11', 'example12', 'example13', 'example14', 
-                'example15', 'example16', 'example17', 'example18', 'example19', 'example20', 'example21', 
-                'example22', 'example23', 'example24', 'example25', 'example26', 'example27', 'example28']
-    pc.sideLabels = 1
-    pc.checkLabelOverlap = 1
-    pc.simpleLabels = 0
-    
-
-    pc.slices.strokeWidth=1#0.5
-    pc.slices[0].fillColor = colors.steelblue
-    pc.slices[1].fillColor = colors.thistle
-    pc.slices[2].fillColor = colors.cornflower
-    pc.slices[3].fillColor = colors.lightsteelblue
-    pc.slices[4].fillColor = colors.aquamarine
-    pc.slices[5].fillColor = colors.cadetblue
-
-    d.add(pc)
-
-    return d
-
-def sample8():
-
-    "Case with overlapping labels"
-    "Labels overlap if they do not belong to adjacent pie slices due to nature of checkLabelOverlap"
-
-    d = Drawing(400, 200)
-
-    pc = Pie()   
-    pc.y = 50
-    pc.x = 150
-    pc.width = 100
-    pc.height = 100
-
-    pc.data = [1, 1, 1, 1, 1, 30, 50, 1, 1, 1, 1, 1, 1, 40,20,10]
-    pc.labels = ['example1', 'example2', 'example3', 'example4', 'example5', 'example6', 'example7', 
-                'example8', 'example9', 'example10', 'example11', 'example12', 'example13', 'example14', 
-                'example15', 'example16']
-    pc.sideLabels = 1
-    pc.checkLabelOverlap = 1
-
-    pc.slices.strokeWidth=1#0.5
-    pc.slices[0].fillColor = colors.steelblue
-    pc.slices[1].fillColor = colors.thistle
-    pc.slices[2].fillColor = colors.cornflower
-    pc.slices[3].fillColor = colors.lightsteelblue
-    pc.slices[4].fillColor = colors.aquamarine
-    pc.slices[5].fillColor = colors.cadetblue
-
-    d.add(pc)
-
-    return d
-
-def sample9():
-
-    "Case with overlapping labels"
-    "Labels overlap if they do not belong to adjacent pies due to nature of checkLabelOverlap"
-
-    d = Drawing(400, 200)
-
-    pc = Pie()   
-    pc.x = 125
-    pc.y = 50
-
-    pc.data = [41, 20, 40, 15, 20, 30, 50, 15, 25, 35, 25, 20, 30, 40, 20, 30]
-    pc.labels = ['example1', 'example2', 'example3', 'example4', 'example5', 'example6', 'example7', 
-                'example8', 'example9', 'example10', 'example11', 'example12', 'example13', 'example14', 
-                'example15', 'example16']
-    pc.sideLabels = 1
-    pc.checkLabelOverlap = 1
-
-    pc.width = 100
-    pc.height = 100
-    pc.slices.strokeWidth=1#0.5
-    pc.slices[0].fillColor = colors.steelblue
-    pc.slices[1].fillColor = colors.thistle
-    pc.slices[2].fillColor = colors.cornflower
-    pc.slices[3].fillColor = colors.lightsteelblue
-    pc.slices[4].fillColor = colors.aquamarine
-    pc.slices[5].fillColor = colors.cadetblue
-
-    d.add(pc)
-
-    return d
-
-if __name__=='__main__':
-    """Normally nobody will execute this
-
-    It's helpful for reportlab developers to put a 'main' block in to execute
-    the most recently edited feature.
-    """
-    import sys
-    from reportlab.graphics import renderPDF
-    argv = sys.argv[1:] or ['7']
-    for a in argv:
-        name = a if a.startswith('sample') else 'sample%s' % a
-        drawing = globals()[name]()
-        renderPDF.drawToFile(drawing, '%s.pdf' % name)
-
-    
-
+    "Sample drawing containing two unconnected axes."
+    from reportlab.graphics.shapes import _baseGFontNameB
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    xAxis = XCategoryAxis()
+    xAxis.setPosition(75, 75, 300)
+    xAxis.configure(data)
+    xAxis.categoryNames = ['Beer','Wine','Meat','Cannelloni']
+    xAxis.labels.boxAnchor = 'n'
+    xAxis.labels[3].dy = -15
+    xAxis.labels[3].angle = 30
+    xAxis.labels[3].fontName = _baseGFontNameB
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample4a():
+    "Sample drawing, xvalue/yvalue axes, y connected at 100 pts to x."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.configure(data)
+    xAxis = XValueAxis()
+    xAxis._length = 300
+    xAxis.joinAxis = yAxis
+    xAxis.joinAxisMode = 'points'
+    xAxis.joinAxisPos = 100
+    xAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample4b():
+    "Sample drawing, xvalue/yvalue axes, y connected at value 35 of x."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.configure(data)
+    xAxis = XValueAxis()
+    xAxis._length = 300
+    xAxis.joinAxis = yAxis
+    xAxis.joinAxisMode = 'value'
+    xAxis.joinAxisPos = 35
+    xAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample4c():
+    "Sample drawing, xvalue/yvalue axes, y connected to bottom of x."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.configure(data)
+    xAxis = XValueAxis()
+    xAxis._length = 300
+    xAxis.joinAxis = yAxis
+    xAxis.joinAxisMode = 'bottom'
+    xAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample4c1():
+    "xvalue/yvalue axes, without drawing axis lines/ticks."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.configure(data)
+    yAxis.visibleAxis = 0
+    yAxis.visibleTicks = 0
+    xAxis = XValueAxis()
+    xAxis._length = 300
+    xAxis.joinAxis = yAxis
+    xAxis.joinAxisMode = 'bottom'
+    xAxis.configure(data)
+    xAxis.visibleAxis = 0
+    xAxis.visibleTicks = 0
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample4d():
+    "Sample drawing, xvalue/yvalue axes, y connected to top of x."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.configure(data)
+    xAxis = XValueAxis()
+    xAxis._length = 300
+    xAxis.joinAxis = yAxis
+    xAxis.joinAxisMode = 'top'
+    xAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample5a():
+    "Sample drawing, xvalue/yvalue axes, y connected at 100 pts to x."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    xAxis = XValueAxis()
+    xAxis.setPosition(50, 50, 300)
+    xAxis.configure(data)
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.joinAxis = xAxis
+    yAxis.joinAxisMode = 'points'
+    yAxis.joinAxisPos = 100
+    yAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample5b():
+    "Sample drawing, xvalue/yvalue axes, y connected at value 35 of x."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    xAxis = XValueAxis()
+    xAxis.setPosition(50, 50, 300)
+    xAxis.configure(data)
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.joinAxis = xAxis
+    yAxis.joinAxisMode = 'value'
+    yAxis.joinAxisPos = 35
+    yAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample5c():
+    "Sample drawing, xvalue/yvalue axes, y connected at right of x."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    xAxis = XValueAxis()
+    xAxis.setPosition(50, 50, 300)
+    xAxis.configure(data)
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.joinAxis = xAxis
+    yAxis.joinAxisMode = 'right'
+    yAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample5d():
+    "Sample drawing, xvalue/yvalue axes, y connected at left of x."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    xAxis = XValueAxis()
+    xAxis.setPosition(50, 50, 300)
+    xAxis.configure(data)
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.joinAxis = xAxis
+    yAxis.joinAxisMode = 'left'
+    yAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample6a():
+    "Sample drawing, xcat/yvalue axes, x connected at top of y."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.configure(data)
+    xAxis = XCategoryAxis()
+    xAxis._length = 300
+    xAxis.configure(data)
+    xAxis.joinAxis = yAxis
+    xAxis.joinAxisMode = 'top'
+    xAxis.categoryNames = ['Beer', 'Wine', 'Meat', 'Cannelloni']
+    xAxis.labels.boxAnchor = 'n'
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample6b():
+    "Sample drawing, xcat/yvalue axes, x connected at bottom of y."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.configure(data)
+    xAxis = XCategoryAxis()
+    xAxis._length = 300
+    xAxis.configure(data)
+    xAxis.joinAxis = yAxis
+    xAxis.joinAxisMode = 'bottom'
+    xAxis.categoryNames = ['Beer', 'Wine', 'Meat', 'Cannelloni']
+    xAxis.labels.boxAnchor = 'n'
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample6c():
+    "Sample drawing, xcat/yvalue axes, x connected at 100 pts to y."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.configure(data)
+    xAxis = XCategoryAxis()
+    xAxis._length = 300
+    xAxis.configure(data)
+    xAxis.joinAxis = yAxis
+    xAxis.joinAxisMode = 'points'
+    xAxis.joinAxisPos = 100
+    xAxis.categoryNames = ['Beer', 'Wine', 'Meat', 'Cannelloni']
+    xAxis.labels.boxAnchor = 'n'
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample6d():
+    "Sample drawing, xcat/yvalue axes, x connected at value 20 of y."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    yAxis = YValueAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.configure(data)
+    xAxis = XCategoryAxis()
+    xAxis._length = 300
+    xAxis.configure(data)
+    xAxis.joinAxis = yAxis
+    xAxis.joinAxisMode = 'value'
+    xAxis.joinAxisPos = 20
+    xAxis.categoryNames = ['Beer', 'Wine', 'Meat', 'Cannelloni']
+    xAxis.labels.boxAnchor = 'n'
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample7a():
+    "Sample drawing, xvalue/ycat axes, y connected at right of x."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    xAxis = XValueAxis()
+    xAxis._length = 300
+    xAxis.configure(data)
+    yAxis = YCategoryAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.joinAxis = xAxis
+    yAxis.joinAxisMode = 'right'
+    yAxis.categoryNames = ['Beer', 'Wine', 'Meat', 'Cannelloni']
+    yAxis.labels.boxAnchor = 'e'
+    yAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample7b():
+    "Sample drawing, xvalue/ycat axes, y connected at left of x."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    xAxis = XValueAxis()
+    xAxis._length = 300
+    xAxis.configure(data)
+    yAxis = YCategoryAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.joinAxis = xAxis
+    yAxis.joinAxisMode = 'left'
+    yAxis.categoryNames = ['Beer', 'Wine', 'Meat', 'Cannelloni']
+    yAxis.labels.boxAnchor = 'e'
+    yAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample7c():
+    "Sample drawing, xvalue/ycat axes, y connected at value 30 of x."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    xAxis = XValueAxis()
+    xAxis._length = 300
+    xAxis.configure(data)
+    yAxis = YCategoryAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.joinAxis = xAxis
+    yAxis.joinAxisMode = 'value'
+    yAxis.joinAxisPos = 30
+    yAxis.categoryNames = ['Beer', 'Wine', 'Meat', 'Cannelloni']
+    yAxis.labels.boxAnchor = 'e'
+    yAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing
+
+def sample7d():
+    "Sample drawing, xvalue/ycat axes, y connected at 200 pts to x."
+    drawing = Drawing(400, 200)
+    data = [(10, 20, 30, 42)]
+    xAxis = XValueAxis()
+    xAxis._length = 300
+    xAxis.configure(data)
+    yAxis = YCategoryAxis()
+    yAxis.setPosition(50, 50, 125)
+    yAxis.joinAxis = xAxis
+    yAxis.joinAxisMode = 'points'
+    yAxis.joinAxisPos = 200
+    yAxis.categoryNames = ['Beer', 'Wine', 'Meat', 'Cannelloni']
+    yAxis.labels.boxAnchor = 'e'
+    yAxis.configure(data)
+    drawing.add(xAxis)
+    drawing.add(yAxis)
+    return drawing

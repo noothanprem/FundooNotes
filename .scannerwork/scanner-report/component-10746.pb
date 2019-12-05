@@ -1,1 +1,1 @@
-úS?venv/lib/python3.6/site-packages/faker/providers/internet/sk_SK :ùS
+úS?venv/lib/python3.6/site-packages/faker/providers/internet/uk_UA :ùS

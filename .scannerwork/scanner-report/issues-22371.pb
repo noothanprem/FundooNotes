@@ -1,15 +1,81 @@
-l
-pythonS107PMethod "spawnProcess" has 10 parameters, which is greater than the 7 authorized. 2 Ko
-pythonS100SRename method "spawnProcess" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 q
-pythonS100URename method "getUserGroupId" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2;; m
-pythonS100QRename method "getHomeDir" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2?? k
-pythonS100ORename method "getShell" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2CC }
-pythonS100aRename method "testExecCommandEnvironment" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2PP "w
-pythonS117[Rename this parameter "processProtocol" to match the regular expression ^[_a-z][a-z0-9_]*$. 2 *n
-pythonS117RRename this parameter "usePTY" to match the regular expression ^[_a-z][a-z0-9_]*$. 24 :p
-pythonS117TRename this parameter "childFDs" to match the regular expression ^[_a-z][a-z0-9_]*$. 2> Fu
-pythonS117YRename this parameter "homeDirectory" to match the regular expression ^[_a-z][a-z0-9_]*$. 244 $x
-pythonS117\Rename this local variable "mockReactor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2UU z
-pythonS117^Rename this local variable "homeDirectory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2VV v
-pythonS116ZRename this field "_spawnProcessCalls" to match the regular expression ^[_a-z][_a-z0-9]*$. 2 r
-pythonS116VRename this field "_homeDirectory" to match the regular expression ^[_a-z][_a-z0-9]*$. 277 
+h
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 s
+pythonS100WRename method "testInitialState" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 {
+pythonS100_Rename method "test_initialPrivateModes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2  v
+pythonS100ZRename method "test_carriageReturn" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2)) w
+pythonS100[Rename method "test_setPrivateModes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2II y
+pythonS100]Rename method "test_resetPrivateModes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2UU q
+pythonS100URename method "testCursorDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2aa o
+pythonS100SRename method "testCursorUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ii t
+pythonS100XRename method "testCursorForward" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2tt u
+pythonS100YRename method "testCursorBackward" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2|| z
+pythonS100\Rename method "testCursorPositioning" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+àà v
+pythonS100XRename method "testSimpleWriting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+çç q
+pythonS100SRename method "testOvertype" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ññ o
+pythonS100QRename method "testInsert" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¢¢ {
+pythonS100]Rename method "testWritingInTheMiddle" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÆÆ Ç
+pythonS100dRename method "testWritingWrappedAtEndOfLine" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∫∫ %n
+pythonS100PRename method "testIndex" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+≈≈ u
+pythonS100WRename method "testReverseIndex" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ŒŒ r
+pythonS100TRename method "test_nextLine" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+◊◊ s
+pythonS100URename method "testSaveCursor" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‰‰ u
+pythonS100WRename method "testSingleShifts" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ q
+pythonS100SRename method "testShifting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+àà y
+pythonS100[Rename method "testGraphicRendition" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ùù x
+pythonS100ZRename method "testColorAttributes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ƒƒ r
+pythonS100TRename method "testEraseLine" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‰‰ w
+pythonS100YRename method "testEraseToLineEnd" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÙÙ }
+pythonS100_Rename method "testEraseToLineBeginning" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ˇˇ  u
+pythonS100WRename method "testEraseDisplay" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ää z
+pythonS100\Rename method "testEraseToDisplayEnd" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+îî Ä
+pythonS100bRename method "testEraseToDisplayBeginning" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¢¢ #v
+pythonS100XRename method "testLineInsertion" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∞∞ u
+pythonS100WRename method "testLineDeletion" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+øø n
+pythonS100PRename method "callLater" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÓÓ j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ıı u
+pythonS100WRename method "testSimpleString" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+˚˚ w
+pythonS100YRename method "testBrokenUpString" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ââ q
+pythonS100SRename method "testMultiple" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+òò t
+pythonS100VRename method "testSynchronous" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+™™ |
+pythonS100^Rename method "testMultipleSynchronous" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¥¥ z
+pythonS100\Rename method "_cbTestTimeoutFailure" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¬¬ w
+pythonS100YRename method "testTimeoutFailure" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+«« {
+pythonS100]Rename method "testOverlappingTimeout" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÕÕ {
+pythonS100]Rename method "test_wantOneDeprecated" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÄÄ |
+pythonS117^Rename this local variable "warningsShown" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+àà ~
+pythonS117`Rename this local variable "deprecatedClass" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+åå 

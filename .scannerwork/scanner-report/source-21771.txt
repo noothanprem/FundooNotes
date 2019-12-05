@@ -1,379 +1,326 @@
-# -*- test-case-name: twisted.mail.test.test_mailmail -*-
+#!/usr/bin/env python
+# -*- test-case-name: twisted.mail.test.test_pop3client -*-
+
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-"""
-Tests for L{twisted.mail.scripts.mailmail}, the implementation of the
-command line program I{mailmail}.
-"""
+from __future__ import print_function
 
-import os
+from twisted.internet.protocol import Factory
+from twisted.protocols import basic
+from twisted.internet import reactor
 import sys
 
-from twisted.copyright import version
-from twisted.internet.defer import Deferred
-from twisted.mail import smtp
-from twisted.mail.scripts import mailmail
-from twisted.mail.scripts.mailmail import parseOptions
-from twisted.python.compat import NativeStringIO
-from twisted.python.failure import Failure
-from twisted.python.runtime import platformType
-from twisted.test.proto_helpers import MemoryReactor
-from twisted.trial.unittest import TestCase
+USER = "test"
+PASS = "twisted"
+
+PORT = 1100
+
+SSL_SUPPORT = True
+UIDL_SUPPORT = True
+INVALID_SERVER_RESPONSE = False
+INVALID_CAPABILITY_RESPONSE = False
+INVALID_LOGIN_RESPONSE = False
+DENY_CONNECTION = False
+DROP_CONNECTION = False
+BAD_TLS_RESPONSE = False
+TIMEOUT_RESPONSE = False
+TIMEOUT_DEFERRED = False
+SLOW_GREETING = False
+
+"""Commands"""
+CONNECTION_MADE = b"+OK POP3 localhost v2003.83 server ready"
+
+CAPABILITIES = [
+b"TOP",
+b"LOGIN-DELAY 180",
+b"USER",
+b"SASL LOGIN"
+]
+
+CAPABILITIES_SSL = b"STLS"
+CAPABILITIES_UIDL = b"UIDL"
+
+
+INVALID_RESPONSE = b"-ERR Unknown request"
+VALID_RESPONSE = b"+OK Command Completed"
+AUTH_DECLINED = b"-ERR LOGIN failed"
+AUTH_ACCEPTED = b"+OK Mailbox open, 0 messages"
+TLS_ERROR = b"-ERR server side error start TLS handshake"
+LOGOUT_COMPLETE = b"+OK quit completed"
+NOT_LOGGED_IN = b"-ERR Unknown AUHORIZATION state command"
+STAT = b"+OK 0 0"
+UIDL = b"+OK Unique-ID listing follows\r\n."
+LIST = b"+OK Mailbox scan listing follows\r\n."
+CAP_START = b"+OK Capability list follows:"
+
+
+class POP3TestServer(basic.LineReceiver):
+    def __init__(self, contextFactory = None):
+        self.loggedIn = False
+        self.caps = None
+        self.tmpUser = None
+        self.ctx = contextFactory
+
+
+    def sendSTATResp(self, req):
+        self.sendLine(STAT)
+
+
+    def sendUIDLResp(self, req):
+        self.sendLine(UIDL)
+
+
+    def sendLISTResp(self, req):
+        self.sendLine(LIST)
+
+
+    def sendCapabilities(self):
+        if self.caps is None:
+            self.caps = [CAP_START]
+
+        if UIDL_SUPPORT:
+            self.caps.append(CAPABILITIES_UIDL)
+
+        if SSL_SUPPORT:
+            self.caps.append(CAPABILITIES_SSL)
+
+        for cap in CAPABILITIES:
+            self.caps.append(cap)
+        resp = b'\r\n'.join(self.caps)
+        resp += b'\r\n.'
+
+        self.sendLine(resp)
+
+
+    def connectionMade(self):
+        if DENY_CONNECTION:
+            self.disconnect()
+            return
+
+        if SLOW_GREETING:
+            reactor.callLater(20, self.sendGreeting)
+
+        else:
+            self.sendGreeting()
+
+
+    def sendGreeting(self):
+        self.sendLine(CONNECTION_MADE)
+
+
+    def lineReceived(self, line):
+        """Error Conditions"""
+
+        uline = line.upper()
+        find = lambda s: uline.find(s) != -1
+
+        if TIMEOUT_RESPONSE:
+            # Do not respond to clients request
+            return
+
+        if DROP_CONNECTION:
+            self.disconnect()
+            return
+
+        elif find(b"CAPA"):
+            if INVALID_CAPABILITY_RESPONSE:
+                self.sendLine(INVALID_RESPONSE)
+            else:
+                self.sendCapabilities()
+
+        elif find(b"STLS") and SSL_SUPPORT:
+            self.startTLS()
+
+        elif find(b"USER"):
+            if INVALID_LOGIN_RESPONSE:
+                self.sendLine(INVALID_RESPONSE)
+                return
+
+            resp = None
+            try:
+                self.tmpUser = line.split(" ")[1]
+                resp = VALID_RESPONSE
+            except:
+                resp = AUTH_DECLINED
+
+            self.sendLine(resp)
+
+        elif find(b"PASS"):
+            resp = None
+            try:
+                pwd = line.split(" ")[1]
+
+                if self.tmpUser is None or pwd is None:
+                    resp = AUTH_DECLINED
+                elif self.tmpUser == USER and pwd == PASS:
+                    resp = AUTH_ACCEPTED
+                    self.loggedIn = True
+                else:
+                    resp = AUTH_DECLINED
+            except:
+                resp = AUTH_DECLINED
+
+            self.sendLine(resp)
+
+        elif find(b"QUIT"):
+            self.loggedIn = False
+            self.sendLine(LOGOUT_COMPLETE)
+            self.disconnect()
+
+        elif INVALID_SERVER_RESPONSE:
+            self.sendLine(INVALID_RESPONSE)
+
+        elif not self.loggedIn:
+            self.sendLine(NOT_LOGGED_IN)
+
+        elif find(b"NOOP"):
+            self.sendLine(VALID_RESPONSE)
+
+        elif find(b"STAT"):
+            if TIMEOUT_DEFERRED:
+                return
+            self.sendLine(STAT)
+
+        elif find(b"LIST"):
+            if TIMEOUT_DEFERRED:
+                return
+            self.sendLine(LIST)
+
+        elif find(b"UIDL"):
+            if TIMEOUT_DEFERRED:
+                return
+            elif not UIDL_SUPPORT:
+                self.sendLine(INVALID_RESPONSE)
+                return
+
+            self.sendLine(UIDL)
+
+
+    def startTLS(self):
+        if self.ctx is None:
+            self.getContext()
+
+        if SSL_SUPPORT and self.ctx is not None:
+            self.sendLine(b'+OK Begin TLS negotiation now')
+            self.transport.startTLS(self.ctx)
+        else:
+            self.sendLine(b'-ERR TLS not available')
+
+
+    def disconnect(self):
+        self.transport.loseConnection()
+
+
+    def getContext(self):
+        try:
+            from twisted.internet import ssl
+        except ImportError:
+           self.ctx = None
+        else:
+            self.ctx = ssl.ClientContextFactory()
+            self.ctx.method = ssl.SSL.TLSv1_METHOD
+
+
+usage = """popServer.py [arg] (default is Standard POP Server with no messages)
+no_ssl  - Start with no SSL support
+no_uidl - Start with no UIDL support
+bad_resp - Send a non-RFC compliant response to the Client
+bad_cap_resp - send a non-RFC compliant response when the Client sends a 'CAPABILITY' request
+bad_login_resp - send a non-RFC compliant response when the Client sends a 'LOGIN' request
+deny - Deny the connection
+drop - Drop the connection after sending the greeting
+bad_tls - Send a bad response to a STARTTLS
+timeout - Do not return a response to a Client request
+to_deferred - Do not return a response on a 'Select' request. This
+              will test Deferred callback handling
+slow - Wait 20 seconds after the connection is made to return a Server Greeting
+"""
+
+def printMessage(msg):
+    print("Server Starting in %s mode" % msg)
 
 
 
-class OptionsTests(TestCase):
-    """
-    Tests for L{parseOptions} which parses command line arguments and reads
-    message text from stdin to produce an L{Options} instance which can be
-    used to send a message.
-    """
-    memoryReactor = MemoryReactor()
+def processArg(arg):
 
-    def setUp(self):
-        """
-        Override some things in mailmail, so that we capture C{stdout},
-        and do not call L{reactor.stop}.
-        """
-        self.out = NativeStringIO()
-        # Override the mailmail logger, so we capture stderr output
-        from twisted.logger import textFileLogObserver, Logger
-        logObserver = textFileLogObserver(self.out)
-        self.patch(mailmail, '_log', Logger(observer=logObserver))
-        self.host = None
-        self.options = None
-        self.ident = None
+    if arg.lower() == 'no_ssl':
+        global SSL_SUPPORT
+        SSL_SUPPORT = False
+        printMessage("NON-SSL")
 
-        # Override mailmail.sendmail, so we don't call reactor.stop()
-        def sendmail(host, options, ident):
-            self.host = host
-            self.options = options
-            self.ident = ident
-            return smtp.sendmail(host, options.sender, options.to,
-                                 options.body, reactor=self.memoryReactor)
+    elif arg.lower() == 'no_uidl':
+        global UIDL_SUPPORT
+        UIDL_SUPPORT = False
+        printMessage("NON-UIDL")
 
-        self.patch(mailmail, 'sendmail', sendmail)
+    elif arg.lower() == 'bad_resp':
+        global INVALID_SERVER_RESPONSE
+        INVALID_SERVER_RESPONSE = True
+        printMessage("Invalid Server Response")
 
+    elif arg.lower() == 'bad_cap_resp':
+        global INVALID_CAPABILITY_RESPONSE
+        INVALID_CAPABILITY_RESPONSE = True
+        printMessage("Invalid Capability Response")
 
-    def test_unspecifiedRecipients(self):
-        """
-        If no recipients are given in the argument list and there is no
-        recipient header in the message text, L{parseOptions} raises
-        L{SystemExit} with a string describing the problem.
-        """
-        self.patch(sys, 'stdin', NativeStringIO(
-            'Subject: foo\n'
-            '\n'
-            'Hello, goodbye.\n'))
-        exc = self.assertRaises(SystemExit, parseOptions, [])
-        self.assertEqual(exc.args, ('No recipients specified.',))
+    elif arg.lower() == 'bad_login_resp':
+        global INVALID_LOGIN_RESPONSE
+        INVALID_LOGIN_RESPONSE = True
+        printMessage("Invalid Capability Response")
 
+    elif arg.lower() == 'deny':
+        global DENY_CONNECTION
+        DENY_CONNECTION = True
+        printMessage("Deny Connection")
 
-    def test_listQueueInformation(self):
-        """
-        The I{-bp} option for listing queue information is unsupported and
-        if it is passed to L{parseOptions}, L{SystemExit} is raised.
-        """
-        exc = self.assertRaises(SystemExit, parseOptions, ['-bp'])
-        self.assertEqual(exc.args, ("Unsupported option.",))
+    elif arg.lower() == 'drop':
+        global DROP_CONNECTION
+        DROP_CONNECTION = True
+        printMessage("Drop Connection")
 
+    elif arg.lower() == 'bad_tls':
+        global BAD_TLS_RESPONSE
+        BAD_TLS_RESPONSE = True
+        printMessage("Bad TLS Response")
 
-    def test_stdioTransport(self):
-        """
-        The I{-bs} option for using stdin and stdout as the SMTP transport
-        is unsupported and if it is passed to L{parseOptions}, L{SystemExit}
-        is raised.
-        """
-        exc = self.assertRaises(SystemExit, parseOptions, ['-bs'])
-        self.assertEqual(exc.args, ("Unsupported option.",))
+    elif arg.lower() == 'timeout':
+        global TIMEOUT_RESPONSE
+        TIMEOUT_RESPONSE = True
+        printMessage("Timeout Response")
 
+    elif arg.lower() == 'to_deferred':
+        global TIMEOUT_DEFERRED
+        TIMEOUT_DEFERRED = True
+        printMessage("Timeout Deferred Response")
 
-    def test_ignoreFullStop(self):
-        """
-        The I{-i} and I{-oi} options for ignoring C{"."} by itself on a line
-        are unsupported and if either is passed to L{parseOptions},
-        L{SystemExit} is raised.
-        """
-        exc = self.assertRaises(SystemExit, parseOptions, ['-i'])
-        self.assertEqual(exc.args, ("Unsupported option.",))
-        exc = self.assertRaises(SystemExit, parseOptions, ['-oi'])
-        self.assertEqual(exc.args, ("Unsupported option.",))
+    elif arg.lower() == 'slow':
+        global SLOW_GREETING
+        SLOW_GREETING = True
+        printMessage("Slow Greeting")
 
+    elif arg.lower() == '--help':
+        print(usage)
+        sys.exit()
 
-    def test_copyAliasedSender(self):
-        """
-        The I{-om} option for copying the sender if they appear in an alias
-        expansion is unsupported and if it is passed to L{parseOptions},
-        L{SystemExit} is raised.
-        """
-        exc = self.assertRaises(SystemExit, parseOptions, ['-om'])
-        self.assertEqual(exc.args, ("Unsupported option.",))
+    else:
+        print(usage)
+        sys.exit()
 
+def main():
 
-    def test_version(self):
-        """
-        The I{--version} option displays the version and raises
-        L{SystemExit} with L{None} as the exit code.
-        """
-        out = NativeStringIO()
-        self.patch(sys, 'stdout', out)
-        systemExitCode = self.assertRaises(SystemExit, parseOptions,
-                                           '--version')
-        # SystemExit.code is None on success
-        self.assertEqual(systemExitCode.code, None)
-        data = out.getvalue()
-        self.assertEqual(data, "mailmail version: {}\n".format(version))
+    if len(sys.argv) < 2:
+        printMessage("POP3 with no messages")
+    else:
+        args = sys.argv[1:]
 
+        for arg in args:
+            processArg(arg)
 
-    def test_backgroundDelivery(self):
-        """
-        The I{-odb} flag specifies background delivery.
-        """
-        stdin = NativeStringIO('\n')
-        self.patch(sys, 'stdin', stdin)
-        o = parseOptions("-odb")
-        self.assertTrue(o.background)
+    f = Factory()
+    f.protocol = POP3TestServer
+    reactor.listenTCP(PORT, f)
+    reactor.run()
 
-
-    def test_foregroundDelivery(self):
-        """
-        The I{-odf} flags specifies foreground delivery.
-        """
-        stdin = NativeStringIO('\n')
-        self.patch(sys, 'stdin', stdin)
-        o = parseOptions("-odf")
-        self.assertFalse(o.background)
-
-
-    def test_recipientsFromHeaders(self):
-        """
-        The I{-t} flags specifies that recipients should be obtained
-        from headers.
-        """
-        stdin = NativeStringIO(
-            'To: Curly <invaliduser2@example.com>\n'
-            'Cc: Larry <invaliduser1@example.com>\n'
-            'Bcc: Moe <invaliduser3@example.com>\n'
-            '\n'
-            'Oh, a wise guy?\n')
-        self.patch(sys, 'stdin', stdin)
-        o = parseOptions("-t")
-        self.assertEqual(len(o.to), 3)
-
-
-    def test_setFrom(self):
-        """
-        When a message has no I{From:} header, a I{From:} value can be
-        specified with the I{-F} flag.
-        """
-        stdin = NativeStringIO(
-            'To: invaliduser2@example.com\n'
-            'Subject: A wise guy?\n\n')
-        self.patch(sys, 'stdin', stdin)
-        o = parseOptions(["-F", "Larry <invaliduser1@example.com>", "-t"])
-        self.assertEqual(o.sender, "Larry <invaliduser1@example.com>")
-
-
-    def test_overrideFromFlagByFromHeader(self):
-        """
-        The I{-F} flag specifies the From: value.  However, I{-F} flag is
-        overriden by the value of From: in the e-mail header.
-        """
-        stdin = NativeStringIO(
-            'To: Curly <invaliduser4@example.com>\n'
-            'From: Shemp <invaliduser4@example.com>\n')
-        self.patch(sys, 'stdin', stdin)
-        o = parseOptions(["-F", "Groucho <invaliduser5@example.com>", "-t"])
-        self.assertEqual(o.sender, "invaliduser4@example.com")
-
-
-    def test_runErrorsToStderr(self):
-        """
-        Call L{mailmail.run}, and specify I{-oep} to print errors
-        to stderr.  The sender, to, and printErrors options should be
-        set and there should be no failure.
-        """
-        argv = ("test_mailmail.py", "invaliduser2@example.com", "-oep")
-        stdin = NativeStringIO('\n')
-        self.patch(sys, 'argv', argv)
-        self.patch(sys, 'stdin', stdin)
-        mailmail.run()
-        self.assertEqual(self.options.sender, mailmail.getlogin())
-        self.assertEqual(self.options.to, ["invaliduser2@example.com"])
-        # We should have printErrors set because we specified "-oep"
-        self.assertTrue(self.options.printErrors)
-        # We should not have any failures.
-        self.assertIsNone(mailmail.failed)
-
-    if platformType == "win32":
-        test_runErrorsToStderr.skip = (
-            "mailmail.run() does not work on win32 due to lack of support for"
-            " getuid()")
-
-
-    def test_readInvalidConfig(self):
-        """
-        Error messages for illegal UID value, illegal GID value, and illegal
-        identity entry will be sent to stderr.
-        """
-        stdin = NativeStringIO('\n')
-        self.patch(sys, 'stdin', stdin)
-
-        filename = self.mktemp()
-        myUid = os.getuid()
-        myGid = os.getgid()
-
-        with open(filename, "w") as f:
-            # Create a config file with some invalid values
-            f.write("[useraccess]\n"
-                    "allow=invaliduser2,invaliduser1\n"
-                    "deny=invaliduser3,invaliduser4,{}\n"
-                    "order=allow,deny\n"
-                    "[groupaccess]\n"
-                    "allow=invalidgid1,invalidgid2\n"
-                    "deny=invalidgid1,invalidgid2,{}\n"
-                    "order=deny,allow\n"
-                    "[identity]\n"
-                    "localhost=funny\n"
-                    "[addresses]\n"
-                    "smarthost=localhost\n"
-                    "default_domain=example.com\n".format(myUid, myGid))
-
-        # The mailmail script looks in
-        # the twisted.mail.scripts.GLOBAL_CFG variable
-        # and then the twisted.mail.scripts.LOCAL_CFG
-        # variable for the path to it's  config file.
-        #
-        # Override twisted.mail.scripts.LOCAL_CFG with the file we just
-        # created.
-        self.patch(mailmail, "LOCAL_CFG", filename)
-
-        argv = ("test_mailmail.py", "invaliduser2@example.com", "-oep")
-        self.patch(sys, 'argv', argv)
-        mailmail.run()
-        self.assertRegex(self.out.getvalue(),
-                         "Illegal UID in \\[useraccess\\] section: "
-                         "invaliduser1")
-        self.assertRegex(self.out.getvalue(),
-                         "Illegal GID in \\[groupaccess\\] section: "
-                         "invalidgid1")
-        self.assertRegex(self.out.getvalue(),
-                         'Illegal entry in \\[identity\\] section: funny')
-
-    if platformType == "win32":
-        test_readInvalidConfig.skip = ("mailmail.run() does not work on win32"
-                                       " due to lack of support for getuid()")
-
-
-    def getConfigFromFile(self, config):
-        """
-        Read a mailmail configuration file.
-
-        The mailmail script checks the twisted.mail.scripts.mailmail.GLOBAL_CFG
-        variable and then the twisted.mail.scripts.mailmail.LOCAL_CFG
-        variable for the path to its  config file.
-
-        @param config: path to config file
-        @type config: L{str}
-
-        @return: A parsed config.
-        @rtype: L{twisted.mail.scripts.mailmail.Configuration}
-        """
-
-        from twisted.mail.scripts.mailmail import loadConfig
-
-        filename = self.mktemp()
-
-        with open(filename, "w") as f:
-            f.write(config)
-
-        return loadConfig(filename)
-
-
-    def test_loadConfig(self):
-        """
-        L{twisted.mail.scripts.mailmail.loadConfig}
-        parses the config file for mailmail.
-        """
-        config = self.getConfigFromFile("""
-[addresses]
-smarthost=localhost""")
-        self.assertEqual(config.smarthost, "localhost")
-
-        config = self.getConfigFromFile("""
-[addresses]
-default_domain=example.com""")
-        self.assertEqual(config.domain, "example.com")
-
-        config = self.getConfigFromFile("""
-[addresses]
-smarthost=localhost
-default_domain=example.com""")
-        self.assertEqual(config.smarthost, "localhost")
-        self.assertEqual(config.domain, "example.com")
-
-        config = self.getConfigFromFile("""
-[identity]
-host1=invalid
-host2=username:password""")
-        self.assertNotIn("host1", config.identities)
-        self.assertEqual(config.identities["host2"], ["username", "password"])
-
-        config = self.getConfigFromFile("""
-[useraccess]
-allow=invalid1,35
-order=allow""")
-        self.assertEqual(config.allowUIDs, [35])
-
-        config = self.getConfigFromFile("""
-[useraccess]
-deny=35,36
-order=deny""")
-        self.assertEqual(config.denyUIDs, [35, 36])
-
-        config = self.getConfigFromFile("""
-[useraccess]
-allow=35,36
-deny=37,38
-order=deny""")
-        self.assertEqual(config.allowUIDs, [35, 36])
-        self.assertEqual(config.denyUIDs, [37, 38])
-
-        config = self.getConfigFromFile("""
-[groupaccess]
-allow=gid1,41
-order=allow""")
-        self.assertEqual(config.allowGIDs, [41])
-
-        config = self.getConfigFromFile("""
-[groupaccess]
-deny=41
-order=deny""")
-        self.assertEqual(config.denyGIDs, [41])
-
-        config = self.getConfigFromFile("""
-[groupaccess]
-allow=41,42
-deny=43,44
-order=allow,deny""")
-        self.assertEqual(config.allowGIDs, [41, 42])
-        self.assertEqual(config.denyGIDs, [43, 44])
-
-
-    def test_senderror(self):
-        """
-        L{twisted.mail.scripts.mailmail.senderror} sends mail back to the
-        sender if an error occurs while sending mail to the recipient.
-        """
-        def sendmail(host, sender, recipient, body):
-            self.assertRegex(sender, "postmaster@")
-            self.assertEqual(recipient, ["testsender"])
-            self.assertRegex(body.getvalue(), "ValueError")
-            return Deferred()
-
-        self.patch(smtp, "sendmail", sendmail)
-        opts = mailmail.Options()
-        opts.sender = "testsender"
-        fail = Failure(ValueError())
-        mailmail.senderror(fail, opts)
+if __name__ == '__main__':
+    main()

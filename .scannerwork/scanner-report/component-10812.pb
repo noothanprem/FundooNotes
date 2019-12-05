@@ -1,1 +1,1 @@
-¼T?venv/lib/python3.6/site-packages/faker/providers/internet/en_US :»T
+¼T?venv/lib/python3.6/site-packages/faker/providers/internet/hr_HR :»T

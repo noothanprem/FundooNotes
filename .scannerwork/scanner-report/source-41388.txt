@@ -11,24 +11,16 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 
-
-from awscli.customizations.emr import emrutils
-from awscli.customizations.emr import helptext
-from awscli.customizations.emr.command import Command
+from awscli.customizations.emr import constants
 
 
-class TerminateClusters(Command):
-    NAME = 'terminate-clusters'
-    DESCRIPTION = helptext.TERMINATE_CLUSTERS
-    ARG_TABLE = [{
-        'name': 'cluster-ids', 'nargs': '+', 'required': True,
-        'help_text': '<p>A list of clusters to terminate.</p>',
-        'schema': {'type': 'array', 'items': {'type': 'string'}},
-    }]
+def build_hbase_restore_from_backup_args(dir, backup_version=None):
+    args = [constants.HBASE_MAIN,
+            constants.HBASE_RESTORE,
+            constants.HBASE_BACKUP_DIR, dir]
 
-    def _run_main_command(self, parsed_args, parsed_globals):
-        parameters = {'JobFlowIds': parsed_args.cluster_ids}
-        emrutils.call_and_display_response(self._session,
-                                           'TerminateJobFlows', parameters,
-                                           parsed_globals)
-        return 0
+    if backup_version is not None:
+        args.append(constants.HBASE_BACKUP_VERSION_FOR_RESTORE)
+        args.append(backup_version)
+
+    return args

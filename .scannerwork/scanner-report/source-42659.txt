@@ -1,29 +1,28 @@
-from django.utils.translation import ugettext as _
-from django.template.defaultfilters import pluralize
+from django.db import models
 
 
-def humanize_duration(duration):
+class CronJobLog(models.Model):
     """
-    Returns a humanized string representing time difference
-
-    For example: 2 days 1 hour 25 minutes 10 seconds
+    Keeps track of the cron jobs that ran etc. and any error
+    messages if they failed.
     """
-    days = duration.days
-    hours = int(duration.seconds / 3600)
-    minutes = int(duration.seconds % 3600 / 60)
-    seconds = int(duration.seconds % 3600 % 60)
+    code = models.CharField(max_length=64, db_index=True)
+    start_time = models.DateTimeField(db_index=True)
+    end_time = models.DateTimeField(db_index=True)
+    is_success = models.BooleanField(default=False)
+    message = models.TextField(default='', blank=True)  # TODO: db_index=True
 
-    parts = []
-    if days > 0:
-        parts.append(u'%s %s' % (days, pluralize(days, _('day,days'))))
+    # This field is used to mark jobs executed in exact time.
+    # Jobs that run every X minutes, have this field empty.
+    ran_at_time = models.TimeField(null=True, blank=True, db_index=True, editable=False)
 
-    if hours > 0:
-        parts.append(u'%s %s' % (hours, pluralize(hours, _('hour,hours'))))
+    def __unicode__(self):
+        return '%s (%s)' % (self.code, 'Success' if self.is_success else 'Fail')
 
-    if minutes > 0:
-        parts.append(u'%s %s' % (minutes, pluralize(minutes, _('minute,minutes'))))
-
-    if seconds > 0:
-        parts.append(u'%s %s' % (seconds, pluralize(seconds, _('second,seconds'))))
-
-    return ', '.join(parts) if len(parts) != 0 else _('< 1 second')
+    class Meta:
+        index_together = [
+            ('code', 'is_success', 'ran_at_time'),
+            ('code', 'start_time', 'ran_at_time'),
+            ('code', 'start_time')  # useful when finding latest run (order by start_time) of cron
+        ]
+        app_label = 'django_cron'

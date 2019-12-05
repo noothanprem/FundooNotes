@@ -1,1 +1,1 @@
-оеEvenv/lib64/python3.6/site-packages/pymysql/constants/SERVER_STATUS.py 2pyXh
+ое?venv/lib64/python3.6/site-packages/pymysql/constants/COMMAND.py 2pyX"h

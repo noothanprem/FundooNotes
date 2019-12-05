@@ -1,1 +1,1 @@
-¦„=venv/lib64/python3.6/site-packages/social_core/backends/qq.py 2pyXHh
+¦„Avenv/lib64/python3.6/site-packages/social_core/backends/stripe.py 2pyX/h

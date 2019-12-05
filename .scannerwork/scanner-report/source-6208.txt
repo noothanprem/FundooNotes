@@ -1,81 +1,108 @@
 """
- This module houses the ctypes function prototypes for OGR DataSource
- related data structures. OGR_Dr_*, OGR_DS_*, OGR_L_*, OGR_F_*,
- OGR_Fld_* routines are relevant here.
+This module houses the ctypes function prototypes for GDAL DataSource (raster)
+related data structures.
 """
-from ctypes import POINTER, c_char_p, c_double, c_int, c_long, c_void_p
+from ctypes import POINTER, c_bool, c_char_p, c_double, c_int, c_void_p
+from functools import partial
 
-from django.contrib.gis.gdal.envelope import OGREnvelope
-from django.contrib.gis.gdal.libgdal import GDAL_VERSION, lgdal
+from django.contrib.gis.gdal.libgdal import GDAL_VERSION, std_call
 from django.contrib.gis.gdal.prototypes.generation import (
-    const_string_output, double_output, geom_output, int64_output, int_output,
-    srs_output, void_output, voidptr_output,
+    chararray_output, const_string_output, double_output, int_output,
+    void_output, voidptr_output,
 )
 
-c_int_p = POINTER(c_int)  # shortcut type
+# For more detail about c function names and definitions see
+# https://gdal.org/gdal_8h.html
+# https://gdal.org/gdalwarper_8h.html
+# https://www.gdal.org/gdal__utils_8h.html
 
-# Driver Routines
-register_all = void_output(lgdal.OGRRegisterAll, [], errcheck=False)
-cleanup_all = void_output(lgdal.OGRCleanupAll, [], errcheck=False)
-get_driver = voidptr_output(lgdal.OGRGetDriver, [c_int])
-get_driver_by_name = voidptr_output(lgdal.OGRGetDriverByName, [c_char_p], errcheck=False)
-get_driver_count = int_output(lgdal.OGRGetDriverCount, [])
-get_driver_name = const_string_output(lgdal.OGR_Dr_GetName, [c_void_p], decoding='ascii')
+# Prepare partial functions that use cpl error codes
+void_output = partial(void_output, cpl=True)
+const_string_output = partial(const_string_output, cpl=True)
+double_output = partial(double_output, cpl=True)
 
-# DataSource
-open_ds = voidptr_output(lgdal.OGROpen, [c_char_p, c_int, POINTER(c_void_p)])
-destroy_ds = void_output(lgdal.OGR_DS_Destroy, [c_void_p], errcheck=False)
-release_ds = void_output(lgdal.OGRReleaseDataSource, [c_void_p])
-get_ds_name = const_string_output(lgdal.OGR_DS_GetName, [c_void_p])
-get_layer = voidptr_output(lgdal.OGR_DS_GetLayer, [c_void_p, c_int])
-get_layer_by_name = voidptr_output(lgdal.OGR_DS_GetLayerByName, [c_void_p, c_char_p])
-get_layer_count = int_output(lgdal.OGR_DS_GetLayerCount, [c_void_p])
+# Raster Driver Routines
+register_all = void_output(std_call('GDALAllRegister'), [], errcheck=False)
+get_driver = voidptr_output(std_call('GDALGetDriver'), [c_int])
+get_driver_by_name = voidptr_output(std_call('GDALGetDriverByName'), [c_char_p], errcheck=False)
+get_driver_count = int_output(std_call('GDALGetDriverCount'), [])
+get_driver_description = const_string_output(std_call('GDALGetDescription'), [c_void_p])
 
-# Layer Routines
-get_extent = void_output(lgdal.OGR_L_GetExtent, [c_void_p, POINTER(OGREnvelope), c_int])
-get_feature = voidptr_output(lgdal.OGR_L_GetFeature, [c_void_p, c_long])
-get_feature_count = int_output(lgdal.OGR_L_GetFeatureCount, [c_void_p, c_int])
-get_layer_defn = voidptr_output(lgdal.OGR_L_GetLayerDefn, [c_void_p])
-get_layer_srs = srs_output(lgdal.OGR_L_GetSpatialRef, [c_void_p])
-get_next_feature = voidptr_output(lgdal.OGR_L_GetNextFeature, [c_void_p])
-reset_reading = void_output(lgdal.OGR_L_ResetReading, [c_void_p], errcheck=False)
-test_capability = int_output(lgdal.OGR_L_TestCapability, [c_void_p, c_char_p])
-get_spatial_filter = geom_output(lgdal.OGR_L_GetSpatialFilter, [c_void_p])
-set_spatial_filter = void_output(lgdal.OGR_L_SetSpatialFilter, [c_void_p, c_void_p], errcheck=False)
-set_spatial_filter_rect = void_output(
-    lgdal.OGR_L_SetSpatialFilterRect,
-    [c_void_p, c_double, c_double, c_double, c_double], errcheck=False
+# Raster Data Source Routines
+create_ds = voidptr_output(std_call('GDALCreate'), [c_void_p, c_char_p, c_int, c_int, c_int, c_int, c_void_p])
+open_ds = voidptr_output(std_call('GDALOpen'), [c_char_p, c_int])
+close_ds = void_output(std_call('GDALClose'), [c_void_p], errcheck=False)
+flush_ds = int_output(std_call('GDALFlushCache'), [c_void_p])
+copy_ds = voidptr_output(
+    std_call('GDALCreateCopy'),
+    [c_void_p, c_char_p, c_void_p, c_int, POINTER(c_char_p), c_void_p, c_void_p]
+)
+add_band_ds = void_output(std_call('GDALAddBand'), [c_void_p, c_int])
+get_ds_description = const_string_output(std_call('GDALGetDescription'), [c_void_p])
+get_ds_driver = voidptr_output(std_call('GDALGetDatasetDriver'), [c_void_p])
+get_ds_xsize = int_output(std_call('GDALGetRasterXSize'), [c_void_p])
+get_ds_ysize = int_output(std_call('GDALGetRasterYSize'), [c_void_p])
+get_ds_raster_count = int_output(std_call('GDALGetRasterCount'), [c_void_p])
+get_ds_raster_band = voidptr_output(std_call('GDALGetRasterBand'), [c_void_p, c_int])
+get_ds_projection_ref = const_string_output(std_call('GDALGetProjectionRef'), [c_void_p])
+set_ds_projection_ref = void_output(std_call('GDALSetProjection'), [c_void_p, c_char_p])
+get_ds_geotransform = void_output(std_call('GDALGetGeoTransform'), [c_void_p, POINTER(c_double * 6)], errcheck=False)
+set_ds_geotransform = void_output(std_call('GDALSetGeoTransform'), [c_void_p, POINTER(c_double * 6)])
+
+get_ds_metadata = chararray_output(std_call('GDALGetMetadata'), [c_void_p, c_char_p], errcheck=False)
+set_ds_metadata = void_output(std_call('GDALSetMetadata'), [c_void_p, POINTER(c_char_p), c_char_p])
+get_ds_metadata_domain_list = chararray_output(std_call('GDALGetMetadataDomainList'), [c_void_p], errcheck=False)
+get_ds_metadata_item = const_string_output(std_call('GDALGetMetadataItem'), [c_void_p, c_char_p, c_char_p])
+set_ds_metadata_item = const_string_output(std_call('GDALSetMetadataItem'), [c_void_p, c_char_p, c_char_p, c_char_p])
+free_dsl = void_output(std_call('CSLDestroy'), [POINTER(c_char_p)], errcheck=False)
+
+if GDAL_VERSION >= (2, 1):
+    get_ds_info = const_string_output(std_call('GDALInfo'), [c_void_p, c_void_p])
+else:
+    get_ds_info = None
+
+# Raster Band Routines
+band_io = void_output(
+    std_call('GDALRasterIO'),
+    [c_void_p, c_int, c_int, c_int, c_int, c_int, c_void_p, c_int, c_int, c_int, c_int, c_int]
+)
+get_band_xsize = int_output(std_call('GDALGetRasterBandXSize'), [c_void_p])
+get_band_ysize = int_output(std_call('GDALGetRasterBandYSize'), [c_void_p])
+get_band_index = int_output(std_call('GDALGetBandNumber'), [c_void_p])
+get_band_description = const_string_output(std_call('GDALGetDescription'), [c_void_p])
+get_band_ds = voidptr_output(std_call('GDALGetBandDataset'), [c_void_p])
+get_band_datatype = int_output(std_call('GDALGetRasterDataType'), [c_void_p])
+get_band_color_interp = int_output(std_call('GDALGetRasterColorInterpretation'), [c_void_p])
+get_band_nodata_value = double_output(std_call('GDALGetRasterNoDataValue'), [c_void_p, POINTER(c_int)])
+set_band_nodata_value = void_output(std_call('GDALSetRasterNoDataValue'), [c_void_p, c_double])
+if GDAL_VERSION >= (2, 1):
+    delete_band_nodata_value = void_output(std_call('GDALDeleteRasterNoDataValue'), [c_void_p])
+else:
+    delete_band_nodata_value = None
+get_band_statistics = void_output(
+    std_call('GDALGetRasterStatistics'),
+    [
+        c_void_p, c_int, c_int, POINTER(c_double), POINTER(c_double),
+        POINTER(c_double), POINTER(c_double), c_void_p, c_void_p,
+    ],
+)
+compute_band_statistics = void_output(
+    std_call('GDALComputeRasterStatistics'),
+    [c_void_p, c_int, POINTER(c_double), POINTER(c_double), POINTER(c_double), POINTER(c_double), c_void_p, c_void_p],
 )
 
-# Feature Definition Routines
-get_fd_geom_type = int_output(lgdal.OGR_FD_GetGeomType, [c_void_p])
-get_fd_name = const_string_output(lgdal.OGR_FD_GetName, [c_void_p])
-get_feat_name = const_string_output(lgdal.OGR_FD_GetName, [c_void_p])
-get_field_count = int_output(lgdal.OGR_FD_GetFieldCount, [c_void_p])
-get_field_defn = voidptr_output(lgdal.OGR_FD_GetFieldDefn, [c_void_p, c_int])
-
-# Feature Routines
-clone_feature = voidptr_output(lgdal.OGR_F_Clone, [c_void_p])
-destroy_feature = void_output(lgdal.OGR_F_Destroy, [c_void_p], errcheck=False)
-feature_equal = int_output(lgdal.OGR_F_Equal, [c_void_p, c_void_p])
-get_feat_geom_ref = geom_output(lgdal.OGR_F_GetGeometryRef, [c_void_p])
-get_feat_field_count = int_output(lgdal.OGR_F_GetFieldCount, [c_void_p])
-get_feat_field_defn = voidptr_output(lgdal.OGR_F_GetFieldDefnRef, [c_void_p, c_int])
-get_fid = int_output(lgdal.OGR_F_GetFID, [c_void_p])
-get_field_as_datetime = int_output(
-    lgdal.OGR_F_GetFieldAsDateTime,
-    [c_void_p, c_int, c_int_p, c_int_p, c_int_p, c_int_p, c_int_p, c_int_p]
+# Reprojection routine
+reproject_image = void_output(
+    std_call('GDALReprojectImage'),
+    [c_void_p, c_char_p, c_void_p, c_char_p, c_int, c_double, c_double, c_void_p, c_void_p, c_void_p]
 )
-get_field_as_double = double_output(lgdal.OGR_F_GetFieldAsDouble, [c_void_p, c_int])
-get_field_as_integer = int_output(lgdal.OGR_F_GetFieldAsInteger, [c_void_p, c_int])
-if GDAL_VERSION >= (2, 0):
-    get_field_as_integer64 = int64_output(lgdal.OGR_F_GetFieldAsInteger64, [c_void_p, c_int])
-get_field_as_string = const_string_output(lgdal.OGR_F_GetFieldAsString, [c_void_p, c_int])
-get_field_index = int_output(lgdal.OGR_F_GetFieldIndex, [c_void_p, c_char_p])
+auto_create_warped_vrt = voidptr_output(
+    std_call('GDALAutoCreateWarpedVRT'),
+    [c_void_p, c_char_p, c_char_p, c_int, c_double, c_void_p]
+)
 
-# Field Routines
-get_field_name = const_string_output(lgdal.OGR_Fld_GetNameRef, [c_void_p])
-get_field_precision = int_output(lgdal.OGR_Fld_GetPrecision, [c_void_p])
-get_field_type = int_output(lgdal.OGR_Fld_GetType, [c_void_p])
-get_field_type_name = const_string_output(lgdal.OGR_GetFieldTypeName, [c_int])
-get_field_width = int_output(lgdal.OGR_Fld_GetWidth, [c_void_p])
+# Create VSI gdal raster files from in-memory buffers.
+# https://gdal.org/cpl__vsi_8h.html
+create_vsi_file_from_mem_buffer = voidptr_output(std_call('VSIFileFromMemBuffer'), [c_char_p, c_void_p, c_int, c_int])
+get_mem_buffer_from_vsi_file = voidptr_output(std_call('VSIGetMemFileBuffer'), [c_char_p, POINTER(c_int), c_bool])
+unlink_vsi_file = int_output(std_call('VSIUnlink'), [c_char_p])

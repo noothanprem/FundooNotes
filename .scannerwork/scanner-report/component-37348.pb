@@ -1,1 +1,0 @@
-ä£Evenv/lib64/python3.6/site-packages/faker/providers/phone_number/hr_HR :ã£

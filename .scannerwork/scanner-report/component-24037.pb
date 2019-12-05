@@ -1,1 +1,1 @@
-å»8venv/lib/python3.6/site-packages/django_extensions/utils :	ä»ê»ë»
+å»2venv/lib/python3.6/site-packages/django_extensions :â»ã»ì»î»©¼ª¼Å½

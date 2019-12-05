@@ -1,1 +1,2 @@
-™O;venv/lib/python3.6/site-packages/xlwt/ExcelFormulaParser.py 2pyXžh
+™O1venv/lib/python3.6/site-packages/xlwt/__init__.py 2pyX
+h

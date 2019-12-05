@@ -1,1 +1,1 @@
-äÑ0venv/lib64/python3.6/site-packages/celery/events :ãÑåÑæÑçÑñÑòÑóÑôÑ
+äÑ0venv/lib64/python3.6/site-packages/celery/events :ãÑåÑæÑçÑğÑòÑóÑöÑ

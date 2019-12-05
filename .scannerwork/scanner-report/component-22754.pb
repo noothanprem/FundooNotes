@@ -1,1 +1,1 @@
-â±,venv/lib/python3.6/site-packages/django_nine :á±ë±ì±í±ô±
+â±,venv/lib/python3.6/site-packages/django_nine :á±ë±í±î±ô±

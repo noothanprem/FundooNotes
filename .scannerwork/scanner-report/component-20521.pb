@@ -1,1 +1,1 @@
-© Ovenv/lib/python3.6/site-packages/Crypto/SelfTest/Random/Fortuna/test_SHAd256.py 2pyX8h
+© Kvenv/lib/python3.6/site-packages/Crypto/SelfTest/Random/Fortuna/__init__.py 2pyX-h

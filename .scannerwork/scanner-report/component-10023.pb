@@ -1,1 +1,1 @@
-§N9venv/lib/python3.6/site-packages/autobahn/twisted/testing :¦N
+§NEvenv/lib/python3.6/site-packages/autobahn/twisted/testing/__init__.py 2pyX¦h

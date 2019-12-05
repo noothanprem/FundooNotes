@@ -1,1 +1,1 @@
-шкvenv/bin/rst2man.py 2pyXh
+шкvenv/bin/rst2pseudoxml.py 2pyXh

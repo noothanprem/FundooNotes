@@ -1,1 +1,1 @@
-§®5venv/lib/python3.6/site-packages/twisted/conch/client :¦®¨®©®ª®«®´®µ®
+§®@venv/lib/python3.6/site-packages/twisted/conch/client/default.py 2pyXÞh

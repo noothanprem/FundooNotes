@@ -1,1 +1,1 @@
-´Ô8venv/lib64/python3.6/site-packages/examples/base/data.py 2pyXh
+´Ô0venv/lib64/python3.6/site-packages/examples/base :	²Ô·Ô¶Ô

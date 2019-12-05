@@ -1,1 +1,1 @@
-“\4venv/lib/python3.6/site-packages/faker/providers/job :’\
+“\@venv/lib/python3.6/site-packages/faker/providers/job/__init__.py 2pyXŒh

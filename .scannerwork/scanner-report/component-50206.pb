@@ -1,1 +1,1 @@
-žˆQvenv/lib64/python3.6/site-packages/django_extensions/management/commands/notes.py 2pyXDh
+žˆUvenv/lib64/python3.6/site-packages/django_extensions/management/commands/runscript.py 2pyXóh

@@ -1,1 +1,1 @@
-Ó9venv/lib/python3.6/site-packages/oauth2_provider/forms.py 2pyXh
+ÓYvenv/lib/python3.6/site-packages/oauth2_provider/contrib/rest_framework/authentication.py 2pyX.h

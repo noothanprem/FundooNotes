@@ -1,238 +1,143 @@
-"""Generic resource pool implementation."""
+"""Logging Utilities."""
 from __future__ import absolute_import, unicode_literals
 
+import logging
+import numbers
 import os
+import sys
 
-from collections import deque
+from logging.handlers import WatchedFileHandler
 
-from . import exceptions
-from .five import Empty, LifoQueue as _LifoQueue
-from .utils.compat import register_after_fork
-from .utils.functional import lazy
+from .five import string_t
+from .utils.encoding import safe_repr, safe_str
+from .utils.functional import maybe_evaluate
+from .utils.objects import cached_property
 
+__all__ = ('LogMixin', 'LOG_LEVELS', 'get_loglevel', 'setup_logging')
 
-def _after_fork_cleanup_resource(resource):
-    try:
-        resource.force_close_all()
-    except Exception:
-        pass
-
-
-class LifoQueue(_LifoQueue):
-    """Last in first out version of Queue."""
-
-    def _init(self, maxsize):
-        self.queue = deque()
+try:
+    LOG_LEVELS = dict(logging._nameToLevel)
+    LOG_LEVELS.update(logging._levelToName)
+except AttributeError:
+    LOG_LEVELS = dict(logging._levelNames)
+LOG_LEVELS.setdefault('FATAL', logging.FATAL)
+LOG_LEVELS.setdefault(logging.FATAL, 'FATAL')
+DISABLE_TRACEBACKS = os.environ.get('DISABLE_TRACEBACKS')
 
 
-class Resource(object):
-    """Pool of resources."""
+def get_logger(logger):
+    """Get logger by name."""
+    if isinstance(logger, string_t):
+        logger = logging.getLogger(logger)
+    if not logger.handlers:
+        logger.addHandler(logging.NullHandler())
+    return logger
 
-    LimitExceeded = exceptions.LimitExceeded
 
-    close_after_fork = False
+def get_loglevel(level):
+    """Get loglevel by name."""
+    if isinstance(level, string_t):
+        return LOG_LEVELS[level]
+    return level
 
-    def __init__(self, limit=None, preload=None, close_after_fork=None):
-        self._limit = limit
-        self.preload = preload or 0
-        self._closed = False
-        self.close_after_fork = (
-            close_after_fork
-            if close_after_fork is not None else self.close_after_fork
-        )
 
-        self._resource = LifoQueue()
-        self._dirty = set()
-        if self.close_after_fork and register_after_fork is not None:
-            register_after_fork(self, _after_fork_cleanup_resource)
-        self.setup()
+def naive_format_parts(fmt):
+    parts = fmt.split('%')
+    for i, e in enumerate(parts[1:]):
+        yield None if not e or not parts[i - 1] else e[0]
 
-    def setup(self):
-        raise NotImplementedError('subclass responsibility')
 
-    def _add_when_empty(self):
-        if self.limit and len(self._dirty) >= self.limit:
-            raise self.LimitExceeded(self.limit)
-        # All taken, put new on the queue and
-        # try get again, this way the first in line
-        # will get the resource.
-        self._resource.put_nowait(self.new())
+def safeify_format(fmt, args, filters=None):
+    filters = {'s': safe_str, 'r': safe_repr} if not filters else filters
+    for index, type in enumerate(naive_format_parts(fmt)):
+        filt = filters.get(type)
+        yield filt(args[index]) if filt else args[index]
 
-    def acquire(self, block=False, timeout=None):
-        """Acquire resource.
 
-        Arguments:
-            block (bool): If the limit is exceeded,
-                then block until there is an available item.
-            timeout (float): Timeout to wait
-                if ``block`` is true.  Default is :const:`None` (forever).
+class LogMixin(object):
+    """Mixin that adds severity methods to any class."""
 
-        Raises:
-            LimitExceeded: if block is false and the limit has been exceeded.
-        """
-        if self._closed:
-            raise RuntimeError('Acquire on closed pool')
-        if self.limit:
-            while 1:
-                try:
-                    R = self._resource.get(block=block, timeout=timeout)
-                except Empty:
-                    self._add_when_empty()
-                else:
-                    try:
-                        R = self.prepare(R)
-                    except BaseException:
-                        if isinstance(R, lazy):
-                            # not evaluated yet, just put it back
-                            self._resource.put_nowait(R)
-                        else:
-                            # evaluted so must try to release/close first.
-                            self.release(R)
-                        raise
-                    self._dirty.add(R)
-                    break
-        else:
-            R = self.prepare(self.new())
+    def debug(self, *args, **kwargs):
+        return self.log(logging.DEBUG, *args, **kwargs)
 
-        def release():
-            """Release resource so it can be used by another thread.
+    def info(self, *args, **kwargs):
+        return self.log(logging.INFO, *args, **kwargs)
 
-            Warnings:
-                The caller is responsible for discarding the object,
-                and to never use the resource again.  A new resource must
-                be acquired if so needed.
-            """
-            self.release(R)
-        R.release = release
+    def warn(self, *args, **kwargs):
+        return self.log(logging.WARN, *args, **kwargs)
 
-        return R
+    def error(self, *args, **kwargs):
+        kwargs.setdefault('exc_info', True)
+        return self.log(logging.ERROR, *args, **kwargs)
 
-    def prepare(self, resource):
-        return resource
+    def critical(self, *args, **kwargs):
+        kwargs.setdefault('exc_info', True)
+        return self.log(logging.CRITICAL, *args, **kwargs)
 
-    def close_resource(self, resource):
-        resource.close()
+    def annotate(self, text):
+        return '%s - %s' % (self.logger_name, text)
 
-    def release_resource(self, resource):
-        pass
+    def log(self, severity, *args, **kwargs):
+        if DISABLE_TRACEBACKS:
+            kwargs.pop('exc_info', None)
+        if self.logger.isEnabledFor(severity):
+            log = self.logger.log
+            if len(args) > 1 and isinstance(args[0], string_t):
+                expand = [maybe_evaluate(arg) for arg in args[1:]]
+                return log(severity,
+                           self.annotate(args[0].replace('%r', '%s')),
+                           *list(safeify_format(args[0], expand)), **kwargs)
+            else:
+                return self.logger.log(
+                    severity, self.annotate(' '.join(map(safe_str, args))),
+                    **kwargs)
 
-    def replace(self, resource):
-        """Replace existing resource with a new instance.
+    def get_logger(self):
+        return get_logger(self.logger_name)
 
-        This can be used in case of defective resources.
-        """
-        if self.limit:
-            self._dirty.discard(resource)
-        self.close_resource(resource)
+    def is_enabled_for(self, level):
+        return self.logger.isEnabledFor(self.get_loglevel(level))
 
-    def release(self, resource):
-        if self.limit:
-            self._dirty.discard(resource)
-            self._resource.put_nowait(resource)
-            self.release_resource(resource)
-        else:
-            self.close_resource(resource)
+    def get_loglevel(self, level):
+        if not isinstance(level, numbers.Integral):
+            return LOG_LEVELS[level]
+        return level
 
-    def collect_resource(self, resource):
-        pass
-
-    def force_close_all(self):
-        """Close and remove all resources in the pool (also those in use).
-
-        Used to close resources from parent processes after fork
-        (e.g. sockets/connections).
-        """
-        if self._closed:
-            return
-        self._closed = True
-        dirty = self._dirty
-        resource = self._resource
-        while 1:  # - acquired
-            try:
-                dres = dirty.pop()
-            except KeyError:
-                break
-            try:
-                self.collect_resource(dres)
-            except AttributeError:  # Issue #78
-                pass
-        while 1:  # - available
-            # deque supports '.clear', but lists do not, so for that
-            # reason we use pop here, so that the underlying object can
-            # be any object supporting '.pop' and '.append'.
-            try:
-                res = resource.queue.pop()
-            except IndexError:
-                break
-            try:
-                self.collect_resource(res)
-            except AttributeError:
-                pass  # Issue #78
-
-    def resize(self, limit, force=False, ignore_errors=False, reset=False):
-        prev_limit = self._limit
-        if (self._dirty and 0 < limit < self._limit) and not ignore_errors:
-            if not force:
-                raise RuntimeError(
-                    "Can't shrink pool when in use: was={0} now={1}".format(
-                        self._limit, limit))
-            reset = True
-        self._limit = limit
-        if reset:
-            try:
-                self.force_close_all()
-            except Exception:
-                pass
-        self.setup()
-        if limit < prev_limit:
-            self._shrink_down(collect=limit > 0)
-
-    def _shrink_down(self, collect=True):
-        class Noop:
-            def __enter__(self):
-                pass
-
-            def __exit__(self, type, value, traceback):
-                pass
-
-        resource = self._resource
-        # Items to the left are last recently used, so we remove those first.
-        with getattr(resource, 'mutex', Noop()):
-            while len(resource.queue) > self.limit:
-                R = resource.queue.popleft()
-                if collect:
-                    self.collect_resource(R)
+    @cached_property
+    def logger(self):
+        return self.get_logger()
 
     @property
-    def limit(self):
-        return self._limit
+    def logger_name(self):
+        return self.__class__.__name__
 
-    @limit.setter
-    def limit(self, limit):
-        self.resize(limit)
 
-    if os.environ.get('KOMBU_DEBUG_POOL'):  # pragma: no cover
-        _orig_acquire = acquire
-        _orig_release = release
+class Log(LogMixin):
 
-        _next_resource_id = 0
+    def __init__(self, name, logger=None):
+        self._logger_name = name
+        self._logger = logger
 
-        def acquire(self, *args, **kwargs):  # noqa
-            import traceback
-            id = self._next_resource_id = self._next_resource_id + 1
-            print('+{0} ACQUIRE {1}'.format(id, self.__class__.__name__))
-            r = self._orig_acquire(*args, **kwargs)
-            r._resource_id = id
-            print('-{0} ACQUIRE {1}'.format(id, self.__class__.__name__))
-            if not hasattr(r, 'acquired_by'):
-                r.acquired_by = []
-            r.acquired_by.append(traceback.format_stack())
-            return r
+    def get_logger(self):
+        if self._logger:
+            return self._logger
+        return LogMixin.get_logger(self)
 
-        def release(self, resource):  # noqa
-            id = resource._resource_id
-            print('+{0} RELEASE {1}'.format(id, self.__class__.__name__))
-            r = self._orig_release(resource)
-            print('-{0} RELEASE {1}'.format(id, self.__class__.__name__))
-            self._next_resource_id -= 1
-            return r
+    @property
+    def logger_name(self):
+        return self._logger_name
+
+
+def setup_logging(loglevel=None, logfile=None):
+    """Setup logging."""
+    logger = logging.getLogger()
+    loglevel = get_loglevel(loglevel or 'ERROR')
+    logfile = logfile if logfile else sys.__stderr__
+    if not logger.handlers:
+        if hasattr(logfile, 'write'):
+            handler = logging.StreamHandler(logfile)
+        else:
+            handler = WatchedFileHandler(logfile)
+        logger.addHandler(handler)
+        logger.setLevel(loglevel)
+    return logger

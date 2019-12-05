@@ -1,16 +1,15 @@
-from django.db import migrations, models
+from django.db import migrations
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('token_blacklist', '0003_auto_20171017_2007'),
+        ('token_blacklist', '0004_auto_20171017_2013'),
     ]
 
     operations = [
-        migrations.AlterField(
+        migrations.RemoveField(
             model_name='outstandingtoken',
-            name='jti_hex',
-            field=models.CharField(unique=True, max_length=255),
+            name='jti',
         ),
     ]

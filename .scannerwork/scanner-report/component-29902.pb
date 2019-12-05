@@ -1,1 +1,1 @@
-ÎéCvenv/lib64/python3.6/site-packages/django/db/models/fields/proxy.py 2pyXh
+Îé>venv/lib64/python3.6/site-packages/django/db/models/options.py 2pyX½h

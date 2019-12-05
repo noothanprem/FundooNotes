@@ -1,1 +1,1 @@
-²ä:venv/lib64/python3.6/site-packages/social_django/models.py 2pyXŒh
+²ä<venv/lib64/python3.6/site-packages/social_django/__init__.py 2pyXh

@@ -1,1 +1,1 @@
-ÓIFvenv/lib/python3.6/site-packages/django_elasticsearch_dsl/documents.py 2pyXÈh
+ÓIYvenv/lib/python3.6/site-packages/django_elasticsearch_dsl/management/commands/__init__.py 2pyXh

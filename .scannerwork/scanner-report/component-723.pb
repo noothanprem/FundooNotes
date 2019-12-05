@@ -1,1 +1,1 @@
-Ó=venv/lib/python3.6/site-packages/celery/backends/cassandra.py 2pyXíh
+Ó:venv/lib/python3.6/site-packages/celery/backends/consul.py 2pyXhh

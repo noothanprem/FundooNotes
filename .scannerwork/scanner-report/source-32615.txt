@@ -1,21 +1,4 @@
-DEBUG = 10
-INFO = 20
-SUCCESS = 25
-WARNING = 30
-ERROR = 40
+from django.contrib.messages.api import *  # NOQA
+from django.contrib.messages.constants import *  # NOQA
 
-DEFAULT_TAGS = {
-    DEBUG: 'debug',
-    INFO: 'info',
-    SUCCESS: 'success',
-    WARNING: 'warning',
-    ERROR: 'error',
-}
-
-DEFAULT_LEVELS = {
-    'DEBUG': DEBUG,
-    'INFO': INFO,
-    'SUCCESS': SUCCESS,
-    'WARNING': WARNING,
-    'ERROR': ERROR,
-}
+default_app_config = 'django.contrib.messages.apps.MessagesConfig'

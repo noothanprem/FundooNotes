@@ -1,1 +1,1 @@
-‡¿Dvenv/lib/python3.6/site-packages/oauthlib/oauth1/rfc5849/__init__.py 2pyXÈh
+‡¿Bvenv/lib/python3.6/site-packages/oauthlib/oauth1/rfc5849/errors.py 2pyXPh

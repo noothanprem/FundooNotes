@@ -1,1 +1,1 @@
-”„0venv/lib/python3.6/site-packages/google/protobuf :r“„•„–„—„˜„Ÿ„ „¡„¢„£„¤„¥„¯„°„±„²„³„´„µ„¶„·„¸„¹„º„»„¼„½„¾„¿„À„Í…Î…Ï…Ð…Ñ…Ò…Ó…Ô…
+”„?venv/lib/python3.6/site-packages/google/protobuf/json_format.py 2pyX™h

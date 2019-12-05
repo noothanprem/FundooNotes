@@ -1,1 +1,1 @@
-öšovenv/lib/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/migrations/0007_auto_20171017_2214.py 2pyXh
+öšovenv/lib/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/migrations/0006_auto_20171017_2113.py 2pyXh

@@ -1,1 +1,1 @@
-ÄR5venv/lib/python3.6/site-packages/bootstrap3/models.py 2pyXh
+ÄR3venv/lib/python3.6/site-packages/bootstrap3/text.py 2pyXh

@@ -1,1 +1,1 @@
-ˆŽ4venv/lib/python3.6/site-packages/itsdangerous/jws.py 2pyXÛh
+ˆŽ7venv/lib/python3.6/site-packages/itsdangerous/signer.py 2pyX´h

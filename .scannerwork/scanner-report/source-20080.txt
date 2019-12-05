@@ -2,52 +2,32 @@
 # Distributed under the terms of the Modified BSD License.
 
 
+from unittest import TestCase
 import zmq
+import os
 
+class TestIncludes(TestCase):
 
-from zmq.tests import BaseZMQTestCase, have_gevent, GreenTest
+    def test_get_includes(self):
+        from os.path import dirname, basename
+        includes = zmq.get_includes()
+        self.assertTrue(isinstance(includes, list))
+        self.assertTrue(len(includes) >= 2)
+        parent = includes[0]
+        self.assertTrue(isinstance(parent, str))
+        utilsdir = includes[1]
+        self.assertTrue(isinstance(utilsdir, str))
+        utils = basename(utilsdir)
+        self.assertEqual(utils, "utils")
 
-
-x = b' '
-class TestPair(BaseZMQTestCase):
-
-    def test_basic(self):
-        s1, s2 = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
-
-        msg1 = b'message1'
-        msg2 = self.ping_pong(s1, s2, msg1)
-        self.assertEqual(msg1, msg2)
-
-    def test_multiple(self):
-        s1, s2 = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
-
-        for i in range(10):
-            msg = i*x
-            s1.send(msg)
-
-        for i in range(10):
-            msg = i*x
-            s2.send(msg)
-
-        for i in range(10):
-            msg = s1.recv()
-            self.assertEqual(msg, i*x)
-
-        for i in range(10):
-            msg = s2.recv()
-            self.assertEqual(msg, i*x)
-
-    def test_json(self):
-        s1, s2 = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
-        o = dict(a=10,b=list(range(10)))
-        o2 = self.ping_pong_json(s1, s2, o)
-
-    def test_pyobj(self):
-        s1, s2 = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
-        o = dict(a=10,b=range(10))
-        o2 = self.ping_pong_pyobj(s1, s2, o)
-
-if have_gevent:
-    class TestReqRepGreen(GreenTest, TestPair):
-        pass
-
+    def test_get_library_dirs(self):
+        from os.path import dirname, basename
+        libdirs = zmq.get_library_dirs()
+        self.assertTrue(isinstance(libdirs, list))
+        self.assertEqual(len(libdirs), 1)
+        parent = libdirs[0]
+        self.assertTrue(isinstance(parent, str))
+        libdir = basename(parent)
+        self.assertEqual(libdir, "zmq")
+        
+         

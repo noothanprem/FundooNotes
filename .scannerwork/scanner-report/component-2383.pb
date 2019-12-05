@@ -1,1 +1,1 @@
-Ï<venv/lib/python3.6/site-packages/zope/interface/tests/odd.py 2pyXh
+ÏGvenv/lib/python3.6/site-packages/zope/interface/tests/test_interface.py 2pyXÕh

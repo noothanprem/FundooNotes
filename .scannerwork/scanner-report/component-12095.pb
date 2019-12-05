@@ -1,1 +1,1 @@
-¿^,venv/lib/python3.6/site-packages/locust/test :¾^À^Á^Â^Ã^Ä^Å^Æ^Ç^È^É^Ê^Ú^Û^
+¿^Hvenv/lib/python3.6/site-packages/locust/test/test_task_sequence_class.py 2pyXMh

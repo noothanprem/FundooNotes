@@ -1,1 +1,1 @@
-¥¹=venv/lib/python3.6/site-packages/social_core/backends/rdio.py 2pyXIh
+¥¹Dvenv/lib/python3.6/site-packages/social_core/backends/thisismyjam.py 2pyX"h

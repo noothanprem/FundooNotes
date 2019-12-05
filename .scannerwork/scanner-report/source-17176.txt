@@ -3,144 +3,145 @@
 # This file is part of gunicorn released under the MIT license.
 # See the NOTICE for more information.
 
-import copy
-import os
+from datetime import datetime
+import errno
+import socket
+import ssl
 import sys
 
-try:
-    import tornado
-except ImportError:
-    raise RuntimeError("You need tornado installed to use this worker.")
-import tornado.web
-import tornado.httpserver
-from tornado.ioloop import IOLoop, PeriodicCallback
-from tornado.wsgi import WSGIContainer
-from gunicorn.workers.base import Worker
-from gunicorn import __version__ as gversion
+import gunicorn.http as http
+import gunicorn.http.wsgi as wsgi
+import gunicorn.util as util
+import gunicorn.workers.base as base
+from gunicorn import six
+
+ALREADY_HANDLED = object()
 
 
-# `io_loop` arguments to many Tornado functions have been removed in Tornado 5.0
-# <http://www.tornadoweb.org/en/stable/releases/v5.0.0.html#backwards-compatibility-notes>
-IOLOOP_PARAMETER_REMOVED = tornado.version_info >= (5, 0, 0)
+class AsyncWorker(base.Worker):
 
+    def __init__(self, *args, **kwargs):
+        super(AsyncWorker, self).__init__(*args, **kwargs)
+        self.worker_connections = self.cfg.worker_connections
 
-class TornadoWorker(Worker):
+    def timeout_ctx(self):
+        raise NotImplementedError()
 
-    @classmethod
-    def setup(cls):
-        web = sys.modules.pop("tornado.web")
-        old_clear = web.RequestHandler.clear
+    def is_already_handled(self, respiter):
+        # some workers will need to overload this function to raise a StopIteration
+        return respiter == ALREADY_HANDLED
 
-        def clear(self):
-            old_clear(self)
-            if "Gunicorn" not in self._headers["Server"]:
-                self._headers["Server"] += " (Gunicorn/%s)" % gversion
-        web.RequestHandler.clear = clear
-        sys.modules["tornado.web"] = web
-
-    def handle_exit(self, sig, frame):
-        if self.alive:
-            super(TornadoWorker, self).handle_exit(sig, frame)
-
-    def handle_request(self):
-        self.nr += 1
-        if self.alive and self.nr >= self.max_requests:
-            self.log.info("Autorestarting worker after current request.")
-            self.alive = False
-
-    def watchdog(self):
-        if self.alive:
-            self.notify()
-
-        if self.ppid != os.getppid():
-            self.log.info("Parent changed, shutting down: %s", self)
-            self.alive = False
-
-    def heartbeat(self):
-        if not self.alive:
-            if self.server_alive:
-                if hasattr(self, 'server'):
-                    try:
-                        self.server.stop()
-                    except Exception:
-                        pass
-                self.server_alive = False
+    def handle(self, listener, client, addr):
+        req = None
+        try:
+            parser = http.RequestParser(self.cfg, client)
+            try:
+                listener_name = listener.getsockname()
+                if not self.cfg.keepalive:
+                    req = six.next(parser)
+                    self.handle_request(listener_name, req, client, addr)
+                else:
+                    # keepalive loop
+                    proxy_protocol_info = {}
+                    while True:
+                        req = None
+                        with self.timeout_ctx():
+                            req = six.next(parser)
+                        if not req:
+                            break
+                        if req.proxy_protocol_info:
+                            proxy_protocol_info = req.proxy_protocol_info
+                        else:
+                            req.proxy_protocol_info = proxy_protocol_info
+                        self.handle_request(listener_name, req, client, addr)
+            except http.errors.NoMoreData as e:
+                self.log.debug("Ignored premature client disconnection. %s", e)
+            except StopIteration as e:
+                self.log.debug("Closing connection. %s", e)
+            except ssl.SSLError:
+                # pass to next try-except level
+                six.reraise(*sys.exc_info())
+            except EnvironmentError:
+                # pass to next try-except level
+                six.reraise(*sys.exc_info())
+            except Exception as e:
+                self.handle_error(req, client, addr, e)
+        except ssl.SSLError as e:
+            if e.args[0] == ssl.SSL_ERROR_EOF:
+                self.log.debug("ssl connection closed")
+                client.close()
             else:
-                if not self.ioloop._callbacks:
-                    self.ioloop.stop()
-
-    def run(self):
-        self.ioloop = IOLoop.instance()
-        self.alive = True
-        self.server_alive = False
-        if IOLOOP_PARAMETER_REMOVED:
-            PeriodicCallback(self.watchdog, 1000).start()
-            PeriodicCallback(self.heartbeat, 1000).start()
-        else:
-            PeriodicCallback(self.watchdog, 1000, io_loop=self.ioloop).start()
-            PeriodicCallback(self.heartbeat, 1000, io_loop=self.ioloop).start()
-
-        # Assume the app is a WSGI callable if its not an
-        # instance of tornado.web.Application or is an
-        # instance of tornado.wsgi.WSGIApplication
-        app = self.wsgi
-        if not isinstance(app, tornado.web.Application) or \
-           isinstance(app, tornado.wsgi.WSGIApplication):
-            app = WSGIContainer(app)
-
-        # Monkey-patching HTTPConnection.finish to count the
-        # number of requests being handled by Tornado. This
-        # will help gunicorn shutdown the worker if max_requests
-        # is exceeded.
-        httpserver = sys.modules["tornado.httpserver"]
-        if hasattr(httpserver, 'HTTPConnection'):
-            old_connection_finish = httpserver.HTTPConnection.finish
-
-            def finish(other):
-                self.handle_request()
-                old_connection_finish(other)
-            httpserver.HTTPConnection.finish = finish
-            sys.modules["tornado.httpserver"] = httpserver
-
-            server_class = tornado.httpserver.HTTPServer
-        else:
-
-            class _HTTPServer(tornado.httpserver.HTTPServer):
-
-                def on_close(instance, server_conn):
-                    self.handle_request()
-                    super(_HTTPServer, instance).on_close(server_conn)
-
-            server_class = _HTTPServer
-
-        if self.cfg.is_ssl:
-            _ssl_opt = copy.deepcopy(self.cfg.ssl_options)
-            # tornado refuses initialization if ssl_options contains following
-            # options
-            del _ssl_opt["do_handshake_on_connect"]
-            del _ssl_opt["suppress_ragged_eofs"]
-            if IOLOOP_PARAMETER_REMOVED:
-                server = server_class(app, ssl_options=_ssl_opt)
+                self.log.debug("Error processing SSL request.")
+                self.handle_error(req, client, addr, e)
+        except EnvironmentError as e:
+            if e.errno not in (errno.EPIPE, errno.ECONNRESET):
+                self.log.exception("Socket error processing request.")
             else:
-                server = server_class(app, io_loop=self.ioloop,
-                                      ssl_options=_ssl_opt)
-        else:
-            if IOLOOP_PARAMETER_REMOVED:
-                server = server_class(app)
-            else:
-                server = server_class(app, io_loop=self.ioloop)
+                if e.errno == errno.ECONNRESET:
+                    self.log.debug("Ignoring connection reset")
+                else:
+                    self.log.debug("Ignoring EPIPE")
+        except Exception as e:
+            self.handle_error(req, client, addr, e)
+        finally:
+            util.close(client)
 
-        self.server = server
-        self.server_alive = True
+    def handle_request(self, listener_name, req, sock, addr):
+        request_start = datetime.now()
+        environ = {}
+        resp = None
+        try:
+            self.cfg.pre_request(self, req)
+            resp, environ = wsgi.create(req, sock, addr,
+                    listener_name, self.cfg)
+            environ["wsgi.multithread"] = True
+            self.nr += 1
+            if self.alive and self.nr >= self.max_requests:
+                self.log.info("Autorestarting worker after current request.")
+                resp.force_close()
+                self.alive = False
 
-        for s in self.sockets:
-            s.setblocking(0)
-            if hasattr(server, "add_socket"):  # tornado > 2.0
-                server.add_socket(s)
-            elif hasattr(server, "_sockets"):  # tornado 2.0
-                server._sockets[s.fileno()] = s
+            if not self.cfg.keepalive:
+                resp.force_close()
 
-        server.no_keep_alive = self.cfg.keepalive <= 0
-        server.start(num_processes=1)
-
-        self.ioloop.start()
+            respiter = self.wsgi(environ, resp.start_response)
+            if self.is_already_handled(respiter):
+                return False
+            try:
+                if isinstance(respiter, environ['wsgi.file_wrapper']):
+                    resp.write_file(respiter)
+                else:
+                    for item in respiter:
+                        resp.write(item)
+                resp.close()
+                request_time = datetime.now() - request_start
+                self.log.access(resp, req, environ, request_time)
+            finally:
+                if hasattr(respiter, "close"):
+                    respiter.close()
+            if resp.should_close():
+                raise StopIteration()
+        except StopIteration:
+            raise
+        except EnvironmentError:
+            # If the original exception was a socket.error we delegate
+            # handling it to the caller (where handle() might ignore it)
+            six.reraise(*sys.exc_info())
+        except Exception:
+            if resp and resp.headers_sent:
+                # If the requests have already been sent, we should close the
+                # connection to indicate the error.
+                self.log.exception("Error handling request")
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                    sock.close()
+                except EnvironmentError:
+                    pass
+                raise StopIteration()
+            raise
+        finally:
+            try:
+                self.cfg.post_request(self, req, environ, resp)
+            except Exception:
+                self.log.exception("Exception in post_request hook")
+        return True

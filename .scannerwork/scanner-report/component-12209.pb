@@ -1,1 +1,1 @@
-±_6venv/lib/python3.6/site-packages/PIL/SgiImagePlugin.py 2pyXäh
+±_6venv/lib/python3.6/site-packages/PIL/XpmImagePlugin.py 2pyX‚h

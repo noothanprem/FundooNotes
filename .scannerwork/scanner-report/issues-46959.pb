@@ -1,195 +1,16 @@
 I
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2<<0 9K
-pythonS1313.Make this IP "5.8.13.21" address configurable. 2VV1 <I
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2XX 'K
-pythonS1313.Make this IP "5.8.13.21" address configurable. 2ff; FK
-pythonS1313.Make this IP "5.8.13.21" address configurable. 2vv; FK
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-ŸŸ K
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-·· P
-pythonS13131Make this IP "34.55.89.144" address configurable. 2
-ººA OP
-pythonS13131Make this IP "34.55.89.144" address configurable. 2
-½½ L
-pythonS1313-Make this IP "10.0.0.1" address configurable. 2
-¿¿> HL
-pythonS1313-Make this IP "10.0.0.1" address configurable. 2
-ÆÆ( 2L
-pythonS1313-Make this IP "10.0.0.1" address configurable. 2
-ÐÐ &K
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-ÓÓ L
-pythonS1313-Make this IP "10.0.0.2" address configurable. 2
-××A KL
-pythonS1313-Make this IP "10.0.0.2" address configurable. 2
-ÚÚ L
-pythonS1313-Make this IP "10.0.0.3" address configurable. 2
-ÜÜ> HL
-pythonS1313-Make this IP "10.0.0.3" address configurable. 2
-ãã1 ;K
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-íí L
-pythonS1313-Make this IP "10.0.0.1" address configurable. 2
-óó> HL
-pythonS1313-Make this IP "10.0.0.1" address configurable. 2
-öö L
-pythonS1313-Make this IP "10.0.0.2" address configurable. 2
-øø> HL
-pythonS1313-Make this IP "10.0.0.2" address configurable. 2
-ÿÿ( 2K
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-‰‰ K
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-›› K
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-¬¬ K
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-ÁÁ K
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-ÔÔ K
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-íí L
-pythonS1313-Make this IP "10.0.0.7" address configurable. 2
-ðð: DL
-pythonS1313-Make this IP "10.0.0.7" address configurable. 2
-úú: DK
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-…… L
-pythonS1313-Make this IP "10.0.0.5" address configurable. 2
-ŠŠ: DL
-pythonS1313-Make this IP "10.0.0.5" address configurable. 2
-””: DK
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-ŸŸ K
-pythonS1313,Make this IP "1.1.2.3" address configurable. 2
-±± L
-pythonS1313-Make this IP "10.0.0.2" address configurable. 2
-ºº> HL
-pythonS1313-Make this IP "10.0.0.2" address configurable. 2
-½½ L
-pythonS1313-Make this IP "10.0.0.3" address configurable. 2
-ÃÃA KL
-pythonS1313-Make this IP "10.0.0.3" address configurable. 2
-ÆÆ L
-pythonS1313-Make this IP "10.0.0.4" address configurable. 2
-ÉÉ: DL
-pythonS1313-Make this IP "10.0.0.4" address configurable. 2
-ØØ8 BO
-pythonS13130Make this IP "192.0.2.101" address configurable. 2
-›› )O
-pythonS13130Make this IP "192.0.2.101" address configurable. 2
-££8 EO
-pythonS13130Make this IP "192.0.2.101" address configurable. 2
-†† $O
-pythonS13130Make this IP "192.0.2.101" address configurable. 2
-’’ $O
-pythonS13130Make this IP "192.0.2.101" address configurable. 2
-““2 ?O
-pythonS13130Make this IP "192.0.2.101" address configurable. 2
-¡¡ $O
-pythonS13130Make this IP "192.0.2.101" address configurable. 2
-¥¥6 CO
-pythonS13130Make this IP "192.0.2.101" address configurable. 2
-ÉÉ $m
-pythonS100QRename method "_queryTest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 200 u
-pythonS100YRename method "test_filteredQuery" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2\\ w
-pythonS100[Rename method "test_unfilteredQuery" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2kk q
-pythonS100SRename method "_getResolver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-•• w
-pythonS100YRename method "test_lookupAddress" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¯¯ {
-pythonS100]Rename method "test_lookupChecksClass" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÊÊ u
-pythonS100WRename method "test_missingGlue" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-çç u
-pythonS100WRename method "test_missingName" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ƒƒ 
-pythonS100aRename method "test_delegationLookupError" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¥¥ "
-pythonS100aRename method "test_delegationLookupEmpty" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ºº "{
-pythonS100]Rename method "test_lookupNameservers" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÎÎ }
-pythonS100_Rename method "test_returnCanonicalName" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-çç  }
-pythonS100_Rename method "test_followCanonicalName" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-þþ  
-pythonS100cRename method "test_detectCanonicalNameLoop" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-˜˜ $x
-pythonS100ZRename method "test_boundedQueries" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-«« ˆ
-pythonS100jRename method "test_resolverFactoryArgumentPresent" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‚‚ +‡
-pythonS100iRename method "test_resolverFactoryArgumentAbsent" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‹‹ *Ž
-pythonS100pRename method "test_resolverFactoryOnlyExpectedArguments" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-•• 1r
-pythonS100TRename method "getHostByName" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÌÌ 
-pythonS100cRename method "test_returnsDeferredResolver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-èè $
-pythonS100aRename method "test_resolves13RootServers" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ññ "y
-pythonS100[Rename method "test_becomesResolver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ýý ƒ
-pythonS100eRename method "test_resolverReceivesRootHints" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ŠŠ &ˆ
-pythonS100jRename method "test_continuesWhenSomeRootHintsFail" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-–– +‡
-pythonS100iRename method "test_continuesWhenAllRootHintsFail" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-©© *
-pythonS100aRename method "test_passesResolverFactory" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¾¾ "w
-pythonS117[Rename this local variable "portNumber" to match the regular expression ^[_a-z][a-z0-9_]*$. 2@@ m
-pythonS117QRename this parameter "rCode" to match the regular expression ^[_a-z][a-z0-9_]*$. 2{{@ Ey
-pythonS117[Rename this parameter "serverResponses" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-•• *x
-pythonS117ZRename this parameter "maximumQueries" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-••, :y
-pythonS117[Rename this parameter "serverAddresses" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-¢¢ (w
-pythonS117YRename this local variable "badClass" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÐÐ t
-pythonS117VRename this local variable "failD" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÒÒ w
-pythonS117YRename this local variable "succeedD" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÖÖ {
-pythonS117]Rename this local variable "dummyReactor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-šš 
-pythonS117aRename this local variable "deferredResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-íí {
-pythonS117]Rename this local variable "stubResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-öö {
-pythonS117]Rename this local variable "stubResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ƒƒ 
-pythonS117aRename this local variable "deferredResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-„„ {
-pythonS117]Rename this local variable "stubResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
- 
-pythonS117aRename this local variable "deferredResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
- {
-pythonS117]Rename this local variable "stubResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-œœ 
-pythonS117aRename this local variable "deferredResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
- {
-pythonS117]Rename this local variable "stubResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-¯¯ 
-pythonS117aRename this local variable "deferredResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-°° {
-pythonS117]Rename this local variable "stubResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÄÄ 
-pythonS117aRename this local variable "deferredResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÅÅ t
-pythonS116VRename this field "pendingResults" to match the regular expression ^[_a-z][_a-z0-9]*$. 2
-ÉÉ s
-pythonS1542VRename function "getOnePayload" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 s
-pythonS1542VRename function "getOneAddress" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2## r
-pythonS1542SRename function "getOneName" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ßß ~
-pythonS1542_Rename function "raisingResolverFactory" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ïï r
-pythonS1542SRename function "checkHints" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¤¤ r
-pythonS1542SRename function "checkHints" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-·· 
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2$$> GI
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2&&> MI
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2)) 7I
+pythonS1313,Make this IP "1.2.3.4" address configurable. 233- BI
+pythonS1313,Make this IP "1.2.3.4" address configurable. 255 I
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2>>- GI
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2@@ I
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2II- GI
+pythonS1313,Make this IP "1.2.3.5" address configurable. 2JJ- GI
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2NN, 5I
+pythonS1313,Make this IP "1.2.3.5" address configurable. 2RR, 5z
+pythonS100^Rename method "test_malformedSecondary" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 }
+pythonS100aRename method "test_secondaryExplicitPort" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 288 "‚
+pythonS100fRename method "test_secondaryAuthorityServices" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2CC '~
+pythonS100bRename method "test_recursiveConfiguration" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2VV #

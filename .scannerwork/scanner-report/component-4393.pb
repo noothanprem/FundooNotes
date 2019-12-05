@@ -1,1 +1,1 @@
-©"4venv/lib/python3.6/site-packages/django/contrib/auth :&¨"Ä"Å"Æ"Ç"Ë"Í"Ù"ä$æ$ç$ü$ı$ş$ÿ$€%%‚%™%
+©"4venv/lib/python3.6/site-packages/django/contrib/auth :&¨"Ã"Ä"Å"Ç"Ì"Í"×"å$ç$è$ı$ş$ÿ$€%%‚%ƒ%‡%

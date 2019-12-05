@@ -1,158 +1,240 @@
-# -*- test-case-name: twisted.logger.test.test_observer -*-
+# -*- test-case-name: twisted.logger.test.test_global -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-Basic log observers.
+This module includes process-global state associated with the logging system,
+and implementation of logic for managing that global state.
 """
 
-from zope.interface import Interface, implementer
+import sys
+import warnings
 
-from twisted.python.failure import Failure
+from twisted.python.compat import currentframe
+from twisted.python.reflect import qual
+
+from ._buffer import LimitedHistoryLogObserver
+from ._observer import LogPublisher
+from ._filter import FilteringLogObserver, LogLevelFilterPredicate
 from ._logger import Logger
+from ._format import eventAsText
+from ._levels import LogLevel
+from ._io import LoggingFile
+from ._file import FileLogObserver
 
 
 
-OBSERVER_DISABLED = (
-    "Temporarily disabling observer {observer} due to exception: {log_failure}"
+MORE_THAN_ONCE_WARNING = (
+    "Warning: primary log target selected twice at <{fileNow}:{lineNow}> - "
+    "previously selected at <{fileThen}:{lineThen}>.  Remove one of the calls "
+    "to beginLoggingTo."
 )
 
 
 
-class ILogObserver(Interface):
+class LogBeginner(object):
     """
-    An observer which can handle log events.
+    A L{LogBeginner} holds state related to logging before logging has begun,
+    and begins logging when told to do so.  Logging "begins" when someone has
+    selected a set of observers, like, for example, a L{FileLogObserver} that
+    writes to a file on disk, or to standard output.
 
-    Unlike most interfaces within Twisted, an L{ILogObserver} I{must be
-    thread-safe}.  Log observers may be called indiscriminately from many
-    different threads, as any thread may wish to log a message at any time.
-    """
+    Applications will not typically need to instantiate this class, except
+    those which intend to initialize the global logging system themselves,
+    which may wish to instantiate this for testing.  The global instance for
+    the current process is exposed as
+    L{twisted.logger.globalLogBeginner}.
 
-    def __call__(event):
-        """
-        Log an event.
+    Before logging has begun, a L{LogBeginner} will:
 
-        @type event: C{dict} with (native) C{str} keys.
-        @param event: A dictionary with arbitrary keys as defined by the
-            application emitting logging events, as well as keys added by the
-            logging system.  The logging system reserves the right to set any
-            key beginning with the prefix C{"log_"}; applications should not
-            use any key so named.  Currently, the following keys are used by
-            the logging system in some way, if they are present (they are all
-            optional):
+        1. Log any critical messages (e.g.: unhandled exceptions) to the given
+           file-like object.
 
-                - C{"log_format"}: a PEP-3101-style format string which draws
-                  upon the keys in the event as its values, used to format the
-                  event for human consumption.
+        2. Save (a limited number of) log events in a
+           L{LimitedHistoryLogObserver}.
 
-                - C{"log_flattened"}: a dictionary mapping keys derived from
-                  the names and format values used in the C{"log_format"}
-                  string to their values.  This is used to preserve some
-                  structured information for use with
-                  L{twisted.logger.extractField}.
+    @ivar _initialBuffer: A buffer of messages logged before logging began.
+    @type _initialBuffer: L{LimitedHistoryLogObserver}
 
-                - C{"log_trace"}: A L{list} designed to capture information
-                  about which L{LogPublisher}s have observed the event.
+    @ivar _publisher: The log publisher passed in to L{LogBeginner}'s
+        constructor.
+    @type _publisher: L{LogPublisher}
 
-                - C{"log_level"}: a L{log level
-                  <twisted.logger.LogLevel>} constant, indicating the
-                  importance of and audience for this event.
+    @ivar _log: The logger used to log messages about the operation of the
+        L{LogBeginner} itself.
+    @type _log: L{Logger}
 
-                - C{"log_namespace"}: a namespace for the emitter of the event,
-                  given as a unicode string.
+    @ivar _temporaryObserver: If not L{None}, an L{ILogObserver} that observes
+        events on C{_publisher} for this L{LogBeginner}.
+    @type _temporaryObserver: L{ILogObserver} or L{None}
 
-                - C{"log_system"}: a string indicating the network event or
-                  method call which resulted in the message being logged.
-        """
+    @ivar _stdio: An object with C{stderr} and C{stdout} attributes (like the
+        L{sys} module) which will be replaced when redirecting standard I/O.
+    @type _stdio: L{object}
 
-
-
-@implementer(ILogObserver)
-class LogPublisher(object):
-    """
-    I{ILogObserver} that fans out events to other observers.
-
-    Keeps track of a set of L{ILogObserver} objects and forwards
-    events to each.
+    @cvar _DEFAULT_BUFFER_SIZE: The default size for the initial log events
+        buffer.
+    @type _DEFAULT_BUFFER_SIZE: L{int}
     """
 
-    def __init__(self, *observers):
-        self._observers = list(observers)
-        self.log = Logger(observer=self)
+    _DEFAULT_BUFFER_SIZE = 200
 
-
-    def addObserver(self, observer):
+    def __init__(
+        self, publisher, errorStream, stdio, warningsModule,
+        initialBufferSize=None,
+    ):
         """
-        Registers an observer with this publisher.
+        Initialize this L{LogBeginner}.
 
-        @param observer: An L{ILogObserver} to add.
+        @param initialBufferSize: The size of the event buffer into which
+            events are collected until C{beginLoggingTo} is called.  Or
+            C{None} to use the default size.
+        @type initialBufferSize: L{int} or L{types.NoneType}
         """
-        if not callable(observer):
-            raise TypeError("Observer is not callable: {0!r}".format(observer))
-        if observer not in self._observers:
-            self._observers.append(observer)
+        if initialBufferSize is None:
+            initialBufferSize = self._DEFAULT_BUFFER_SIZE
+        self._initialBuffer = LimitedHistoryLogObserver(size=initialBufferSize)
+        self._publisher = publisher
+        self._log = Logger(observer=publisher)
+        self._stdio = stdio
+        self._warningsModule = warningsModule
+        self._temporaryObserver = LogPublisher(
+            self._initialBuffer,
+            FilteringLogObserver(
+                FileLogObserver(
+                    errorStream,
+                    lambda event: eventAsText(
+                        event,
+                        includeTimestamp=False,
+                        includeSystem=False,
+                    ) + '\n'
+                ),
+                [LogLevelFilterPredicate(defaultLogLevel=LogLevel.critical)]
+            )
+        )
+        publisher.addObserver(self._temporaryObserver)
+        self._oldshowwarning = warningsModule.showwarning
 
 
-    def removeObserver(self, observer):
+    def beginLoggingTo(
+        self, observers, discardBuffer=False, redirectStandardIO=True
+    ):
         """
-        Unregisters an observer with this publisher.
+        Begin logging to the given set of observers.  This will:
 
-        @param observer: An L{ILogObserver} to remove.
+            1. Add all the observers given in C{observers} to the
+               L{LogPublisher} associated with this L{LogBeginner}.
+
+            2. Optionally re-direct standard output and standard error streams
+               to the logging system.
+
+            3. Re-play any messages that were previously logged to that
+               publisher to the new observers, if C{discardBuffer} is not set.
+
+            4. Stop logging critical errors from the L{LogPublisher} as strings
+               to the C{errorStream} associated with this L{LogBeginner}, and
+               allow them to be logged normally.
+
+            5. Re-direct warnings from the L{warnings} module associated with
+               this L{LogBeginner} to log messages.
+
+        @note: Since a L{LogBeginner} is designed to encapsulate the transition
+            between process-startup and log-system-configuration, this method
+            is intended to be invoked I{once}.
+
+        @param observers: The observers to register.
+        @type observers: iterable of L{ILogObserver}s
+
+        @param discardBuffer: Whether to discard the buffer and not re-play it
+            to the added observers.  (This argument is provided mainly for
+            compatibility with legacy concerns.)
+        @type discardBuffer: L{bool}
+
+        @param redirectStandardIO: If true, redirect standard output and
+            standard error to the observers.
+        @type redirectStandardIO: L{bool}
         """
-        try:
-            self._observers.remove(observer)
-        except ValueError:
-            pass
+        caller = currentframe(1)
+        filename, lineno = caller.f_code.co_filename, caller.f_lineno
 
+        for observer in observers:
+            self._publisher.addObserver(observer)
 
-    def __call__(self, event):
-        """
-        Forward events to contained observers.
-        """
-        if "log_trace" in event:
-            def trace(observer):
-                """
-                Add tracing information for an observer.
-
-                @param observer: an observer being forwarded to
-                @type observer: L{ILogObserver}
-                """
-                event["log_trace"].append((self, observer))
+        if self._temporaryObserver is not None:
+            self._publisher.removeObserver(self._temporaryObserver)
+            if not discardBuffer:
+                self._initialBuffer.replayTo(self._publisher)
+            self._temporaryObserver = None
+            self._warningsModule.showwarning = self.showwarning
         else:
-            trace = None
+            previousFile, previousLine = self._previousBegin
+            self._log.warn(
+                MORE_THAN_ONCE_WARNING,
+                fileNow=filename, lineNow=lineno,
+                fileThen=previousFile, lineThen=previousLine,
+            )
 
-        brokenObservers = []
+        self._previousBegin = filename, lineno
+        if redirectStandardIO:
+            streams = [("stdout", LogLevel.info), ("stderr", LogLevel.error)]
+        else:
+            streams = []
 
-        for observer in self._observers:
-            if trace is not None:
-                trace(observer)
+        for (stream, level) in streams:
+            oldStream = getattr(self._stdio, stream)
+            loggingFile = LoggingFile(
+                logger=Logger(namespace=stream, observer=self._publisher),
+                level=level,
+                encoding=getattr(oldStream, "encoding", None),
+            )
+            setattr(self._stdio, stream, loggingFile)
 
-            try:
-                observer(event)
-            except Exception:
-                brokenObservers.append((observer, Failure()))
 
-        for brokenObserver, failure in brokenObservers:
-            errorLogger = self._errorLoggerForObserver(brokenObserver)
-            errorLogger.failure(
-                OBSERVER_DISABLED,
-                failure=failure,
-                observer=brokenObserver,
+    def showwarning(
+        self, message, category, filename, lineno, file=None, line=None
+    ):
+        """
+        Twisted-enabled wrapper around L{warnings.showwarning}.
+
+        If C{file} is L{None}, the default behaviour is to emit the warning to
+        the log system, otherwise the original L{warnings.showwarning} Python
+        function is called.
+
+        @param message: A warning message to emit.
+        @type message: L{str}
+
+        @param category: A warning category to associate with C{message}.
+        @type category: L{warnings.Warning}
+
+        @param filename: A file name for the source code file issuing the
+            warning.
+        @type warning: L{str}
+
+        @param lineno: A line number in the source file where the warning was
+            issued.
+        @type lineno: L{int}
+
+        @param file: A file to write the warning message to.  If L{None},
+            write to L{sys.stderr}.
+        @type file: file-like object
+
+        @param line: A line of source code to include with the warning message.
+            If L{None}, attempt to read the line from C{filename} and
+            C{lineno}.
+        @type line: L{str}
+        """
+        if file is None:
+            self._log.warn(
+                "{filename}:{lineno}: {category}: {warning}",
+                warning=message, category=qual(category),
+                filename=filename, lineno=lineno,
+            )
+        else:
+            self._oldshowwarning(
+                message, category, filename, lineno, file, line
             )
 
 
-    def _errorLoggerForObserver(self, observer):
-        """
-        Create an error-logger based on this logger, which does not contain the
-        given bad observer.
 
-        @param observer: The observer which previously had an error.
-        @type observer: L{ILogObserver}
-
-        @return: L{None}
-        """
-        errorPublisher = LogPublisher(*[
-            obs for obs in self._observers
-            if obs is not observer
-        ])
-        return Logger(observer=errorPublisher)
+globalLogPublisher = LogPublisher()
+globalLogBeginner = LogBeginner(globalLogPublisher, sys.stderr, sys, warnings)

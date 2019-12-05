@@ -1,1 +1,0 @@
-¼B6venv/lib/python3.6/site-packages/django/conf/locale/is :»B½B

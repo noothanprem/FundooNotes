@@ -1,1 +1,1 @@
-¾•;venv/lib/python3.6/site-packages/botocore/vendored/requests :*½•¿•À•Á•Â•Ã•Ä•Å•Æ•Ç•×•ç–è–é–
+¾•;venv/lib/python3.6/site-packages/botocore/vendored/requests :*½•¿•À•Á•Â•Ã•Ä•Å•Æ•Ç•×•è–ê–ë–

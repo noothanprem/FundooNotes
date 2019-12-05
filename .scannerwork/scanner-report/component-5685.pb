@@ -1,1 +1,1 @@
-µ,Dvenv/lib/python3.6/site-packages/django/contrib/gis/utils/ogrinfo.py 2pyX4h
+µ,Evenv/lib/python3.6/site-packages/django/contrib/gis/utils/__init__.py 2pyXh

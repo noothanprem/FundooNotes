@@ -1,1 +1,1 @@
-«@Rvenv/lib/python3.6/site-packages/django/core/management/commands/makemigrations.py 2pyX¸h
+«@Pvenv/lib/python3.6/site-packages/django/core/management/commands/startproject.py 2pyXh

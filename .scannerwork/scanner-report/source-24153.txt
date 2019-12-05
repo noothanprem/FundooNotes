@@ -1,48 +1,74 @@
 # -*- coding: utf-8 -*-
-import os
-from collections import defaultdict
+import socket
 
-from django.apps import apps
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db import models
 
 from django_extensions.management.utils import signalcommand
 
 
 class Command(BaseCommand):
-    help = "Prints a list of all files in MEDIA_ROOT that are not referenced in the database."
+    help = "Set parameters of the default django.contrib.sites Site"
+
+    def add_arguments(self, parser):
+        super(Command, self).add_arguments(parser)
+        parser.add_argument(
+            '--name', dest='site_name', default=None,
+            help='Use this as site name.'
+        )
+        parser.add_argument(
+            '--domain', dest='site_domain', default=None,
+            help='Use this as site domain.'
+        )
+        parser.add_argument(
+            '--system-fqdn', dest='set_as_system_fqdn', default=False,
+            action="store_true",
+            help='Use the systems FQDN (Fully Qualified Domain Name) as name '
+            'and domain. Can be used in combination with --name'
+        )
 
     @signalcommand
     def handle(self, *args, **options):
-        if not getattr(settings, 'MEDIA_ROOT'):
-            raise CommandError("MEDIA_ROOT is not set, nothing to do")
+        if 'django.contrib.sites' not in settings.INSTALLED_APPS:
+            raise CommandError('The sites framework is not installed.')
 
-        # Get a list of all files under MEDIA_ROOT
-        media = set()
-        for root, dirs, files in os.walk(settings.MEDIA_ROOT):
-            for f in files:
-                media.add(os.path.abspath(os.path.join(root, f)))
+        from django.contrib.sites.models import Site
 
-        # Get list of all fields (value) for each model (key)
-        # that is a FileField or subclass of a FileField
-        model_dict = defaultdict(list)
-        for model in apps.get_models():
-            for field in model._meta.fields:
-                if issubclass(field.__class__, models.FileField):
-                    model_dict[model].append(field)
+        try:
+            site = Site.objects.get(pk=settings.SITE_ID)
+        except Site.DoesNotExist:
+            raise CommandError("Default site with pk=%s does not exist" %
+                               settings.SITE_ID)
+        else:
+            name = options["site_name"]
+            domain = options["site_domain"]
+            set_as_system_fqdn = options["set_as_system_fqdn"]
+            if all([domain, set_as_system_fqdn]):
+                raise CommandError(
+                    "The set_as_system_fqdn cannot be used with domain option.")  # noqa
+            if set_as_system_fqdn:
+                domain = socket.getfqdn()
+                if not domain:
+                    raise CommandError("Cannot find systems FQDN")
+                if name is None:
+                    name = domain
 
-        # Get a list of all files referenced in the database
-        referenced = set()
-        for model in model_dict:
-            all = model.objects.all().iterator()
-            for object in all:
-                for field in model_dict[model]:
-                    target_file = getattr(object, field.name)
-                    if target_file:
-                        referenced.add(os.path.abspath(target_file.path))
+            update_kwargs = {}
+            if name and name != site.name:
+                update_kwargs["name"] = name
 
-        # Print each file in MEDIA_ROOT that is not referenced in the database
-        not_referenced = media - referenced
-        for f in not_referenced:
-            print(f)
+            if domain and domain != site.domain:
+                update_kwargs["domain"] = domain
+
+            if update_kwargs:
+                Site.objects.filter(
+                    pk=settings.SITE_ID).update(**update_kwargs)
+                site = Site.objects.get(pk=settings.SITE_ID)
+                print("Updated default site. You might need to restart django as sites are cached aggressively.")
+            else:
+                print("Nothing to update (need --name, --domain and/or --system-fqdn)")
+
+            print("Default Site:")
+            print("\tid = %s" % site.id)
+            print("\tname = %s" % site.name)
+            print("\tdomain = %s" % site.domain)

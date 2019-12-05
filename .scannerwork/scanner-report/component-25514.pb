@@ -1,1 +1,0 @@
-ªÇAvenv/lib/python3.6/site-packages/requests_oauthlib/oauth1_auth.py 2pyXvh

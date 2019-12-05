@@ -1,1 +1,0 @@
-Š9venv/lib/python3.6/site-packages/colorful/static/colorful :‹

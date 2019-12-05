@@ -1,1 +1,1 @@
-ù˜6venv/lib/python3.6/site-packages/social_django/urls.py 2pyXh
+ù˜Pvenv/lib/python3.6/site-packages/social_django/migrations/0007_code_timestamp.py 2pyXh

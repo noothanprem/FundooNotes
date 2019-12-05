@@ -1,1 +1,1 @@
-มนCvenv/lib/python3.6/site-packages/social_core/backends/foursquare.py 2pyX%h
+มนAvenv/lib/python3.6/site-packages/social_core/backends/echosign.py 2pyXh

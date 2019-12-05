@@ -1,1 +1,1 @@
-Á<_venv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/vendor/xregexp/xregexp.js 2jsX…h
+Á<cvenv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/vendor/xregexp/xregexp.min.js 2jsXh

@@ -1,127 +1,108 @@
-# ext/pygmentplugin.py
-# Copyright (C) 2006-2016 the Mako authors and contributors <see AUTHORS file>
-#
-# This module is part of Mako and is released under
-# the MIT License: http://www.opensource.org/licenses/mit-license.php
-
-from pygments.lexers.web import \
-    HtmlLexer, XmlLexer, JavascriptLexer, CssLexer
-from pygments.lexers.agile import PythonLexer, Python3Lexer
-from pygments.lexer import DelegatingLexer, RegexLexer, bygroups, \
-    include, using
-from pygments.token import \
-    Text, Comment, Operator, Keyword, Name, String, Other
-from pygments.formatters.html import HtmlFormatter
-from pygments import highlight
+import re
 from mako import compat
+from mako import lexer
+from mako import parsetree
 
 
-class MakoLexer(RegexLexer):
-    name = 'Mako'
-    aliases = ['mako']
-    filenames = ['*.mao']
+class MessageExtractor(object):
 
-    tokens = {
-        'root': [
-            (r'(\s*)(\%)(\s*end(?:\w+))(\n|\Z)',
-             bygroups(Text, Comment.Preproc, Keyword, Other)),
-            (r'(\s*)(\%(?!%))([^\n]*)(\n|\Z)',
-             bygroups(Text, Comment.Preproc, using(PythonLexer), Other)),
-            (r'(\s*)(##[^\n]*)(\n|\Z)',
-             bygroups(Text, Comment.Preproc, Other)),
-            (r'''(?s)<%doc>.*?</%doc>''', Comment.Preproc),
-            (r'(<%)([\w\.\:]+)',
-             bygroups(Comment.Preproc, Name.Builtin), 'tag'),
-            (r'(</%)([\w\.\:]+)(>)',
-             bygroups(Comment.Preproc, Name.Builtin, Comment.Preproc)),
-            (r'<%(?=([\w\.\:]+))', Comment.Preproc, 'ondeftags'),
-            (r'(<%(?:!?))(.*?)(%>)(?s)',
-             bygroups(Comment.Preproc, using(PythonLexer), Comment.Preproc)),
-            (r'(\$\{)(.*?)(\})',
-             bygroups(Comment.Preproc, using(PythonLexer), Comment.Preproc)),
-            (r'''(?sx)
-                (.+?)               # anything, followed by:
-                (?:
-                 (?<=\n)(?=%(?!%)|\#\#) |  # an eval or comment line
-                 (?=\#\*) |          # multiline comment
-                 (?=</?%) |         # a python block
-                                    # call start or end
-                 (?=\$\{) |         # a substitution
-                 (?<=\n)(?=\s*%) |
-                                    # - don't consume
-                 (\\\n) |           # an escaped newline
-                 \Z                 # end of string
-                )
-            ''', bygroups(Other, Operator)),
-            (r'\s+', Text),
-        ],
-        'ondeftags': [
-            (r'<%', Comment.Preproc),
-            (r'(?<=<%)(include|inherit|namespace|page)', Name.Builtin),
-            include('tag'),
-        ],
-        'tag': [
-            (r'((?:\w+)\s*=)\s*(".*?")',
-             bygroups(Name.Attribute, String)),
-            (r'/?\s*>', Comment.Preproc, '#pop'),
-            (r'\s+', Text),
-        ],
-        'attr': [
-            ('".*?"', String, '#pop'),
-            ("'.*?'", String, '#pop'),
-            (r'[^\s>]+', String, '#pop'),
-        ],
-    }
+    def process_file(self, fileobj):
+        template_node = lexer.Lexer(
+            fileobj.read(),
+            input_encoding=self.config['encoding']).parse()
+        for extracted in self.extract_nodes(template_node.get_children()):
+            yield extracted
 
+    def extract_nodes(self, nodes):
+        translator_comments = []
+        in_translator_comments = False
+        input_encoding = self.config['encoding'] or 'ascii'
+        comment_tags = list(
+            filter(None, re.split(r'\s+', self.config['comment-tags'])))
 
-class MakoHtmlLexer(DelegatingLexer):
-    name = 'HTML+Mako'
-    aliases = ['html+mako']
+        for node in nodes:
+            child_nodes = None
+            if in_translator_comments and \
+                    isinstance(node, parsetree.Text) and \
+                    not node.content.strip():
+                # Ignore whitespace within translator comments
+                continue
 
-    def __init__(self, **options):
-        super(MakoHtmlLexer, self).__init__(HtmlLexer, MakoLexer,
-                                            **options)
+            if isinstance(node, parsetree.Comment):
+                value = node.text.strip()
+                if in_translator_comments:
+                    translator_comments.extend(
+                        self._split_comment(node.lineno, value))
+                    continue
+                for comment_tag in comment_tags:
+                    if value.startswith(comment_tag):
+                        in_translator_comments = True
+                        translator_comments.extend(
+                            self._split_comment(node.lineno, value))
+                continue
 
+            if isinstance(node, parsetree.DefTag):
+                code = node.function_decl.code
+                child_nodes = node.nodes
+            elif isinstance(node, parsetree.BlockTag):
+                code = node.body_decl.code
+                child_nodes = node.nodes
+            elif isinstance(node, parsetree.CallTag):
+                code = node.code.code
+                child_nodes = node.nodes
+            elif isinstance(node, parsetree.PageTag):
+                code = node.body_decl.code
+            elif isinstance(node, parsetree.CallNamespaceTag):
+                code = node.expression
+                child_nodes = node.nodes
+            elif isinstance(node, parsetree.ControlLine):
+                if node.isend:
+                    in_translator_comments = False
+                    continue
+                code = node.text
+            elif isinstance(node, parsetree.Code):
+                in_translator_comments = False
+                code = node.code.code
+            elif isinstance(node, parsetree.Expression):
+                code = node.code.code
+            else:
+                continue
 
-class MakoXmlLexer(DelegatingLexer):
-    name = 'XML+Mako'
-    aliases = ['xml+mako']
+            # Comments don't apply unless they immediately precede the message
+            if translator_comments and \
+                    translator_comments[-1][0] < node.lineno - 1:
+                translator_comments = []
 
-    def __init__(self, **options):
-        super(MakoXmlLexer, self).__init__(XmlLexer, MakoLexer,
-                                           **options)
+            translator_strings = [
+                comment[1] for comment in translator_comments]
 
+            if isinstance(code, compat.text_type):
+                code = code.encode(input_encoding, 'backslashreplace')
 
-class MakoJavascriptLexer(DelegatingLexer):
-    name = 'JavaScript+Mako'
-    aliases = ['js+mako', 'javascript+mako']
+            used_translator_comments = False
+            # We add extra newline to work around a pybabel bug
+            # (see python-babel/babel#274, parse_encoding dies if the first
+            # input string of the input is non-ascii)
+            # Also, because we added it, we have to subtract one from
+            # node.lineno
+            code = compat.byte_buffer(compat.b('\n') + code)
 
-    def __init__(self, **options):
-        super(MakoJavascriptLexer, self).__init__(JavascriptLexer,
-                                                  MakoLexer, **options)
+            for message in self.process_python(
+                    code, node.lineno - 1, translator_strings):
+                yield message
+                used_translator_comments = True
 
+            if used_translator_comments:
+                translator_comments = []
+            in_translator_comments = False
 
-class MakoCssLexer(DelegatingLexer):
-    name = 'CSS+Mako'
-    aliases = ['css+mako']
+            if child_nodes:
+                for extracted in self.extract_nodes(child_nodes):
+                    yield extracted
 
-    def __init__(self, **options):
-        super(MakoCssLexer, self).__init__(CssLexer, MakoLexer,
-                                           **options)
-
-
-pygments_html_formatter = HtmlFormatter(cssclass='syntax-highlighted',
-                                        linenos=True)
-
-
-def syntax_highlight(filename='', language=None):
-    mako_lexer = MakoLexer()
-    if compat.py3k:
-        python_lexer = Python3Lexer()
-    else:
-        python_lexer = PythonLexer()
-    if filename.startswith('memory:') or language == 'mako':
-        return lambda string: highlight(string, mako_lexer,
-                                        pygments_html_formatter)
-    return lambda string: highlight(string, python_lexer,
-                                    pygments_html_formatter)
+    @staticmethod
+    def _split_comment(lineno, comment):
+        """Return the multiline comment at lineno split into a list of
+        comment line numbers and the accompanying comment line"""
+        return [(lineno + index, line) for index, line in
+                enumerate(comment.splitlines())]

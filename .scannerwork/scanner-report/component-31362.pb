@@ -1,1 +1,1 @@
-‚õ=venv/lib64/python3.6/site-packages/django/contrib/staticfiles :õƒõŠõ“õ”õ õ¡õ¢õ£õ¤õ
+‚õ=venv/lib64/python3.6/site-packages/django/contrib/staticfiles :õƒõ‰õ“õ”õ õ¡õ¢õ£õ¤õ

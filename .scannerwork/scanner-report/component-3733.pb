@@ -1,1 +1,1 @@
-•0venv/lib/python3.6/site-packages/django/template :”–—˜™š›ª«»¼½¾¿
+•:venv/lib/python3.6/site-packages/django/template/engine.py 2pyXµh

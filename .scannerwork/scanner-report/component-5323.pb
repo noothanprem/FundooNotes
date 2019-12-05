@@ -1,1 +1,1 @@
-Ë)Cvenv/lib/python3.6/site-packages/django/contrib/staticfiles/urls.py 2pyXh
+Ë)Avenv/lib/python3.6/site-packages/django/contrib/redirects/apps.py 2pyXh

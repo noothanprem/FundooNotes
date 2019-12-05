@@ -1,1 +1,1 @@
-έχ=venv/lib64/python3.6/site-packages/django/contrib/__init__.py 2pyXh
+έχ1venv/lib64/python3.6/site-packages/django/contrib :άχ

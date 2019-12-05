@@ -1,1 +1,1 @@
-¹O.venv/lib/python3.6/site-packages/xlwt/Style.py 2pyXæh
+¹O:venv/lib/python3.6/site-packages/xlwt/ExcelFormulaLexer.py 2pyX€h

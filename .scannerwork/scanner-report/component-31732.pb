@@ -1,1 +1,1 @@
-ô÷5venv/lib64/python3.6/site-packages/django/contrib/gis :ó÷ƒøøøĞûüŸü ü
+ô÷Mvenv/lib64/python3.6/site-packages/django/contrib/gis/serializers/__init__.py 2pyXh

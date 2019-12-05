@@ -1,1 +1,1 @@
-Á5venv/lib/python3.6/site-packages/celery/bin/result.py 2pyX+h
+Á+venv/lib/python3.6/site-packages/celery/bin :&ÊËÈÍÎÏÌÓÔÒÚÛÙâäåçé

@@ -1,1 +1,1 @@
-ÿ‡4venv/lib/python3.6/site-packages/kombu/connection.py 2pyX‚h
+ÿ‡7venv/lib/python3.6/site-packages/kombu/serialization.py 2pyXÑh

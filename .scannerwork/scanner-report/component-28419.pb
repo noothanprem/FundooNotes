@@ -1,1 +1,1 @@
-Éﬁ>venv/lib64/python3.6/site-packages/zope/interface/tests/odd.py 2pyXÅh
+ÉﬁIvenv/lib64/python3.6/site-packages/zope/interface/tests/test_interface.py 2pyX’h

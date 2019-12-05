@@ -1,25 +1,13 @@
-v
-pythonS100XRename method "fromOpenIDRequest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ØØ w
-pythonS100YRename method "parseExtensionArgs" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ññ w
-pythonS100YRename method "allRequestedFields" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-šš x
-pythonS100ZRename method "wereFieldsRequested" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¢¢ q
-pythonS100SRename method "requestField" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-­­ r
-pythonS100TRename method "requestFields" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÒÒ u
-pythonS100WRename method "getExtensionArgs" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-éé t
-pythonS100VRename method "extractResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-   x
-pythonS100ZRename method "fromSuccessResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÀÀ u
-pythonS100WRename method "getExtensionArgs" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ãã t
-pythonS1542WRename function "checkFieldName" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2II r
-pythonS1542URename function "supportsSReg" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2hh q
-pythonS1542RRename function "getSRegNS" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-…… 
+m
+pythonS100QRename method "matchTypes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2&& {
+pythonS100_Rename method "fromBasicServiceEndpoint" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 244  v
+pythonS100ZRename method "getServiceEndpoints" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2GG v
+pythonS100ZRename method "getServiceEndpoints" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2dd o
+pythonS100SRename method "applyFilters" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ww x
+pythonS100ZRename method "getServiceEndpoints" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ŒŒ |
+pythonS116`Rename this field "fromBasicServiceEndpoint" to match the regular expression ^[_a-z][_a-z0-9]*$. 2@@ p
+pythonS1542QRename function "mkFilter" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+›› x
+pythonS1542YRename function "mkCompoundFilter" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¬¬ 

@@ -1,1 +1,1 @@
-á1venv/lib/python3.6/site-packages/urllib3/packages :àâ
+á8venv/lib/python3.6/site-packages/urllib3/packages/six.py 2pyXþh

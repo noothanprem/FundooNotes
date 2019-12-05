@@ -1,1 +1,1 @@
-é¼Rvenv/lib/python3.6/site-packages/django_extensions/management/commands/syncdata.py 2pyXÚh
+é¼Svenv/lib/python3.6/site-packages/django_extensions/management/commands/runscript.py 2pyXóh

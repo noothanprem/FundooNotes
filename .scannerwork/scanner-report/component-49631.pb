@@ -1,1 +1,1 @@
-߃Ovenv/lib64/python3.6/site-packages/social_core/tests/backends/test_atlassian.py 2pyXAh
+߃Kvenv/lib64/python3.6/site-packages/social_core/tests/backends/test_asana.py 2pyX#h

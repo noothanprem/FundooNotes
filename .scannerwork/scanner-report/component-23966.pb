@@ -1,1 +1,1 @@
-ž»Avenv/lib/python3.6/site-packages/social_core/backends/pixelpin.py 2pyX%h
+ž»Gvenv/lib/python3.6/site-packages/social_core/backends/azuread_tenant.py 2pyXxh

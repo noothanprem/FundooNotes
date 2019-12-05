@@ -1,1 +1,1 @@
-‘R=venv/lib/python3.6/site-packages/channels/generic/__init__.py 2pyXh
+‘R4venv/lib/python3.6/site-packages/channels/signals.py 2pyX	h

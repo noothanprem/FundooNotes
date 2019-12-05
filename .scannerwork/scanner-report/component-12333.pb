@@ -1,1 +1,1 @@
-≠`4venv/lib/python3.6/site-packages/PIL/WalImageFile.py 2pyXÅh
+≠`6venv/lib/python3.6/site-packages/PIL/GifImagePlugin.py 2pyXØh

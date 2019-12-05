@@ -1,1 +1,1 @@
-¢èAvenv/lib64/python3.6/site-packages/django/utils/datastructures.py 2pyXÖh
+¢è=venv/lib64/python3.6/site-packages/django/bin/django-admin.py 2pyXh

@@ -1,1 +1,1 @@
-ıÅ:venv/lib/python3.6/site-packages/django_common/scaffold.py 2pyXöh
+ıÅ.venv/lib/python3.6/site-packages/django_common :6úÅüÅûÅşÅÿÅ€ÆÆÆ‘Æ’Æ“Æ Æ¤Æ¥Æ¸ÆºÆ»Æ¼Æ

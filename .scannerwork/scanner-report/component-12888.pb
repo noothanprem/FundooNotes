@@ -1,1 +1,1 @@
-Ød?venv/lib/python3.6/site-packages/macaroonbakery/bakery/_keys.py 2pyXeh
+ØdCvenv/lib/python3.6/site-packages/macaroonbakery/bakery/_macaroon.py 2pyX¯h

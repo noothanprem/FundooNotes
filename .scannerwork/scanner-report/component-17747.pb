@@ -1,1 +1,1 @@
-ӊ@venv/lib/python3.6/site-packages/importlib_metadata/docs/conf.py 2pyX�h
+ӊEvenv/lib/python3.6/site-packages/importlib_metadata/tests/__init__.py 2pyXh

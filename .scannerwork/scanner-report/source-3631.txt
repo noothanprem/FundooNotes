@@ -1,98 +1,124 @@
+"""
+A class for storing a tree graph. Primarily used for filter constructs in the
+ORM.
+"""
+
 import copy
-import os
-from importlib import import_module
-from importlib.util import find_spec as importlib_find
+
+from django.utils.hashable import make_hashable
 
 
-def import_string(dotted_path):
+class Node:
     """
-    Import a dotted module path and return the attribute/class designated by the
-    last name in the path. Raise ImportError if the import failed.
+    A single internal node in the tree graph. A Node should be viewed as a
+    connection (the root) with the children being either leaf nodes or other
+    Node instances.
     """
-    try:
-        module_path, class_name = dotted_path.rsplit('.', 1)
-    except ValueError as err:
-        raise ImportError("%s doesn't look like a module path" % dotted_path) from err
+    # Standard connector type. Clients usually won't use this at all and
+    # subclasses will usually override the value.
+    default = 'DEFAULT'
 
-    module = import_module(module_path)
+    def __init__(self, children=None, connector=None, negated=False):
+        """Construct a new Node. If no connector is given, use the default."""
+        self.children = children[:] if children else []
+        self.connector = connector or self.default
+        self.negated = negated
 
-    try:
-        return getattr(module, class_name)
-    except AttributeError as err:
-        raise ImportError('Module "%s" does not define a "%s" attribute/class' % (
-            module_path, class_name)
-        ) from err
+    # Required because django.db.models.query_utils.Q. Q. __init__() is
+    # problematic, but it is a natural Node subclass in all other respects.
+    @classmethod
+    def _new_instance(cls, children=None, connector=None, negated=False):
+        """
+        Create a new instance of this class when new Nodes (or subclasses) are
+        needed in the internal code in this class. Normally, it just shadows
+        __init__(). However, subclasses with an __init__ signature that aren't
+        an extension of Node.__init__ might need to implement this method to
+        allow a Node to create a new instance of them (if they have any extra
+        setting up to do).
+        """
+        obj = Node(children, connector, negated)
+        obj.__class__ = cls
+        return obj
 
+    def __str__(self):
+        template = '(NOT (%s: %s))' if self.negated else '(%s: %s)'
+        return template % (self.connector, ', '.join(str(c) for c in self.children))
 
-def autodiscover_modules(*args, **kwargs):
-    """
-    Auto-discover INSTALLED_APPS modules and fail silently when
-    not present. This forces an import on them to register any admin bits they
-    may want.
+    def __repr__(self):
+        return "<%s: %s>" % (self.__class__.__name__, self)
 
-    You may provide a register_to keyword parameter as a way to access a
-    registry. This register_to object must have a _registry instance variable
-    to access it.
-    """
-    from django.apps import apps
+    def __deepcopy__(self, memodict):
+        obj = Node(connector=self.connector, negated=self.negated)
+        obj.__class__ = self.__class__
+        obj.children = copy.deepcopy(self.children, memodict)
+        return obj
 
-    register_to = kwargs.get('register_to')
-    for app_config in apps.get_app_configs():
-        for module_to_search in args:
-            # Attempt to import the app's module.
-            try:
-                if register_to:
-                    before_import_registry = copy.copy(register_to._registry)
+    def __len__(self):
+        """Return the number of children this node has."""
+        return len(self.children)
 
-                import_module('%s.%s' % (app_config.name, module_to_search))
-            except Exception:
-                # Reset the registry to the state before the last import
-                # as this import will have to reoccur on the next request and
-                # this could raise NotRegistered and AlreadyRegistered
-                # exceptions (see #8245).
-                if register_to:
-                    register_to._registry = before_import_registry
+    def __bool__(self):
+        """Return whether or not this node has children."""
+        return bool(self.children)
 
-                # Decide whether to bubble up this error. If the app just
-                # doesn't have the module in question, we can ignore the error
-                # attempting to import it, otherwise we want it to bubble up.
-                if module_has_submodule(app_config.module, module_to_search):
-                    raise
+    def __contains__(self, other):
+        """Return True if 'other' is a direct child of this instance."""
+        return other in self.children
 
+    def __eq__(self, other):
+        return (
+            self.__class__ == other.__class__ and
+            (self.connector, self.negated) == (other.connector, other.negated) and
+            self.children == other.children
+        )
 
-def module_has_submodule(package, module_name):
-    """See if 'module' is in 'package'."""
-    try:
-        package_name = package.__name__
-        package_path = package.__path__
-    except AttributeError:
-        # package isn't a package.
-        return False
+    def __hash__(self):
+        return hash((self.__class__, self.connector, self.negated, *make_hashable(self.children)))
 
-    full_module_name = package_name + '.' + module_name
-    try:
-        return importlib_find(full_module_name, package_path) is not None
-    except (ImportError, AttributeError):
-        # When module_name is an invalid dotted path, Python raises ImportError
-        # (or ModuleNotFoundError in Python 3.6+). AttributeError may be raised
-        # if the penultimate part of the path is not a package.
-        # (https://bugs.python.org/issue30436)
-        return False
+    def add(self, data, conn_type, squash=True):
+        """
+        Combine this tree and the data represented by data using the
+        connector conn_type. The combine is done by squashing the node other
+        away if possible.
 
+        This tree (self) will never be pushed to a child node of the
+        combined tree, nor will the connector or negated properties change.
 
-def module_dir(module):
-    """
-    Find the name of the directory that contains a module, if possible.
+        Return a node which can be used in place of data regardless if the
+        node other got squashed or not.
 
-    Raise ValueError otherwise, e.g. for namespace packages that are split
-    over several directories.
-    """
-    # Convert to list because _NamespacePath does not support indexing on 3.3.
-    paths = list(getattr(module, '__path__', []))
-    if len(paths) == 1:
-        return paths[0]
-    else:
-        filename = getattr(module, '__file__', None)
-        if filename is not None:
-            return os.path.dirname(filename)
-    raise ValueError("Cannot determine directory containing %s" % module)
+        If `squash` is False the data is prepared and added as a child to
+        this tree without further logic.
+        """
+        if data in self.children:
+            return data
+        if not squash:
+            self.children.append(data)
+            return data
+        if self.connector == conn_type:
+            # We can reuse self.children to append or squash the node other.
+            if (isinstance(data, Node) and not data.negated and
+                    (data.connector == conn_type or len(data) == 1)):
+                # We can squash the other node's children directly into this
+                # node. We are just doing (AB)(CD) == (ABCD) here, with the
+                # addition that if the length of the other node is 1 the
+                # connector doesn't matter. However, for the len(self) == 1
+                # case we don't want to do the squashing, as it would alter
+                # self.connector.
+                self.children.extend(data.children)
+                return self
+            else:
+                # We could use perhaps additional logic here to see if some
+                # children could be used for pushdown here.
+                self.children.append(data)
+                return data
+        else:
+            obj = self._new_instance(self.children, self.connector,
+                                     self.negated)
+            self.connector = conn_type
+            self.children = [obj, data]
+            return data
+
+    def negate(self):
+        """Negate the sense of the root connector."""
+        self.negated = not self.negated

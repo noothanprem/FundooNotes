@@ -1,1 +1,1 @@
-á=venv/lib/python3.6/site-packages/django/views/generic/list.py 2pyXÇh
+á5venv/lib/python3.6/site-packages/django/views/generic :àâäåæç

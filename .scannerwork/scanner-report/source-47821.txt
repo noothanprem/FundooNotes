@@ -1,355 +1,240 @@
-# -*- test-case-name: twisted.logger.test.test_json -*-
+# -*- test-case-name: twisted.logger.test.test_global -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-Tools for saving and loading log events in a structured format.
+This module includes process-global state associated with the logging system,
+and implementation of logic for managing that global state.
 """
 
-import types
+import sys
+import warnings
 
-from constantly import NamedConstant
-from json import dumps, loads
-from uuid import UUID
+from twisted.python.compat import currentframe
+from twisted.python.reflect import qual
 
-from ._flatten import flattenEvent
-from ._file import FileLogObserver
-from ._levels import LogLevel
+from ._buffer import LimitedHistoryLogObserver
+from ._observer import LogPublisher
+from ._filter import FilteringLogObserver, LogLevelFilterPredicate
 from ._logger import Logger
-
-from twisted.python.compat import unicode, _PY3
-from twisted.python.failure import Failure
-
-log = Logger()
-
+from ._format import eventAsText
+from ._levels import LogLevel
+from ._io import LoggingFile
+from ._file import FileLogObserver
 
 
-def failureAsJSON(failure):
+
+MORE_THAN_ONCE_WARNING = (
+    "Warning: primary log target selected twice at <{fileNow}:{lineNow}> - "
+    "previously selected at <{fileThen}:{lineThen}>.  Remove one of the calls "
+    "to beginLoggingTo."
+)
+
+
+
+class LogBeginner(object):
     """
-    Convert a failure to a JSON-serializable data structure.
+    A L{LogBeginner} holds state related to logging before logging has begun,
+    and begins logging when told to do so.  Logging "begins" when someone has
+    selected a set of observers, like, for example, a L{FileLogObserver} that
+    writes to a file on disk, or to standard output.
 
-    @param failure: A failure to serialize.
-    @type failure: L{Failure}
+    Applications will not typically need to instantiate this class, except
+    those which intend to initialize the global logging system themselves,
+    which may wish to instantiate this for testing.  The global instance for
+    the current process is exposed as
+    L{twisted.logger.globalLogBeginner}.
 
-    @return: a mapping of strings to ... stuff, mostly reminiscent of
-        L{Failure.__getstate__}
-    @rtype: L{dict}
+    Before logging has begun, a L{LogBeginner} will:
+
+        1. Log any critical messages (e.g.: unhandled exceptions) to the given
+           file-like object.
+
+        2. Save (a limited number of) log events in a
+           L{LimitedHistoryLogObserver}.
+
+    @ivar _initialBuffer: A buffer of messages logged before logging began.
+    @type _initialBuffer: L{LimitedHistoryLogObserver}
+
+    @ivar _publisher: The log publisher passed in to L{LogBeginner}'s
+        constructor.
+    @type _publisher: L{LogPublisher}
+
+    @ivar _log: The logger used to log messages about the operation of the
+        L{LogBeginner} itself.
+    @type _log: L{Logger}
+
+    @ivar _temporaryObserver: If not L{None}, an L{ILogObserver} that observes
+        events on C{_publisher} for this L{LogBeginner}.
+    @type _temporaryObserver: L{ILogObserver} or L{None}
+
+    @ivar _stdio: An object with C{stderr} and C{stdout} attributes (like the
+        L{sys} module) which will be replaced when redirecting standard I/O.
+    @type _stdio: L{object}
+
+    @cvar _DEFAULT_BUFFER_SIZE: The default size for the initial log events
+        buffer.
+    @type _DEFAULT_BUFFER_SIZE: L{int}
     """
-    return dict(
-        failure.__getstate__(),
-        type=dict(
-            __module__=failure.type.__module__,
-            __name__=failure.type.__name__,
+
+    _DEFAULT_BUFFER_SIZE = 200
+
+    def __init__(
+        self, publisher, errorStream, stdio, warningsModule,
+        initialBufferSize=None,
+    ):
+        """
+        Initialize this L{LogBeginner}.
+
+        @param initialBufferSize: The size of the event buffer into which
+            events are collected until C{beginLoggingTo} is called.  Or
+            C{None} to use the default size.
+        @type initialBufferSize: L{int} or L{types.NoneType}
+        """
+        if initialBufferSize is None:
+            initialBufferSize = self._DEFAULT_BUFFER_SIZE
+        self._initialBuffer = LimitedHistoryLogObserver(size=initialBufferSize)
+        self._publisher = publisher
+        self._log = Logger(observer=publisher)
+        self._stdio = stdio
+        self._warningsModule = warningsModule
+        self._temporaryObserver = LogPublisher(
+            self._initialBuffer,
+            FilteringLogObserver(
+                FileLogObserver(
+                    errorStream,
+                    lambda event: eventAsText(
+                        event,
+                        includeTimestamp=False,
+                        includeSystem=False,
+                    ) + '\n'
+                ),
+                [LogLevelFilterPredicate(defaultLogLevel=LogLevel.critical)]
+            )
         )
-    )
+        publisher.addObserver(self._temporaryObserver)
+        self._oldshowwarning = warningsModule.showwarning
 
 
+    def beginLoggingTo(
+        self, observers, discardBuffer=False, redirectStandardIO=True
+    ):
+        """
+        Begin logging to the given set of observers.  This will:
 
-def asBytes(obj):
-    """
-    On Python 2, we really need native strings in a variety of places;
-    attribute names will sort of work in a __dict__, but they're subtly wrong;
-    however, printing tracebacks relies on I/O to containers that only support
-    bytes.  This function converts _all_ native strings within a
-    JSON-deserialized object to bytes.
+            1. Add all the observers given in C{observers} to the
+               L{LogPublisher} associated with this L{LogBeginner}.
 
-    @param obj: An object to convert to bytes.
-    @type obj: L{object}
+            2. Optionally re-direct standard output and standard error streams
+               to the logging system.
 
-    @return: A string of UTF-8 bytes.
-    @rtype: L{bytes}
-    """
-    if isinstance(obj, list):
-        return map(asBytes, obj)
-    elif isinstance(obj, dict):
-        return dict((asBytes(k), asBytes(v)) for k, v in obj.items())
-    elif isinstance(obj, unicode):
-        return obj.encode("utf-8")
-    else:
-        return obj
+            3. Re-play any messages that were previously logged to that
+               publisher to the new observers, if C{discardBuffer} is not set.
 
+            4. Stop logging critical errors from the L{LogPublisher} as strings
+               to the C{errorStream} associated with this L{LogBeginner}, and
+               allow them to be logged normally.
 
+            5. Re-direct warnings from the L{warnings} module associated with
+               this L{LogBeginner} to log messages.
 
-def failureFromJSON(failureDict):
-    """
-    Load a L{Failure} from a dictionary deserialized from JSON.
+        @note: Since a L{LogBeginner} is designed to encapsulate the transition
+            between process-startup and log-system-configuration, this method
+            is intended to be invoked I{once}.
 
-    @param failureDict: a JSON-deserialized object like one previously returned
-        by L{failureAsJSON}.
-    @type failureDict: L{dict} mapping L{unicode} to attributes
+        @param observers: The observers to register.
+        @type observers: iterable of L{ILogObserver}s
 
-    @return: L{Failure}
-    @rtype: L{Failure}
-    """
-    # InstanceType() is only available in Python 2 and lower.
-    # __new__ is only available on new-style classes.
-    newFailure = getattr(Failure, "__new__", None)
-    if newFailure is None:
-        f = types.InstanceType(Failure)
-    else:
-        f = newFailure(Failure)
+        @param discardBuffer: Whether to discard the buffer and not re-play it
+            to the added observers.  (This argument is provided mainly for
+            compatibility with legacy concerns.)
+        @type discardBuffer: L{bool}
 
-    if not _PY3:
-        # Python 2 needs the failure dictionary as purely bytes, not text
-        failureDict = asBytes(failureDict)
+        @param redirectStandardIO: If true, redirect standard output and
+            standard error to the observers.
+        @type redirectStandardIO: L{bool}
+        """
+        caller = currentframe(1)
+        filename, lineno = caller.f_code.co_filename, caller.f_lineno
 
-    typeInfo = failureDict["type"]
-    failureDict["type"] = type(typeInfo["__name__"], (), typeInfo)
-    f.__dict__ = failureDict
-    return f
+        for observer in observers:
+            self._publisher.addObserver(observer)
 
-
-
-classInfo = [
-    (
-        lambda level: (
-            isinstance(level, NamedConstant) and
-            getattr(LogLevel, level.name, None) is level
-        ),
-        UUID("02E59486-F24D-46AD-8224-3ACDF2A5732A"),
-        lambda level: dict(name=level.name),
-        lambda level: getattr(LogLevel, level["name"], None)
-    ),
-
-    (
-        lambda o: isinstance(o, Failure),
-        UUID("E76887E2-20ED-49BF-A8F8-BA25CC586F2D"),
-        failureAsJSON, failureFromJSON
-    ),
-]
-
-
-
-uuidToLoader = dict([
-    (uuid, loader) for (predicate, uuid, saver, loader) in classInfo
-])
-
-
-
-def objectLoadHook(aDict):
-    """
-    Dictionary-to-object-translation hook for certain value types used within
-    the logging system.
-
-    @see: the C{object_hook} parameter to L{json.load}
-
-    @param aDict: A dictionary loaded from a JSON object.
-    @type aDict: L{dict}
-
-    @return: C{aDict} itself, or the object represented by C{aDict}
-    @rtype: L{object}
-    """
-    if "__class_uuid__" in aDict:
-        return uuidToLoader[UUID(aDict["__class_uuid__"])](aDict)
-    return aDict
-
-
-
-def objectSaveHook(pythonObject):
-    """
-    Object-to-serializable hook for certain value types used within the logging
-    system.
-
-    @see: the C{default} parameter to L{json.dump}
-
-    @param pythonObject: Any object.
-    @type pythonObject: L{object}
-
-    @return: If the object is one of the special types the logging system
-        supports, a specially-formatted dictionary; otherwise, a marker
-        dictionary indicating that it could not be serialized.
-    """
-    for (predicate, uuid, saver, loader) in classInfo:
-        if predicate(pythonObject):
-            result = saver(pythonObject)
-            result["__class_uuid__"] = str(uuid)
-            return result
-    return {"unpersistable": True}
-
-
-
-def eventAsJSON(event):
-    """
-    Encode an event as JSON, flattening it if necessary to preserve as much
-    structure as possible.
-
-    Not all structure from the log event will be preserved when it is
-    serialized.
-
-    @param event: A log event dictionary.
-    @type event: L{dict} with arbitrary keys and values
-
-    @return: A string of the serialized JSON; note that this will contain no
-        newline characters, and may thus safely be stored in a line-delimited
-        file.
-    @rtype: L{unicode}
-    """
-    if bytes is str:
-        kw = dict(default=objectSaveHook, encoding="charmap", skipkeys=True)
-    else:
-        def default(unencodable):
-            """
-            Serialize an object not otherwise serializable by L{dumps}.
-
-            @param unencodable: An unencodable object.
-            @return: C{unencodable}, serialized
-            """
-            if isinstance(unencodable, bytes):
-                return unencodable.decode("charmap")
-            return objectSaveHook(unencodable)
-
-        kw = dict(default=default, skipkeys=True)
-
-    flattenEvent(event)
-    result = dumps(event, **kw)
-    if not isinstance(result, unicode):
-        return unicode(result, "utf-8", "replace")
-    return result
-
-
-
-def eventFromJSON(eventText):
-    """
-    Decode a log event from JSON.
-
-    @param eventText: The output of a previous call to L{eventAsJSON}
-    @type eventText: L{unicode}
-
-    @return: A reconstructed version of the log event.
-    @rtype: L{dict}
-    """
-    loaded = loads(eventText, object_hook=objectLoadHook)
-    return loaded
-
-
-
-def jsonFileLogObserver(outFile, recordSeparator=u"\x1e"):
-    """
-    Create a L{FileLogObserver} that emits JSON-serialized events to a
-    specified (writable) file-like object.
-
-    Events are written in the following form::
-
-        RS + JSON + NL
-
-    C{JSON} is the serialized event, which is JSON text.  C{NL} is a newline
-    (C{u"\\n"}).  C{RS} is a record separator.  By default, this is a single
-    RS character (C{u"\\x1e"}), which makes the default output conform to the
-    IETF draft document "draft-ietf-json-text-sequence-13".
-
-    @param outFile: A file-like object.  Ideally one should be passed which
-        accepts L{unicode} data.  Otherwise, UTF-8 L{bytes} will be used.
-    @type outFile: L{io.IOBase}
-
-    @param recordSeparator: The record separator to use.
-    @type recordSeparator: L{unicode}
-
-    @return: A file log observer.
-    @rtype: L{FileLogObserver}
-    """
-    return FileLogObserver(
-        outFile,
-        lambda event: u"{0}{1}\n".format(recordSeparator, eventAsJSON(event))
-    )
-
-
-
-def eventsFromJSONLogFile(inFile, recordSeparator=None, bufferSize=4096):
-    """
-    Load events from a file previously saved with L{jsonFileLogObserver}.
-    Event records that are truncated or otherwise unreadable are ignored.
-
-    @param inFile: A (readable) file-like object.  Data read from C{inFile}
-        should be L{unicode} or UTF-8 L{bytes}.
-    @type inFile: iterable of lines
-
-    @param recordSeparator: The expected record separator.
-        If L{None}, attempt to automatically detect the record separator from
-        one of C{u"\\x1e"} or C{u""}.
-    @type recordSeparator: L{unicode}
-
-    @param bufferSize: The size of the read buffer used while reading from
-        C{inFile}.
-    @type bufferSize: integer
-
-    @return: Log events as read from C{inFile}.
-    @rtype: iterable of L{dict}
-    """
-    def asBytes(s):
-        if type(s) is bytes:
-            return s
+        if self._temporaryObserver is not None:
+            self._publisher.removeObserver(self._temporaryObserver)
+            if not discardBuffer:
+                self._initialBuffer.replayTo(self._publisher)
+            self._temporaryObserver = None
+            self._warningsModule.showwarning = self.showwarning
         else:
-            return s.encode("utf-8")
-
-    def eventFromBytearray(record):
-        try:
-            text = bytes(record).decode("utf-8")
-        except UnicodeDecodeError:
-            log.error(
-                u"Unable to decode UTF-8 for JSON record: {record!r}",
-                record=bytes(record)
+            previousFile, previousLine = self._previousBegin
+            self._log.warn(
+                MORE_THAN_ONCE_WARNING,
+                fileNow=filename, lineNow=lineno,
+                fileThen=previousFile, lineThen=previousLine,
             )
-            return None
 
-        try:
-            return eventFromJSON(text)
-        except ValueError:
-            log.error(
-                u"Unable to read JSON record: {record!r}",
-                record=bytes(record)
-            )
-            return None
-
-    if recordSeparator is None:
-        first = asBytes(inFile.read(1))
-
-        if first == b"\x1e":
-            # This looks json-text-sequence compliant.
-            recordSeparator = first
+        self._previousBegin = filename, lineno
+        if redirectStandardIO:
+            streams = [("stdout", LogLevel.info), ("stderr", LogLevel.error)]
         else:
-            # Default to simpler newline-separated stream, which does not use
-            # a record separator.
-            recordSeparator = b""
+            streams = []
 
-    else:
-        recordSeparator = asBytes(recordSeparator)
-        first = b""
+        for (stream, level) in streams:
+            oldStream = getattr(self._stdio, stream)
+            loggingFile = LoggingFile(
+                logger=Logger(namespace=stream, observer=self._publisher),
+                level=level,
+                encoding=getattr(oldStream, "encoding", None),
+            )
+            setattr(self._stdio, stream, loggingFile)
 
-    if recordSeparator == b"":
-        recordSeparator = b"\n"  # Split on newlines below
 
-        eventFromRecord = eventFromBytearray
+    def showwarning(
+        self, message, category, filename, lineno, file=None, line=None
+    ):
+        """
+        Twisted-enabled wrapper around L{warnings.showwarning}.
 
-    else:
-        def eventFromRecord(record):
-            if record[-1] == ord("\n"):
-                return eventFromBytearray(record)
-            else:
-                log.error(
-                    u"Unable to read truncated JSON record: {record!r}",
-                    record=bytes(record)
-                )
-            return None
+        If C{file} is L{None}, the default behaviour is to emit the warning to
+        the log system, otherwise the original L{warnings.showwarning} Python
+        function is called.
 
-    buffer = bytearray(first)
+        @param message: A warning message to emit.
+        @type message: L{str}
 
-    while True:
-        newData = inFile.read(bufferSize)
+        @param category: A warning category to associate with C{message}.
+        @type category: L{warnings.Warning}
 
-        if not newData:
-            if len(buffer) > 0:
-                event = eventFromRecord(buffer)
-                if event is not None:
-                    yield event
-            break
+        @param filename: A file name for the source code file issuing the
+            warning.
+        @type warning: L{str}
 
-        buffer += asBytes(newData)
-        records = buffer.split(recordSeparator)
+        @param lineno: A line number in the source file where the warning was
+            issued.
+        @type lineno: L{int}
 
-        for record in records[:-1]:
-            if len(record) > 0:
-                event = eventFromRecord(record)
-                if event is not None:
-                    yield event
+        @param file: A file to write the warning message to.  If L{None},
+            write to L{sys.stderr}.
+        @type file: file-like object
 
-        buffer = records[-1]
+        @param line: A line of source code to include with the warning message.
+            If L{None}, attempt to read the line from C{filename} and
+            C{lineno}.
+        @type line: L{str}
+        """
+        if file is None:
+            self._log.warn(
+                "{filename}:{lineno}: {category}: {warning}",
+                warning=message, category=qual(category),
+                filename=filename, lineno=lineno,
+            )
+        else:
+            self._oldshowwarning(
+                message, category, filename, lineno, file, line
+            )
+
+
+
+globalLogPublisher = LogPublisher()
+globalLogBeginner = LogBeginner(globalLogPublisher, sys.stderr, sys, warnings)

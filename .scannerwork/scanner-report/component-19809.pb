@@ -1,1 +1,1 @@
-ášCvenv/lib/python3.6/site-packages/rest_framework_simplejwt/compat.py 2pyX6h
+ášCvenv/lib/python3.6/site-packages/rest_framework_simplejwt/tokens.py 2pyX±h

@@ -1,42 +1,30 @@
 """
-Email backend that writes messages to console instead of sending them.
+Backend for test environment.
 """
-import sys
-import threading
 
+from django.core import mail
 from django.core.mail.backends.base import BaseEmailBackend
 
 
 class EmailBackend(BaseEmailBackend):
+    """
+    An email backend for use during test sessions.
+
+    The test connection stores email messages in a dummy outbox,
+    rather than sending them out on the wire.
+
+    The dummy outbox is accessible through the outbox instance attribute.
+    """
     def __init__(self, *args, **kwargs):
-        self.stream = kwargs.pop('stream', sys.stdout)
-        self._lock = threading.RLock()
         super().__init__(*args, **kwargs)
+        if not hasattr(mail, 'outbox'):
+            mail.outbox = []
 
-    def write_message(self, message):
-        msg = message.message()
-        msg_data = msg.as_bytes()
-        charset = msg.get_charset().get_output_charset() if msg.get_charset() else 'utf-8'
-        msg_data = msg_data.decode(charset)
-        self.stream.write('%s\n' % msg_data)
-        self.stream.write('-' * 79)
-        self.stream.write('\n')
-
-    def send_messages(self, email_messages):
-        """Write all messages to the stream in a thread-safe way."""
-        if not email_messages:
-            return
+    def send_messages(self, messages):
+        """Redirect messages to the dummy outbox"""
         msg_count = 0
-        with self._lock:
-            try:
-                stream_created = self.open()
-                for message in email_messages:
-                    self.write_message(message)
-                    self.stream.flush()  # flush after each message
-                    msg_count += 1
-                if stream_created:
-                    self.close()
-            except Exception:
-                if not self.fail_silently:
-                    raise
+        for message in messages:  # .message() triggers header validation
+            message.message()
+            mail.outbox.append(message)
+            msg_count += 1
         return msg_count

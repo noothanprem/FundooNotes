@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-#  SelfTest/Util/test_posix.py: Self-test for the OSRNG.posix.new() function
+#  SelfTest/Util/test_generic.py: Self-test for the OSRNG.new() function
 #
 # Written in 2008 by Dwayne C. Litzenberger <dlitz@dlitz.net>
 #
@@ -22,7 +22,7 @@
 # SOFTWARE.
 # ===================================================================
 
-"""Self-test suite for Crypto.Random.OSRNG.posix"""
+"""Self-test suite for Crypto.Random.OSRNG"""
 
 __revision__ = "$Id$"
 
@@ -30,10 +30,10 @@ import unittest
 
 class SimpleTest(unittest.TestCase):
     def runTest(self):
-        """Crypto.Random.OSRNG.posix.new()"""
-        # Import the OSRNG.nt module and try to use it
-        import Crypto.Random.OSRNG.posix
-        randobj = Crypto.Random.OSRNG.posix.new()
+        """Crypto.Random.OSRNG.new()"""
+        # Import the OSRNG module and try to use it
+        import Crypto.Random.OSRNG
+        randobj = Crypto.Random.OSRNG.new()
         x = randobj.read(16)
         y = randobj.read(16)
         self.assertNotEqual(x, y)

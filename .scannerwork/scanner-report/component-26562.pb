@@ -1,1 +1,1 @@
-ÂÏ9venv/lib64/python3.6/site-packages/celery/app/registry.py 2pyXFh
+ÂÏ5venv/lib64/python3.6/site-packages/celery/app/task.py 2pyX“h

@@ -1,1 +1,1 @@
-Œ%Evenv/lib/python3.6/site-packages/django/contrib/flatpages/sitemaps.py 2pyXh
+Œ%9venv/lib/python3.6/site-packages/django/contrib/flatpages :‹%%”%•%–%Ì%©'ª'«'

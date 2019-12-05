@@ -1,141 +1,122 @@
-import sys
+from __future__ import print_function
+import signal
+import gevent.testing as greentest
+import gevent
+import pkg_resources
 
 try:
-    from urllib import request as urllib2
-except ImportError:
-    import urllib2
-from unittest import SkipTest
+    cffi_version = pkg_resources.get_distribution('cffi').parsed_version
+except Exception: # pylint:disable=broad-except
+    # No cffi installed. Shouldn't happen to gevent standard tests,
+    # but maybe some downstream distributor removed it.
+    cffi_version = None
 
-import socket
-import ssl
+class Expected(Exception):
+    pass
 
-import gevent.testing as greentest
-from gevent.testing import DEFAULT_XPC_SOCKET_TIMEOUT
-from gevent.testing import util
-from gevent.testing import params
 
-@greentest.skipOnCI("Timing issues sometimes lead to a connection refused")
-class Test_wsgiserver(util.TestServer):
-    server = 'wsgiserver.py'
-    URL = 'http://%s:8088' % (params.DEFAULT_LOCAL_HOST_ADDR,)
-    PORT = 8088
-    not_found_message = b'<h1>Not Found</h1>'
-    ssl_ctx = None
-    _use_ssl = False
+def raise_Expected():
+    raise Expected('TestSignal')
 
-    def read(self, path='/'):
-        url = self.URL + path
-        try:
-            kwargs = {}
-            if self.ssl_ctx is not None:
-                kwargs = {'context': self.ssl_ctx}
 
-            response = urllib2.urlopen(url, None,
-                                       DEFAULT_XPC_SOCKET_TIMEOUT,
-                                       **kwargs)
-        except urllib2.HTTPError:
-            response = sys.exc_info()[1]
-        result = '%s %s' % (response.code, response.msg), response.read()
-        # XXX: It looks like under PyPy this isn't directly closing the socket
-        # when SSL is in use. It takes a GC cycle to make that true.
-        response.close()
-        return result
+if hasattr(signal, 'SIGALRM'):
 
-    def _test_hello(self):
-        status, data = self.read('/')
-        self.assertEqual(status, '200 OK')
-        self.assertEqual(data, b"<b>hello world</b>")
+    class TestSignal(greentest.TestCase):
 
-    def _test_not_found(self):
-        status, data = self.read('/xxx')
-        self.assertEqual(status, '404 Not Found')
-        self.assertEqual(data, self.not_found_message)
+        error_fatal = False
+        __timeout__ = greentest.LARGE_TIMEOUT
 
-    def _do_test_a_blocking_client(self):
-        # We spawn this in a separate server because if it's broken
-        # the whole server hangs
-        with self.running_server():
-            # First, make sure we can talk to it.
-            self._test_hello()
-            # Now create a connection and only partway finish
-            # the transaction
-            sock = socket.create_connection(('localhost', self.PORT))
-            ssl_sock = None
-            if self._use_ssl:
-                ssl_sock = ssl.wrap_socket(sock)
-                sock_file = ssl_sock.makefile(mode='rwb')
+        def test_handler(self):
+            self.assertRaises(TypeError, gevent.signal, signal.SIGALRM, 1)
+
+        def test_alarm(self):
+            sig = gevent.signal(signal.SIGALRM, raise_Expected)
+            assert sig.ref is False, repr(sig.ref)
+            sig.ref = True
+            assert sig.ref is True
+            sig.ref = False
+            try:
+                signal.alarm(1)
+                try:
+                    gevent.sleep(2)
+                    raise AssertionError('must raise Expected')
+                except Expected as ex:
+                    assert str(ex) == 'TestSignal', ex
+                # also let's check that alarm is persistent
+                signal.alarm(1)
+                try:
+                    gevent.sleep(2)
+                    raise AssertionError('must raise Expected')
+                except Expected as ex:
+                    assert str(ex) == 'TestSignal', ex
+            finally:
+                sig.cancel() # pylint:disable=no-member
+
+
+        @greentest.skipIf((greentest.PY3
+                           and greentest.CFFI_BACKEND
+                           and cffi_version < pkg_resources.parse_version('1.11.3')),
+                          "https://bitbucket.org/cffi/cffi/issues/352/systemerror-returned-a-result-with-an")
+        @greentest.ignores_leakcheck
+        def test_reload(self):
+            # The site module tries to set attributes
+            # on all the modules that are loaded (specifically, __file__).
+            # If gevent.signal is loaded, and is our compatibility shim,
+            # this used to fail on Python 2: sys.modules['gevent.signal'] has no
+            # __loader__ attribute, so site.py's main() function tries to do
+            # gevent.signal.__file__ = os.path.abspath(gevent.signal.__file__), which
+            # used to not be allowed. (Under Python 3, __loader__ is present so this
+            # doesn't happen). See
+            # https://github.com/gevent/gevent/issues/805
+
+            # This fails on Python 3.5 under linux (travis CI) but not
+            # locally on macOS with (for both libuv and libev cffi); sometimes it
+            # failed with libuv on Python 3.6 too, but not always:
+            #   AttributeError: cffi library 'gevent.libuv._corecffi' has no function,
+            #      constant or global variable named '__loader__'
+            # which in turn leads to:
+            #   SystemError: <built-in function getattr> returned a result with an error set
+
+            # It's not safe to continue after a SystemError, so we just skip the test there.
+
+            # As of Jan 2018 with CFFI 1.11.2 this happens reliably on macOS 3.6 and 3.7
+            # as well.
+
+            # See https://bitbucket.org/cffi/cffi/issues/352/systemerror-returned-a-result-with-an
+
+            # This is fixed in 1.11.3
+
+            import gevent.signal # make sure it's in sys.modules pylint:disable=redefined-outer-name
+            assert gevent.signal
+            import site
+            if greentest.PY34:
+                from importlib import reload as reload_module
+            elif greentest.PY3:
+                from imp import reload as reload_module
             else:
-                sock_file = sock.makefile(mode='rwb')
-            # write an incomplete request
-            sock_file.write(b'GET /xxx HTTP/1.0\r\n')
-            sock_file.flush()
-            # Leave it open and not doing anything
-            # while the other request runs to completion.
-            # This demonstrates that a blocking client
-            # doesn't hang the whole server
-            self._test_hello()
+                # builtin on py2
+                reload_module = reload # pylint:disable=undefined-variable
 
-            # now finish the original request
-            sock_file.write(b'\r\n')
-            sock_file.flush()
-            line = sock_file.readline()
-            self.assertEqual(line, b'HTTP/1.1 404 Not Found\r\n')
+            try:
+                reload_module(site)
+            except TypeError:
+                # Non-CFFI on Travis triggers this, for some reason,
+                # but only on 3.6, not 3.4 or 3.5, and not yet on 3.7.
 
-            sock_file.close()
-            if ssl_sock is not None:
-                ssl_sock.close()
-            sock.close()
+                # The only module seen to trigger this is __main__, i.e., this module.
 
-    def test_a_blocking_client(self):
-        self._do_test_a_blocking_client()
-
-@greentest.skipOnCI("Timing issues sometimes lead to a connection refused")
-class Test_wsgiserver_ssl(Test_wsgiserver):
-    server = 'wsgiserver_ssl.py'
-    URL = 'https://%s:8443' % (params.DEFAULT_LOCAL_HOST_ADDR,)
-    PORT = 8443
-    _use_ssl = True
-
-    if hasattr(ssl, '_create_unverified_context'):
-        # Disable verification for our self-signed cert
-        # on Python >= 2.7.9 and 3.4
-        ssl_ctx = ssl._create_unverified_context()
-
-
-@greentest.skipOnCI("Timing issues sometimes lead to a connection refused")
-class Test_webproxy(Test_wsgiserver):
-    server = 'webproxy.py'
-
-    def _run_all_tests(self):
-        status, data = self.read('/')
-        self.assertEqual(status, '200 OK')
-        self.assertIn(b"gevent example", data)
-        status, data = self.read('/http://www.google.com')
-        self.assertEqual(status, '200 OK')
-        self.assertIn(b'google', data.lower())
-
-    def test_a_blocking_client(self):
-        # Not applicable
-        raise SkipTest("Not applicable")
-
-
-# class Test_webpy(Test_wsgiserver):
-#     server = 'webpy.py'
-#     not_found_message = 'not found'
-#
-#     def _test_hello(self):
-#         status, data = self.read('/')
-#         self.assertEqual(status, '200 OK')
-#         assert "Hello, world" in data, repr(data)
-#
-#     def _test_long(self):
-#         start = time.time()
-#         status, data = self.read('/long')
-#         delay = time.time() - start
-#         assert 10 - 0.5 < delay < 10 + 0.5, delay
-#         self.assertEqual(status, '200 OK')
-#         self.assertEqual(data, 'Hello, 10 seconds later')
-
+                # This is hard to trigger in a virtualenv since it appears they
+                # install their own site.py, different from the one that ships with
+                # Python 3.6., and at least the version I have doesn't mess with
+                # __cached__
+                assert greentest.PY36
+                import sys
+                for m in set(sys.modules.values()):
+                    try:
+                        if m.__cached__ is None:
+                            print("Module has None __cached__", m, file=sys.stderr)
+                    except AttributeError:
+                        continue
 
 if __name__ == '__main__':
     greentest.main()

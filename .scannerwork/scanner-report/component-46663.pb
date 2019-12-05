@@ -1,1 +1,0 @@
-«м6venv/lib64/python3.6/site-packages/django_social_share :	∆мёмем

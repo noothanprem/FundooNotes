@@ -1,1 +1,1 @@
-¯|`venv/lib/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lang/tr.js 2jsX6h
+¯|`venv/lib/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lang/fr.js 2jsX7h

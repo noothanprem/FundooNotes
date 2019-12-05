@@ -1,1 +1,1 @@
-моDvenv/lib64/python3.6/site-packages/twisted/names/test/test_client.py 2pyXщ	h
+мо5venv/lib64/python3.6/site-packages/twisted/names/test :-лонооопоротоуофохоцочо€п‰пЉп‹п

@@ -1,1 +1,1 @@
-ÒBAvenv/lib/python3.6/site-packages/django/conf/locale/sv/formats.py 2pyX'h
+ÒBBvenv/lib/python3.6/site-packages/django/conf/locale/sv/__init__.py 2pyXh

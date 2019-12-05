@@ -1,32 +1,14 @@
-from .oauth import BaseOAuth2
+from .goclio import GoClioOAuth2
 
 
-class MonzoOAuth2(BaseOAuth2):
-    """
-    Monzo OAuth2 authentication backend.
-    """
-
-    name = 'monzo'
-
-    AUTHORIZATION_URL = 'https://auth.getmondo.co.uk/'
-    ACCESS_TOKEN_URL = 'https://api.monzo.com/oauth2/token'
-    ACCESS_TOKEN_METHOD = 'POST'
-    REDIRECT_STATE = False
-
-    def get_user_details(self, response):
-        fullname, first_name, last_name = self.get_user_names(
-            response['accounts'][0]['description'],
-        )
-
-        return {
-            'username': str(response.get('user_id')),
-            'fullname': fullname,
-            'first_name': first_name,
-            'last_name': last_name,
-        }
+class GoClioEuOAuth2(GoClioOAuth2):
+    name = 'goclioeu'
+    AUTHORIZATION_URL = 'https://app.goclio.eu/oauth/authorize/'
+    ACCESS_TOKEN_URL = 'https://app.goclio.eu/oauth/token/'
 
     def user_data(self, access_token, *args, **kwargs):
+        """Loads user data from service"""
         return self.get_json(
-            'https://api.monzo.com/accounts',
-            headers={'Authorization': 'Bearer {0}'.format(access_token)},
+            'https://app.goclio.eu/api/v2/users/who_am_i',
+            params={'access_token': access_token}
         )

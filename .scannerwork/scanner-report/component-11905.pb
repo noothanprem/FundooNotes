@@ -1,1 +1,1 @@
-Å]8venv/lib/python3.6/site-packages/faker/providers/company :è[
+Å]4venv/lib/python3.6/site-packages/boto3/docs/utils.py 2pyXèh

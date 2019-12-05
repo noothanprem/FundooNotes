@@ -1,1 +1,1 @@
-¬'Bvenv/lib/python3.6/site-packages/django/contrib/flatpages/admin.py 2pyXh
+¬'Tvenv/lib/python3.6/site-packages/django/contrib/redirects/migrations/0001_initial.py 2pyX)h

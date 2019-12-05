@@ -1,1 +1,1 @@
-è¸>venv/lib/python3.6/site-packages/social_core/backends/yahoo.py 2pyX h
+è¸>venv/lib/python3.6/site-packages/social_core/backends/auth0.py 2pyX6h

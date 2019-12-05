@@ -1,1 +1,1 @@
-Šf<venv/lib/python3.6/site-packages/chardet/chardistribution.py 2pyXêh
+Šf;venv/lib/python3.6/site-packages/chardet/sbcsgroupprober.py 2pyXJh

@@ -1,1 +1,1 @@
-Ç3Gvenv/lib/python3.6/site-packages/django/contrib/postgres/forms/array.py 2pyX×h
+Ç3Hvenv/lib/python3.6/site-packages/django/contrib/postgres/forms/hstore.py 2pyX;h

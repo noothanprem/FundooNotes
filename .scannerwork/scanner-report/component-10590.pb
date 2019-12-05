@@ -1,1 +1,0 @@
-ÞR8venv/lib/python3.6/site-packages/bootstrap3/bootstrap.py 2pyXeh

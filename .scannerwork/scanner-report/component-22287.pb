@@ -1,1 +1,1 @@
-По=venv/lib/python3.6/site-packages/twisted/conch/ui/__init__.py 2pyXh
+По1venv/lib/python3.6/site-packages/twisted/conch/ui :	ОоРоСо

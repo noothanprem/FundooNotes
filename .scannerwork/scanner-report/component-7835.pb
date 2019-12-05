@@ -1,1 +1,1 @@
-›=>venv/lib/python3.6/site-packages/django/contrib/admin/utils.py 2pyXŒh
+›=@venv/lib/python3.6/site-packages/django/contrib/admin/actions.py 2pyXPh

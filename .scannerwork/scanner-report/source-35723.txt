@@ -26,790 +26,282 @@
 
 from __future__ import absolute_import
 
-import os
-import six
-import struct
-import platform
+import json
 
-from autobahn.wamp.interfaces import IObjectSerializer, ISerializer
+from autobahn import util
 from autobahn.wamp.exception import ProtocolError
-from autobahn.wamp import message
 
-# note: __all__ must be a list here, since we dynamically
-# extend it depending on availability of more serializers
-__all__ = ['Serializer',
-           'JsonObjectSerializer',
-           'JsonSerializer']
+__all__ = (
+    'RoleFeatures',
+    'RoleBrokerFeatures',
+    'RoleSubscriberFeatures',
+    'RolePublisherFeatures',
+    'RoleDealerFeatures',
+    'RoleCallerFeatures',
+    'RoleCalleeFeatures',
+    'ROLE_NAME_TO_CLASS',
+    'DEFAULT_CLIENT_ROLES',
+)
 
 
-SERID_TO_OBJSER = {}
-SERID_TO_SER = {}
+class RoleFeatures(util.EqualityMixin):
 
-
-class Serializer(object):
     """
-    Base class for WAMP serializers. A WAMP serializer is the core glue between
-    parsed WAMP message objects and the bytes on wire (the transport).
-    """
-
-    # WAMP defines the following 24 message types
-    MESSAGE_TYPE_MAP = {
-        message.Hello.MESSAGE_TYPE: message.Hello,
-        message.Welcome.MESSAGE_TYPE: message.Welcome,
-        message.Abort.MESSAGE_TYPE: message.Abort,
-        message.Challenge.MESSAGE_TYPE: message.Challenge,
-        message.Authenticate.MESSAGE_TYPE: message.Authenticate,
-        message.Goodbye.MESSAGE_TYPE: message.Goodbye,
-        message.Error.MESSAGE_TYPE: message.Error,
-        message.Publish.MESSAGE_TYPE: message.Publish,
-        message.Published.MESSAGE_TYPE: message.Published,
-        message.Subscribe.MESSAGE_TYPE: message.Subscribe,
-        message.Subscribed.MESSAGE_TYPE: message.Subscribed,
-        message.Unsubscribe.MESSAGE_TYPE: message.Unsubscribe,
-        message.Unsubscribed.MESSAGE_TYPE: message.Unsubscribed,
-        message.Event.MESSAGE_TYPE: message.Event,
-        message.Call.MESSAGE_TYPE: message.Call,
-        message.Cancel.MESSAGE_TYPE: message.Cancel,
-        message.Result.MESSAGE_TYPE: message.Result,
-        message.Register.MESSAGE_TYPE: message.Register,
-        message.Registered.MESSAGE_TYPE: message.Registered,
-        message.Unregister.MESSAGE_TYPE: message.Unregister,
-        message.Unregistered.MESSAGE_TYPE: message.Unregistered,
-        message.Invocation.MESSAGE_TYPE: message.Invocation,
-        message.Interrupt.MESSAGE_TYPE: message.Interrupt,
-        message.Yield.MESSAGE_TYPE: message.Yield
-    }
-    """
-    Mapping of WAMP message type codes to WAMP message classes.
+    Base class for WAMP role features.
     """
 
-    def __init__(self, serializer):
-        """
+    ROLE = None
 
-        :param serializer: The object serializer to use for WAMP wire-level serialization.
-        :type serializer: An object that implements :class:`autobahn.interfaces.IObjectSerializer`.
-        """
-        self._serializer = serializer
+    def __str__(self):
+        return json.dumps(self.__dict__)
 
-    def serialize(self, msg):
-        """
-        Implements :func:`autobahn.wamp.interfaces.ISerializer.serialize`
-        """
-        return msg.serialize(self._serializer), self._serializer.BINARY
+    def __repr__(self):
+        configured_options = {}
+        for k, v in self.__dict__.items():
+            if v is not None:
+                configured_options[k] = v
+        return "{0}({1})".format(self.ROLE, ", ".join([k + '=' + str(v)
+                                                       for k, v in configured_options.items()]))
 
-    def unserialize(self, payload, isBinary=None):
-        """
-        Implements :func:`autobahn.wamp.interfaces.ISerializer.unserialize`
-        """
-        if isBinary is not None:
-            if isBinary != self._serializer.BINARY:
-                raise ProtocolError(
-                    "invalid serialization of WAMP message (binary {0}, but expected {1})".format(isBinary,
-                                                                                                  self._serializer.BINARY))
-        try:
-            raw_msgs = self._serializer.unserialize(payload)
-        except Exception as e:
-            raise ProtocolError("invalid serialization of WAMP message: {0} {1}".format(type(e).__name__, e))
-
-        if self._serializer.NAME == u'flatbuffers':
-            msgs = raw_msgs
-        else:
-            msgs = []
-            for raw_msg in raw_msgs:
-
-                if type(raw_msg) != list:
-                    raise ProtocolError("invalid type {0} for WAMP message".format(type(raw_msg)))
-
-                if len(raw_msg) == 0:
-                    raise ProtocolError(u"missing message type in WAMP message")
-
-                message_type = raw_msg[0]
-
-                if type(message_type) not in six.integer_types:
-                    # CBOR doesn't roundtrip number types
-                    # https://bitbucket.org/bodhisnarkva/cbor/issues/6/number-types-dont-roundtrip
-                    raise ProtocolError("invalid type {0} for WAMP message type".format(type(message_type)))
-
-                Klass = self.MESSAGE_TYPE_MAP.get(message_type)
-
-                if Klass is None:
-                    raise ProtocolError("invalid WAMP message type {0}".format(message_type))
-
-                # this might again raise `ProtocolError` ..
-                msg = Klass.parse(raw_msg)
-
-                msgs.append(msg)
-
-        return msgs
+    def _check_all_bool(self):
+        # check feature attributes
+        for k in self.__dict__:
+            if not k.startswith('_') and k != 'ROLE':
+                if getattr(self, k) is not None and type(getattr(self, k)) != bool:
+                    raise ProtocolError("invalid type {0} for feature '{1}' for role '{2}'".format(getattr(self, k), k, self.ROLE))
 
 
-# JSON serialization is always supported
-_USE_UJSON = 'AUTOBAHN_USE_UJSON' in os.environ
-if _USE_UJSON:
-    try:
-        import ujson
-        _USE_UJSON = True
-    except ImportError:
-        import json
-        _USE_UJSON = False
-else:
-    import json
+class RoleBrokerFeatures(RoleFeatures):
 
-
-if _USE_UJSON:
-    # ujson doesn't support plugging into the JSON string parsing machinery ..
-    print('WARNING: Autobahn is using ujson accelerated JSON module - will run faster,\nbut only on CPython and will loose ability to transport binary payload transparently!')
-    _loads = ujson.loads
-    _dumps = ujson.dumps
-    _json = ujson
-else:
-    # print('Notice: Autobahn is using json built-in standard library module for JSON serialization')
-    import base64
-
-    class _WAMPJsonEncoder(json.JSONEncoder):
-
-        def default(self, obj):
-            if isinstance(obj, six.binary_type):
-                return u'\x00' + base64.b64encode(obj).decode('ascii')
-            else:
-                return json.JSONEncoder.default(self, obj)
-
-    #
-    # the following is a hack. see http://bugs.python.org/issue29992
-    #
-
-    from json import scanner
-    from json.decoder import scanstring
-
-    def _parse_string(*args, **kwargs):
-        s, idx = scanstring(*args, **kwargs)
-        if s and s[0] == u'\x00':
-            s = base64.b64decode(s[1:])
-        return s, idx
-
-    class _WAMPJsonDecoder(json.JSONDecoder):
-
-        def __init__(self, *args, **kwargs):
-            json.JSONDecoder.__init__(self, *args, **kwargs)
-            self.parse_string = _parse_string
-
-            # we need to recreate the internal scan function ..
-            self.scan_once = scanner.py_make_scanner(self)
-
-            # .. and we have to explicitly use the Py version,
-            # not the C version, as the latter won't work
-            # self.scan_once = scanner.make_scanner(self)
-
-    def _loads(s):
-        return json.loads(s, cls=_WAMPJsonDecoder)
-
-    def _dumps(obj):
-        return json.dumps(obj,
-                          separators=(',', ':'),
-                          ensure_ascii=False,
-                          sort_keys=False,
-                          cls=_WAMPJsonEncoder)
-
-    _json = json
-
-
-class JsonObjectSerializer(object):
-
-    JSON_MODULE = _json
     """
-    The JSON module used (now only stdlib).
+    WAMP broker role features.
     """
 
-    NAME = u'json'
+    ROLE = u'broker'
 
-    BINARY = False
-
-    def __init__(self, batched=False):
-        """
-        Ctor.
-
-        :param batched: Flag that controls whether serializer operates in batched mode.
-        :type batched: bool
-        """
-        self._batched = batched
-
-    def serialize(self, obj):
-        """
-        Implements :func:`autobahn.wamp.interfaces.IObjectSerializer.serialize`
-        """
-        s = _dumps(obj)
-        if isinstance(s, six.text_type):
-            s = s.encode('utf8')
-        if self._batched:
-            return s + b'\30'
-        else:
-            return s
-
-    def unserialize(self, payload):
-        """
-        Implements :func:`autobahn.wamp.interfaces.IObjectSerializer.unserialize`
-        """
-        if self._batched:
-            chunks = payload.split(b'\30')[:-1]
-        else:
-            chunks = [payload]
-        if len(chunks) == 0:
-            raise Exception("batch format error")
-        return [_loads(data.decode('utf8')) for data in chunks]
+    def __init__(self,
+                 publisher_identification=None,
+                 publication_trustlevels=None,
+                 pattern_based_subscription=None,
+                 session_meta_api=None,
+                 subscription_meta_api=None,
+                 subscriber_blackwhite_listing=None,
+                 publisher_exclusion=None,
+                 subscription_revocation=None,
+                 event_history=None,
+                 payload_transparency=None,
+                 x_acknowledged_event_delivery=None,
+                 payload_encryption_cryptobox=None,
+                 event_retention=None,
+                 **kwargs):
+        self.publisher_identification = publisher_identification
+        self.publication_trustlevels = publication_trustlevels
+        self.pattern_based_subscription = pattern_based_subscription
+        self.session_meta_api = session_meta_api
+        self.subscription_meta_api = subscription_meta_api
+        self.subscriber_blackwhite_listing = subscriber_blackwhite_listing
+        self.publisher_exclusion = publisher_exclusion
+        self.subscription_revocation = subscription_revocation
+        self.event_history = event_history
+        self.payload_transparency = payload_transparency
+        self.x_acknowledged_event_delivery = x_acknowledged_event_delivery
+        self.payload_encryption_cryptobox = payload_encryption_cryptobox
+        self.event_retention = event_retention
+        self._check_all_bool()
 
 
-IObjectSerializer.register(JsonObjectSerializer)
-SERID_TO_OBJSER[JsonObjectSerializer.NAME] = JsonObjectSerializer
+class RoleSubscriberFeatures(RoleFeatures):
 
-
-class JsonSerializer(Serializer):
-
-    SERIALIZER_ID = u"json"
     """
-    ID used as part of the WebSocket subprotocol name to identify the
-    serializer with WAMP-over-WebSocket.
+    WAMP subscriber role features.
     """
 
-    RAWSOCKET_SERIALIZER_ID = 1
+    ROLE = u'subscriber'
+
+    def __init__(self,
+                 publisher_identification=None,
+                 publication_trustlevels=None,
+                 pattern_based_subscription=None,
+                 subscription_revocation=None,
+                 event_history=None,
+                 payload_transparency=None,
+                 payload_encryption_cryptobox=None,
+                 **kwargs):
+        self.publisher_identification = publisher_identification
+        self.publication_trustlevels = publication_trustlevels
+        self.pattern_based_subscription = pattern_based_subscription
+        self.subscription_revocation = subscription_revocation
+        self.event_history = event_history
+        self.payload_transparency = payload_transparency
+        self.payload_encryption_cryptobox = payload_encryption_cryptobox
+        self._check_all_bool()
+
+
+class RolePublisherFeatures(RoleFeatures):
+
     """
-    ID used in lower four bits of second octet in RawSocket opening
-    handshake identify the serializer with WAMP-over-RawSocket.
+    WAMP publisher role features.
     """
 
-    MIME_TYPE = u"application/json"
+    ROLE = u'publisher'
+
+    def __init__(self,
+                 publisher_identification=None,
+                 subscriber_blackwhite_listing=None,
+                 publisher_exclusion=None,
+                 payload_transparency=None,
+                 x_acknowledged_event_delivery=None,
+                 payload_encryption_cryptobox=None,
+                 **kwargs):
+        self.publisher_identification = publisher_identification
+        self.subscriber_blackwhite_listing = subscriber_blackwhite_listing
+        self.publisher_exclusion = publisher_exclusion
+        self.payload_transparency = payload_transparency
+        self.x_acknowledged_event_delivery = x_acknowledged_event_delivery
+        self.payload_encryption_cryptobox = payload_encryption_cryptobox
+        self._check_all_bool()
+
+
+class RoleDealerFeatures(RoleFeatures):
+
     """
-    MIME type announced in HTTP request/response headers when running
-    WAMP-over-Longpoll HTTP fallback.
+    WAMP dealer role features.
     """
 
-    def __init__(self, batched=False):
-        """
-        Ctor.
+    ROLE = u'dealer'
+
+    def __init__(self,
+                 caller_identification=None,
+                 call_trustlevels=None,
+                 pattern_based_registration=None,
+                 session_meta_api=None,
+                 registration_meta_api=None,
+                 shared_registration=None,
+                 call_timeout=None,
+                 call_canceling=None,
+                 progressive_call_results=None,
+                 registration_revocation=None,
+                 payload_transparency=None,
+                 testament_meta_api=None,
+                 payload_encryption_cryptobox=None,
+                 **kwargs):
+        self.caller_identification = caller_identification
+        self.call_trustlevels = call_trustlevels
+        self.pattern_based_registration = pattern_based_registration
+        self.session_meta_api = session_meta_api
+        self.registration_meta_api = registration_meta_api
+        self.shared_registration = shared_registration
+        self.call_timeout = call_timeout
+        self.call_canceling = call_canceling
+        self.progressive_call_results = progressive_call_results
+        self.registration_revocation = registration_revocation
+        self.payload_transparency = payload_transparency
+        self.testament_meta_api = testament_meta_api
+        self.payload_encryption_cryptobox = payload_encryption_cryptobox
+        self._check_all_bool()
+
+
+class RoleCallerFeatures(RoleFeatures):
 
-        :param batched: Flag to control whether to put this serialized into batched mode.
-        :type batched: bool
-        """
-        Serializer.__init__(self, JsonObjectSerializer(batched=batched))
-        if batched:
-            self.SERIALIZER_ID = u"json.batched"
-
-
-ISerializer.register(JsonSerializer)
-SERID_TO_SER[JsonSerializer.SERIALIZER_ID] = JsonSerializer
-
-
-_HAS_MSGPACK = False
-_USE_UMSGPACK = platform.python_implementation() == u'PyPy' or 'AUTOBAHN_USE_UMSGPACK' in os.environ
-
-if not _USE_UMSGPACK:
-    try:
-        # on CPython, use an impl. with native extension:
-        # https://pypi.org/project/msgpack/
-        # https://github.com/msgpack/msgpack-python
-        import msgpack
-    except ImportError:
-        pass
-    else:
-        _HAS_MSGPACK = True
-        _packb = lambda obj: msgpack.packb(obj, use_bin_type=True)  # noqa
-        _unpackb = lambda data: msgpack.unpackb(data, raw=False)  # noqa
-        _msgpack = msgpack
-        # print('Notice: Autobahn is using msgpack library (with native extension, best on CPython) for MessagePack serialization')
-else:
-    try:
-        # on PyPy in particular, use a pure python impl.:
-        # https://pypi.python.org/pypi/u-msgpack-python
-        # https://github.com/vsergeev/u-msgpack-python
-        import umsgpack
-    except ImportError:
-        pass
-    else:
-        _HAS_MSGPACK = True
-        _packb = umsgpack.packb
-        _unpackb = umsgpack.unpackb
-        _msgpack = umsgpack
-        # print('Notice: Autobahn is using umsgpack library (pure Python, best on PyPy) for MessagePack serialization')
-
-
-if _HAS_MSGPACK:
-
-    class MsgPackObjectSerializer(object):
-
-        NAME = u'msgpack'
-
-        MSGPACK_MODULE = _msgpack
-
-        BINARY = True
-        """
-        Flag that indicates whether this serializer needs a binary clean transport.
-        """
-
-        def __init__(self, batched=False):
-            """
-
-            :param batched: Flag that controls whether serializer operates in batched mode.
-            :type batched: bool
-            """
-            self._batched = batched
-
-        def serialize(self, obj):
-            """
-            Implements :func:`autobahn.wamp.interfaces.IObjectSerializer.serialize`
-            """
-            data = _packb(obj)
-            if self._batched:
-                return struct.pack("!L", len(data)) + data
-            else:
-                return data
-
-        def unserialize(self, payload):
-            """
-            Implements :func:`autobahn.wamp.interfaces.IObjectSerializer.unserialize`
-            """
-
-            if self._batched:
-                msgs = []
-                N = len(payload)
-                i = 0
-                while i < N:
-                    # read message length prefix
-                    if i + 4 > N:
-                        raise Exception("batch format error [1]")
-                    l = struct.unpack("!L", payload[i:i + 4])[0]
-
-                    # read message data
-                    if i + 4 + l > N:
-                        raise Exception("batch format error [2]")
-                    data = payload[i + 4:i + 4 + l]
-
-                    # append parsed raw message
-                    msgs.append(_unpackb(data))
-
-                    # advance until everything consumed
-                    i = i + 4 + l
-
-                if i != N:
-                    raise Exception("batch format error [3]")
-                return msgs
-
-            else:
-                unpacked = _unpackb(payload)
-                return [unpacked]
-
-    IObjectSerializer.register(MsgPackObjectSerializer)
-
-    __all__.append('MsgPackObjectSerializer')
-    SERID_TO_OBJSER[MsgPackObjectSerializer.NAME] = MsgPackObjectSerializer
-
-    class MsgPackSerializer(Serializer):
-
-        SERIALIZER_ID = u"msgpack"
-        """
-        ID used as part of the WebSocket subprotocol name to identify the
-        serializer with WAMP-over-WebSocket.
-        """
-
-        RAWSOCKET_SERIALIZER_ID = 2
-        """
-        ID used in lower four bits of second octet in RawSocket opening
-        handshake identify the serializer with WAMP-over-RawSocket.
-        """
-
-        MIME_TYPE = u"application/x-msgpack"
-        """
-        MIME type announced in HTTP request/response headers when running
-        WAMP-over-Longpoll HTTP fallback.
-        """
-
-        def __init__(self, batched=False):
-            """
-            Ctor.
-
-            :param batched: Flag to control whether to put this serialized into batched mode.
-            :type batched: bool
-            """
-            Serializer.__init__(self, MsgPackObjectSerializer(batched=batched))
-            if batched:
-                self.SERIALIZER_ID = u"msgpack.batched"
-
-    ISerializer.register(MsgPackSerializer)
-    SERID_TO_SER[MsgPackSerializer.SERIALIZER_ID] = MsgPackSerializer
-
-    __all__.append('MsgPackSerializer')
-
-
-_HAS_CBOR = False
-if 'AUTOBAHN_USE_CBOR2' in os.environ:
-    try:
-        # https://pypi.org/project/cbor2/
-        # https://github.com/agronholm/cbor2
-        import cbor2
-    except ImportError:
-        pass
-    else:
-        _HAS_CBOR = True
-        _cbor_loads = cbor2.loads
-        _cbor_dumps = cbor2.dumps
-        _cbor = cbor2
-        # print('Notice: Autobahn is using cbor2 library for CBOR serialization')
-else:
-    try:
-        # https://pypi.python.org/pypi/cbor
-        # https://bitbucket.org/bodhisnarkva/cbor
-        import cbor
-    except ImportError:
-        pass
-    else:
-        _HAS_CBOR = True
-        _cbor_loads = cbor.loads
-        _cbor_dumps = cbor.dumps
-        _cbor = cbor
-        # print('Notice: Autobahn is using cbor library for CBOR serialization')
-
-
-if _HAS_CBOR:
-
-    class CBORObjectSerializer(object):
-
-        NAME = u'cbor'
-
-        CBOR_MODULE = _cbor
-
-        BINARY = True
-        """
-        Flag that indicates whether this serializer needs a binary clean transport.
-        """
-
-        def __init__(self, batched=False):
-            """
-            Ctor.
-
-            :param batched: Flag that controls whether serializer operates in batched mode.
-            :type batched: bool
-            """
-            self._batched = batched
-
-        def serialize(self, obj):
-            """
-            Implements :func:`autobahn.wamp.interfaces.IObjectSerializer.serialize`
-            """
-            data = _cbor_dumps(obj)
-            if self._batched:
-                return struct.pack("!L", len(data)) + data
-            else:
-                return data
-
-        def unserialize(self, payload):
-            """
-            Implements :func:`autobahn.wamp.interfaces.IObjectSerializer.unserialize`
-            """
-
-            if self._batched:
-                msgs = []
-                N = len(payload)
-                i = 0
-                while i < N:
-                    # read message length prefix
-                    if i + 4 > N:
-                        raise Exception("batch format error [1]")
-                    l = struct.unpack("!L", payload[i:i + 4])[0]
-
-                    # read message data
-                    if i + 4 + l > N:
-                        raise Exception("batch format error [2]")
-                    data = payload[i + 4:i + 4 + l]
-
-                    # append parsed raw message
-                    msgs.append(_cbor_loads(data))
-
-                    # advance until everything consumed
-                    i = i + 4 + l
-
-                if i != N:
-                    raise Exception("batch format error [3]")
-                return msgs
-
-            else:
-                unpacked = _cbor_loads(payload)
-                return [unpacked]
-
-    IObjectSerializer.register(CBORObjectSerializer)
-    SERID_TO_OBJSER[CBORObjectSerializer.NAME] = CBORObjectSerializer
-
-    __all__.append('CBORObjectSerializer')
-
-    class CBORSerializer(Serializer):
-
-        SERIALIZER_ID = u"cbor"
-        """
-        ID used as part of the WebSocket subprotocol name to identify the
-        serializer with WAMP-over-WebSocket.
-        """
-
-        RAWSOCKET_SERIALIZER_ID = 3
-        """
-        ID used in lower four bits of second octet in RawSocket opening
-        handshake identify the serializer with WAMP-over-RawSocket.
-        """
-
-        MIME_TYPE = u"application/cbor"
-        """
-        MIME type announced in HTTP request/response headers when running
-        WAMP-over-Longpoll HTTP fallback.
-        """
-
-        def __init__(self, batched=False):
-            """
-            Ctor.
-
-            :param batched: Flag to control whether to put this serialized into batched mode.
-            :type batched: bool
-            """
-            Serializer.__init__(self, CBORObjectSerializer(batched=batched))
-            if batched:
-                self.SERIALIZER_ID = u"cbor.batched"
-
-    ISerializer.register(CBORSerializer)
-    SERID_TO_SER[CBORSerializer.SERIALIZER_ID] = CBORSerializer
-
-    __all__.append('CBORSerializer')
-
-
-# UBJSON serialization depends on the `py-ubjson` package being available
-# https://pypi.python.org/pypi/py-ubjson
-# https://github.com/Iotic-Labs/py-ubjson
-try:
-    import ubjson
-except ImportError:
-    pass
-else:
-    # print('Notice: Autobahn is using ubjson module for UBJSON serialization')
-
-    class UBJSONObjectSerializer(object):
-
-        NAME = u'ubjson'
-
-        UBJSON_MODULE = ubjson
-
-        BINARY = True
-        """
-        Flag that indicates whether this serializer needs a binary clean transport.
-        """
-
-        def __init__(self, batched=False):
-            """
-
-            :param batched: Flag that controls whether serializer operates in batched mode.
-            :type batched: bool
-            """
-            self._batched = batched
-
-        def serialize(self, obj):
-            """
-            Implements :func:`autobahn.wamp.interfaces.IObjectSerializer.serialize`
-            """
-            data = ubjson.dumpb(obj)
-            if self._batched:
-                return struct.pack("!L", len(data)) + data
-            else:
-                return data
-
-        def unserialize(self, payload):
-            """
-            Implements :func:`autobahn.wamp.interfaces.IObjectSerializer.unserialize`
-            """
-
-            if self._batched:
-                msgs = []
-                N = len(payload)
-                i = 0
-                while i < N:
-                    # read message length prefix
-                    if i + 4 > N:
-                        raise Exception("batch format error [1]")
-                    l = struct.unpack("!L", payload[i:i + 4])[0]
-
-                    # read message data
-                    if i + 4 + l > N:
-                        raise Exception("batch format error [2]")
-                    data = payload[i + 4:i + 4 + l]
-
-                    # append parsed raw message
-                    msgs.append(ubjson.loadb(data))
-
-                    # advance until everything consumed
-                    i = i + 4 + l
-
-                if i != N:
-                    raise Exception("batch format error [3]")
-                return msgs
-
-            else:
-                unpacked = ubjson.loadb(payload)
-                return [unpacked]
-
-    IObjectSerializer.register(UBJSONObjectSerializer)
-    SERID_TO_OBJSER[UBJSONObjectSerializer.NAME] = UBJSONObjectSerializer
-
-    __all__.append('UBJSONObjectSerializer')
-
-    class UBJSONSerializer(Serializer):
-
-        SERIALIZER_ID = u"ubjson"
-        """
-        ID used as part of the WebSocket subprotocol name to identify the
-        serializer with WAMP-over-WebSocket.
-        """
-
-        RAWSOCKET_SERIALIZER_ID = 4
-        """
-        ID used in lower four bits of second octet in RawSocket opening
-        handshake identify the serializer with WAMP-over-RawSocket.
-        """
-
-        MIME_TYPE = u"application/ubjson"
-        """
-        MIME type announced in HTTP request/response headers when running
-        WAMP-over-Longpoll HTTP fallback.
-        """
-
-        def __init__(self, batched=False):
-            """
-            Ctor.
-
-            :param batched: Flag to control whether to put this serialized into batched mode.
-            :type batched: bool
-            """
-            Serializer.__init__(self, UBJSONObjectSerializer(batched=batched))
-            if batched:
-                self.SERIALIZER_ID = u"ubjson.batched"
-
-    ISerializer.register(UBJSONSerializer)
-    SERID_TO_SER[UBJSONSerializer.SERIALIZER_ID] = UBJSONSerializer
-
-    __all__.append('UBJSONSerializer')
-
-
-_HAS_FLATBUFFERS = False
-try:
-    import flatbuffers  # noqa
-    from autobahn.wamp import message_fbs
-except ImportError:
-    pass
-else:
-    _HAS_FLATBUFFERS = True
-
-
-if _HAS_FLATBUFFERS:
-
-    class FlatBuffersObjectSerializer(object):
-
-        NAME = u'flatbuffers'
-
-        FLATBUFFERS_MODULE = flatbuffers
-
-        BINARY = True
-        """
-        Flag that indicates whether this serializer needs a binary clean transport.
-        """
-
-        MESSAGE_TYPE_MAP = {
-            message_fbs.MessageType.EVENT: (message_fbs.Event, message.Event),
-            message_fbs.MessageType.PUBLISH: (message_fbs.Publish, message.Publish),
-        }
-
-        def __init__(self, batched=False):
-            """
-
-            :param batched: Flag that controls whether serializer operates in batched mode.
-            :type batched: bool
-            """
-            assert not batched, 'WAMP-FlatBuffers serialization does not support message batching currently'
-            self._batched = batched
-
-        def serialize(self, obj):
-            """
-            Implements :func:`autobahn.wamp.interfaces.IObjectSerializer.serialize`
-            """
-            raise NotImplementedError()
-
-        def unserialize(self, payload):
-            """
-            Implements :func:`autobahn.wamp.interfaces.IObjectSerializer.unserialize`
-            """
-            union_msg = message_fbs.Message.Message.GetRootAsMessage(payload, 0)
-            msg_type = union_msg.MsgType()
-
-            if msg_type in self.MESSAGE_TYPE_MAP:
-                fbs_klass, wamp_klass = self.MESSAGE_TYPE_MAP[msg_type]
-                fbs_msg = fbs_klass()
-                _tab = union_msg.Msg()
-                fbs_msg.Init(_tab.Bytes, _tab.Pos)
-                msg = wamp_klass(from_fbs=fbs_msg)
-                return [msg]
-            else:
-                raise NotImplementedError('message type {} not yet implemented for WAMP-FlatBuffers'.format(msg_type))
-
-    IObjectSerializer.register(FlatBuffersObjectSerializer)
-
-    __all__.append('FlatBuffersObjectSerializer')
-    SERID_TO_OBJSER[FlatBuffersObjectSerializer.NAME] = FlatBuffersObjectSerializer
-
-    class FlatBuffersSerializer(Serializer):
-
-        SERIALIZER_ID = u"flatbuffers"
-        """
-        ID used as part of the WebSocket subprotocol name to identify the
-        serializer with WAMP-over-WebSocket.
-        """
-
-        RAWSOCKET_SERIALIZER_ID = 5
-        """
-        ID used in lower four bits of second octet in RawSocket opening
-        handshake identify the serializer with WAMP-over-RawSocket.
-        """
-
-        MIME_TYPE = u"application/x-flatbuffers"
-        """
-        MIME type announced in HTTP request/response headers when running
-        WAMP-over-Longpoll HTTP fallback.
-        """
-
-        def __init__(self, batched=False):
-            """
-
-            :param batched: Flag to control whether to put this serialized into batched mode.
-            :type batched: bool
-            """
-            Serializer.__init__(self, FlatBuffersObjectSerializer(batched=batched))
-            if batched:
-                self.SERIALIZER_ID = u"flatbuffers.batched"
-
-    ISerializer.register(FlatBuffersSerializer)
-    SERID_TO_SER[FlatBuffersSerializer.SERIALIZER_ID] = FlatBuffersSerializer
-
-    __all__.append('FlatBuffersSerializer')
-
-
-def create_transport_serializer(serializer_id):
-    batched = False
-    if '.' in serializer_id:
-        l = serializer_id.split('.')
-        serializer_id = l[0]
-        if len(l) > 1 and l[1] == 'batched':
-            batched = True
-
-    if serializer_id in SERID_TO_SER:
-        return SERID_TO_SER[serializer_id](batched=batched)
-    else:
-        raise RuntimeError('could not create serializer for "{}" (available: {})'.format(serializer_id, sorted(SERID_TO_SER.keys())))
-
-
-def create_transport_serializers(transport):
     """
-    Create a list of serializers to use with a WAMP protocol factory.
+    WAMP caller role features.
     """
-    serializers = []
-    for serializer_id in transport.serializers:
-        serializers.append(create_transport_serializer(serializer_id))
-    return serializers
+
+    ROLE = u'caller'
+
+    def __init__(self,
+                 caller_identification=None,
+                 call_timeout=None,
+                 call_canceling=None,
+                 progressive_call_results=None,
+                 payload_transparency=None,
+                 payload_encryption_cryptobox=None,
+                 **kwargs):
+        self.caller_identification = caller_identification
+        self.call_timeout = call_timeout
+        self.call_canceling = call_canceling
+        self.progressive_call_results = progressive_call_results
+        self.payload_transparency = payload_transparency
+        self.payload_encryption_cryptobox = payload_encryption_cryptobox
+        self._check_all_bool()
+
+
+class RoleCalleeFeatures(RoleFeatures):
+
+    """
+    WAMP callee role features.
+    """
+
+    ROLE = u'callee'
+
+    def __init__(self,
+                 caller_identification=None,
+                 call_trustlevels=None,
+                 pattern_based_registration=None,
+                 shared_registration=None,
+                 call_timeout=None,
+                 call_canceling=None,
+                 progressive_call_results=None,
+                 registration_revocation=None,
+                 payload_transparency=None,
+                 payload_encryption_cryptobox=None,
+                 **kwargs):
+        self.caller_identification = caller_identification
+        self.call_trustlevels = call_trustlevels
+        self.pattern_based_registration = pattern_based_registration
+        self.shared_registration = shared_registration
+        self.call_timeout = call_timeout
+        self.call_canceling = call_canceling
+        self.progressive_call_results = progressive_call_results
+        self.registration_revocation = registration_revocation
+        self.payload_transparency = payload_transparency
+        self.payload_encryption_cryptobox = payload_encryption_cryptobox
+        self._check_all_bool()
+
+
+# map of role names to role class
+ROLE_NAME_TO_CLASS = {
+    u'broker': RoleBrokerFeatures,
+    u'subscriber': RoleSubscriberFeatures,
+    u'publisher': RolePublisherFeatures,
+    u'dealer': RoleDealerFeatures,
+    u'caller': RoleCallerFeatures,
+    u'callee': RoleCalleeFeatures,
+}
+
+
+# default role features for client roles supported
+DEFAULT_CLIENT_ROLES = {
+    u'subscriber': RoleSubscriberFeatures(
+        publisher_identification=True,
+        pattern_based_subscription=True,
+        subscription_revocation=True,
+        payload_transparency=True,
+        payload_encryption_cryptobox=True,
+    ),
+    u'publisher': RolePublisherFeatures(
+        publisher_identification=True,
+        subscriber_blackwhite_listing=True,
+        publisher_exclusion=True,
+        payload_transparency=True,
+        x_acknowledged_event_delivery=True,
+        payload_encryption_cryptobox=True,
+    ),
+    u'caller': RoleCallerFeatures(
+        caller_identification=True,
+        progressive_call_results=True,
+        payload_transparency=True,
+        payload_encryption_cryptobox=True,
+        call_canceling=True,
+    ),
+    u'callee': RoleCalleeFeatures(
+        caller_identification=True,
+        pattern_based_registration=True,
+        shared_registration=True,
+        progressive_call_results=True,
+        registration_revocation=True,
+        payload_transparency=True,
+        payload_encryption_cryptobox=True,
+        call_canceling=True,
+    ),
+}

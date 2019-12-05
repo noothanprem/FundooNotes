@@ -1,1 +1,1 @@
-ß‘8venv/lib64/python3.6/site-packages/django/conf/locale/ja :Ý‘à‘
+ß‘8venv/lib64/python3.6/site-packages/django/conf/locale/ja :Þ‘à‘

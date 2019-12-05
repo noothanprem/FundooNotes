@@ -1,1 +1,1 @@
-²P5venv/lib/python3.6/site-packages/astroid/rebuilder.py 2pyX«h
+²P4venv/lib/python3.6/site-packages/astroid/__init__.py 2pyX§h

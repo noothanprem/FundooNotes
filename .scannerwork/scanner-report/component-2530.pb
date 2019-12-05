@@ -1,1 +1,0 @@
-â8venv/lib/python3.6/site-packages/openid/yadis/filters.py 2pyXÓh

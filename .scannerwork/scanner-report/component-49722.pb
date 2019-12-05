@@ -1,1 +1,1 @@
-º„@venv/lib64/python3.6/site-packages/social_core/backends/naver.py 2pyXAh
+º„Dvenv/lib64/python3.6/site-packages/social_core/backends/openstack.py 2pyX0h

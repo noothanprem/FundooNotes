@@ -1,69 +1,67 @@
-"""Worker Event Dispatcher Bootstep.
-
-``Events`` -> :class:`celery.events.EventDispatcher`.
-"""
+"""Worker Task Consumer Bootstep."""
 from __future__ import absolute_import, unicode_literals
 
-from kombu.common import ignore_errors
+from kombu.common import QoS, ignore_errors
 
 from celery import bootsteps
+from celery.utils.log import get_logger
 
-from .connection import Connection
+from .mingle import Mingle
 
-__all__ = ('Events',)
+__all__ = ('Tasks',)
+
+logger = get_logger(__name__)
+debug = logger.debug
 
 
-class Events(bootsteps.StartStopStep):
-    """Service used for sending monitoring events."""
+class Tasks(bootsteps.StartStopStep):
+    """Bootstep starting the task message consumer."""
 
-    requires = (Connection,)
+    requires = (Mingle,)
 
-    def __init__(self, c,
-                 task_events=True,
-                 without_heartbeat=False,
-                 without_gossip=False,
-                 **kwargs):
-        self.groups = None if task_events else ['worker']
-        self.send_events = (
-            task_events or
-            not without_gossip or
-            not without_heartbeat
-        )
-        c.event_dispatcher = None
-        super(Events, self).__init__(c, **kwargs)
+    def __init__(self, c, **kwargs):
+        c.task_consumer = c.qos = None
+        super(Tasks, self).__init__(c, **kwargs)
 
     def start(self, c):
-        # flush events sent while connection was down.
-        prev = self._close(c)
-        dis = c.event_dispatcher = c.app.events.Dispatcher(
-            c.connection_for_write(),
-            hostname=c.hostname,
-            enabled=self.send_events,
-            groups=self.groups,
-            # we currently only buffer events when the event loop is enabled
-            # XXX This excludes eventlet/gevent, which should actually buffer.
-            buffer_group=['task'] if c.hub else None,
-            on_send_buffered=c.on_send_event_buffered if c.hub else None,
+        """Start task consumer."""
+        c.update_strategies()
+
+        # - RabbitMQ 3.3 completely redefines how basic_qos works..
+        # This will detect if the new qos smenatics is in effect,
+        # and if so make sure the 'apply_global' flag is set on qos updates.
+        qos_global = not c.connection.qos_semantics_matches_spec
+
+        # set initial prefetch count
+        c.connection.default_channel.basic_qos(
+            0, c.initial_prefetch_count, qos_global,
         )
-        if prev:
-            dis.extend_buffer(prev)
-            dis.flush()
+
+        c.task_consumer = c.app.amqp.TaskConsumer(
+            c.connection, on_decode_error=c.on_decode_error,
+        )
+
+        def set_prefetch_count(prefetch_count):
+            return c.task_consumer.qos(
+                prefetch_count=prefetch_count,
+                apply_global=qos_global,
+            )
+        c.qos = QoS(set_prefetch_count, c.initial_prefetch_count)
 
     def stop(self, c):
-        pass
-
-    def _close(self, c):
-        if c.event_dispatcher:
-            dispatcher = c.event_dispatcher
-            # remember changes from remote control commands:
-            self.groups = dispatcher.groups
-
-            # close custom connection
-            if dispatcher.connection:
-                ignore_errors(c, dispatcher.connection.close)
-            ignore_errors(c, dispatcher.close)
-            c.event_dispatcher = None
-            return dispatcher
+        """Stop task consumer."""
+        if c.task_consumer:
+            debug('Canceling task consumer...')
+            ignore_errors(c, c.task_consumer.cancel)
 
     def shutdown(self, c):
-        self._close(c)
+        """Shutdown task consumer."""
+        if c.task_consumer:
+            self.stop(c)
+            debug('Closing consumer channel...')
+            ignore_errors(c, c.task_consumer.close)
+            c.task_consumer = None
+
+    def info(self, c):
+        """Return task consumer info."""
+        return {'prefetch_count': c.qos.value if c.qos else 'N/A'}

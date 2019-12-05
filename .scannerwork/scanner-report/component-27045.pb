@@ -1,1 +1,1 @@
-¥Ó4venv/lib64/python3.6/site-packages/coreapi/client.py 2pyX³h
+¥Ó;venv/lib64/python3.6/site-packages/coreapi/codecs/python.py 2pyXSh

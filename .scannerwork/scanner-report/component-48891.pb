@@ -1,1 +1,0 @@
-ûýKvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/viewsets.py 2pyXøh

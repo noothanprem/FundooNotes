@@ -1,1 +1,1 @@
-—‡4venv/lib64/python3.6/site-packages/django_extensions :–‡˜‡¡‡¢‡Ý‡Þ‡ùˆ
+—‡4venv/lib64/python3.6/site-packages/django_extensions :–‡˜‡¡‡¢‡Þ‡Ý‡ùˆ

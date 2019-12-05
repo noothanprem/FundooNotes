@@ -1,63 +1,58 @@
 from __future__ import print_function
-import os
-import unittest
-
+import gevent.monkey
+gevent.monkey.patch_all()
 import gevent
-from gevent import core
+import os
+
+import multiprocessing
+
+hub = gevent.get_hub()
+pid = os.getpid()
+newpid = None
 
 
-@unittest.skipUnless(
-    getattr(core, 'LIBEV_EMBED', False),
-    "Needs embedded libev. "
-    "hub.loop.fileno is only defined when "
-    "we embed libev for some reason. "
-    "Choosing specific backends is also only supported by libev "
-    "(not libuv), and besides, libuv has a nasty tendency to "
-    "abort() the process if its FD gets closed. "
-)
-class Test(unittest.TestCase):
-    # NOTE that we extend unittest.TestCase, not greentest.TestCase
-    # Extending the later causes the wrong hub to get used.
+def on_fork():
+    global newpid
+    newpid = os.getpid()
 
-    assertRaisesRegex = getattr(unittest.TestCase, 'assertRaisesRegex',
-                                getattr(unittest.TestCase, 'assertRaisesRegexp'))
+fork_watcher = hub.loop.fork(ref=False)
+fork_watcher.start(on_fork)
 
-    def _check_backend(self, backend):
-        hub = gevent.get_hub(backend, default=False)
-        try:
-            self.assertEqual(hub.loop.backend, backend)
 
-            gevent.sleep(0.001)
-            fileno = hub.loop.fileno()
-            if fileno is None:
-                raise unittest.SkipTest("backend %s lacks fileno" % (backend,))
+def run(q):
+    # libev only calls fork callbacks at the beginning of
+    # the loop; we use callbacks extensively so it takes *two*
+    # calls to sleep (with a timer) to actually get wrapped
+    # around to the beginning of the loop.
+    gevent.sleep(0.01)
+    gevent.sleep(0.01)
+    q.put(newpid)
 
-            os.close(fileno)
-            with self.assertRaisesRegex(SystemError, "(libev)"):
-                gevent.sleep(0.001)
 
-            hub.destroy()
-            self.assertIn('destroyed', repr(hub))
-        finally:
-            if hub.loop is not None:
-                hub.destroy()
+def test():
+    # Use a thread to make us multi-threaded
+    hub.threadpool.apply(lambda: None)
+    # If the Queue is global, q.get() hangs on Windows; must pass as
+    # an argument.
+    q = multiprocessing.Queue()
+    p = multiprocessing.Process(target=run, args=(q,))
+    p.start()
+    p.join()
+    p_val = q.get()
 
-    def _make_test(count, backend): # pylint:disable=no-self-argument
-        def test(self):
-            self._check_backend(backend)
-        test.__name__ = 'test_' + backend + '_' + str(count)
-        return test.__name__, test
-
-    count = backend = None
-    for count in range(2):
-        for backend in core.supported_backends():
-            name, func = _make_test(count, backend)
-            locals()[name] = func
-            name = func = None
-
-    del count
-    del backend
-    del _make_test
+    assert p_val is not None, "The fork watcher didn't run"
+    assert p_val != pid
 
 if __name__ == '__main__':
-    unittest.main()
+    # Must call for Windows to fork properly; the fork can't be in the top-level
+    multiprocessing.freeze_support()
+    # fork watchers weren't firing in multi-threading processes.
+    # This test is designed to prove that they are.
+    # However, it fails on Windows: The fork watcher never runs!
+    # This makes perfect sense: on Windows, our patches to os.fork()
+    # that call gevent.hub.reinit() don't get used; os.fork doesn't
+    # exist and multiprocessing.Process uses the windows-specific _subprocess.CreateProcess()
+    # to create a whole new process that has no relation to the current process;
+    # that process then calls multiprocessing.forking.main() to do its work.
+    # Since no state is shared, a fork watcher cannot exist in that process.
+    test()

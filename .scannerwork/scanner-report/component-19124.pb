@@ -1,1 +1,1 @@
-´•5venv/lib/python3.6/site-packages/botocore/response.py 2pyX¥h
+´•5venv/lib/python3.6/site-packages/botocore/endpoint.py 2pyX­h

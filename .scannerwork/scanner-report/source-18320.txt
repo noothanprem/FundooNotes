@@ -1,4 +1,3 @@
-# Copyright (c) 2012-2013 Mitch Garnaat http://garnaat.org/
 # Copyright 2012-2014 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
@@ -11,508 +10,322 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-from __future__ import unicode_literals
-from botocore.vendored import requests
-from botocore.vendored.requests.packages import urllib3
+import jmespath
+import logging
+import time
+
+from botocore.utils import get_service_module_name
+from botocore.docs.docstring import WaiterDocstring
+from .exceptions import WaiterError, ClientError, WaiterConfigError
+from . import xform_name
 
 
-def _exception_from_packed_args(exception_cls, args=None, kwargs=None):
-    # This is helpful for reducing Exceptions that only accept kwargs as
-    # only positional arguments can be provided for __reduce__
-    # Ideally, this would also be a class method on the BotoCoreError
-    # but instance methods cannot be pickled.
-    if args is None:
-        args = ()
-    if kwargs is None:
-        kwargs = {}
-    return exception_cls(*args, **kwargs)
+logger = logging.getLogger(__name__)
 
 
-class BotoCoreError(Exception):
-    """
-    The base exception class for BotoCore exceptions.
-
-    :ivar msg: The descriptive message associated with the error.
-    """
-    fmt = 'An unspecified error occurred'
-
-    def __init__(self, **kwargs):
-        msg = self.fmt.format(**kwargs)
-        Exception.__init__(self, msg)
-        self.kwargs = kwargs
-
-    def __reduce__(self):
-        return _exception_from_packed_args, (self.__class__, None, self.kwargs)
-
-
-class DataNotFoundError(BotoCoreError):
-    """
-    The data associated with a particular path could not be loaded.
-
-    :ivar path: The data path that the user attempted to load.
-    """
-    fmt = 'Unable to load data for: {data_path}'
-
-
-class UnknownServiceError(DataNotFoundError):
-    """Raised when trying to load data for an unknown service.
-
-    :ivar service_name: The name of the unknown service.
-
-    """
-    fmt = (
-        "Unknown service: '{service_name}'. Valid service names are: "
-        "{known_service_names}")
-
-
-class ApiVersionNotFoundError(BotoCoreError):
-    """
-    The data associated with either that API version or a compatible one
-    could not be loaded.
-
-    :ivar path: The data path that the user attempted to load.
-    :ivar path: The API version that the user attempted to load.
-    """
-    fmt = 'Unable to load data {data_path} for: {api_version}'
-
-
-class HTTPClientError(BotoCoreError):
-    fmt = 'An HTTP Client raised and unhandled exception: {error}'
-    def __init__(self, request=None, response=None, **kwargs):
-        self.request = request
-        self.response = response
-        super(HTTPClientError, self).__init__(**kwargs)
-
-    def __reduce__(self):
-        return _exception_from_packed_args, (
-            self.__class__, (self.request, self.response), self.kwargs)
-
-
-class ConnectionError(BotoCoreError):
-    fmt = 'An HTTP Client failed to establish a connection: {error}'
-
-
-class EndpointConnectionError(ConnectionError):
-    fmt = 'Could not connect to the endpoint URL: "{endpoint_url}"'
-
-
-class SSLError(ConnectionError, requests.exceptions.SSLError):
-    fmt = 'SSL validation failed for {endpoint_url} {error}'
-
-
-class ConnectionClosedError(HTTPClientError):
-    fmt = (
-        'Connection was closed before we received a valid response '
-        'from endpoint URL: "{endpoint_url}".')
-
-
-class ReadTimeoutError(HTTPClientError, requests.exceptions.ReadTimeout,
-                       urllib3.exceptions.ReadTimeoutError):
-    fmt = 'Read timeout on endpoint URL: "{endpoint_url}"'
-
-
-class ConnectTimeoutError(ConnectionError, requests.exceptions.ConnectTimeout):
-    fmt = 'Connect timeout on endpoint URL: "{endpoint_url}"'
-
-
-class ProxyConnectionError(ConnectionError, requests.exceptions.ProxyError):
-    fmt = 'Failed to connect to proxy URL: "{proxy_url}"'
-
-
-class NoCredentialsError(BotoCoreError):
-    """
-    No credentials could be found
-    """
-    fmt = 'Unable to locate credentials'
-
-
-class PartialCredentialsError(BotoCoreError):
-    """
-    Only partial credentials were found.
-
-    :ivar cred_var: The missing credential variable name.
-
-    """
-    fmt = 'Partial credentials found in {provider}, missing: {cred_var}'
-
-
-class CredentialRetrievalError(BotoCoreError):
-    """
-    Error attempting to retrieve credentials from a remote source.
-
-    :ivar provider: The name of the credential provider.
-    :ivar error_msg: The msg explaning why credentials could not be
-        retrieved.
-
-    """
-    fmt = 'Error when retrieving credentials from {provider}: {error_msg}'
-
-
-class UnknownSignatureVersionError(BotoCoreError):
-    """
-    Requested Signature Version is not known.
-
-    :ivar signature_version: The name of the requested signature version.
-    """
-    fmt = 'Unknown Signature Version: {signature_version}.'
-
-
-class ServiceNotInRegionError(BotoCoreError):
-    """
-    The service is not available in requested region.
-
-    :ivar service_name: The name of the service.
-    :ivar region_name: The name of the region.
-    """
-    fmt = 'Service {service_name} not available in region {region_name}'
-
-
-class BaseEndpointResolverError(BotoCoreError):
-    """Base error for endpoint resolving errors.
-
-    Should never be raised directly, but clients can catch
-    this exception if they want to generically handle any errors
-    during the endpoint resolution process.
-
+def create_waiter_with_client(waiter_name, waiter_model, client):
     """
 
+    :type waiter_name: str
+    :param waiter_name: The name of the waiter.  The name should match
+        the name (including the casing) of the key name in the waiter
+        model file (typically this is CamelCasing).
 
-class NoRegionError(BaseEndpointResolverError):
-    """No region was specified."""
-    fmt = 'You must specify a region.'
+    :type waiter_model: botocore.waiter.WaiterModel
+    :param waiter_model: The model for the waiter configuration.
 
+    :type client: botocore.client.BaseClient
+    :param client: The botocore client associated with the service.
 
-class UnknownEndpointError(BaseEndpointResolverError, ValueError):
+    :rtype: botocore.waiter.Waiter
+    :return: The waiter object.
+
     """
-    Could not construct an endpoint.
+    single_waiter_config = waiter_model.get_waiter(waiter_name)
+    operation_name = xform_name(single_waiter_config.operation)
+    operation_method = NormalizedOperationMethod(
+        getattr(client, operation_name))
 
-    :ivar service_name: The name of the service.
-    :ivar region_name: The name of the region.
-    """
-    fmt = (
-        'Unable to construct an endpoint for '
-        '{service_name} in region {region_name}')
+    # Create a new wait method that will serve as a proxy to the underlying
+    # Waiter.wait method. This is needed to attach a docstring to the
+    # method.
+    def wait(self, **kwargs):
+        Waiter.wait(self, **kwargs)
 
+    wait.__doc__ = WaiterDocstring(
+        waiter_name=waiter_name,
+        event_emitter=client.meta.events,
+        service_model=client.meta.service_model,
+        service_waiter_model=waiter_model,
+        include_signature=False
+    )
 
-class ProfileNotFound(BotoCoreError):
-    """
-    The specified configuration profile was not found in the
-    configuration file.
+    # Rename the waiter class based on the type of waiter.
+    waiter_class_name = str('%s.Waiter.%s' % (
+        get_service_module_name(client.meta.service_model),
+        waiter_name))
 
-    :ivar profile: The name of the profile the user attempted to load.
-    """
-    fmt = 'The config profile ({profile}) could not be found'
+    # Create the new waiter class
+    documented_waiter_cls = type(
+        waiter_class_name, (Waiter,), {'wait': wait})
 
-
-class ConfigParseError(BotoCoreError):
-    """
-    The configuration file could not be parsed.
-
-    :ivar path: The path to the configuration file.
-    """
-    fmt = 'Unable to parse config file: {path}'
-
-
-class ConfigNotFound(BotoCoreError):
-    """
-    The specified configuration file could not be found.
-
-    :ivar path: The path to the configuration file.
-    """
-    fmt = 'The specified config file ({path}) could not be found.'
-
-
-class MissingParametersError(BotoCoreError):
-    """
-    One or more required parameters were not supplied.
-
-    :ivar object: The object that has missing parameters.
-        This can be an operation or a parameter (in the
-        case of inner params).  The str() of this object
-        will be used so it doesn't need to implement anything
-        other than str().
-    :ivar missing: The names of the missing parameters.
-    """
-    fmt = ('The following required parameters are missing for '
-           '{object_name}: {missing}')
-
-
-class ValidationError(BotoCoreError):
-    """
-    An exception occurred validating parameters.
-
-    Subclasses must accept a ``value`` and ``param``
-    argument in their ``__init__``.
-
-    :ivar value: The value that was being validated.
-    :ivar param: The parameter that failed validation.
-    :ivar type_name: The name of the underlying type.
-    """
-    fmt = ("Invalid value ('{value}') for param {param} "
-           "of type {type_name} ")
-
-
-class ParamValidationError(BotoCoreError):
-    fmt = 'Parameter validation failed:\n{report}'
-
-
-# These exceptions subclass from ValidationError so that code
-# can just 'except ValidationError' to catch any possibly validation
-# error.
-class UnknownKeyError(ValidationError):
-    """
-    Unknown key in a struct paramster.
-
-    :ivar value: The value that was being checked.
-    :ivar param: The name of the parameter.
-    :ivar choices: The valid choices the value can be.
-    """
-    fmt = ("Unknown key '{value}' for param '{param}'.  Must be one "
-           "of: {choices}")
-
-
-class RangeError(ValidationError):
-    """
-    A parameter value was out of the valid range.
-
-    :ivar value: The value that was being checked.
-    :ivar param: The parameter that failed validation.
-    :ivar min_value: The specified minimum value.
-    :ivar max_value: The specified maximum value.
-    """
-    fmt = ('Value out of range for param {param}: '
-           '{min_value} <= {value} <= {max_value}')
-
-
-class UnknownParameterError(ValidationError):
-    """
-    Unknown top level parameter.
-
-    :ivar name: The name of the unknown parameter.
-    :ivar operation: The name of the operation.
-    :ivar choices: The valid choices the parameter name can be.
-    """
-    fmt = (
-        "Unknown parameter '{name}' for operation {operation}.  Must be one "
-        "of: {choices}"
+    # Return an instance of the new waiter class.
+    return documented_waiter_cls(
+        waiter_name, single_waiter_config, operation_method
     )
 
 
-class AliasConflictParameterError(ValidationError):
+class NormalizedOperationMethod(object):
+    def __init__(self, client_method):
+        self._client_method = client_method
+
+    def __call__(self, **kwargs):
+        try:
+            return self._client_method(**kwargs)
+        except ClientError as e:
+            return e.response
+
+
+class WaiterModel(object):
+    SUPPORTED_VERSION = 2
+
+    def __init__(self, waiter_config):
+        """
+
+        Note that the WaiterModel takes ownership of the waiter_config.
+        It may or may not mutate the waiter_config.  If this is a concern,
+        it is best to make a copy of the waiter config before passing it to
+        the WaiterModel.
+
+        :type waiter_config: dict
+        :param waiter_config: The loaded waiter config
+            from the <service>*.waiters.json file.  This can be
+            obtained from a botocore Loader object as well.
+
+        """
+        self._waiter_config = waiter_config['waiters']
+
+        # These are part of the public API.  Changing these
+        # will result in having to update the consuming code,
+        # so don't change unless you really need to.
+        version = waiter_config.get('version', 'unknown')
+        self._verify_supported_version(version)
+        self.version = version
+        self.waiter_names = list(sorted(waiter_config['waiters'].keys()))
+
+    def _verify_supported_version(self, version):
+        if version != self.SUPPORTED_VERSION:
+            raise WaiterConfigError(
+                error_msg=("Unsupported waiter version, supported version "
+                           "must be: %s, but version of waiter config "
+                           "is: %s" % (self.SUPPORTED_VERSION,
+                                       version)))
+
+    def get_waiter(self, waiter_name):
+        try:
+            single_waiter_config = self._waiter_config[waiter_name]
+        except KeyError:
+            raise ValueError("Waiter does not exist: %s" % waiter_name)
+        return SingleWaiterConfig(single_waiter_config)
+
+
+class SingleWaiterConfig(object):
+    """Represents the waiter configuration for a single waiter.
+
+    A single waiter is considered the configuration for a single
+    value associated with a named waiter (i.e TableExists).
+
     """
-    Error when an alias is provided for a parameter as well as the original.
-
-    :ivar original: The name of the original parameter.
-    :ivar alias: The name of the alias
-    :ivar operation: The name of the operation.
-    """
-    fmt = (
-        "Parameter '{original}' and its alias '{alias}' were provided "
-        "for operation {operation}.  Only one of them may be used."
-    )
-
-
-class UnknownServiceStyle(BotoCoreError):
-    """
-    Unknown style of service invocation.
-
-    :ivar service_style: The style requested.
-    """
-    fmt = 'The service style ({service_style}) is not understood.'
-
-
-class PaginationError(BotoCoreError):
-    fmt = 'Error during pagination: {message}'
-
-
-class OperationNotPageableError(BotoCoreError):
-    fmt = 'Operation cannot be paginated: {operation_name}'
-
-
-class ChecksumError(BotoCoreError):
-    """The expected checksum did not match the calculated checksum.
-
-    """
-    fmt = ('Checksum {checksum_type} failed, expected checksum '
-           '{expected_checksum} did not match calculated checksum '
-           '{actual_checksum}.')
-
-
-class UnseekableStreamError(BotoCoreError):
-    """Need to seek a stream, but stream does not support seeking.
-
-    """
-    fmt = ('Need to rewind the stream {stream_object}, but stream '
-           'is not seekable.')
-
-
-class WaiterError(BotoCoreError):
-    """Waiter failed to reach desired state."""
-    fmt = 'Waiter {name} failed: {reason}'
-
-    def __init__(self, name, reason, last_response):
-        super(WaiterError, self).__init__(name=name, reason=reason)
-        self.last_response = last_response
-
-
-class IncompleteReadError(BotoCoreError):
-    """HTTP response did not return expected number of bytes."""
-    fmt = ('{actual_bytes} read, but total bytes '
-           'expected is {expected_bytes}.')
-
-
-class InvalidExpressionError(BotoCoreError):
-    """Expression is either invalid or too complex."""
-    fmt = 'Invalid expression {expression}: Only dotted lookups are supported.'
-
-
-class UnknownCredentialError(BotoCoreError):
-    """Tried to insert before/after an unregistered credential type."""
-    fmt = 'Credential named {name} not found.'
-
-
-class WaiterConfigError(BotoCoreError):
-    """Error when processing waiter configuration."""
-    fmt = 'Error processing waiter config: {error_msg}'
-
-
-class UnknownClientMethodError(BotoCoreError):
-    """Error when trying to access a method on a client that does not exist."""
-    fmt = 'Client does not have method: {method_name}'
-
-
-class UnsupportedSignatureVersionError(BotoCoreError):
-    """Error when trying to access a method on a client that does not exist."""
-    fmt = 'Signature version is not supported: {signature_version}'
-
-
-class ClientError(Exception):
-    MSG_TEMPLATE = (
-        'An error occurred ({error_code}) when calling the {operation_name} '
-        'operation{retry_info}: {error_message}')
-
-    def __init__(self, error_response, operation_name):
-        retry_info = self._get_retry_info(error_response)
-        error = error_response.get('Error', {})
-        msg = self.MSG_TEMPLATE.format(
-            error_code=error.get('Code', 'Unknown'),
-            error_message=error.get('Message', 'Unknown'),
-            operation_name=operation_name,
-            retry_info=retry_info,
-        )
-        super(ClientError, self).__init__(msg)
-        self.response = error_response
-        self.operation_name = operation_name
-
-    def _get_retry_info(self, response):
-        retry_info = ''
-        if 'ResponseMetadata' in response:
-            metadata = response['ResponseMetadata']
-            if metadata.get('MaxAttemptsReached', False):
-                if 'RetryAttempts' in metadata:
-                    retry_info = (' (reached max retries: %s)' %
-                                  metadata['RetryAttempts'])
-        return retry_info
-
-    def __reduce__(self):
-        # Subclasses of ClientError's are dynamically generated and
-        # cannot be pickled unless they are attributes of a
-        # module. So at the very least return a ClientError back.
-        return ClientError, (self.response, self.operation_name)
-
-
-class EventStreamError(ClientError):
-    pass
-
-
-class UnsupportedTLSVersionWarning(Warning):
-    """Warn when an openssl version that uses TLS 1.2 is required"""
-    pass
-
-
-class ImminentRemovalWarning(Warning):
-    pass
-
-
-class InvalidDNSNameError(BotoCoreError):
-    """Error when virtual host path is forced on a non-DNS compatible bucket"""
-    fmt = (
-        'Bucket named {bucket_name} is not DNS compatible. Virtual '
-        'hosted-style addressing cannot be used. The addressing style '
-        'can be configured by removing the addressing_style value '
-        'or setting that value to \'path\' or \'auto\' in the AWS Config '
-        'file or in the botocore.client.Config object.'
-    )
-
-
-class InvalidS3AddressingStyleError(BotoCoreError):
-    """Error when an invalid path style is specified"""
-    fmt = (
-        'S3 addressing style {s3_addressing_style} is invaild. Valid options '
-        'are: \'auto\', \'virtual\', and \'path\''
-    )
-
-
-class InvalidRetryConfigurationError(BotoCoreError):
-    """Error when invalid retry configuration is specified"""
-    fmt = (
-        'Cannot provide retry configuration for "{retry_config_option}". '
-        'Valid retry configuration options are: \'max_attempts\''
-    )
-
-
-class InvalidMaxRetryAttemptsError(InvalidRetryConfigurationError):
-    """Error when invalid retry configuration is specified"""
-    fmt = (
-        'Value provided to "max_attempts": {provided_max_attempts} must '
-        'be an integer greater than or equal to zero.'
-    )
-
-class StubResponseError(BotoCoreError):
-    fmt = 'Error getting response stub for operation {operation_name}: {reason}'
-
-
-class StubAssertionError(StubResponseError, AssertionError):
-    pass
-
-class UnStubbedResponseError(StubResponseError):
-    pass
-
-class InvalidConfigError(BotoCoreError):
-    fmt = '{error_msg}'
-
-
-class InfiniteLoopConfigError(InvalidConfigError):
-    fmt = (
-        'Infinite loop in credential configuration detected. Attempting to '
-        'load from profile {source_profile} which has already been visited. '
-        'Visited profiles: {visited_profiles}'
-    )
-
-
-class RefreshWithMFAUnsupportedError(BotoCoreError):
-    fmt = 'Cannot refresh credentials: MFA token required.'
-
-
-class MD5UnavailableError(BotoCoreError):
-    fmt = "This system does not support MD5 generation."
-
-
-class MetadataRetrievalError(BotoCoreError):
-    fmt = "Error retrieving metadata: {error_msg}"
-
-
-class UndefinedModelAttributeError(Exception):
-    pass
-
-
-class MissingServiceIdError(UndefinedModelAttributeError):
-    fmt = (
-        "The model being used for the service {service_name} is missing the "
-        "serviceId metadata property, which is required."
-    )
-
-    def __init__(self, **kwargs):
-        msg = self.fmt.format(**kwargs)
-        Exception.__init__(self, msg)
-        self.kwargs = kwargs
+    def __init__(self, single_waiter_config):
+        self._config = single_waiter_config
+
+        # These attributes are part of the public API.
+        self.description = single_waiter_config.get('description', '')
+        # Per the spec, these three fields are required.
+        self.operation = single_waiter_config['operation']
+        self.delay = single_waiter_config['delay']
+        self.max_attempts = single_waiter_config['maxAttempts']
+
+    @property
+    def acceptors(self):
+        acceptors = []
+        for acceptor_config in self._config['acceptors']:
+            acceptor = AcceptorConfig(acceptor_config)
+            acceptors.append(acceptor)
+        return acceptors
+
+
+class AcceptorConfig(object):
+    def __init__(self, config):
+        self.state = config['state']
+        self.matcher = config['matcher']
+        self.expected = config['expected']
+        self.argument = config.get('argument')
+        self.matcher_func = self._create_matcher_func()
+
+    def _create_matcher_func(self):
+        # An acceptor function is a callable that takes a single value.  The
+        # parsed AWS response.  Note that the parsed error response is also
+        # provided in the case of errors, so it's entirely possible to
+        # handle all the available matcher capabilities in the future.
+        # There's only three supported matchers, so for now, this is all
+        # contained to a single method.  If this grows, we can expand this
+        # out to separate methods or even objects.
+
+        if self.matcher == 'path':
+            return self._create_path_matcher()
+        elif self.matcher == 'pathAll':
+            return self._create_path_all_matcher()
+        elif self.matcher == 'pathAny':
+            return self._create_path_any_matcher()
+        elif self.matcher == 'status':
+            return self._create_status_matcher()
+        elif self.matcher == 'error':
+            return self._create_error_matcher()
+        else:
+            raise WaiterConfigError(
+                error_msg="Unknown acceptor: %s" % self.matcher)
+
+    def _create_path_matcher(self):
+        expression = jmespath.compile(self.argument)
+        expected = self.expected
+
+        def acceptor_matches(response):
+            if 'Error' in response:
+                return
+            return expression.search(response) == expected
+        return acceptor_matches
+
+    def _create_path_all_matcher(self):
+        expression = jmespath.compile(self.argument)
+        expected = self.expected
+
+        def acceptor_matches(response):
+            if 'Error' in response:
+                return
+            result = expression.search(response)
+            if not isinstance(result, list) or not result:
+                # pathAll matcher must result in a list.
+                # Also we require at least one element in the list,
+                # that is, an empty list should not result in this
+                # acceptor match.
+                return False
+            for element in result:
+                if element != expected:
+                    return False
+            return True
+        return acceptor_matches
+
+    def _create_path_any_matcher(self):
+        expression = jmespath.compile(self.argument)
+        expected = self.expected
+
+        def acceptor_matches(response):
+            if 'Error' in response:
+                return
+            result = expression.search(response)
+            if not isinstance(result, list) or not result:
+                # pathAny matcher must result in a list.
+                # Also we require at least one element in the list,
+                # that is, an empty list should not result in this
+                # acceptor match.
+                return False
+            for element in result:
+                if element == expected:
+                    return True
+            return False
+        return acceptor_matches
+
+    def _create_status_matcher(self):
+        expected = self.expected
+
+        def acceptor_matches(response):
+            # We don't have any requirements on the expected incoming data
+            # other than it is a dict, so we don't assume there's
+            # a ResponseMetadata.HTTPStatusCode.
+            status_code = response.get('ResponseMetadata', {}).get(
+                'HTTPStatusCode')
+            return status_code == expected
+        return acceptor_matches
+
+    def _create_error_matcher(self):
+        expected = self.expected
+
+        def acceptor_matches(response):
+            # When the client encounters an error, it will normally raise
+            # an exception.  However, the waiter implementation will catch
+            # this exception, and instead send us the parsed error
+            # response.  So response is still a dictionary, and in the case
+            # of an error response will contain the "Error" and
+            # "ResponseMetadata" key.
+            return response.get("Error", {}).get("Code", "") == expected
+        return acceptor_matches
+
+
+class Waiter(object):
+    def __init__(self, name, config, operation_method):
+        """
+
+        :type name: string
+        :param name: The name of the waiter
+
+        :type config: botocore.waiter.SingleWaiterConfig
+        :param config: The configuration for the waiter.
+
+        :type operation_method: callable
+        :param operation_method: A callable that accepts **kwargs
+            and returns a response.  For example, this can be
+            a method from a botocore client.
+
+        """
+        self._operation_method = operation_method
+        # The two attributes are exposed to allow for introspection
+        # and documentation.
+        self.name = name
+        self.config = config
+
+    def wait(self, **kwargs):
+        acceptors = list(self.config.acceptors)
+        current_state = 'waiting'
+        # pop the invocation specific config
+        config = kwargs.pop('WaiterConfig', {})
+        sleep_amount = config.get('Delay', self.config.delay)
+        max_attempts = config.get('MaxAttempts', self.config.max_attempts)
+        num_attempts = 0
+
+        while True:
+            response = self._operation_method(**kwargs)
+            num_attempts += 1
+            for acceptor in acceptors:
+                if acceptor.matcher_func(response):
+                    current_state = acceptor.state
+                    break
+            else:
+                # If none of the acceptors matched, we should
+                # transition to the failure state if an error
+                # response was received.
+                if 'Error' in response:
+                    # Transition to a failure state, which we
+                    # can just handle here by raising an exception.
+                    raise WaiterError(
+                        name=self.name,
+                        reason=response['Error'].get('Message', 'Unknown'),
+                        last_response=response
+                    )
+            if current_state == 'success':
+                logger.debug("Waiting complete, waiter matched the "
+                             "success state.")
+                return
+            if current_state == 'failure':
+                raise WaiterError(
+                    name=self.name,
+                    reason='Waiter encountered a terminal failure state',
+                    last_response=response,
+                )
+            if num_attempts >= max_attempts:
+                raise WaiterError(
+                    name=self.name,
+                    reason='Max attempts exceeded',
+                    last_response=response
+                )
+            time.sleep(sleep_amount)

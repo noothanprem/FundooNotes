@@ -1,1 +1,1 @@
-ŠW=venv/lib/python3.6/site-packages/faker/providers/person/zh_TW :‰W
+ŠW=venv/lib/python3.6/site-packages/faker/providers/person/fr_FR :‰W

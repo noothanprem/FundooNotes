@@ -1,43 +1,58 @@
-import io
-from lingua.extractors import Extractor
-from lingua.extractors import Message
-from lingua.extractors import get_extractor
-from mako.ext.extract import MessageExtractor
+# ext/turbogears.py
+# Copyright (C) 2006-2016 the Mako authors and contributors <see AUTHORS file>
+#
+# This module is part of Mako and is released under
+# the MIT License: http://www.opensource.org/licenses/mit-license.php
+
 from mako import compat
+from mako.lookup import TemplateLookup
+from mako.template import Template
 
 
-class LinguaMakoExtractor(Extractor, MessageExtractor):
+class TGPlugin(object):
 
-    '''Mako templates'''
-    extensions = ['.mako']
-    default_config = {
-        'encoding': 'utf-8',
-        'comment-tags': '',
-    }
+    """TurboGears compatible Template Plugin."""
 
-    def __call__(self, filename, options, fileobj=None):
-        self.options = options
-        self.filename = filename
-        self.python_extractor = get_extractor('x.py')
-        if fileobj is None:
-            fileobj = open(filename, 'rb')
-        return self.process_file(fileobj)
+    def __init__(self, extra_vars_func=None, options=None, extension='mak'):
+        self.extra_vars_func = extra_vars_func
+        self.extension = extension
+        if not options:
+            options = {}
 
-    def process_python(self, code, code_lineno, translator_strings):
-        source = code.getvalue().strip()
-        if source.endswith(compat.b(':')):
-            if source in (compat.b('try:'), compat.b('else:')) or source.startswith(compat.b('except')):
-                source = compat.b('') # Ignore try/except and else
-            elif source.startswith(compat.b('elif')):
-                source = source[2:] # Replace "elif" with "if"
-            source += compat.b('pass')
-        code = io.BytesIO(source)
-        for msg in self.python_extractor(
-                self.filename, self.options, code, code_lineno -1):
-            if translator_strings:
-                msg = Message(msg.msgctxt, msg.msgid, msg.msgid_plural,
-                              msg.flags,
-                              compat.u(' ').join(
-                                  translator_strings + [msg.comment]),
-                              msg.tcomment, msg.location)
-            yield msg
+        # Pull the options out and initialize the lookup
+        lookup_options = {}
+        for k, v in options.items():
+            if k.startswith('mako.'):
+                lookup_options[k[5:]] = v
+            elif k in ['directories', 'filesystem_checks', 'module_directory']:
+                lookup_options[k] = v
+        self.lookup = TemplateLookup(**lookup_options)
+
+        self.tmpl_options = {}
+        # transfer lookup args to template args, based on those available
+        # in getargspec
+        for kw in compat.inspect_getargspec(Template.__init__)[0]:
+            if kw in lookup_options:
+                self.tmpl_options[kw] = lookup_options[kw]
+
+    def load_template(self, templatename, template_string=None):
+        """Loads a template from a file or a string"""
+        if template_string is not None:
+            return Template(template_string, **self.tmpl_options)
+        # Translate TG dot notation to normal / template path
+        if '/' not in templatename:
+            templatename = '/' + templatename.replace('.', '/') + '.' +\
+                self.extension
+
+        # Lookup template
+        return self.lookup.get_template(templatename)
+
+    def render(self, info, format="html", fragment=False, template=None):
+        if isinstance(template, compat.string_types):
+            template = self.load_template(template)
+
+        # Load extra vars func if provided
+        if self.extra_vars_func:
+            info.update(self.extra_vars_func())
+
+        return template.render(**info)

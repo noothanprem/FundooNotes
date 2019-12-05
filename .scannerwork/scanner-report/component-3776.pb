@@ -1,1 +1,1 @@
-ÀKvenv/lib/python3.6/site-packages/django/template/loaders/app_directories.py 2pyXh
+ÀFvenv/lib/python3.6/site-packages/django/template/context_processors.py 2pyXRh

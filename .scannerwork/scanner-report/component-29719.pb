@@ -1,1 +1,1 @@
-—è=venv/lib64/python3.6/site-packages/django/utils/decorators.py 2pyX±h
+—è>venv/lib64/python3.6/site-packages/django/utils/deprecation.py 2pyXbh

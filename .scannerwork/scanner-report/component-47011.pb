@@ -1,1 +1,1 @@
-£ïGvenv/lib64/python3.6/site-packages/twisted/cred/test/test_digestauth.py 2pyX»h
+£ï@venv/lib64/python3.6/site-packages/twisted/cred/test/__init__.py 2pyXh

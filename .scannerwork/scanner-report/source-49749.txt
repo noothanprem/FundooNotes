@@ -1,54 +1,59 @@
-"""
-Clef OAuth support.
+import hmac
+import time
+import hashlib
 
-This contribution adds support for Clef OAuth service. The settings
-SOCIAL_AUTH_CLEF_KEY and SOCIAL_AUTH_CLEF_SECRET must be defined with the
-values given by Clef application registration process.
-"""
-
-from .oauth import BaseOAuth2
+from .base import BaseAuth
+from ..exceptions import AuthFailed, AuthMissingParameter
+from ..utils import handle_http_errors
 
 
-class ClefOAuth2(BaseOAuth2):
-    """Clef OAuth authentication backend"""
-    name = 'clef'
-    AUTHORIZATION_URL = 'https://clef.io/iframes/qr'
-    ACCESS_TOKEN_URL = 'https://clef.io/api/v1/authorize'
-    ACCESS_TOKEN_METHOD = 'POST'
-    SCOPE_SEPARATOR = ','
+class TelegramAuth(BaseAuth):
+    name = 'telegram'
+    ID_KEY = 'id'
 
-    def auth_params(self, *args, **kwargs):
-        params = super(ClefOAuth2, self).auth_params(*args, **kwargs)
-        params['app_id'] = params.pop('client_id')
-        params['redirect_url'] = params.pop('redirect_uri')
-        return params
+    def verify_data(self, response):
+        bot_token = self.setting('BOT_TOKEN')
+        if bot_token is None:
+            raise AuthMissingParameter('telegram',
+                                       'SOCIAL_AUTH_TELEGRAM_BOT_TOKEN')
 
-    def get_user_id(self, response, details):
-        return details.get('info').get('id')
+        received_hash_string = response.get('hash')
+        auth_date = response.get('auth_date')
+
+        if received_hash_string is None or auth_date is None:
+            raise AuthMissingParameter('telegram', 'hash or auth_date')
+
+        data_check_string = ['{}={}'.format(k, v)
+                             for k, v in response.items() if k != 'hash']
+        data_check_string = '\n'.join(sorted(data_check_string))
+        secret_key = hashlib.sha256(bot_token.encode()).digest()
+        built_hash = hmac.new(secret_key,
+                              msg=data_check_string.encode(),
+                              digestmod=hashlib.sha256).hexdigest()
+        current_timestamp = int(time.time())
+        auth_timestamp = int(auth_date)
+        if current_timestamp - auth_timestamp > 86400:
+            raise AuthFailed('telegram', 'Auth date is outdated')
+        if built_hash != received_hash_string:
+            raise AuthFailed('telegram', 'Invalid hash supplied')
+
+    def extra_data(self, user, uid, response, details=None, *args, **kwargs):
+        return response
 
     def get_user_details(self, response):
-        """Return user details from Github account"""
-        info = response.get('info')
-        fullname, first_name, last_name = self.get_user_names(
-            first_name=info.get('first_name'),
-            last_name=info.get('last_name')
-        )
-
-        email = info.get('email', '')
-        if email:
-            username = email.split('@', 1)[0]
-        else:
-            username = info.get('id')
-
+        first_name = response.get('first_name', '')
+        last_name = response.get('last_name', '')
+        fullname = '{} {}'.format(first_name, last_name).strip()
         return {
-            'username': username,
-            'email': email,
-            'fullname': fullname,
+            'username': response.get('username') or response[self.ID_KEY],
             'first_name': first_name,
             'last_name': last_name,
-            'phone_number': info.get('phone_number', '')
+            'fullname': fullname
         }
 
-    def user_data(self, access_token, *args, **kwargs):
-        return self.get_json('https://clef.io/api/v1/info',
-                             params={'access_token': access_token})
+    @handle_http_errors
+    def auth_complete(self, *args, **kwargs):
+        response = self.data
+        self.verify_data(response)
+        kwargs.update({'response': self.data, 'backend': self})
+        return self.strategy.authenticate(*args, **kwargs)

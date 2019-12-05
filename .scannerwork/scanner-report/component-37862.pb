@@ -1,1 +1,1 @@
-æ§<venv/lib64/python3.6/site-packages/faker/providers/job/fr_FR :å§
+æ§<venv/lib64/python3.6/site-packages/faker/providers/job/fr_FR :ä§

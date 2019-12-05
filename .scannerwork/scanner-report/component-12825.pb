@@ -1,1 +1,1 @@
-™dFvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_macaroon.py 2pyXÊh
+™dGvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_namespace.py 2pyX<h

@@ -1,1 +1,0 @@
-Å-venv/lib/python3.6/site-packages/urllib3/util :ÄÆÇÈÉÊÖ×Øû

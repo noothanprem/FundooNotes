@@ -1,1 +1,1 @@
-¤4venv/lib/python3.6/site-packages/MySQLdb/__init__.py 2pyXch
+¤2venv/lib/python3.6/site-packages/MySQLdb/compat.py 2pyXh

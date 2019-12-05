@@ -1,1 +1,1 @@
-¦–bvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/codingstatemachine.py 2pyX>h
+¦–]venv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/charsetprober.py 2pyX?h

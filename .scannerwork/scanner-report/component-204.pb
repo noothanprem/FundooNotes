@@ -1,1 +1,1 @@
-ÌGvenv/lib/python3.6/site-packages/oauth2_provider/contrib/rest_framework :ËÍÒ
+ÌVvenv/lib/python3.6/site-packages/oauth2_provider/contrib/rest_framework/permissions.py 2pyX³h

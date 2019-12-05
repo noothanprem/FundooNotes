@@ -1,1 +1,1 @@
-¬R1venv/lib/python3.6/site-packages/channels/apps.py 2pyXh
+¬R1venv/lib/python3.6/site-packages/channels/auth.py 2pyX­h

@@ -1,1 +1,1 @@
-’‡5venv/lib/python3.6/site-packages/simplejson/compat.py 2pyX#h
+’‡7venv/lib/python3.6/site-packages/simplejson/__init__.py 2pyXÉh

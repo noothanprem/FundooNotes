@@ -1,1 +1,1 @@
-é[<venv/lib/python3.6/site-packages/faker/providers/lorem/zh_TW :è[
+é[Hvenv/lib/python3.6/site-packages/faker/providers/lorem/zh_TW/__init__.py 2pyXäh

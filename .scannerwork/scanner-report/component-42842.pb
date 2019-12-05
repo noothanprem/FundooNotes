@@ -1,1 +1,1 @@
-зн(venv/lib64/python3.6/site-packages/cairo :ын
+зн(venv/lib64/python3.6/site-packages/cairo :ьн

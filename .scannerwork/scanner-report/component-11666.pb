@@ -1,1 +1,0 @@
-’[Jvenv/lib/python3.6/site-packages/faker/providers/company/sv_SE/__init__.py 2pyXh

@@ -1,1 +1,1 @@
-€]7venv/lib/python3.6/site-packages/boto3/docs/resource.py 2pyX„h
+€]5venv/lib/python3.6/site-packages/boto3/docs/client.py 2pyXh

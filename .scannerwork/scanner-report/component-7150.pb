@@ -1,1 +1,1 @@
-î75venv/lib/python3.6/site-packages/django/contrib/admin :í7ï7ú7û7ü7ý7Á8Â8Ã8–=—=˜=™=š=›=
+î75venv/lib/python3.6/site-packages/django/contrib/admin :í7ï7û7ü7ý7þ7À8Ã8Ä8—=˜=™=š=›=œ=

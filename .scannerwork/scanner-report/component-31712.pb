@@ -1,1 +1,1 @@
-אק;venv/lib64/python3.6/site-packages/django/contrib/gis/forms :	‗קבקגק
+אקGvenv/lib64/python3.6/site-packages/django/contrib/gis/forms/__init__.py 2pyX	h

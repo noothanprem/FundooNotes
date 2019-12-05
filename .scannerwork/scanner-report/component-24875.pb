@@ -1,1 +1,1 @@
-«ÂWvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet/utf8prober.py 2pyXSh
+«Â_venv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet/codingstatemachine.py 2pyXYh

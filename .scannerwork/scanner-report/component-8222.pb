@@ -1,1 +1,1 @@
-ž@Tvenv/lib/python3.6/site-packages/django/core/management/commands/squashmigrations.py 2pyX×h
+ž@<venv/lib/python3.6/site-packages/django/core/mail/message.py 2pyXÇh

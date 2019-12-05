@@ -1,1 +1,1 @@
-ª|hvenv/lib/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lang/translator.js 2jsX(h
+ª|`venv/lib/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lang/ja.js 2jsX6h

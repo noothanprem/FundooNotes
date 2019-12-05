@@ -1,1 +1,1 @@
-Ðb9venv/lib/python3.6/site-packages/docutils/languages/fr.py 2pyX;h
+Ðb<venv/lib/python3.6/site-packages/docutils/languages/pt_br.py 2pyX=h

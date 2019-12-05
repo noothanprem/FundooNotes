@@ -1,2 +1,1 @@
-¼e3venv/lib/python3.6/site-packages/chardet/version.py 2pyX
-h
+¼e;venv/lib/python3.6/site-packages/chardet/langhebrewmodel.py 2pyXÉh

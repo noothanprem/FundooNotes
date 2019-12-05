@@ -1,7 +1,6 @@
-# -*- test-case-name: twisted.trial.test.moduleself -*-
-from twisted.trial import unittest
+# fodder for test_script, which parses files for emacs local variable
+# declarations.  This one is supposed to have none.
+# The class declaration is irrelevant
 
-class Foo(unittest.SynchronousTestCase):
-
-    def testFoo(self):
-        pass
+class Bar(object):
+    pass

@@ -1,198 +1,296 @@
 # -*- coding: utf-8 -*-
-"""Utilities for debugging memory usage, blocking calls, etc."""
+"""Logging utilities."""
 from __future__ import absolute_import, print_function, unicode_literals
 
+import logging
+import numbers
 import os
 import sys
+import threading
 import traceback
 from contextlib import contextmanager
-from functools import partial
-from pprint import pprint
 
-from celery.five import WhateverIO, items, range
-from celery.platforms import signals
+from kombu.five import PY3, values
+from kombu.log import LOG_LEVELS
+from kombu.log import get_logger as _get_logger
+from kombu.utils.encoding import safe_str
 
-try:
-    from psutil import Process
-except ImportError:
-    Process = None  # noqa
+from celery.five import string_t, text_t
+
+from .term import colored
 
 __all__ = (
-    'blockdetection', 'sample_mem', 'memdump', 'sample',
-    'humanbytes', 'mem_rss', 'ps', 'cry',
+    'ColorFormatter', 'LoggingProxy', 'base_logger',
+    'set_in_sighandler', 'in_sighandler', 'get_logger',
+    'get_task_logger', 'mlevel',
+    'get_multiprocessing_logger', 'reset_multiprocessing_logger',
 )
 
-UNITS = (
-    (2 ** 40.0, 'TB'),
-    (2 ** 30.0, 'GB'),
-    (2 ** 20.0, 'MB'),
-    (2 ** 10.0, 'KB'),
-    (0.0, 'b'),
-)
+_process_aware = False
+_in_sighandler = False
 
-_process = None
-_mem_sample = []
+MP_LOG = os.environ.get('MP_LOG', False)
+
+RESERVED_LOGGER_NAMES = {'celery', 'celery.task'}
+
+# Sets up our logging hierarchy.
+#
+# Every logger in the celery package inherits from the "celery"
+# logger, and every task logger inherits from the "celery.task"
+# logger.
+base_logger = logger = _get_logger('celery')
 
 
-def _on_blocking(signum, frame):
-    import inspect
-    raise RuntimeError(
-        'Blocking detection timed-out at: {0}'.format(
-            inspect.getframeinfo(frame)
-        )
-    )
+def set_in_sighandler(value):
+    """Set flag signifiying that we're inside a signal handler."""
+    global _in_sighandler
+    _in_sighandler = value
+
+
+def iter_open_logger_fds():
+    seen = set()
+    loggers = (list(values(logging.Logger.manager.loggerDict)) +
+               [logging.getLogger(None)])
+    for l in loggers:
+        try:
+            for handler in l.handlers:
+                try:
+                    if handler not in seen:  # pragma: no cover
+                        yield handler.stream
+                        seen.add(handler)
+                except AttributeError:
+                    pass
+        except AttributeError:  # PlaceHolder does not have handlers
+            pass
 
 
 @contextmanager
-def blockdetection(timeout):
-    """Context that raises an exception if process is blocking.
-
-    Uses ``SIGALRM`` to detect blocking functions.
-    """
-    if not timeout:
+def in_sighandler():
+    """Context that records that we are in a signal handler."""
+    set_in_sighandler(True)
+    try:
         yield
-    else:
-        old_handler = signals['ALRM']
-        old_handler = None if old_handler == _on_blocking else old_handler
-
-        signals['ALRM'] = _on_blocking
-
-        try:
-            yield signals.arm_alarm(timeout)
-        finally:
-            if old_handler:
-                signals['ALRM'] = old_handler
-            signals.reset_alarm()
+    finally:
+        set_in_sighandler(False)
 
 
-def sample_mem():
-    """Sample RSS memory usage.
-
-    Statistics can then be output by calling :func:`memdump`.
-    """
-    current_rss = mem_rss()
-    _mem_sample.append(current_rss)
-    return current_rss
-
-
-def _memdump(samples=10):  # pragma: no cover
-    S = _mem_sample
-    prev = list(S) if len(S) <= samples else sample(S, samples)
-    _mem_sample[:] = []
-    import gc
-    gc.collect()
-    after_collect = mem_rss()
-    return prev, after_collect
-
-
-def memdump(samples=10, file=None):  # pragma: no cover
-    """Dump memory statistics.
-
-    Will print a sample of all RSS memory samples added by
-    calling :func:`sample_mem`, and in addition print
-    used RSS memory after :func:`gc.collect`.
-    """
-    say = partial(print, file=file)
-    if ps() is None:
-        say('- rss: (psutil not installed).')
-        return
-    prev, after_collect = _memdump(samples)
-    if prev:
-        say('- rss (sample):')
-        for mem in prev:
-            say('-    > {0},'.format(mem))
-    say('- rss (end): {0}.'.format(after_collect))
+def logger_isa(l, p, max=1000):
+    this, seen = l, set()
+    for _ in range(max):
+        if this == p:
+            return True
+        else:
+            if this in seen:
+                raise RuntimeError(
+                    'Logger {0!r} parents recursive'.format(l.name),
+                )
+            seen.add(this)
+            this = this.parent
+            if not this:
+                break
+    else:  # pragma: no cover
+        raise RuntimeError('Logger hierarchy exceeds {0}'.format(max))
+    return False
 
 
-def sample(x, n, k=0):
-    """Given a list `x` a sample of length ``n`` of that list is returned.
-
-    For example, if `n` is 10, and `x` has 100 items, a list of every tenth.
-    item is returned.
-
-    ``k`` can be used as offset.
-    """
-    j = len(x) // n
-    for _ in range(n):
-        try:
-            yield x[k]
-        except IndexError:
-            break
-        k += j
+def _using_logger_parent(parent_logger, logger_):
+    if not logger_isa(logger_, parent_logger):
+        logger_.parent = parent_logger
+    return logger_
 
 
-def hfloat(f, p=5):
-    """Convert float to value suitable for humans.
+def get_logger(name):
+    """Get logger by name."""
+    l = _get_logger(name)
+    if logging.root not in (l, l.parent) and l is not base_logger:
+        l = _using_logger_parent(base_logger, l)
+    return l
+
+
+task_logger = get_logger('celery.task')
+worker_logger = get_logger('celery.worker')
+
+
+def get_task_logger(name):
+    """Get logger for task module by name."""
+    if name in RESERVED_LOGGER_NAMES:
+        raise RuntimeError('Logger name {0!r} is reserved!'.format(name))
+    return _using_logger_parent(task_logger, get_logger(name))
+
+
+def mlevel(level):
+    """Convert level name/int to log level."""
+    if level and not isinstance(level, numbers.Integral):
+        return LOG_LEVELS[level.upper()]
+    return level
+
+
+class ColorFormatter(logging.Formatter):
+    """Logging formatter that adds colors based on severity."""
+
+    #: Loglevel -> Color mapping.
+    COLORS = colored().names
+    colors = {
+        'DEBUG': COLORS['blue'],
+        'WARNING': COLORS['yellow'],
+        'ERROR': COLORS['red'],
+        'CRITICAL': COLORS['magenta'],
+    }
+
+    def __init__(self, fmt=None, use_color=True):
+        logging.Formatter.__init__(self, fmt)
+        self.use_color = use_color
+
+    def formatException(self, ei):
+        if ei and not isinstance(ei, tuple):
+            ei = sys.exc_info()
+        r = logging.Formatter.formatException(self, ei)
+        if isinstance(r, str) and not PY3:
+            return safe_str(r)
+        return r
+
+    def format(self, record):
+        msg = logging.Formatter.format(self, record)
+        color = self.colors.get(record.levelname)
+
+        # reset exception info later for other handlers...
+        einfo = sys.exc_info() if record.exc_info == 1 else record.exc_info
+
+        if color and self.use_color:
+            try:
+                # safe_str will repr the color object
+                # and color will break on non-string objects
+                # so need to reorder calls based on type.
+                # Issue #427
+                try:
+                    if isinstance(msg, string_t):
+                        return text_t(color(safe_str(msg)))
+                    return safe_str(color(msg))
+                except UnicodeDecodeError:  # pragma: no cover
+                    return safe_str(msg)  # skip colors
+            except Exception as exc:  # pylint: disable=broad-except
+                prev_msg, record.exc_info, record.msg = (
+                    record.msg, 1, '<Unrepresentable {0!r}: {1!r}>'.format(
+                        type(msg), exc
+                    ),
+                )
+                try:
+                    return logging.Formatter.format(self, record)
+                finally:
+                    record.msg, record.exc_info = prev_msg, einfo
+        else:
+            return safe_str(msg)
+
+
+class LoggingProxy(object):
+    """Forward file object to :class:`logging.Logger` instance.
 
     Arguments:
-        f (float): The floating point number.
-        p (int): Floating point precision (default is 5).
+        logger (~logging.Logger): Logger instance to forward to.
+        loglevel (int, str): Log level to use when logging messages.
     """
-    i = int(f)
-    return i if i == f else '{0:.{p}}'.format(f, p=p)
+
+    mode = 'w'
+    name = None
+    closed = False
+    loglevel = logging.ERROR
+    _thread = threading.local()
+
+    def __init__(self, logger, loglevel=None):
+        # pylint: disable=redefined-outer-name
+        # Note that the logger global is redefined here, be careful changing.
+        self.logger = logger
+        self.loglevel = mlevel(loglevel or self.logger.level or self.loglevel)
+        self._safewrap_handlers()
+
+    def _safewrap_handlers(self):
+        # Make the logger handlers dump internal errors to
+        # :data:`sys.__stderr__` instead of :data:`sys.stderr` to circumvent
+        # infinite loops.
+
+        def wrap_handler(handler):                  # pragma: no cover
+
+            class WithSafeHandleError(logging.Handler):
+
+                def handleError(self, record):
+                    try:
+                        traceback.print_exc(None, sys.__stderr__)
+                    except IOError:
+                        pass    # see python issue 5971
+
+            handler.handleError = WithSafeHandleError().handleError
+        return [wrap_handler(h) for h in self.logger.handlers]
+
+    def write(self, data):
+        """Write message to logging object."""
+        if _in_sighandler:
+            return print(safe_str(data), file=sys.__stderr__)
+        if getattr(self._thread, 'recurse_protection', False):
+            # Logger is logging back to this file, so stop recursing.
+            return
+        data = data.strip()
+        if data and not self.closed:
+            self._thread.recurse_protection = True
+            try:
+                self.logger.log(self.loglevel, safe_str(data))
+            finally:
+                self._thread.recurse_protection = False
+
+    def writelines(self, sequence):
+        # type: (Sequence[str]) -> None
+        """Write list of strings to file.
+
+        The sequence can be any iterable object producing strings.
+        This is equivalent to calling :meth:`write` for each string.
+        """
+        for part in sequence:
+            self.write(part)
+
+    def flush(self):
+        # This object is not buffered so any :meth:`flush`
+        # requests are ignored.
+        pass
+
+    def close(self):
+        # when the object is closed, no write requests are
+        # forwarded to the logging object anymore.
+        self.closed = True
+
+    def isatty(self):
+        """Here for file support."""
+        return False
 
 
-def humanbytes(s):
-    """Convert bytes to human-readable form (e.g., KB, MB)."""
-    return next(
-        '{0}{1}'.format(hfloat(s / div if div else s), unit)
-        for div, unit in UNITS if s >= div
-    )
-
-
-def mem_rss():
-    """Return RSS memory usage as a humanized string."""
-    p = ps()
-    if p is not None:
-        return humanbytes(_process_memory_info(p).rss)
-
-
-def ps():  # pragma: no cover
-    """Return the global :class:`psutil.Process` instance.
-
-    Note:
-        Returns :const:`None` if :pypi:`psutil` is not installed.
-    """
-    global _process
-    if _process is None and Process is not None:
-        _process = Process(os.getpid())
-    return _process
-
-
-def _process_memory_info(process):
+def get_multiprocessing_logger():
+    """Return the multiprocessing logger."""
     try:
-        return process.memory_info()
-    except AttributeError:
-        return process.get_memory_info()
+        from billiard import util
+    except ImportError:  # pragma: no cover
+        pass
+    else:
+        return util.get_logger()
 
 
-def cry(out=None, sepchr='=', seplen=49):  # pragma: no cover
-    """Return stack-trace of all active threads.
+def reset_multiprocessing_logger():
+    """Reset multiprocessing logging setup."""
+    try:
+        from billiard import util
+    except ImportError:  # pragma: no cover
+        pass
+    else:
+        if hasattr(util, '_logger'):  # pragma: no cover
+            util._logger = None
 
-    See Also:
-        Taken from https://gist.github.com/737056.
-    """
-    import threading
 
-    out = WhateverIO() if out is None else out
-    P = partial(print, file=out)
+def current_process():
+    try:
+        from billiard import process
+    except ImportError:  # pragma: no cover
+        pass
+    else:
+        return process.current_process()
 
-    # get a map of threads by their ID so we can print their names
-    # during the traceback dump
-    tmap = {t.ident: t for t in threading.enumerate()}
 
-    sep = sepchr * seplen
-    for tid, frame in items(sys._current_frames()):
-        thread = tmap.get(tid)
-        if not thread:
-            # skip old junk (left-overs from a fork)
-            continue
-        P('{0.name}'.format(thread))
-        P(sep)
-        traceback.print_stack(frame, file=out)
-        P(sep)
-        P('LOCAL VARIABLES')
-        P(sep)
-        pprint(frame.f_locals, stream=out)
-        P('\n')
-    return out.getvalue()
+def current_process_index(base=1):
+    index = getattr(current_process(), 'index', None)
+    return index + base if index is not None else index

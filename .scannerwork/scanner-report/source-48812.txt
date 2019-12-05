@@ -1,159 +1,268 @@
+# -*- coding: utf-8 -*-
 """
-Helpers.
+Serializers.
 """
+
+from __future__ import absolute_import, unicode_literals
+
+import copy
 from collections import OrderedDict
 
-from django_elasticsearch_dsl.registries import registry
+from django.core.exceptions import ImproperlyConfigured
 
-from elasticsearch_dsl import Search
-from elasticsearch_dsl.connections import connections
-from elasticsearch_dsl.query import MoreLikeThis
+from django_elasticsearch_dsl import fields, DocType
 
-from six import PY3
+from rest_framework import serializers
+from rest_framework.fields import empty
+from rest_framework.utils.field_mapping import get_field_kwargs
+
+import six
 
 
-__title__ = 'django_elasticsearch_dsl_drf.helpers'
+from .fields import (
+    BooleanField,
+    CharField,
+    DateField,
+    FloatField,
+    GeoPointField,
+    GeoShapeField,
+    IntegerField,
+    IPAddressField,
+    ListField,
+    NestedField,
+    ObjectField,
+)
+from .helpers import sort_by_list
+from .utils import EmptySearch
+
+__title__ = 'django_elasticsearch_dsl_drf.serializers'
 __author__ = 'Artur Barseghyan <artur.barseghyan@gmail.com>'
 __copyright__ = '2017-2019 Artur Barseghyan'
 __license__ = 'GPL 2.0/LGPL 2.1'
 __all__ = (
-    'get_document_for_model',
-    'get_index_and_mapping_for_model',
-    'more_like_this',
-    'sort_by_list',
+    'DocumentSerializer',
+    'DocumentSerializerMeta',
+    'Meta',
 )
 
 
-def get_document_for_model(model):
-    """Get document for model given.
+class Meta(type):
+    """Template for the DocumentSerializerMeta.Meta class."""
 
-    :param model: Model to get document index for.
-    :type model: Subclass of `django.db.models.Model`.
-    :return: Document index for the given model.
-    :rtype: Subclass of `django_elasticsearch_dsl.DocType`.
+    fields = tuple()
+    exclude = tuple()
+    search_fields = tuple()
+    index_classes = tuple()
+    serializers = tuple()
+    ignore_fields = tuple()
+    field_aliases = {}
+    field_options = {}
+    index_aliases = {}
+
+    def __new__(mcs, name, bases, attrs):
+        cls = super(Meta, mcs).__new__(mcs, str(name), bases, attrs)
+
+        if cls.fields and cls.exclude:
+            raise ImproperlyConfigured(
+                "%s cannot define both 'fields' and 'exclude'." % name
+            )
+
+        return cls
+
+    def __setattr__(cls, name, value):
+        raise AttributeError("Meta class is immutable.")
+
+    def __delattr__(cls, name):
+        raise AttributeError("Meta class is immutable.")
+
+
+class DocumentSerializerMeta(serializers.SerializerMetaclass):
+    """Metaclass for the DocumentSerializer.
+
+    Ensures that all declared subclasses implemented a Meta.
     """
-    documents = registry.get_documents()
-    for document in documents:
-        if model == document._doc_type.model:
-            return document
 
+    def __new__(mcs, name, bases, attrs):
+        attrs.setdefault("_abstract", False)
 
-def get_index_and_mapping_for_model(model):
-    """Get index and mapping for model.
-
-    :param model: Django model for which to get index and mapping for.
-    :type model: Subclass of `django.db.models.Model`.
-    :return: Index and mapping values.
-    :rtype: tuple.
-    """
-    document = get_document_for_model(model)
-    if document is not None:
-        return (
-            document._doc_type.index,
-            document._doc_type.mapping.properties.name
+        cls = super(DocumentSerializerMeta, mcs).__new__(
+            mcs, str(name), bases, attrs
         )
 
+        if getattr(cls, "Meta", None):
+            cls.Meta = Meta("Meta", (Meta,), dict(cls.Meta.__dict__))
 
-def sort_by_list(unsorted_dict, sorted_keys):
-    """Sort an OrderedDict by list of sorted keys.
+        elif not cls._abstract:
+            raise ImproperlyConfigured(
+                "%s must implement a Meta class or have the property "
+                "_abstract" % name
+            )
 
-    :param unsorted_dict: Source dictionary.
-    :param sorted_keys: Keys to sort on.
-    :type unsorted_dict: collections.OrderedDict
-    :type sorted_keys: list
-    :return: Sorted dictionary.
-    :rtype: collections.OrderedDict
-    """
-    __unsorted_dict_keys = [__key for __key in unsorted_dict.keys()]
-    __sorted_keys = (
-        tuple(sorted_keys) + tuple(
-            set(__unsorted_dict_keys) - set(sorted_keys)
+        return cls
+
+
+class DocumentSerializer(
+    six.with_metaclass(DocumentSerializerMeta, serializers.Serializer)
+):
+    """A dynamic DocumentSerializer class."""
+
+    _abstract = True
+
+    _field_mapping = {
+        fields.AttachmentField: CharField,  # Removed from Elasticsearch 6.x
+        fields.BooleanField: BooleanField,
+        fields.ByteField: CharField,  # TODO
+        fields.CompletionField: CharField,  # TODO
+        fields.DateField: DateField,
+        fields.DoubleField: FloatField,
+        fields.FloatField: FloatField,
+        fields.GeoPointField: GeoPointField,
+        fields.GeoShapeField: GeoShapeField,
+        fields.IntegerField: IntegerField,
+        fields.IpField: IPAddressField,
+        fields.LongField: IntegerField,
+        fields.NestedField: NestedField,
+        fields.ListField: ListField,
+        fields.ObjectField: ObjectField,
+        fields.ShortField: IntegerField,
+        fields.StringField: CharField,  # Removed in Elasticsearch 6.x
+        fields.FileField: CharField,  # TODO
+    }
+
+    # Elasticsearch 5.x specific fields
+    try:
+        _field_mapping.update(
+            {
+                fields.KeywordField: CharField,
+                fields.TextField: CharField
+            }
         )
-    )
-    if PY3:
-        for key in __sorted_keys:
-            if key in unsorted_dict:
-                unsorted_dict.move_to_end(key)
 
-        return unsorted_dict
-    else:
-        sorted_dict = OrderedDict(
-            (key, unsorted_dict[key]) for key in __sorted_keys
-        )
-        return sorted_dict
+    except AttributeError:
+        pass
 
+    def __init__(self, instance=None, data=empty, **kwargs):
+        super(DocumentSerializer, self).__init__(instance, data, **kwargs)
 
-def more_like_this(obj,
-                   fields,
-                   max_query_terms=25,
-                   min_term_freq=2,
-                   min_doc_freq=5,
-                   max_doc_freq=0,
-                   query=None):
-    """More like this.
+        if not hasattr(self.Meta, 'document') or self.Meta.document is None:
+            raise ImproperlyConfigured(
+                "You must set the 'document' attribute on the serializer "
+                "Meta class."
+            )
 
-    https://www.elastic.co/guide/en/elasticsearch/reference/current/
-    query-dsl-mlt-query.html
+        if not issubclass(self.Meta.document, (DocType,)):
+            raise ImproperlyConfigured(
+                "You must subclass the serializer 'document' from the DocType"
+                "class."
+            )
 
-    :param obj: Django model instance for which similar objects shall be found.
-    :param fields: Fields to search in.
-    :param max_query_terms:
-    :param min_term_freq:
-    :param min_doc_freq:
-    :param max_doc_freq:
-    :param query: Q query
-    :type obj: Instance of `django.db.models.Model` (sub-classed) model.
-    :type fields: list
-    :type max_query_terms: int
-    :type min_term_freq: int
-    :type min_doc_freq: int
-    :type max_doc_freq: int
-    :type query: elasticsearch_dsl.query.Q
-    :return: List of objects.
-    :rtype: elasticsearch_dsl.search.Search
+        if not self.instance:
+            self.instance = EmptySearch()
 
-    Example:
+    @staticmethod
+    def _get_default_field_kwargs(model, field_name, field_type):
+        """Get default field kwargs.
 
-        >>> from django_elasticsearch_dsl_drf.helpers import more_like_this
-        >>> from books.models import Book
-        >>> book = Book.objects.first()
-        >>> similar_books = more_like_this(
-        >>>     book,
-        >>>     ['title', 'description', 'summary']
-        >>> )
-    """
-    _index, _mapping = get_index_and_mapping_for_model(obj._meta.model)
-    if _index is None:
-        return None
+        Get the required attributes from the model field in order
+        to instantiate a REST Framework serializer field.
+        """
+        kwargs = {}
+        if field_name in model._meta.get_fields():
+            model_field = model._meta.get_field(field_type)[0]
+            kwargs = get_field_kwargs(field_name, model_field)
 
-    _client = connections.get_connection()
-    _search = Search(using=_client, index=_index)
+            # Remove stuff we don't care about!
+            delete_attrs = [
+                "allow_blank",
+                "choices",
+                "model_field",
+            ]
+            for attr in delete_attrs:
+                if attr in kwargs:
+                    del kwargs[attr]
 
-    if query is not None:
-        _search = _search.query(query)
+        return kwargs
 
-    kwargs = {}
+    def _get_index_field(self, field_name):
+        """Return the correct index field."""
+        return field_name
 
-    if max_query_terms is not None:
-        kwargs['max_query_terms'] = max_query_terms
+    def _get_index_class_name(self, index_cls):
+        """Get index class name.
 
-    if min_term_freq is not None:
-        kwargs['min_term_freq'] = min_term_freq
+        Convert index model class to a name suitable for use as a field name
+        prefix.
+        """
+        cls_name = index_cls.__name__
+        aliases = self.Meta.index_aliases
+        return aliases.get(cls_name, cls_name.split('.')[-1])
 
-    if min_doc_freq is not None:
-        kwargs['min_doc_freq'] = min_doc_freq
+    def get_fields(self):
+        """Get the required fields for serializing the result."""
+        __fields = self.Meta.fields
+        exclude = self.Meta.exclude
+        ignore_fields = self.Meta.ignore_fields
+        document = self.Meta.document
+        model = document._doc_type.model
+        document_fields = document._doc_type._fields()
 
-    if max_doc_freq is not None:
-        kwargs['max_doc_freq'] = max_doc_freq
+        declared_fields = copy.deepcopy(self._declared_fields)
+        field_mapping = OrderedDict()
 
-    return _search.query(
-        MoreLikeThis(
-            fields=fields,
-            like={
-                '_id': "{}".format(obj.pk),
-                '_index': "{}".format(_index),
-                '_type': "{}".format(_mapping)
-            },
-            **kwargs
-        )
-    )
+        for field_name, field_type in six.iteritems(document_fields):
+            orig_name = field_name[:]
+
+            # Don't use this field if it is in `ignore_fields`
+            if orig_name in ignore_fields or field_name in ignore_fields:
+                continue
+            # When fields to include are decided by `exclude`
+            if exclude:
+                if orig_name in exclude or field_name in exclude:
+                    continue
+            # When fields to include are decided by `fields`
+            if __fields:
+                if orig_name not in __fields and field_name not in __fields:
+                    continue
+
+            # Look up the field attributes on the current index model,
+            # in order to correctly instantiate the serializer field.
+
+            kwargs = self._get_default_field_kwargs(
+                model,
+                field_name,
+                field_type
+            )
+            # If field not in the mapping, just skip
+            if field_type.__class__ not in self._field_mapping:
+                continue
+
+            field_mapping[field_name] = \
+                self._field_mapping[field_type.__class__](**kwargs)
+
+        # Add any explicitly declared fields. They *will* override any index
+        # fields in case of naming collision!.
+        if declared_fields:
+            for field_name in declared_fields:
+                field_mapping[field_name] = declared_fields[field_name]
+
+        field_mapping = sort_by_list(field_mapping, __fields)
+        return field_mapping
+
+    def create(self, validated_data):
+        """Create.
+
+        Do nothing.
+
+        :param validated_data:
+        :return:
+        """
+
+    def update(self, instance, validated_data):
+        """Update.
+
+        Do nothing.
+
+        :param instance:
+        :param validated_data:
+        :return:
+        """

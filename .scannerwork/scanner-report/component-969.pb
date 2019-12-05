@@ -1,1 +1,1 @@
-É6venv/lib/python3.6/site-packages/coreapi/exceptions.py 2pyX?h
+É4venv/lib/python3.6/site-packages/coreapi/document.py 2pyX·h

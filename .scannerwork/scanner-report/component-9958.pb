@@ -1,1 +1,1 @@
-ÊMGvenv/lib/python3.6/site-packages/autobahn/websocket/compress_deflate.py 2pyXòh
+ÊM?venv/lib/python3.6/site-packages/autobahn/websocket/__init__.py 2pyX,h

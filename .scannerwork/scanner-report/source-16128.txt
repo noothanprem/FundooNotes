@@ -1,39 +1,17 @@
-#!/usr/bin/python
-from gevent import monkey
-monkey.patch_all()
+import os
+import sys
+import gevent
+import gevent.core
+import subprocess
 
-import unittest
-try:
-    import httplib
-except ImportError:
-    from http import client as httplib
-import socket
-
-
-import gevent.testing as greentest
-
-
-@unittest.skipUnless(
-    hasattr(socket, 'ssl'),
-    "Needs socket.ssl"
-)
-class AmazonHTTPSTests(greentest.TestCase):
-
-    __timeout__ = 30
-
-    def test_amazon_response(self):
-        conn = httplib.HTTPSConnection('sdb.amazonaws.com')
-        conn.debuglevel = 1
-        conn.request('GET', '/')
-        conn.getresponse()
-
-    def test_str_and_repr(self):
-        conn = socket.socket()
-        conn.connect(('sdb.amazonaws.com', 443))
-        ssl_conn = socket.ssl(conn) # pylint:disable=no-member
-        assert str(ssl_conn)
-        assert repr(ssl_conn)
-
-
-if __name__ == "__main__":
-    greentest.main()
+if sys.argv[1:] == []:
+    os.environ['GEVENT_BACKEND'] = 'select'
+    popen = subprocess.Popen([sys.executable, __file__, '1'])
+    assert popen.wait() == 0, popen.poll()
+else: # pragma: no cover
+    hub = gevent.get_hub()
+    if 'select' in gevent.core.supported_backends():
+        assert hub.loop.backend == 'select', hub.loop.backend
+    else:
+        # libuv isn't configurable
+        assert hub.loop.backend == 'default', hub.loop.backend

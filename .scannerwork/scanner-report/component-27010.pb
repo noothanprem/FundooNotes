@@ -1,1 +1,1 @@
-Ç”5venv/lib64/python3.6/site-packages/coreapi/transports :	Å”É”Ñ”
+Ç”Avenv/lib64/python3.6/site-packages/coreapi/transports/__init__.py 2pyX	h

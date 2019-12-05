@@ -1,1 +1,1 @@
-÷dHvenv/lib/python3.6/site-packages/macaroonbakery/httpbakery/_discharge.py 2pyX#h
+÷dFvenv/lib/python3.6/site-packages/macaroonbakery/httpbakery/__init__.py 2pyX8h

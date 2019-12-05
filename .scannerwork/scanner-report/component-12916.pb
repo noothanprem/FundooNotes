@@ -1,1 +1,1 @@
-ÙdIvenv/lib/python3.6/site-packages/macaroonbakery/httpbakery/_interactor.py 2pyXGh
+ÙdCvenv/lib/python3.6/site-packages/macaroonbakery/checkers/_caveat.py 2pyXÅh

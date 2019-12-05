@@ -1,11 +1,28 @@
-I
-pythonS1313,Make this IP "0.1.2.3" address configurable. 2  ' 8I
-pythonS1313,Make this IP "0.1.2.3" address configurable. 266' 8I
-pythonS1313,Make this IP "0.1.2.3" address configurable. 288# 4I
-pythonS1313,Make this IP "0.1.2.3" address configurable. 2MM' 8I
-pythonS1313,Make this IP "0.1.2.3" address configurable. 2SS  1I
-pythonS1313,Make this IP "0.1.2.3" address configurable. 2nn+ <w
-pythonS117[Rename this local variable "expectInfo" to match the regular expression ^[_a-z][a-z0-9_]*$. 2 w
-pythonS117[Rename this local variable "expectInfo" to match the regular expression ^[_a-z][a-z0-9_]*$. 200 w
-pythonS117[Rename this local variable "expectInfo" to match the regular expression ^[_a-z][a-z0-9_]*$. 2GG w
-pythonS117[Rename this local variable "expectInfo" to match the regular expression ^[_a-z][a-z0-9_]*$. 2gg 
+i
+pythonS107KMethod "__init__" has 8 parameters, which is greater than the 7 authorized. 2
+‘ 0I
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2~~ *K
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+—— *K
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+³³ *K
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+ÌÌ *K
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+ää *K
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+ûû *K
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+““ *K
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+§§ *K
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+½½ *K
+pythonS1313,Make this IP "0.1.2.3" address configurable. 2
+ÍÍ# 4K
+pythonS1313,Make this IP "0.1.2.3" address configurable. 2
+ÎÎ$ 5K
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+ÔÔ *k
+pythonS100MRename method "do_GET" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+©© 

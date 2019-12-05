@@ -1,1 +1,1 @@
-Š‹-venv/lib/python3.6/site-packages/keyrings/alt :!‰‹‹‹Œ‹‹‹‹‹‘‹’‹Ÿ‹ ‹
+Š‹8venv/lib/python3.6/site-packages/keyrings/alt/Windows.py 2pyXÉh

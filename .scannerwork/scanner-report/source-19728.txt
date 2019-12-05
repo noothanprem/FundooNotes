@@ -1,39 +1,44 @@
+from hamcrest.core.base_matcher import BaseMatcher
+from hamcrest.core.helpers.wrap_matcher import wrap_matcher
+
 __author__ = "Jon Reid"
 __copyright__ = "Copyright 2011 hamcrest.org"
 __license__ = "BSD, see License.txt"
 
-from hamcrest.core.base_matcher import BaseMatcher
 
+class AllOf(BaseMatcher):
 
-class IsSame(BaseMatcher):
+    def __init__(self, *matchers):
+        self.matchers = matchers
 
-    def __init__(self, object):
-        self.object = object
-
-    def _matches(self, item):
-        return item is self.object
-
-    def describe_to(self, description):
-        description.append_text('same instance as ')            \
-                   .append_text(hex(id(self.object)))           \
-                   .append_text(' ')                            \
-                   .append_description_of(self.object)
+    def matches(self, item, mismatch_description=None):
+        for matcher in self.matchers:
+            if not matcher.matches(item):
+                if mismatch_description:
+                    mismatch_description.append_description_of(matcher) \
+                                        .append_text(' ')
+                    matcher.describe_mismatch(item, mismatch_description)
+                return False
+        return True
 
     def describe_mismatch(self, item, mismatch_description):
-        mismatch_description.append_text('was ')
-        if item is not None:
-            mismatch_description.append_text(hex(id(item)))         \
-                                .append_text(' ')
-        mismatch_description.append_description_of(item)
+        self.matches(item, mismatch_description)
+
+    def describe_to(self, description):
+        description.append_list('(', ' and ', ')', self.matchers)
 
 
-def same_instance(obj):
-    """Matches if evaluated object is the same instance as a given object.
+def all_of(*items):
+    """Matches if all of the given matchers evaluate to ``True``.
 
-    :param obj: The object to compare against as the expected value.
+    :param matcher1,...:  A comma-separated list of matchers.
 
-    This matcher invokes the ``is`` identity operator to determine if the
-    evaluated object is the the same object as ``obj``.
+    The matchers are evaluated from left to right using short-circuit
+    evaluation, so evaluation stops as soon as a matcher returns ``False``.
+
+    Any argument that is not a matcher is implicitly wrapped in an
+    :py:func:`~hamcrest.core.core.isequal.equal_to` matcher to check for
+    equality.
 
     """
-    return IsSame(obj)
+    return AllOf(*[wrap_matcher(item) for item in items])

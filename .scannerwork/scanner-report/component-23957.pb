@@ -1,1 +1,1 @@
-•»>venv/lib/python3.6/site-packages/social_core/backends/monzo.py 2pyX!h
+•»Avenv/lib/python3.6/site-packages/social_core/backends/goclioeu.py 2pyXh

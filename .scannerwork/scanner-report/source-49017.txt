@@ -1,161 +1,101 @@
 """
-Helper function for returning the field information that is associated
-with a model class. This includes returning all the forward and reverse
-relationships and their associated metadata.
-
-Usage: `get_field_info(model)` returns a `FieldInfo` instance.
+Helper functions for creating user-friendly representations
+of serializer classes and serializer fields.
 """
-from collections import OrderedDict, namedtuple
+import re
 
-FieldInfo = namedtuple('FieldResult', [
-    'pk',  # Model field instance
-    'fields',  # Dict of field name -> model field instance
-    'forward_relations',  # Dict of field name -> RelationInfo
-    'reverse_relations',  # Dict of field name -> RelationInfo
-    'fields_and_pk',  # Shortcut for 'pk' + 'fields'
-    'relations'  # Shortcut for 'forward_relations' + 'reverse_relations'
-])
-
-RelationInfo = namedtuple('RelationInfo', [
-    'model_field',
-    'related_model',
-    'to_many',
-    'to_field',
-    'has_through_model',
-    'reverse'
-])
+from django.db import models
+from django.utils.encoding import force_text
+from django.utils.functional import Promise
 
 
-def get_field_info(model):
-    """
-    Given a model class, returns a `FieldInfo` instance, which is a
-    `namedtuple`, containing metadata about the various field types on the model
-    including information about their relationships.
-    """
-    opts = model._meta.concrete_model._meta
-
-    pk = _get_pk(opts)
-    fields = _get_fields(opts)
-    forward_relations = _get_forward_relationships(opts)
-    reverse_relations = _get_reverse_relationships(opts)
-    fields_and_pk = _merge_fields_and_pk(pk, fields)
-    relationships = _merge_relationships(forward_relations, reverse_relations)
-
-    return FieldInfo(pk, fields, forward_relations, reverse_relations,
-                     fields_and_pk, relationships)
+def manager_repr(value):
+    model = value.model
+    opts = model._meta
+    names_and_managers = [
+        (manager.name, manager)
+        for manager
+        in opts.managers
+    ]
+    for manager_name, manager_instance in names_and_managers:
+        if manager_instance == value:
+            return '%s.%s.all()' % (model._meta.object_name, manager_name)
+    return repr(value)
 
 
-def _get_pk(opts):
-    pk = opts.pk
-    rel = pk.remote_field
+def smart_repr(value):
+    if isinstance(value, models.Manager):
+        return manager_repr(value)
 
-    while rel and rel.parent_link:
-        # If model is a child via multi-table inheritance, use parent's pk.
-        pk = pk.remote_field.model._meta.pk
-        rel = pk.remote_field
+    if isinstance(value, Promise) and value._delegate_text:
+        value = force_text(value)
 
-    return pk
+    value = repr(value)
 
+    # Representations like u'help text'
+    # should simply be presented as 'help text'
+    if value.startswith("u'") and value.endswith("'"):
+        return value[1:]
 
-def _get_fields(opts):
-    fields = OrderedDict()
-    for field in [field for field in opts.fields if field.serialize and not field.remote_field]:
-        fields[field.name] = field
-
-    return fields
-
-
-def _get_to_field(field):
-    return getattr(field, 'to_fields', None) and field.to_fields[0]
+    # Representations like
+    # <django.core.validators.RegexValidator object at 0x1047af050>
+    # Should be presented as
+    # <django.core.validators.RegexValidator object>
+    return re.sub(' at 0x[0-9A-Fa-f]{4,32}>', '>', value)
 
 
-def _get_forward_relationships(opts):
-    """
-    Returns an `OrderedDict` of field names to `RelationInfo`.
-    """
-    forward_relations = OrderedDict()
-    for field in [field for field in opts.fields if field.serialize and field.remote_field]:
-        forward_relations[field.name] = RelationInfo(
-            model_field=field,
-            related_model=field.remote_field.model,
-            to_many=False,
-            to_field=_get_to_field(field),
-            has_through_model=False,
-            reverse=False
-        )
+def field_repr(field, force_many=False):
+    kwargs = field._kwargs
+    if force_many:
+        kwargs = kwargs.copy()
+        kwargs['many'] = True
+        kwargs.pop('child', None)
 
-    # Deal with forward many-to-many relationships.
-    for field in [field for field in opts.many_to_many if field.serialize]:
-        forward_relations[field.name] = RelationInfo(
-            model_field=field,
-            related_model=field.remote_field.model,
-            to_many=True,
-            # manytomany do not have to_fields
-            to_field=None,
-            has_through_model=(
-                not field.remote_field.through._meta.auto_created
-            ),
-            reverse=False
-        )
+    arg_string = ', '.join([smart_repr(val) for val in field._args])
+    kwarg_string = ', '.join([
+        '%s=%s' % (key, smart_repr(val))
+        for key, val in sorted(kwargs.items())
+    ])
+    if arg_string and kwarg_string:
+        arg_string += ', '
 
-    return forward_relations
+    if force_many:
+        class_name = force_many.__class__.__name__
+    else:
+        class_name = field.__class__.__name__
+
+    return "%s(%s%s)" % (class_name, arg_string, kwarg_string)
 
 
-def _get_reverse_relationships(opts):
-    """
-    Returns an `OrderedDict` of field names to `RelationInfo`.
-    """
-    reverse_relations = OrderedDict()
-    all_related_objects = [r for r in opts.related_objects if not r.field.many_to_many]
-    for relation in all_related_objects:
-        accessor_name = relation.get_accessor_name()
-        reverse_relations[accessor_name] = RelationInfo(
-            model_field=None,
-            related_model=relation.related_model,
-            to_many=relation.field.remote_field.multiple,
-            to_field=_get_to_field(relation.field),
-            has_through_model=False,
-            reverse=True
-        )
+def serializer_repr(serializer, indent, force_many=None):
+    ret = field_repr(serializer, force_many) + ':'
+    indent_str = '    ' * indent
 
-    # Deal with reverse many-to-many relationships.
-    all_related_many_to_many_objects = [r for r in opts.related_objects if r.field.many_to_many]
-    for relation in all_related_many_to_many_objects:
-        accessor_name = relation.get_accessor_name()
-        reverse_relations[accessor_name] = RelationInfo(
-            model_field=None,
-            related_model=relation.related_model,
-            to_many=True,
-            # manytomany do not have to_fields
-            to_field=None,
-            has_through_model=(
-                (getattr(relation.field.remote_field, 'through', None) is not None) and
-                not relation.field.remote_field.through._meta.auto_created
-            ),
-            reverse=True
-        )
+    if force_many:
+        fields = force_many.fields
+    else:
+        fields = serializer.fields
 
-    return reverse_relations
+    for field_name, field in fields.items():
+        ret += '\n' + indent_str + field_name + ' = '
+        if hasattr(field, 'fields'):
+            ret += serializer_repr(field, indent + 1)
+        elif hasattr(field, 'child'):
+            ret += list_repr(field, indent + 1)
+        elif hasattr(field, 'child_relation'):
+            ret += field_repr(field.child_relation, force_many=field.child_relation)
+        else:
+            ret += field_repr(field)
+
+    if serializer.validators:
+        ret += '\n' + indent_str + 'class Meta:'
+        ret += '\n' + indent_str + '    validators = ' + smart_repr(serializer.validators)
+
+    return ret
 
 
-def _merge_fields_and_pk(pk, fields):
-    fields_and_pk = OrderedDict()
-    fields_and_pk['pk'] = pk
-    fields_and_pk[pk.name] = pk
-    fields_and_pk.update(fields)
-
-    return fields_and_pk
-
-
-def _merge_relationships(forward_relations, reverse_relations):
-    return OrderedDict(
-        list(forward_relations.items()) +
-        list(reverse_relations.items())
-    )
-
-
-def is_abstract_model(model):
-    """
-    Given a model class, returns a boolean True if it is abstract and False if it is not.
-    """
-    return hasattr(model, '_meta') and hasattr(model._meta, 'abstract') and model._meta.abstract
+def list_repr(serializer, indent):
+    child = serializer.child
+    if hasattr(child, 'fields'):
+        return serializer_repr(serializer, indent, force_many=child)
+    return field_repr(serializer)

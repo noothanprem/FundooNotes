@@ -1,715 +1,1503 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/graphics/charts/linecharts.py
+#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/graphics/shapes.py
 
 __version__='3.3.0'
-__doc__="""This modules defines a very preliminary Line Chart example."""
+__doc__='''Core of the graphics library - defines Drawing and Shapes'''
 
+import os, sys
+from math import pi, cos, sin, tan, sqrt
+from pprint import pprint
+
+from reportlab.platypus import Flowable
+from reportlab.rl_config import shapeChecking, verbose, defaultGraphicsFontName as _baseGFontName, _unset_, decimalSymbol
+from reportlab.lib import logger
 from reportlab.lib import colors
-from reportlab.lib.validators import isNumber, isNumberOrNone, isColor, isColorOrNone, isListOfStrings, \
-                                    isListOfStringsOrNone, SequenceOf, isBoolean, NoneOr, \
-                                    isListOfNumbersOrNone, isStringOrNone, OneOf, Percentage
+from reportlab.lib.validators import *
+from reportlab.lib.utils import isSeq, asBytes
+isOpacity = NoneOr(isNumberInRange(0,1))
 from reportlab.lib.attrmap import *
-from reportlab.graphics.widgetbase import Widget, TypedPropertyCollection, PropHolder
-from reportlab.graphics.shapes import Line, Rect, Group, Drawing, Polygon, PolyLine
-from reportlab.graphics.widgets.signsandsymbols import NoEntry
-from reportlab.graphics.charts.axes import XCategoryAxis, YValueAxis
-from reportlab.graphics.charts.textlabels import Label
-from reportlab.graphics.widgets.markers import uSymbol2Symbol, isSymbol, makeMarker
-from reportlab.graphics.charts.areas import PlotArea
-from reportlab.graphics.charts.legends import _objStr
+from reportlab.lib.rl_accel import fp_str
+from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.lib.fonts import tt2ps
+from reportlab.pdfgen.canvas import FILL_EVEN_ODD, FILL_NON_ZERO
+from reportlab import xrange
+_baseGFontNameB = tt2ps(_baseGFontName,1,0)
+_baseGFontNameI = tt2ps(_baseGFontName,0,1)
+_baseGFontNameBI = tt2ps(_baseGFontName,1,1)
 
-class LineChartProperties(PropHolder):
+class NotImplementedError(Exception):
+    pass
+
+# two constants for filling rules
+NON_ZERO_WINDING = 'Non-Zero Winding'
+EVEN_ODD = 'Even-Odd'
+
+## these can be overridden at module level before you start
+#creating shapes.  So, if using a special color model,
+#this provides support for the rendering mechanism.
+#you can change defaults globally before you start
+#making shapes; one use is to substitute another
+#color model cleanly throughout the drawing.
+
+STATE_DEFAULTS = {   # sensible defaults for all
+    'transform': (1,0,0,1,0,0),
+
+    # styles follow SVG naming
+    'strokeColor': colors.black,
+    'strokeWidth': 1,
+    'strokeLineCap': 0,
+    'strokeLineJoin': 0,
+    'strokeMiterLimit' : 10,    # don't know yet so let bomb here
+    'strokeDashArray': None,
+    'strokeOpacity': None, #100%
+    'fillOpacity': None,
+    'fillOverprint': False,
+    'strokeOverprint': False,
+    'overprintMask': 0,
+
+    'fillColor': colors.black,   #...or text will be invisible
+    'fillMode': FILL_EVEN_ODD,      #same as pdfgen.canvas
+
+    'fontSize': 10,
+    'fontName': _baseGFontName,
+    'textAnchor':  'start' # can be start, middle, end, inherited
+    }
+
+####################################################################
+# math utilities.  These could probably be moved into lib
+# somewhere.
+####################################################################
+
+# constructors for matrices:
+def nullTransform():
+    return (1, 0, 0, 1, 0, 0)
+
+def translate(dx, dy):
+    return (1, 0, 0, 1, dx, dy)
+
+def scale(sx, sy):
+    return (sx, 0, 0, sy, 0, 0)
+
+def rotate(angle):
+    a = angle * pi/180
+    return (cos(a), sin(a), -sin(a), cos(a), 0, 0)
+
+def skewX(angle):
+    a = angle * pi/180
+    return (1, 0, tan(a), 1, 0, 0)
+
+def skewY(angle):
+    a = angle * pi/180
+    return (1, tan(a), 0, 1, 0, 0)
+
+def mmult(A, B):
+    "A postmultiplied by B"
+    # I checked this RGB
+    # [a0 a2 a4]    [b0 b2 b4]
+    # [a1 a3 a5] *  [b1 b3 b5]
+    # [      1 ]    [      1 ]
+    #
+    return (A[0]*B[0] + A[2]*B[1],
+            A[1]*B[0] + A[3]*B[1],
+            A[0]*B[2] + A[2]*B[3],
+            A[1]*B[2] + A[3]*B[3],
+            A[0]*B[4] + A[2]*B[5] + A[4],
+            A[1]*B[4] + A[3]*B[5] + A[5])
+
+def inverse(A):
+    "For A affine 2D represented as 6vec return 6vec version of A**(-1)"
+    # I checked this RGB
+    det = float(A[0]*A[3] - A[2]*A[1])
+    R = [A[3]/det, -A[1]/det, -A[2]/det, A[0]/det]
+    return tuple(R+[-R[0]*A[4]-R[2]*A[5],-R[1]*A[4]-R[3]*A[5]])
+
+def zTransformPoint(A,v):
+    "Apply the homogenous part of atransformation a to vector v --> A*v"
+    return (A[0]*v[0]+A[2]*v[1],A[1]*v[0]+A[3]*v[1])
+
+def transformPoint(A,v):
+    "Apply transformation a to vector v --> A*v"
+    return (A[0]*v[0]+A[2]*v[1]+A[4],A[1]*v[0]+A[3]*v[1]+A[5])
+
+def transformPoints(matrix, V):
+    r = [transformPoint(matrix,v) for v in V]
+    if isinstance(V,tuple): r = tuple(r)
+    return r
+
+def zTransformPoints(matrix, V):
+    return list(map(lambda x,matrix=matrix: zTransformPoint(matrix,x), V))
+
+def _textBoxLimits(text, font, fontSize, leading, textAnchor, boxAnchor):
+    w = 0
+    for t in text:
+        w = max(w,stringWidth(t,font, fontSize))
+
+    h = len(text)*leading
+    yt = fontSize
+    if boxAnchor[0]=='s':
+        yb = -h
+        yt = yt - h
+    elif boxAnchor[0]=='n':
+        yb = 0
+    else:
+        yb = -h/2.0
+        yt = yt + yb
+
+    if boxAnchor[-1]=='e':
+        xb = -w
+        if textAnchor=='end': xt = 0
+        elif textAnchor=='start': xt = -w
+        else: xt = -w/2.0
+    elif boxAnchor[-1]=='w':
+        xb = 0
+        if textAnchor=='end': xt = w
+        elif textAnchor=='start': xt = 0
+        else: xt = w/2.0
+    else:
+        xb = -w/2.0
+        if textAnchor=='end': xt = -xb
+        elif textAnchor=='start': xt = xb
+        else: xt = 0
+
+    return xb, yb, w, h, xt, yt
+
+def _rotatedBoxLimits( x, y, w, h, angle):
+    '''
+    Find the corner points of the rotated w x h sized box at x,y
+    return the corner points and the min max points in the original space
+    '''
+    C = zTransformPoints(rotate(angle),((x,y),(x+w,y),(x+w,y+h),(x,y+h)))
+    X = [x[0] for x in C]
+    Y = [x[1] for x in C]
+    return min(X), max(X), min(Y), max(Y), C
+
+class _DrawTimeResizeable:
+    '''Addin class to provide the horribleness of _drawTimeResize'''
+    def _drawTimeResize(self,w,h):
+        if hasattr(self,'_canvas'):
+            canvas = self._canvas
+            drawing = canvas._drawing
+            drawing.width, drawing.height = w, h
+            if hasattr(canvas,'_drawTimeResize'):
+                canvas._drawTimeResize(w,h)
+
+class _SetKeyWordArgs:
+    def __init__(self, keywords={}):
+        """In general properties may be supplied to the constructor."""
+        for key, value in keywords.items():
+            setattr(self, key, value)
+
+#################################################################
+#
+#    Helper functions for working out bounds
+#
+#################################################################
+
+def getRectsBounds(rectList):
+    # filter out any None objects, e.g. empty groups
+    L = [x for x in rectList if x is not None]
+    if not L: return None
+
+    xMin, yMin, xMax, yMax = L[0]
+    for (x1, y1, x2, y2) in L[1:]:
+        if x1 < xMin:
+            xMin = x1
+        if x2 > xMax:
+            xMax = x2
+        if y1 < yMin:
+            yMin = y1
+        if y2 > yMax:
+            yMax = y2
+    return (xMin, yMin, xMax, yMax)
+
+def _getBezierExtrema(y0,y1,y2,y3):
+    '''
+    this is used to find if a curveTo path operator has extrema in its range
+    The curveTo operator is defined by the points y0, y1, y2, y3
+
+        B(t):=(1-t)^3*y0+3*(1-t)^2*t*y1+3*(1-t)*t^2*y2+t^3*y3
+            :=t^3*(y3-3*y2+3*y1-y0)+t^2*(3*y2-6*y1+3*y0)+t*(3*y1-3*y0)+y0
+    and is a cubic bezier curve.
+
+    The differential is a quadratic
+        t^2*(3*y3-9*y2+9*y1-3*y0)+t*(6*y2-12*y1+6*y0)+3*y1-3*y0
+
+    The extrema must be at real roots, r, of the above which lie in 0<=r<=1
+
+    The quadratic coefficients are
+        a=3*y3-9*y2+9*y1-3*y0 b=6*y2-12*y1+6*y0 c=3*y1-3*y0
+    or
+        a=y3-3*y2+3*y1-y0 b=2*y2-4*y1+2*y0 c=y1-y0  (remove common factor of 3)
+    or
+        a=y3-3*(y2-y1)-y0 b=2*(y2-2*y1+y0) c=y1-y0
+
+    The returned value is [y0,x1,x2,y3] where if found x1, x2 are any extremals that were found;
+    there can be 0, 1 or 2 extremals
+    '''
+    a=y3-3*(y2-y1)-y0
+    b=2*(y2-2*y1+y0)
+    c=y1-y0
+    Y = [y0] #the set of points
+
+    #standard method to find roots of quadratic
+    d = b*b - 4*a*c
+    if d>=0:
+        d = sqrt(d)
+        if b<0: d = -d
+        q = -0.5*(b+d)
+        R = []
+        try:
+            R.append(q/a)
+        except:
+            pass
+        try:
+            R.append(c/q)
+        except:
+            pass
+        b *= 1.5
+        c *= 3
+        for t in R:
+            if 0<=t<=1:
+                #real root in range evaluate spline there and add to X
+                Y.append(t*(t*(t*a+b)+c)+y0)
+    Y.append(y3)
+    return Y
+
+def getPathBounds(points):
+    n = len(points)
+    f = lambda i,p = points: p[i]
+    xs = list(map(f,range(0,n,2)))
+    ys = list(map(f,range(1,n,2)))
+    return (min(xs), min(ys), max(xs), max(ys))
+
+def getPointsBounds(pointList):
+    "Helper function for list of points"
+    first = pointList[0]
+    if isSeq(first):
+        xs = [xy[0] for xy in pointList]
+        ys = [xy[1] for xy in pointList]
+        return (min(xs), min(ys), max(xs), max(ys))
+    else:
+        return getPathBounds(pointList)
+
+#################################################################
+#
+#    And now the shapes themselves....
+#
+#################################################################
+class Shape(_SetKeyWordArgs,_DrawTimeResizeable):
+    """Base class for all nodes in the tree. Nodes are simply
+    packets of data to be created, stored, and ultimately
+    rendered - they don't do anything active.  They provide
+    convenience methods for verification but do not
+    check attribiute assignments or use any clever setattr
+    tricks this time."""
+    _attrMap = AttrMap()
+
+    def copy(self):
+        """Return a clone of this shape."""
+
+        # implement this in the descendants as they need the right init methods.
+        raise NotImplementedError("No copy method implemented for %s" % self.__class__.__name__)
+
+    def getProperties(self,recur=1):
+        """Interface to make it easy to extract automatic
+        documentation"""
+
+        #basic nodes have no children so this is easy.
+        #for more complex objects like widgets you
+        #may need to override this.
+        props = {}
+        for key, value in self.__dict__.items():
+            if key[0:1] != '_':
+                props[key] = value
+        return props
+
+    def setProperties(self, props):
+        """Supports the bulk setting if properties from,
+        for example, a GUI application or a config file."""
+
+        self.__dict__.update(props)
+        #self.verify()
+
+    def dumpProperties(self, prefix=""):
+        """Convenience. Lists them on standard output.  You
+        may provide a prefix - mostly helps to generate code
+        samples for documentation."""
+
+        propList = list(self.getProperties().items())
+        propList.sort()
+        if prefix:
+            prefix = prefix + '.'
+        for (name, value) in propList:
+            print('%s%s = %s' % (prefix, name, value))
+
+    def verify(self):
+        """If the programmer has provided the optional
+        _attrMap attribute, this checks all expected
+        attributes are present; no unwanted attributes
+        are present; and (if a checking function is found)
+        checks each attribute.  Either succeeds or raises
+        an informative exception."""
+
+        if self._attrMap is not None:
+            for key in self.__dict__.keys():
+                if key[0] != '_':
+                    assert key in self._attrMap, "Unexpected attribute %s found in %s" % (key, self)
+            for attr, metavalue in self._attrMap.items():
+                assert hasattr(self, attr), "Missing attribute %s from %s" % (attr, self)
+                value = getattr(self, attr)
+                assert metavalue.validate(value), "Invalid value %s for attribute %s in class %s" % (value, attr, self.__class__.__name__)
+
+    if shapeChecking:
+        """This adds the ability to check every attribute assignment as it is made.
+        It slows down shapes but is a big help when developing. It does not
+        get defined if rl_config.shapeChecking = 0"""
+        def __setattr__(self, attr, value):
+            """By default we verify.  This could be off
+            in some parallel base classes."""
+            validateSetattr(self,attr,value)    #from reportlab.lib.attrmap
+
+    def getBounds(self):
+        "Returns bounding rectangle of object as (x1,y1,x2,y2)"
+        raise NotImplementedError("Shapes and widgets must implement getBounds")
+
+class Group(Shape):
+    """Groups elements together.  May apply a transform
+    to its contents.  Has a publicly accessible property
+    'contents' which may be used to iterate over contents.
+    In addition, child nodes may be given a name in which
+    case they are subsequently accessible as properties."""
+
     _attrMap = AttrMap(
-        strokeWidth = AttrMapValue(isNumber, desc='Width of a line.'),
-        strokeColor = AttrMapValue(isColorOrNone, desc='Color of a line or border.'),
-        fillColor = AttrMapValue(isColorOrNone, desc='fill color of a bar.'),
-        strokeDashArray = AttrMapValue(isListOfNumbersOrNone, desc='Dash array of a line.'),
-        symbol = AttrMapValue(NoneOr(isSymbol), desc='Widget placed at data points.',advancedUsage=1),
-        shader = AttrMapValue(None, desc='Shader Class.',advancedUsage=1),
-        filler = AttrMapValue(None, desc='Filler Class.',advancedUsage=1),
-        name = AttrMapValue(isStringOrNone, desc='Name of the line.'),
-        lineStyle = AttrMapValue(NoneOr(OneOf('line','joinedLine','bar')), desc="What kind of plot this line is",advancedUsage=1),
-        barWidth = AttrMapValue(isNumberOrNone,desc="Percentage of available width to be used for a bar",advancedUsage=1),
+        transform = AttrMapValue(isTransform,desc="Coordinate transformation to apply",advancedUsage=1),
+        contents = AttrMapValue(isListOfShapes,desc="Contained drawable elements"),
+        strokeOverprint = AttrMapValue(isBoolean,desc='Turn on stroke overprinting'),
+        fillOverprint = AttrMapValue(isBoolean,desc='Turn on fill overprinting',advancedUsage=1),
+        overprintMask = AttrMapValue(isBoolean,desc='overprinting for ordinary CMYK',advancedUsage=1),
         )
 
-class AbstractLineChart(PlotArea):
+    def __init__(self, *elements, **keywords):
+        """Initial lists of elements may be provided to allow
+        compact definitions in literal Python code.  May or
+        may not be useful."""
 
-    def makeSwatchSample(self,rowNo, x, y, width, height):
-        baseStyle = self.lines
-        styleIdx = rowNo % len(baseStyle)
-        style = baseStyle[styleIdx]
-        color = style.strokeColor
-        yh2 = y+height/2.
-        lineStyle = getattr(style,'lineStyle',None)
-        if lineStyle=='bar':
-            dash = getattr(style, 'strokeDashArray', getattr(baseStyle,'strokeDashArray',None))
-            strokeWidth= getattr(style, 'strokeWidth', getattr(style, 'strokeWidth',None))
-            L = Rect(x,y,width,height,strokeWidth=strokeWidth,strokeColor=color,strokeLineCap=0,strokeDashArray=dash,fillColor=getattr(style,'fillColor',color))
-        elif self.joinedLines or lineStyle=='joinedLine':
-            dash = getattr(style, 'strokeDashArray', getattr(baseStyle,'strokeDashArray',None))
-            strokeWidth= getattr(style, 'strokeWidth', getattr(style, 'strokeWidth',None))
-            L = Line(x,yh2,x+width,yh2,strokeColor=color,strokeLineCap=0)
-            if strokeWidth: L.strokeWidth = strokeWidth
-            if dash: L.strokeDashArray = dash
-        else:
-            L = None
+        # Groups need _attrMap to be an instance rather than
+        # a class attribute, as it may be extended at run time.
+        self._attrMap = self._attrMap.clone()
+        self.contents = []
+        self.transform = (1,0,0,1,0,0)
+        for elt in elements:
+            self.add(elt)
+        # this just applies keywords; do it at the end so they
+        #don;t get overwritten
+        _SetKeyWordArgs.__init__(self, keywords)
 
-        if hasattr(style, 'symbol'):
-            S = style.symbol
-        elif hasattr(baseStyle, 'symbol'):
-            S = baseStyle.symbol
-        else:
-            S = None
+    def _addNamedNode(self,name,node):
+        'if name is not None add an attribute pointing to node and add to the attrMap'
+        if name:
+            if name not in list(self._attrMap.keys()):
+                self._attrMap[name] = AttrMapValue(isValidChild)
+            setattr(self, name, node)
 
-        if S: S = uSymbol2Symbol(S,x+width/2.,yh2,color)
-        if S and L:
-            g = Group()
-            g.add(L)
-            g.add(S)
-            return g
-        return S or L
-
-    def getSeriesName(self,i,default=None):
-        '''return series name i or default'''
-        return _objStr(getattr(self.lines[i],'name',default))
-
-class LineChart(AbstractLineChart):
-    pass
-
-# This is conceptually similar to the VerticalBarChart.
-# Still it is better named HorizontalLineChart... :-/
-
-class HorizontalLineChart(LineChart):
-    """Line chart with multiple lines.
-
-    A line chart is assumed to have one category and one value axis.
-    Despite its generic name this particular line chart class has
-    a vertical value axis and a horizontal category one. It may
-    evolve into individual horizontal and vertical variants (like
-    with the existing bar charts).
-
-    Available attributes are:
-
-        x: x-position of lower-left chart origin
-        y: y-position of lower-left chart origin
-        width: chart width
-        height: chart height
-
-        useAbsolute: disables auto-scaling of chart elements (?)
-        lineLabelNudge: distance of data labels to data points
-        lineLabels: labels associated with data values
-        lineLabelFormat: format string or callback function
-        groupSpacing: space between categories
-
-        joinedLines: enables drawing of lines
-
-        strokeColor: color of chart lines (?)
-        fillColor: color for chart background (?)
-        lines: style list, used cyclically for data series
-
-        valueAxis: value axis object
-        categoryAxis: category axis object
-        categoryNames: category names
-
-        data: chart data, a list of data series of equal length
-    """
-
-    _attrMap = AttrMap(BASE=LineChart,
-        useAbsolute = AttrMapValue(isNumber, desc='Flag to use absolute spacing values.',advancedUsage=1),
-        lineLabelNudge = AttrMapValue(isNumber, desc='Distance between a data point and its label.',advancedUsage=1),
-        lineLabels = AttrMapValue(None, desc='Handle to the list of data point labels.'),
-        lineLabelFormat = AttrMapValue(None, desc='Formatting string or function used for data point labels.'),
-        lineLabelArray = AttrMapValue(None, desc='explicit array of line label values, must match size of data if present.'),
-        groupSpacing = AttrMapValue(isNumber, desc='? - Likely to disappear.'),
-        joinedLines = AttrMapValue(isNumber, desc='Display data points joined with lines if true.'),
-        lines = AttrMapValue(None, desc='Handle of the lines.'),
-        valueAxis = AttrMapValue(None, desc='Handle of the value axis.'),
-        categoryAxis = AttrMapValue(None, desc='Handle of the category axis.'),
-        categoryNames = AttrMapValue(isListOfStringsOrNone, desc='List of category names.'),
-        data = AttrMapValue(None, desc='Data to be plotted, list of (lists of) numbers.'),
-        inFill = AttrMapValue(isBoolean, desc='Whether infilling should be done.',advancedUsage=1),
-        reversePlotOrder = AttrMapValue(isBoolean, desc='If true reverse plot order.',advancedUsage=1),
-        annotations = AttrMapValue(None, desc='list of callables, will be called with self, xscale, yscale.',advancedUsage=1),
-        )
-
-    def __init__(self):
-        LineChart.__init__(self)
-
-        # Allow for a bounding rectangle.
-        self.strokeColor = None
-        self.fillColor = None
-
-        # Named so we have less recoding for the horizontal one :-)
-        self.categoryAxis = XCategoryAxis()
-        self.valueAxis = YValueAxis()
-
-        # This defines two series of 3 points.  Just an example.
-        self.data = [(100,110,120,130),
-                     (70, 80, 80, 90)]
-        self.categoryNames = ('North','South','East','West')
-
-        self.lines = TypedPropertyCollection(LineChartProperties)
-        self.lines.strokeWidth = 1
-        self.lines[0].strokeColor = colors.red
-        self.lines[1].strokeColor = colors.green
-        self.lines[2].strokeColor = colors.blue
-
-        # control spacing. if useAbsolute = 1 then
-        # the next parameters are in points; otherwise
-        # they are 'proportions' and are normalized to
-        # fit the available space.
-        self.useAbsolute = 0   #- not done yet
-        self.groupSpacing = 1 #5
-
-        self.lineLabels = TypedPropertyCollection(Label)
-        self.lineLabelFormat = None
-        self.lineLabelArray = None
-
-        # This says whether the origin is above or below
-        # the data point. +10 means put the origin ten points
-        # above the data point if value > 0, or ten
-        # points below if data value < 0.  This is different
-        # to label dx/dy which are not dependent on the
-        # sign of the data.
-        self.lineLabelNudge = 10
-        # If you have multiple series, by default they butt
-        # together.
-
-        # New line chart attributes.
-        self.joinedLines = 1 # Connect items with straight lines.
-        self.inFill = 0
-        self.reversePlotOrder = 0
-
-
-    def demo(self):
-        """Shows basic use of a line chart."""
-
-        drawing = Drawing(200, 100)
-
-        data = [
-                (13, 5, 20, 22, 37, 45, 19, 4),
-                (14, 10, 21, 28, 38, 46, 25, 5)
-                ]
-
-        lc = HorizontalLineChart()
-
-        lc.x = 20
-        lc.y = 10
-        lc.height = 85
-        lc.width = 170
-        lc.data = data
-        lc.lines.symbol = makeMarker('Circle')
-
-        drawing.add(lc)
-
-        return drawing
-
-
-    def calcPositions(self):
-        """Works out where they go.
-
-        Sets an attribute _positions which is a list of
-        lists of (x, y) matching the data.
+    def add(self, node, name=None):
+        """Appends non-None child node to the 'contents' attribute. In addition,
+        if a name is provided, it is subsequently accessible by name
         """
+        # propagates properties down
+        if node is not None:
+            assert isValidChild(node), "Can only add Shape or UserNode objects to a Group"
+            self.contents.append(node)
+            self._addNamedNode(name,node)
 
-        self._seriesCount = len(self.data)
-        self._rowLength = max(list(map(len,self.data)))
+    def _nn(self,node):
+        self.add(node)
+        return self.contents[-1]
 
-        if self.useAbsolute:
-            # Dimensions are absolute.
-            normFactor = 1.0
-        else:
-            # Dimensions are normalized to fit.
-            normWidth = self.groupSpacing
-            availWidth = self.categoryAxis.scale(0)[1]
-            normFactor = availWidth / normWidth
-        self._normFactor = normFactor
-        self._yzero = yzero = self.valueAxis.scale(0)
-        self._hngs = hngs = 0.5 * self.groupSpacing * normFactor
-
-        self._positions = []
-        for rowNo in range(len(self.data)):
-            lineRow = []
-            for colNo in range(len(self.data[rowNo])):
-                datum = self.data[rowNo][colNo]
-                if datum is not None:
-                    (groupX, groupWidth) = self.categoryAxis.scale(colNo)
-                    x = groupX + hngs
-                    y = yzero
-                    height = self.valueAxis.scale(datum) - y
-                    lineRow.append((x, y+height))
-            self._positions.append(lineRow)
-
-
-    def _innerDrawLabel(self, rowNo, colNo, x, y):
-        "Draw a label for a given item in the list."
-
-        labelFmt = self.lineLabelFormat
-        labelValue = self.data[rowNo][colNo]
-
-        if labelFmt is None:
-            labelText = None
-        elif type(labelFmt) is str:
-            if labelFmt == 'values':
-                try:
-                    labelText = self.lineLabelArray[rowNo][colNo]
-                except:
-                    labelText = None
+    def insert(self, i, n, name=None):
+        'Inserts sub-node n in contents at specified location'
+        if n is not None:
+            assert isValidChild(n), "Can only insert Shape or UserNode objects in a Group"
+            if i<0:
+                self.contents[i:i] =[n]
             else:
-                labelText = labelFmt % labelValue
-        elif hasattr(labelFmt,'__call__'):
-            labelText = labelFmt(labelValue)
-        else:
-            raise ValueError("Unknown formatter type %s, expected string or function"%labelFmt)
+                self.contents.insert(i,n)
+            self._addNamedNode(name,n)
 
-        if labelText:
-            label = self.lineLabels[(rowNo, colNo)]
-            if not label.visible: return
-            # Make sure labels are some distance off the data point.
-            if y > 0:
-                label.setOrigin(x, y + self.lineLabelNudge)
+    def expandUserNodes(self):
+        """Return a new object which only contains primitive shapes."""
+
+        # many limitations - shared nodes become multiple ones,
+        obj = isinstance(self,Drawing) and Drawing(self.width,self.height) or Group()
+        obj._attrMap = self._attrMap.clone()
+        if hasattr(obj,'transform'): obj.transform = self.transform[:]
+
+        self_contents = self.contents
+        a = obj.contents.append
+        for child in self_contents:
+            if isinstance(child, UserNode):
+                newChild = child.provideNode()
+            elif isinstance(child, Group):
+                newChild = child.expandUserNodes()
             else:
-                label.setOrigin(x, y - self.lineLabelNudge)
-            label.setText(labelText)
-        else:
-            label = None
-        return label
+                newChild = child.copy()
+            a(newChild)
 
-    def drawLabel(self, G, rowNo, colNo, x, y):
-        '''Draw a label for a given item in the list.
-        G must have an add method'''
-        G.add(self._innerDrawLabel(rowNo,colNo,x,y))
+        self._copyNamedContents(obj)
+        return obj
 
-    def makeLines(self):
-        g = Group()
-
-        labelFmt = self.lineLabelFormat
-        P = list(range(len(self._positions)))
-        if self.reversePlotOrder: P.reverse()
-        inFill = self.inFill
-        if inFill:
-            inFillY = self.categoryAxis._y
-            inFillX0 = self.valueAxis._x
-            inFillX1 = inFillX0 + self.categoryAxis._length
-            inFillG = getattr(self,'_inFillG',g)
-        yzero = self._yzero
-
-        # Iterate over data rows.
-        for rowNo in P:
-            row = self._positions[rowNo]
-            styleCount = len(self.lines)
-            styleIdx = rowNo % styleCount
-            rowStyle = self.lines[styleIdx]
-            rowColor = rowStyle.strokeColor
-            dash = getattr(rowStyle, 'strokeDashArray', None)
-            lineStyle = getattr(rowStyle,'lineStyle',None)
-
-            if hasattr(rowStyle, 'strokeWidth'):
-                strokeWidth = rowStyle.strokeWidth
-            elif hasattr(self.lines, 'strokeWidth'):
-                strokeWidth = self.lines.strokeWidth
-            else:
-                strokeWidth = None
-
-            # Iterate over data columns.
-            if lineStyle=='bar':
-                barWidth = getattr(rowStyle,'barWidth',Percentage(50))
-                fillColor = getattr(rowStyle,'fillColor',rowColor)
-                if isinstance(barWidth,Percentage):
-                    hbw = self._hngs*barWidth*0.01
+    def _explode(self):
+        ''' return a fully expanded object'''
+        from reportlab.graphics.widgetbase import Widget
+        obj = Group()
+        if hasattr(self,'__label__'):
+            obj.__label__=self.__label__
+        if hasattr(obj,'transform'): obj.transform = self.transform[:]
+        P = self.getContents()[:]   # pending nodes
+        while P:
+            n = P.pop(0)
+            if isinstance(n, UserNode):
+                P.append(n.provideNode())
+            elif isinstance(n, Group):
+                n = n._explode()
+                if n.transform==(1,0,0,1,0,0):
+                    obj.contents.extend(n.contents)
                 else:
-                    hbw = barWidth*0.5
-                for colNo in range(len(row)):
-                    x,y = row[colNo]
-                    g.add(Rect(x-hbw,min(y,yzero),2*hbw,abs(y-yzero),strokeWidth=strokeWidth,strokeColor=rowColor,fillColor=fillColor))
-            elif self.joinedLines or lineStyle=='joinedLine':
-                points = []
-                for colNo in range(len(row)):
-                    points += row[colNo]
-                if inFill:
-                    points = points + [inFillX1,inFillY,inFillX0,inFillY]
-                    inFillG.add(Polygon(points,fillColor=rowColor,strokeColor=rowColor,strokeWidth=0.1))
-                else:
-                    line = PolyLine(points,strokeColor=rowColor,strokeLineCap=0,strokeLineJoin=1)
-                    if strokeWidth:
-                        line.strokeWidth = strokeWidth
-                    if dash:
-                        line.strokeDashArray = dash
-                    g.add(line)
-
-            if hasattr(rowStyle, 'symbol'):
-                uSymbol = rowStyle.symbol
-            elif hasattr(self.lines, 'symbol'):
-                uSymbol = self.lines.symbol
+                    obj.add(n)
             else:
-                uSymbol = None
+                obj.add(n)
+        return obj
 
-            if uSymbol:
-                for colNo in range(len(row)):
-                    x1, y1 = row[colNo]
-                    symbol = uSymbol2Symbol(uSymbol,x1,y1,rowStyle.strokeColor)
-                    if symbol: g.add(symbol)
+    def _copyContents(self,obj):
+        for child in self.contents:
+            obj.contents.append(child)
 
-            # Draw item labels.
-            for colNo in range(len(row)):
-                x1, y1 = row[colNo]
-                self.drawLabel(g, rowNo, colNo, x1, y1)
+    def _copyNamedContents(self,obj,aKeys=None,noCopy=('contents',)):
+        from copy import copy
+        self_contents = self.contents
+        if not aKeys: aKeys = list(self._attrMap.keys())
+        for k, v in self.__dict__.items():
+            if v in self_contents:
+                pos = self_contents.index(v)
+                setattr(obj, k, obj.contents[pos])
+            elif k in aKeys and k not in noCopy:
+                setattr(obj, k, copy(v))
 
-        return g
+    def _copy(self,obj):
+        """copies to obj"""
+        obj._attrMap = self._attrMap.clone()
+        self._copyContents(obj)
+        self._copyNamedContents(obj)
+        return obj
 
-    def draw(self):
-        "Draws itself."
+    def copy(self):
+        """returns a copy"""
+        return self._copy(self.__class__())
 
-        vA, cA = self.valueAxis, self.categoryAxis
-        vA.setPosition(self.x, self.y, self.height)
-        if vA: vA.joinAxis = cA
-        if cA: cA.joinAxis = vA
-        vA.configure(self.data)
+    def rotate(self, theta):
+        """Convenience to help you set transforms"""
+        self.transform = mmult(self.transform, rotate(theta))
 
-        # If zero is in chart, put x axis there, otherwise
-        # use bottom.
-        xAxisCrossesAt = vA.scale(0)
-        if ((xAxisCrossesAt > self.y + self.height) or (xAxisCrossesAt < self.y)):
-            y = self.y
+    def translate(self, dx, dy):
+        """Convenience to help you set transforms"""
+        self.transform = mmult(self.transform, translate(dx, dy))
+
+    def scale(self, sx, sy):
+        """Convenience to help you set transforms"""
+        self.transform = mmult(self.transform, scale(sx, sy))
+
+    def skew(self, kx, ky):
+        """Convenience to help you set transforms"""
+        self.transform = mmult(mmult(self.transform, skewX(kx)),skewY(ky))
+
+    def shift(self, x, y):
+        '''Convenience function to set the origin arbitrarily'''
+        self.transform = self.transform[:-2]+(x,y)
+
+    def asDrawing(self, width, height):
+        """ Convenience function to make a drawing from a group
+            After calling this the instance will be a drawing!
+        """
+        self.__class__ = Drawing
+        self._attrMap.update(self._xtraAttrMap)
+        self.width = width
+        self.height = height
+
+    def getContents(self):
+        '''Return the list of things to be rendered
+        override to get more complicated behaviour'''
+        b = getattr(self,'background',None)
+        C = self.contents
+        if b and b not in C: C = [b]+C
+        return C
+
+    def getBounds(self):
+        if self.contents:
+            b = []
+            for elem in self.contents:
+                b.append(elem.getBounds())
+            x1 = getRectsBounds(b)
+            if x1 is None: return None
+            x1, y1, x2, y2 = x1
+            trans = self.transform
+            corners = [[x1,y1], [x1, y2], [x2, y1], [x2,y2]]
+            newCorners = []
+            for corner in corners:
+                newCorners.append(transformPoint(trans, corner))
+            return getPointsBounds(newCorners)
         else:
-            y = xAxisCrossesAt
+            #empty group needs a sane default; this
+            #will happen when interactively creating a group
+            #nothing has been added to yet.  The alternative is
+            #to handle None as an allowed return value everywhere.
+            return None
 
-        cA.setPosition(self.x, y, self.width)
-        cA.configure(self.data)
+def _addObjImport(obj,I,n=None):
+    '''add an import of obj's class to a dictionary of imports''' #'
+    from inspect import getmodule
+    c = obj.__class__
+    m = getmodule(c).__name__
+    n = n or c.__name__
+    if m not in I:
+        I[m] = [n]
+    elif n not in I[m]:
+        I[m].append(n)
 
-        self.calcPositions()
+def _repr(self,I=None):
+    '''return a repr style string with named fixed args first, then keywords'''
+    if isinstance(self,float):
+        return fp_str(self)
+    elif isSeq(self):
+        s = ''
+        for v in self:
+            s = s + '%s,' % _repr(v,I)
+        if isinstance(self,list):
+            return '[%s]' % s[:-1]
+        else:
+            return '(%s%s)' % (s[:-1],len(self)==1 and ',' or '')
+    elif self is EmptyClipPath:
+        if I: _addObjImport(self,I,'EmptyClipPath')
+        return 'EmptyClipPath'
+    elif isinstance(self,Shape):
+        if I: _addObjImport(self,I)
+        from inspect import getargspec
+        args, varargs, varkw, defaults = getargspec(self.__init__)
+        if defaults:
+            kargs = args[-len(defaults):]
+            del args[-len(defaults):]
+        else:
+            kargs = []
+        P = self.getProperties()
+        s = self.__class__.__name__+'('
+        for n in args[1:]:
+            v = P[n]
+            del P[n]
+            s = s + '%s,' % _repr(v,I)
+        for n in kargs:
+            v = P[n]
+            del P[n]
+            s = s + '%s=%s,' % (n,_repr(v,I))
+        for n,v in P.items():
+            v = P[n]
+            s = s + '%s=%s,' % (n, _repr(v,I))
+        return s[:-1]+')'
+    else:
+        return repr(self)
 
-        g = Group()
-        g.add(self.makeBackground())
-        if self.inFill:
-            self._inFillG = Group()
-            g.add(self._inFillG)
+def _renderGroupPy(G,pfx,I,i=0,indent='\t\t'):
+    s = ''
+    C = getattr(G,'transform',None)
+    if C: s = s + ('%s%s.transform = %s\n' % (indent,pfx,_repr(C)))
+    C  = G.contents
+    for n in C:
+        if isinstance(n, Group):
+            npfx = 'v%d' % i
+            i += 1
+            l = getattr(n,'__label__','')
+            if l: l='#'+l
+            s = s + '%s%s=%s._nn(Group())%s\n' % (indent,npfx,pfx,l)
+            s = s + _renderGroupPy(n,npfx,I,i,indent)
+            i -= 1
+        else:
+            s = s + '%s%s.add(%s)\n' % (indent,pfx,_repr(n,I))
+    return s
 
-        g.add(cA)
-        g.add(vA)
-        cAdgl = getattr(cA,'drawGridLast',False)
-        vAdgl = getattr(vA,'drawGridLast',False)
-        if not cAdgl: cA.makeGrid(g,parent=self,dim=vA.getGridDims)
-        if not vAdgl: vA.makeGrid(g,parent=self,dim=cA.getGridDims)
-        g.add(self.makeLines())
-        if cAdgl: cA.makeGrid(g,parent=self,dim=vA.getGridDims)
-        if vAdgl: vA.makeGrid(g,parent=self,dim=cA.getGridDims)
-        for a in getattr(self,'annotations',()): g.add(a(self,cA.scale,vA.scale))
-        return g
+def _extraKW(self,pfx,**kw):
+    kw.update(self.__dict__)
+    R = {}
+    n = len(pfx)
+    for k in kw.keys():
+        if k.startswith(pfx):
+            R[k[n:]] = kw[k]
+    return R
 
-def _fakeItemKey(a):
-    '''t, z0, z1, x, y = a[:5]'''
-    return (-a[1],a[3],a[0],-a[4])
+class Drawing(Group, Flowable):
+    """Outermost container; the thing a renderer works on.
+    This has no properties except a height, width and list
+    of contents."""
 
-class _FakeGroup:
-    def __init__(self):
-        self._data = []
+    _saveModes=(
+            'pdf','ps','eps','gif','png','jpg','jpeg','pct',
+            'pict','tiff','tif','py','bmp','svg','tiffp','tiffl','tiff1',
+            )
 
-    def add(self,what):
-        if what: self._data.append(what)
-
-    def value(self):
-        return self._data
-
-    def sort(self):
-        self._data.sort(key=_fakeItemKey)
-        #for t in self._data: print t
-
-class HorizontalLineChart3D(HorizontalLineChart):
-    _attrMap = AttrMap(BASE=HorizontalLineChart,
-        theta_x = AttrMapValue(isNumber, desc='dx/dz'),
-        theta_y = AttrMapValue(isNumber, desc='dy/dz'),
-        zDepth = AttrMapValue(isNumber, desc='depth of an individual series'),
-        zSpace = AttrMapValue(isNumber, desc='z gap around series'),
+    _xtraAttrMap = AttrMap(
+        width = AttrMapValue(isNumber,desc="Drawing width in points."),
+        height = AttrMapValue(isNumber,desc="Drawing height in points."),
+        canv = AttrMapValue(None),
+        background = AttrMapValue(isValidChildOrNone,desc="Background widget for the drawing e.g. Rect(0,0,width,height)"),
+        hAlign = AttrMapValue(OneOf("LEFT", "RIGHT", "CENTER", "CENTRE"), desc="Horizontal alignment within parent document"),
+        vAlign = AttrMapValue(OneOf("TOP", "BOTTOM", "CENTER", "CENTRE"), desc="Vertical alignment within parent document"),
+        #AR temporary hack to track back up.
+        #fontName = AttrMapValue(isStringOrNone),
+        renderScale = AttrMapValue(isNumber,desc="Global scaling for rendering"),
+        initialFontName = AttrMapValue(isStringOrNone,desc="override the STATE_DEFAULTS value for fontName"),
+        initialFontSize = AttrMapValue(isNumberOrNone,desc="override the STATE_DEFAULTS value for fontSize"),
         )
-    theta_x = .5
-    theta_y = .5
-    zDepth = 10
-    zSpace = 3
 
-    def calcPositions(self):
-        HorizontalLineChart.calcPositions(self)
-        nSeries = self._seriesCount
-        zSpace = self.zSpace
-        zDepth = self.zDepth
-        if self.categoryAxis.style=='parallel_3d':
-            _3d_depth = nSeries*zDepth+(nSeries+1)*zSpace
+    _attrMap = AttrMap(BASE=Group,
+            formats = AttrMapValue(SequenceOf(
+                OneOf('pdf','gif','png','tif','jpg','tiff','pct','pict',
+                        'bmp','tiffp','tiffl','tiff1','eps','svg','ps','py'),
+                lo=1,emptyOK=0), desc='One or more plot modes'),
+            )
+    _attrMap.update(_xtraAttrMap)
+
+    def __init__(self, width=400, height=200, *nodes, **keywords):
+        self.background = None
+        Group.__init__(self,*nodes,**keywords)
+        self.width = width
+        self.height = height
+        self.hAlign = 'LEFT'
+        self.vAlign = 'BOTTOM'
+        self.renderScale = 1.0
+
+    def _renderPy(self):
+        I = {
+                'reportlab.graphics.shapes': ['_DrawingEditorMixin','Drawing','Group'],
+                'reportlab.lib.colors': ['Color','CMYKColor','PCMYKColor'],
+            }
+        G = _renderGroupPy(self._explode(),'self',I)
+        n = 'ExplodedDrawing_' + self.__class__.__name__
+        s = '#Autogenerated by ReportLab guiedit do not edit\n'
+        for m, o in I.items():
+            s = s + 'from %s import %s\n' % (m,str(o)[1:-1].replace("'",""))
+        s = s + '\nclass %s(_DrawingEditorMixin,Drawing):\n' % n
+        s = s + '\tdef __init__(self,width=%s,height=%s,*args,**kw):\n' % (self.width,self.height)
+        s = s + '\t\tDrawing.__init__(self,width,height,*args,**kw)\n'
+        s = s + G
+        s = s + '\n\nif __name__=="__main__": #NORUNTESTS\n\t%s().save(formats=[\'pdf\'],outDir=\'.\',fnRoot=None)\n' % n
+        return s
+
+    def draw(self,showBoundary=_unset_):
+        """This is used by the Platypus framework to let the document
+        draw itself in a story.  It is specific to PDF and should not
+        be used directly."""
+        from reportlab.graphics import renderPDF
+        renderPDF.draw(self, self.canv, 0, 0, showBoundary=showBoundary)
+
+    def wrap(self, availWidth, availHeight):
+        width = self.width
+        height = self.height
+        renderScale = self.renderScale
+        if renderScale!=1.0:
+            width *= renderScale
+            height *= renderScale
+        return width, height
+
+    def expandUserNodes(self):
+        """Return a new drawing which only contains primitive shapes."""
+        obj = Group.expandUserNodes(self)
+        obj.width = self.width
+        obj.height = self.height
+        return obj
+
+    def copy(self):
+        """Returns a copy"""
+        return self._copy(self.__class__(self.width, self.height))
+
+    def asGroup(self,*args,**kw):
+        return self._copy(Group(*args,**kw))
+
+    def save(self, formats=None, verbose=None, fnRoot=None, outDir=None, title='', **kw):
+        """Saves copies of self in desired location and formats.
+        Multiple formats can be supported in one call
+
+        the extra keywords can be of the form
+        _renderPM_dpi=96 (which passes dpi=96 to renderPM)
+        """
+        genFmt = kw.pop('seqNumber','')
+        if isinstance(genFmt,int):
+            genFmt = '%4d: ' % genFmt
         else:
-            _3d_depth = zDepth + 2*zSpace
-        self._3d_dx = self.theta_x*_3d_depth
-        self._3d_dy = self.theta_y*_3d_depth
+            genFmt = ''
+        genFmt += 'generating %s file %s'
+        from reportlab import rl_config
+        ext = ''
+        if not fnRoot:
+            fnRoot = getattr(self,'fileNamePattern',(self.__class__.__name__+'%03d'))
+            chartId = getattr(self,'chartId',0)
+            if hasattr(chartId,'__call__'):
+                chartId = chartId(self)
+            if hasattr(fnRoot,'__call__'):
+                fnRoot = fnRoot(chartId)
+            else:
+                try:
+                    fnRoot = fnRoot % chartId
+                except TypeError as err:
+                    #the exact error message changed from 2.2 to 2.3 so we need to
+                    #check a substring
+                    if str(err).find('not all arguments converted') < 0: raise
 
-    def _calc_z0(self,rowNo):
-        zSpace = self.zSpace
-        if self.categoryAxis.style=='parallel_3d':
-            z0 = rowNo*(self.zDepth+zSpace)+zSpace
+        if os.path.isabs(fnRoot):
+            outDir, fnRoot = os.path.split(fnRoot)
         else:
-            z0 = zSpace
-        return z0
+            outDir = outDir or getattr(self,'outDir','.')
+        outDir = outDir.rstrip().rstrip(os.sep)
+        if not outDir: outDir = '.'
+        if not os.path.isabs(outDir): outDir = os.path.join(getattr(self,'_override_CWD',os.path.dirname(sys.argv[0])),outDir)
+        if not os.path.isdir(outDir): os.makedirs(outDir)
+        fnroot = os.path.normpath(os.path.join(outDir,fnRoot))
+        plotMode = os.path.splitext(fnroot)
+        if plotMode[1][1:].lower() in self._saveModes:
+            fnroot = plotMode[0]
 
-    def _zadjust(self,x,y,z):
-        return x+z*self.theta_x, y+z*self.theta_y
+        plotMode = [x.lower() for x in (formats or getattr(self,'formats',['pdf']))]
+        verbose = (verbose is not None and (verbose,) or (getattr(self,'verbose',verbose),))[0]
+        _saved = logger.warnOnce.enabled, logger.infoOnce.enabled
+        logger.warnOnce.enabled = logger.infoOnce.enabled = verbose
+        if 'pdf' in plotMode:
+            from reportlab.graphics import renderPDF
+            filename = fnroot+'.pdf'
+            if verbose: print(genFmt % ('PDF',filename))
+            renderPDF.drawToFile(self, filename, title, showBoundary=getattr(self,'showBorder',rl_config.showBoundary),**_extraKW(self,'_renderPDF_',**kw))
+            ext = ext +  '/.pdf'
+            if sys.platform=='mac':
+                import macfs, macostools
+                macfs.FSSpec(filename).SetCreatorType("CARO", "PDF ")
+                macostools.touched(filename)
 
-    def makeLines(self):
-        labelFmt = self.lineLabelFormat
-        P = list(range(len(self._positions)))
-        if self.reversePlotOrder: P.reverse()
-        inFill = self.inFill
-        assert not inFill, "inFill not supported for 3d yet"
-        #if inFill:
-            #inFillY = self.categoryAxis._y
-            #inFillX0 = self.valueAxis._x
-            #inFillX1 = inFillX0 + self.categoryAxis._length
-            #inFillG = getattr(self,'_inFillG',g)
-        zDepth = self.zDepth
-        _zadjust = self._zadjust
-        theta_x = self.theta_x
-        theta_y = self.theta_y
-        F = _FakeGroup()
-        from reportlab.graphics.charts.utils3d import _make_3d_line_info
-        tileWidth = getattr(self,'_3d_tilewidth',None)
-        if not tileWidth and self.categoryAxis.style!='parallel_3d': tileWidth = 1
+        for bmFmt in ('gif','png','tif','jpg','tiff','pct','pict', 'bmp','tiffp','tiffl','tiff1'):
+            if bmFmt in plotMode:
+                from reportlab.graphics import renderPM
+                filename = '%s.%s' % (fnroot,bmFmt)
+                if verbose: print(genFmt % (bmFmt,filename))
+                dtc = getattr(self,'_drawTimeCollector',None)
+                if dtc:
+                    dtcfmts = getattr(dtc,'formats',[bmFmt])
+                    if bmFmt in dtcfmts and not getattr(dtc,'disabled',0):
+                        dtc.clear()
+                    else:
+                        dtc = None
+                renderPM.drawToFile(self, filename,fmt=bmFmt,showBoundary=getattr(self,'showBorder',rl_config.showBoundary),**_extraKW(self,'_renderPM_',**kw))
+                ext = ext + '/.' + bmFmt
+                if dtc: dtc.save(filename)
 
-        # Iterate over data rows.
-        for rowNo in P:
-            row = self._positions[rowNo]
-            n = len(row)
-            styleCount = len(self.lines)
-            styleIdx = rowNo % styleCount
-            rowStyle = self.lines[styleIdx]
-            rowColor = rowStyle.strokeColor
-            dash = getattr(rowStyle, 'strokeDashArray', None)
-            z0 = self._calc_z0(rowNo)
-            z1 = z0 + zDepth
+        if 'eps' in plotMode:
+            try:
+                from rlextra.graphics import renderPS_SEP as renderPS
+            except ImportError:
+                from reportlab.graphics import renderPS
+            filename = fnroot+'.eps'
+            if verbose: print(genFmt % ('EPS',filename))
+            renderPS.drawToFile(self,
+                                filename,
+                                title = fnroot,
+                                dept = getattr(self,'EPS_info',['Testing'])[0],
+                                company = getattr(self,'EPS_info',['','ReportLab'])[1],
+                                preview = getattr(self,'preview',rl_config.eps_preview),
+                                showBoundary=getattr(self,'showBorder',rl_config.showBoundary),
+                                ttf_embed=getattr(self,'ttf_embed',rl_config.eps_ttf_embed),
+                                **_extraKW(self,'_renderPS_',**kw))
+            ext = ext +  '/.eps'
 
-            if hasattr(self.lines[styleIdx], 'strokeWidth'):
-                strokeWidth = self.lines[styleIdx].strokeWidth
-            elif hasattr(self.lines, 'strokeWidth'):
-                strokeWidth = self.lines.strokeWidth
-            else:
-                strokeWidth = None
+        if 'svg' in plotMode:
+            from reportlab.graphics import renderSVG
+            filename = fnroot+'.svg'
+            if verbose: print(genFmt % ('SVG',filename))
+            renderSVG.drawToFile(self,
+                                filename,
+                                showBoundary=getattr(self,'showBorder',rl_config.showBoundary),**_extraKW(self,'_renderSVG_',**kw))
+            ext = ext +  '/.svg'
 
-            # Iterate over data columns.
-            if self.joinedLines:
-                if n:
-                    x0, y0 = row[0]
-                    for colNo in range(1,n):
-                        x1, y1 = row[colNo]
-                        _make_3d_line_info( F, x0, x1, y0, y1, z0, z1,
-                                theta_x, theta_y,
-                                rowColor, fillColorShaded=None, tileWidth=tileWidth,
-                                strokeColor=None, strokeWidth=None, strokeDashArray=None,
-                                shading=0.1)
-                        x0, y0 = x1, y1
+        if 'ps' in plotMode:
+            from reportlab.graphics import renderPS
+            filename = fnroot+'.ps'
+            if verbose: print(genFmt % ('EPS',filename))
+            renderPS.drawToFile(self, filename, showBoundary=getattr(self,'showBorder',rl_config.showBoundary),**_extraKW(self,'_renderPS_',**kw))
+            ext = ext +  '/.ps'
 
-            if hasattr(self.lines[styleIdx], 'symbol'):
-                uSymbol = self.lines[styleIdx].symbol
-            elif hasattr(self.lines, 'symbol'):
-                uSymbol = self.lines.symbol
-            else:
-                uSymbol = None
+        if 'py' in plotMode:
+            filename = fnroot+'.py'
+            if verbose: print(genFmt % ('py',filename))
+            with open(filename,'wb') as f:
+                f.write(asBytes(self._renderPy().replace('\n',os.linesep)))
+            ext = ext +  '/.py'
 
-            if uSymbol:
-                for colNo in range(n):
-                    x1, y1 = row[colNo]
-                    x1, y1 = _zadjust(x1,y1,z0)
-                    symbol = uSymbol2Symbol(uSymbol,x1,y1,rowColor)
-                    if symbol: F.add((2,z0,z0,x1,y1,symbol))
+        logger.warnOnce.enabled, logger.infoOnce.enabled = _saved
+        if hasattr(self,'saveLogger'):
+            self.saveLogger(fnroot,ext)
+        return ext and fnroot+ext[1:] or ''
 
-            # Draw item labels.
-            for colNo in range(n):
-                x1, y1 = row[colNo]
-                x1, y1 = _zadjust(x1,y1,z0)
-                L = self._innerDrawLabel(rowNo, colNo, x1, y1)
-                if L: F.add((2,z0,z0,x1,y1,L))
+    def asString(self, format, verbose=None, preview=0, **kw):
+        """Converts to an 8 bit string in given format."""
+        assert format in ('pdf','ps','eps','gif','png','jpg','jpeg','bmp','ppm','tiff','tif','py','pict','pct','tiffp','tiffl','tiff1'), 'Unknown file format "%s"' % format
+        from reportlab import rl_config
+        #verbose = verbose is not None and (verbose,) or (getattr(self,'verbose',verbose),)[0]
+        if format == 'pdf':
+            from reportlab.graphics import renderPDF
+            return renderPDF.drawToString(self)
+        elif format in ('gif','png','tif','tiff','jpg','pct','pict','bmp','ppm','tiffp','tiffl','tiff1'):
+            from reportlab.graphics import renderPM
+            return renderPM.drawToString(self, fmt=format,showBoundary=getattr(self,'showBorder',
+                            rl_config.showBoundary),**_extraKW(self,'_renderPM_',**kw))
+        elif format == 'eps':
+            try:
+                from rlextra.graphics import renderPS_SEP as renderPS
+            except ImportError:
+                from reportlab.graphics import renderPS
 
-        F.sort()
-        g = Group()
-        for v in F.value(): g.add(v[-1])
-        return g
+            return renderPS.drawToString(self,
+                                preview = preview,
+                                showBoundary=getattr(self,'showBorder',rl_config.showBoundary))
+        elif format == 'ps':
+            from reportlab.graphics import renderPS
+            return renderPS.drawToString(self, showBoundary=getattr(self,'showBorder',rl_config.showBoundary))
+        elif format == 'py':
+            return self._renderPy()
 
-class VerticalLineChart(LineChart):
-    pass
-
-
-def sample1():
-    drawing = Drawing(400, 200)
-
-    data = [
-            (13, 5, 20, 22, 37, 45, 19, 4),
-            (5, 20, 46, 38, 23, 21, 6, 14)
-            ]
-
-    lc = HorizontalLineChart()
-
-    lc.x = 50
-    lc.y = 50
-    lc.height = 125
-    lc.width = 300
-    lc.data = data
-    lc.joinedLines = 1
-    lc.lines.symbol = makeMarker('FilledDiamond')
-    lc.lineLabelFormat = '%2.0f'
-
-    catNames = 'Jan Feb Mar Apr May Jun Jul Aug'.split(' ')
-    lc.categoryAxis.categoryNames = catNames
-    lc.categoryAxis.labels.boxAnchor = 'n'
-
-    lc.valueAxis.valueMin = 0
-    lc.valueAxis.valueMax = 60
-    lc.valueAxis.valueStep = 15
-
-    drawing.add(lc)
-
-    return drawing
-
-
-class SampleHorizontalLineChart(HorizontalLineChart):
-    "Sample class overwriting one method to draw additional horizontal lines."
-
-    def demo(self):
-        """Shows basic use of a line chart."""
-
-        drawing = Drawing(200, 100)
-
-        data = [
-                (13, 5, 20, 22, 37, 45, 19, 4),
-                (14, 10, 21, 28, 38, 46, 25, 5)
-                ]
-
-        lc = SampleHorizontalLineChart()
-
-        lc.x = 20
-        lc.y = 10
-        lc.height = 85
-        lc.width = 170
-        lc.data = data
-        lc.strokeColor = colors.white
-        lc.fillColor = colors.HexColor(0xCCCCCC)
-
-        drawing.add(lc)
-
+    def resized(self,kind='fit',lpad=0,rpad=0,bpad=0,tpad=0):
+        '''return a base class drawing which ensures all the contents fits'''
+        C = self.getContents()
+        oW = self.width
+        oH = self.height
+        drawing = Drawing(oW,oH,*C)
+        xL,yL,xH,yH = drawing.getBounds()
+        if kind=='fit' or (kind=='expand' and (xL<lpad or xH>oW-rpad or yL<bpad or yH>oH-tpad)):
+            drawing.width = xH-xL+lpad+rpad
+            drawing.height = yH-yL+tpad+bpad
+            drawing.transform = (1,0,0,1,lpad-xL,bpad-yL)
+        elif kind=='fitx' or (kind=='expandx' and (xL<lpad or xH>oW-rpad)):
+            drawing.width = xH-xL+lpad+rpad
+            drawing.transform = (1,0,0,1,lpad-xL,0)
+        elif kind=='fity' or (kind=='expandy' and (yL<bpad or yH>oH-tpad)):
+            drawing.height = yH-yL+tpad+bpad
+            drawing.transform = (1,0,0,1,0,bpad-yL)
         return drawing
 
+class _DrawingEditorMixin:
+    '''This is a mixin to provide functionality for edited drawings'''
+    def _add(self,obj,value,name=None,validate=None,desc=None,pos=None):
+        '''
+        effectively setattr(obj,name,value), but takes care of things with _attrMaps etc
+        '''
+        ivc = isValidChild(value)
+        if name and hasattr(obj,'_attrMap'):
+            if '_attrMap' not in obj.__dict__:
+                obj._attrMap = obj._attrMap.clone()
+            if ivc and validate is None: validate = isValidChild
+            obj._attrMap[name] = AttrMapValue(validate,desc)
+        if hasattr(obj,'add') and ivc:
+            if pos:
+                obj.insert(pos,value,name)
+            else:
+                obj.add(value,name)
+        elif name:
+            setattr(obj,name,value)
+        else:
+            raise ValueError("Can't add, need name")
 
-    def makeBackground(self):
-        g = Group()
+class LineShape(Shape):
+    # base for types of lines
 
-        g.add(HorizontalLineChart.makeBackground(self))
+    _attrMap = AttrMap(
+        strokeColor = AttrMapValue(isColorOrNone),
+        strokeWidth = AttrMapValue(isNumber),
+        strokeLineCap = AttrMapValue(OneOf(0,1,2),desc="Line cap 0=butt, 1=round & 2=square"),
+        strokeLineJoin = AttrMapValue(OneOf(0,1,2),desc="Line join 0=miter, 1=round & 2=bevel"),
+        strokeMiterLimit = AttrMapValue(isNumber,desc="miter limit control miter line joins"),
+        strokeDashArray = AttrMapValue(isListOfNumbersOrNone,desc="a sequence of numbers represents on and off, e.g. (2,1)"),
+        strokeOpacity = AttrMapValue(isOpacity,desc="The level of transparency of the line, any real number betwen 0 and 1"),
+        strokeOverprint = AttrMapValue(isBoolean,desc='Turn on stroke overprinting'),
+        overprintMask = AttrMapValue(isBoolean,desc='overprinting for ordinary CMYK',advancedUsage=1),
+        )
 
-        valAxis = self.valueAxis
-        valTickPositions = valAxis._tickValues
+    def __init__(self, kw):
+        self.strokeColor = STATE_DEFAULTS['strokeColor']
+        self.strokeWidth = 1
+        self.strokeLineCap = 0
+        self.strokeLineJoin = 0
+        self.strokeMiterLimit = 0
+        self.strokeDashArray = None
+        self.strokeOpacity = None
+        self.setProperties(kw)
 
-        for y in valTickPositions:
-            y = valAxis.scale(y)
-            g.add(Line(self.x, y, self.x+self.width, y,
-                       strokeColor = self.strokeColor))
+class Line(LineShape):
+    _attrMap = AttrMap(BASE=LineShape,
+        x1 = AttrMapValue(isNumber,desc=""),
+        y1 = AttrMapValue(isNumber,desc=""),
+        x2 = AttrMapValue(isNumber,desc=""),
+        y2 = AttrMapValue(isNumber,desc=""),
+        )
 
-        return g
+    def __init__(self, x1, y1, x2, y2, **kw):
+        LineShape.__init__(self, kw)
+        self.x1 = x1
+        self.y1 = y1
+        self.x2 = x2
+        self.y2 = y2
 
+    def getBounds(self):
+        "Returns bounding rectangle of object as (x1,y1,x2,y2)"
+        return (self.x1, self.y1, self.x2, self.y2)
 
+class SolidShape(LineShape):
+    # base for anything with outline and content
 
-def sample1a():
-    drawing = Drawing(400, 200)
+    _attrMap = AttrMap(BASE=LineShape,
+        fillColor = AttrMapValue(isColorOrNone,desc="filling color of the shape, e.g. red"),
+        fillOpacity = AttrMapValue(isOpacity,desc="the level of transparency of the color, any real number between 0 and 1"),
+        fillOverprint = AttrMapValue(isBoolean,desc='Turn on fill overprinting'),
+        overprintMask = AttrMapValue(isBoolean,desc='overprinting for ordinary CMYK',advancedUsage=1),
+        fillMode = AttrMapValue(OneOf(FILL_EVEN_ODD,FILL_NON_ZERO)),
+        )
 
-    data = [
-            (13, 5, 20, 22, 37, 45, 19, 4),
-            (5, 20, 46, 38, 23, 21, 6, 14)
-            ]
+    def __init__(self, kw):
+        self.fillColor = STATE_DEFAULTS['fillColor']
+        self.fillOpacity = None
+        # do this at the end so keywords overwrite
+        #the above settings
+        LineShape.__init__(self, kw)
 
-    lc = SampleHorizontalLineChart()
+# path operator  constants
+_MOVETO, _LINETO, _CURVETO, _CLOSEPATH = list(range(4))
+_PATH_OP_ARG_COUNT = (2, 2, 6, 0)  # [moveTo, lineTo, curveTo, closePath]
+_PATH_OP_NAMES=['moveTo','lineTo','curveTo','closePath']
 
-    lc.x = 50
-    lc.y = 50
-    lc.height = 125
-    lc.width = 300
-    lc.data = data
-    lc.joinedLines = 1
-    lc.strokeColor = colors.white
-    lc.fillColor = colors.HexColor(0xCCCCCC)
-    lc.lines.symbol = makeMarker('FilledDiamond')
-    lc.lineLabelFormat = '%2.0f'
+def _renderPath(path,drawFuncs,countOnly=False,forceClose=False):
+    """Helper function for renderers."""
+    # this could be a method of Path...
+    points = path.points
+    i = 0
+    hadClosePath = 0
+    hadMoveTo = 0
+    active = not countOnly
+    for op in path.operators:
+        if op == _MOVETO:
+            if forceClose:
+                if hadMoveTo and pop!=_CLOSEPATH:
+                    hadClosePath += 1
+                    if active:
+                        drawFuncs[_CLOSEPATH]()
+            hadMoveTo += 1
+        nArgs = _PATH_OP_ARG_COUNT[op]
+        j = i + nArgs
+        drawFuncs[op](*points[i:j])
+        i = j
+        if op == _CLOSEPATH:
+            hadClosePath += 1
+        pop = op
+    if forceClose and hadMoveTo and pop!=_CLOSEPATH:
+        hadClosePath += 1
+        if active:
+            drawFuncs[_CLOSEPATH]()
+    return hadMoveTo == hadClosePath
 
-    catNames = 'Jan Feb Mar Apr May Jun Jul Aug'.split(' ')
-    lc.categoryAxis.categoryNames = catNames
-    lc.categoryAxis.labels.boxAnchor = 'n'
+_fillModeMap = {
+        None: None,
+        FILL_NON_ZERO: FILL_NON_ZERO,
+        'non-zero': FILL_NON_ZERO,
+        'nonzero': FILL_NON_ZERO,
+        FILL_EVEN_ODD: FILL_EVEN_ODD,
+        'even-odd': FILL_EVEN_ODD,
+        'evenodd': FILL_EVEN_ODD,
+        }
 
-    lc.valueAxis.valueMin = 0
-    lc.valueAxis.valueMax = 60
-    lc.valueAxis.valueStep = 15
+class Path(SolidShape):
+    """Path, made up of straight lines and bezier curves."""
 
-    drawing.add(lc)
+    _attrMap = AttrMap(BASE=SolidShape,
+        points = AttrMapValue(isListOfNumbers),
+        operators = AttrMapValue(isListOfNumbers),
+        isClipPath = AttrMapValue(isBoolean),
+        autoclose = AttrMapValue(NoneOr(OneOf('svg','pdf'))),
+        fillMode = AttrMapValue(OneOf(FILL_EVEN_ODD,FILL_NON_ZERO)),
+        )
 
-    return drawing
+    def __init__(self, points=None, operators=None, isClipPath=0, autoclose=None, fillMode=None, **kw):
+        SolidShape.__init__(self, kw)
+        if points is None:
+            points = []
+        if operators is None:
+            operators = []
+        assert len(points) % 2 == 0, 'Point list must have even number of elements!'
+        self.points = points
+        self.operators = operators
+        self.isClipPath = isClipPath
+        self.autoclose=autoclose
 
+    def copy(self):
+        new = self.__class__(self.points[:], self.operators[:])
+        new.setProperties(self.getProperties())
+        return new
 
-def sample2():
-    drawing = Drawing(400, 200)
+    def moveTo(self, x, y):
+        self.points.extend([x, y])
+        self.operators.append(_MOVETO)
 
-    data = [
-            (13, 5, 20, 22, 37, 45, 19, 4),
-            (5, 20, 46, 38, 23, 21, 6, 14)
-            ]
+    def lineTo(self, x, y):
+        self.points.extend([x, y])
+        self.operators.append(_LINETO)
 
-    lc = HorizontalLineChart()
+    def curveTo(self, x1, y1, x2, y2, x3, y3):
+        self.points.extend([x1, y1, x2, y2, x3, y3])
+        self.operators.append(_CURVETO)
 
-    lc.x = 50
-    lc.y = 50
-    lc.height = 125
-    lc.width = 300
-    lc.data = data
-    lc.joinedLines = 1
-    lc.lines.symbol = makeMarker('Smiley')
-    lc.lineLabelFormat = '%2.0f'
-    lc.strokeColor = colors.black
-    lc.fillColor = colors.lightblue
+    def closePath(self):
+        self.operators.append(_CLOSEPATH)
 
-    catNames = 'Jan Feb Mar Apr May Jun Jul Aug'.split(' ')
-    lc.categoryAxis.categoryNames = catNames
-    lc.categoryAxis.labels.boxAnchor = 'n'
+    def getBounds(self):
+        points = self.points
+        try:    #in case this complex algorithm is not yet ready :)
+            X = []
+            aX = X.append
+            eX = X.extend
+            Y=[]
+            aY = Y.append
+            eY = Y.extend
+            i = 0
+            for op in self.operators:
+                nArgs = _PATH_OP_ARG_COUNT[op]
+                j = i + nArgs
+                if nArgs==2:
+                    #either moveTo or lineT0
+                    aX(points[i])
+                    aY(points[i+1])
+                elif nArgs==6:
+                    #curveTo
+                    x1,x2,x3 = points[i:j:2]
+                    eX(_getBezierExtrema(X[-1],x1,x2,x3))
+                    y1,y2,y3 = points[i+1:j:2]
+                    eY(_getBezierExtrema(Y[-1],y1,y2,y3))
+                i = j
+            return min(X),min(Y),max(X),max(Y)
+        except:
+            return getPathBounds(points)
 
-    lc.valueAxis.valueMin = 0
-    lc.valueAxis.valueMax = 60
-    lc.valueAxis.valueStep = 15
+EmptyClipPath=Path()    #special path
 
-    drawing.add(lc)
+def getArcPoints(centerx, centery, radius, startangledegrees, endangledegrees, yradius=None, degreedelta=None, reverse=None):
+    if yradius is None: yradius = radius
+    points = []
+    from math import sin, cos, pi
+    degreestoradians = pi/180.0
+    startangle = startangledegrees*degreestoradians
+    endangle = endangledegrees*degreestoradians
+    while endangle<startangle:
+        endangle = endangle+2*pi
+    angle = float(endangle - startangle)
+    a = points.append
+    if angle>.001:
+        degreedelta = min(angle,degreedelta or 1.)
+        radiansdelta = degreedelta*degreestoradians
+        n = max(int(angle/radiansdelta+0.5),1)
+        radiansdelta = angle/n
+        n += 1
+    else:
+        n = 1
+        radiansdelta = 0
 
-    return drawing
+    for angle in range(n):
+        angle = startangle+angle*radiansdelta
+        a((centerx+radius*cos(angle),centery+yradius*sin(angle)))
 
+    if reverse: points.reverse()
+    return points
 
-def sample3():
-    drawing = Drawing(400, 200)
+class ArcPath(Path):
+    '''Path with an addArc method'''
+    def addArc(self, centerx, centery, radius, startangledegrees, endangledegrees, yradius=None, degreedelta=None, moveTo=None, reverse=None):
+        P = getArcPoints(centerx, centery, radius, startangledegrees, endangledegrees, yradius=yradius, degreedelta=degreedelta, reverse=reverse)
+        if moveTo or not len(self.operators):
+            self.moveTo(P[0][0],P[0][1])
+            del P[0]
+        for x, y in P: self.lineTo(x,y)
 
-    data = [
-            (13, 5, 20, 22, 37, 45, 19, 4),
-            (5, 20, 46, 38, 23, 21, 6, 14)
-            ]
+def definePath(pathSegs=[],isClipPath=0, dx=0, dy=0, **kw):
+    O = []
+    P = []
+    for seg in pathSegs:
+        if not isSeq(seg):
+            opName = seg
+            args = []
+        else:
+            opName = seg[0]
+            args = seg[1:]
+        if opName not in _PATH_OP_NAMES:
+            raise ValueError('bad operator name %s' % opName)
+        op = _PATH_OP_NAMES.index(opName)
+        if len(args)!=_PATH_OP_ARG_COUNT[op]:
+            raise ValueError('%s bad arguments %s' % (opName,str(args)))
+        O.append(op)
+        P.extend(list(args))
+    for d,o in (dx,0), (dy,1):
+        for i in range(o,len(P),2):
+            P[i] = P[i]+d
+    return Path(P,O,isClipPath,**kw)
 
-    lc = HorizontalLineChart()
+class Rect(SolidShape):
+    """Rectangle, possibly with rounded corners."""
 
-    lc.x = 50
-    lc.y = 50
-    lc.height = 125
-    lc.width = 300
-    lc.data = data
-    lc.joinedLines = 1
-    lc.lineLabelFormat = '%2.0f'
-    lc.strokeColor = colors.black
+    _attrMap = AttrMap(BASE=SolidShape,
+        x = AttrMapValue(isNumber),
+        y = AttrMapValue(isNumber),
+        width = AttrMapValue(isNumber,desc="width of the object in points"),
+        height = AttrMapValue(isNumber,desc="height of the objects in points"),
+        rx = AttrMapValue(isNumber),
+        ry = AttrMapValue(isNumber),
+        )
 
-    lc.lines[0].symbol = makeMarker('Smiley')
-    lc.lines[1].symbol = NoEntry
-    lc.lines[0].strokeWidth = 2
-    lc.lines[1].strokeWidth = 4
+    def __init__(self, x, y, width, height, rx=0, ry=0, **kw):
+        SolidShape.__init__(self, kw)
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.rx = rx
+        self.ry = ry
 
-    catNames = 'Jan Feb Mar Apr May Jun Jul Aug'.split(' ')
-    lc.categoryAxis.categoryNames = catNames
-    lc.categoryAxis.labels.boxAnchor = 'n'
+    def copy(self):
+        new = self.__class__(self.x, self.y, self.width, self.height)
+        new.setProperties(self.getProperties())
+        return new
 
-    lc.valueAxis.valueMin = 0
-    lc.valueAxis.valueMax = 60
-    lc.valueAxis.valueStep = 15
+    def getBounds(self):
+        return (self.x, self.y, self.x + self.width, self.y + self.height)
 
-    drawing.add(lc)
+class Image(SolidShape):
+    """Bitmap image."""
 
-    return drawing
+    _attrMap = AttrMap(BASE=SolidShape,
+        x = AttrMapValue(isNumber),
+        y = AttrMapValue(isNumber),
+        width = AttrMapValue(isNumberOrNone,desc="width of the object in points"),
+        height = AttrMapValue(isNumberOrNone,desc="height of the objects in points"),
+        path = AttrMapValue(None),
+        )
+
+    def __init__(self, x, y, width, height, path, **kw):
+        SolidShape.__init__(self, kw)
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.path = path
+
+    def copy(self):
+        new = self.__class__(self.x, self.y, self.width, self.height, self.path)
+        new.setProperties(self.getProperties())
+        return new
+
+    def getBounds(self):
+        # bug fix contributed by Marcel Tromp <mtromp.docbook@gmail.com>
+        return (self.x, self.y, self.x + self.width, self.y + self.height)
+
+class Circle(SolidShape):
+
+    _attrMap = AttrMap(BASE=SolidShape,
+        cx = AttrMapValue(isNumber,desc="x of the centre"),
+        cy = AttrMapValue(isNumber,desc="y of the centre"),
+        r = AttrMapValue(isNumber,desc="radius in points"),
+        )
+
+    def __init__(self, cx, cy, r, **kw):
+        SolidShape.__init__(self, kw)
+        self.cx = cx
+        self.cy = cy
+        self.r = r
+
+    def copy(self):
+        new = self.__class__(self.cx, self.cy, self.r)
+        new.setProperties(self.getProperties())
+        return new
+
+    def getBounds(self):
+        return (self.cx - self.r, self.cy - self.r, self.cx + self.r, self.cy + self.r)
+
+class Ellipse(SolidShape):
+    _attrMap = AttrMap(BASE=SolidShape,
+        cx = AttrMapValue(isNumber,desc="x of the centre"),
+        cy = AttrMapValue(isNumber,desc="y of the centre"),
+        rx = AttrMapValue(isNumber,desc="x radius"),
+        ry = AttrMapValue(isNumber,desc="y radius"),
+        )
+
+    def __init__(self, cx, cy, rx, ry, **kw):
+        SolidShape.__init__(self, kw)
+        self.cx = cx
+        self.cy = cy
+        self.rx = rx
+        self.ry = ry
+
+    def copy(self):
+        new = self.__class__(self.cx, self.cy, self.rx, self.ry)
+        new.setProperties(self.getProperties())
+        return new
+
+    def getBounds(self):
+            return (self.cx - self.rx, self.cy - self.ry, self.cx + self.rx, self.cy + self.ry)
+
+class Wedge(SolidShape):
+    """A "slice of a pie" by default translates to a polygon moves anticlockwise
+       from start angle to end angle"""
+
+    _attrMap = AttrMap(BASE=SolidShape,
+        centerx = AttrMapValue(isNumber,desc="x of the centre"),
+        centery = AttrMapValue(isNumber,desc="y of the centre"),
+        radius = AttrMapValue(isNumber,desc="radius in points"),
+        startangledegrees = AttrMapValue(isNumber),
+        endangledegrees = AttrMapValue(isNumber),
+        yradius = AttrMapValue(isNumberOrNone),
+        radius1 = AttrMapValue(isNumberOrNone),
+        yradius1 = AttrMapValue(isNumberOrNone),
+        annular = AttrMapValue(isBoolean,desc='treat as annular ring'),
+        )
+
+    degreedelta = 1 # jump every 1 degrees
+
+    def __init__(self, centerx, centery, radius, startangledegrees, endangledegrees, yradius=None,
+            annular=False, **kw):
+        SolidShape.__init__(self, kw)
+        while endangledegrees<startangledegrees:
+            endangledegrees = endangledegrees+360
+        #print "__init__"
+        self.centerx, self.centery, self.radius, self.startangledegrees, self.endangledegrees = \
+            centerx, centery, radius, startangledegrees, endangledegrees
+        self.yradius = yradius
+        self.annular = annular
+
+    def _xtraRadii(self):
+        yradius = getattr(self, 'yradius', None)
+        if yradius is None: yradius = self.radius
+        radius1 = getattr(self,'radius1', None)
+        yradius1 = getattr(self,'yradius1',radius1)
+        if radius1 is None: radius1 = yradius1
+        return yradius, radius1, yradius1
+
+    #def __repr__(self):
+    #        return "Wedge"+repr((self.centerx, self.centery, self.radius, self.startangledegrees, self.endangledegrees ))
+    #__str__ = __repr__
+
+    def asPolygon(self):
+        #print "asPolygon"
+        centerx= self.centerx
+        centery = self.centery
+        radius = self.radius
+        yradius, radius1, yradius1 = self._xtraRadii()
+        startangledegrees = self.startangledegrees
+        endangledegrees = self.endangledegrees
+        from math import sin, cos, pi
+        degreestoradians = pi/180.0
+        startangle = startangledegrees*degreestoradians
+        endangle = endangledegrees*degreestoradians
+        while endangle<startangle:
+            endangle = endangle+2*pi
+        angle = float(endangle-startangle)
+        points = []
+        if angle>0.001:
+            degreedelta = min(self.degreedelta or 1.,angle)
+            radiansdelta = degreedelta*degreestoradians
+            n = max(1,int(angle/radiansdelta+0.5))
+            radiansdelta = angle/n
+            n += 1
+        else:
+            n = 1
+            radiansdelta = 0
+        CA = []
+        CAA = CA.append
+        a = points.append
+        for angle in xrange(n):
+            angle = startangle+angle*radiansdelta
+            CAA((cos(angle),sin(angle)))
+        for c,s in CA:
+            a(centerx+radius*c)
+            a(centery+yradius*s)
+        if (radius1==0 or radius1 is None) and (yradius1==0 or yradius1 is None):
+            a(centerx); a(centery)
+        else:
+            CA.reverse()
+            for c,s in CA:
+                a(centerx+radius1*c)
+                a(centery+yradius1*s)
+        if self.annular:
+            P = Path(fillMode=getattr(self,'fillMode',None))
+            P.moveTo(points[0],points[1])
+            for x in xrange(2,2*n,2):
+                P.lineTo(points[x],points[x+1])
+            P.closePath()
+            P.moveTo(points[2*n],points[2*n+1])
+            for x in xrange(2*n+2,4*n,2):
+                P.lineTo(points[x],points[x+1])
+            P.closePath()
+            return P
+        else:
+            return Polygon(points)
+
+    def copy(self):
+        new = self.__class__(self.centerx,
+                    self.centery,
+                    self.radius,
+                    self.startangledegrees,
+                    self.endangledegrees)
+        new.setProperties(self.getProperties())
+        return new
+
+    def getBounds(self):
+        return self.asPolygon().getBounds()
+
+class Polygon(SolidShape):
+    """Defines a closed shape; Is implicitly
+    joined back to the start for you."""
+
+    _attrMap = AttrMap(BASE=SolidShape,
+        points = AttrMapValue(isListOfNumbers,desc="list of numbers in the form x1, y1, x2, y2 ... xn, yn"),
+        )
+
+    def __init__(self, points=[], **kw):
+        SolidShape.__init__(self, kw)
+        assert len(points) % 2 == 0, 'Point list must have even number of elements!'
+        self.points = points or []
+
+    def copy(self):
+        new = self.__class__(self.points)
+        new.setProperties(self.getProperties())
+        return new
+
+    def getBounds(self):
+        return getPointsBounds(self.points)
+
+class PolyLine(LineShape):
+    """Series of line segments.  Does not define a
+    closed shape; never filled even if apparently joined.
+    Put the numbers in the list, not two-tuples."""
+
+    _attrMap = AttrMap(BASE=LineShape,
+        points = AttrMapValue(isListOfNumbers,desc="list of numbers in the form x1, y1, x2, y2 ... xn, yn"),
+        )
+
+    def __init__(self, points=[], **kw):
+        LineShape.__init__(self, kw)
+        points = points or []
+        lenPoints = len(points)
+        if lenPoints:
+            if isSeq(points[0]):
+                L = []
+                for (x,y) in points:
+                    L.append(x)
+                    L.append(y)
+                points = L
+            else:
+                assert len(points) % 2 == 0, 'Point list must have even number of elements!'
+        self.points = points
+
+    def copy(self):
+        new = self.__class__(self.points)
+        new.setProperties(self.getProperties())
+        return new
+
+    def getBounds(self):
+        return getPointsBounds(self.points)
+
+def numericXShift(tA,text,w,fontName,fontSize,encoding=None,pivotCharacter=decimalSymbol):
+    dp = getattr(tA,'_dp',pivotCharacter)
+    i = text.rfind(dp)
+    if i>=0:
+        dpOffs = getattr(tA,'_dpLen',0)
+        w = dpOffs + stringWidth(text[:i],fontName,fontSize,encoding)
+    return w
+
+class String(Shape):
+    """Not checked against the spec, just a way to make something work.
+    Can be anchored left, middle or end."""
+
+    # to do.
+    _attrMap = AttrMap(
+        x = AttrMapValue(isNumber,desc="x point of anchoring"),
+        y = AttrMapValue(isNumber,desc="y point of anchoring"),
+        text = AttrMapValue(isString,desc="the text of the string"),
+        fontName = AttrMapValue(None,desc="font name of the text - font is either acrobat standard or registered when using external font."),
+        fontSize = AttrMapValue(isNumber,desc="font size"),
+        fillColor = AttrMapValue(isColorOrNone,desc="color of the font"),
+        textAnchor = AttrMapValue(OneOf('start','middle','end','numeric'),desc="treat (x,y) as one of the options below."),
+        encoding = AttrMapValue(isString),
+        )
+    encoding = 'utf8'
+
+    def __init__(self, x, y, text, **kw):
+        self.x = x
+        self.y = y
+        self.text = text
+        self.textAnchor = 'start'
+        self.fontName = STATE_DEFAULTS['fontName']
+        self.fontSize = STATE_DEFAULTS['fontSize']
+        self.fillColor = STATE_DEFAULTS['fillColor']
+        self.setProperties(kw)
+
+    def getEast(self):
+        return self.x + stringWidth(self.text,self.fontName,self.fontSize, self.encoding)
+
+    def copy(self):
+        new = self.__class__(self.x, self.y, self.text)
+        new.setProperties(self.getProperties())
+        return new
+
+    def getBounds(self):
+        # assumes constant drop of 0.2*size to baseline
+        t = self.text
+        w = stringWidth(t,self.fontName,self.fontSize,self.encoding)
+        tA = self.textAnchor
+        x = self.x
+        if tA!='start':
+            if tA=='middle':
+                x -= 0.5*w
+            elif tA=='end':
+                x -= w
+            elif tA=='numeric':
+                x -= numericXShift(tA,t,w,self.fontName,self.fontSize,self.encoding)
+        return (x, self.y - 0.2 * self.fontSize, x+w, self.y + self.fontSize)
+
+class UserNode(_DrawTimeResizeable):
+    """A simple template for creating a new node.  The user (Python
+    programmer) may subclasses this.  provideNode() must be defined to
+    provide a Shape primitive when called by a renderer.  It does
+    NOT inherit from Shape, as the renderer always replaces it, and
+    your own classes can safely inherit from it without getting
+    lots of unintended behaviour."""
+
+    def provideNode(self):
+        """Override this to create your own node. This lets widgets be
+        added to drawings; they must create a shape (typically a group)
+        so that the renderer can draw the custom node."""
+
+        raise NotImplementedError("this method must be redefined by the user/programmer")
+
+def test():
+    r = Rect(10,10,200,50)
+    import pprint
+    pp = pprint.pprint
+    w = sys.stdout.write
+    w('a Rectangle: ')
+    pp(r.getProperties())
+    w('\nverifying...')
+    r.verify()
+    w(' OK\n')
+    #print 'setting rect.z = "spam"'
+    #r.z = 'spam'
+    w('deleting rect.width ')
+    del r.width
+    w('verifying...')
+    r.verify()
+
+if __name__=='__main__':
+    test()

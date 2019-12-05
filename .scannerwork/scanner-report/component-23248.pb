@@ -1,1 +1,1 @@
-еEvenv/lib/python3.6/site-packages/rest_framework/schemas/generators.py 2pyX�h
+еCvenv/lib/python3.6/site-packages/rest_framework/schemas/__init__.py 2pyX:h

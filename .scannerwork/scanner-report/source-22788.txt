@@ -1,165 +1,113 @@
+# -*- coding: utf-8 -*-
 """
-Test faceted search backend.
+Test helpers.
 """
 
-from __future__ import absolute_import
+from __future__ import absolute_import, unicode_literals
 
 import unittest
 
 from django.core.management import call_command
 
-from nine.versions import DJANGO_GTE_1_10
-
 import pytest
 
-from rest_framework import status
-
-from books import constants
 import factories
 
-from .base import BaseRestFrameworkTestCase
+from ..helpers import more_like_this
 
-if DJANGO_GTE_1_10:
-    from django.urls import reverse
-else:
-    from django.core.urlresolvers import reverse
+from .base import BaseTestCase
 
-__title__ = 'django_elasticsearch_dsl_drf.tests.test_faceted_search'
+__title__ = 'django_elasticsearch_dsl_drf.tests.test_helpers'
 __author__ = 'Artur Barseghyan <artur.barseghyan@gmail.com>'
 __copyright__ = '2017-2019 Artur Barseghyan'
 __license__ = 'GPL 2.0/LGPL 2.1'
 __all__ = (
-    'TestFacetedSearch',
+    'TestHelpers',
 )
 
 
 @pytest.mark.django_db
-class TestFacetedSearch(BaseRestFrameworkTestCase):
-    """Test faceted search."""
+class TestHelpers(BaseTestCase):
+    """Test helpers."""
 
     pytestmark = pytest.mark.django_db
 
     @classmethod
-    def setUp(cls):
-        cls.published_count = 11
-        cls.published = factories.BookFactory.create_batch(
-            cls.published_count,
-            **{
-                'state': constants.BOOK_PUBLISHING_STATUS_PUBLISHED,
-            }
+    def setUpClass(cls):
+        cls.books_count = 30
+        cls.books = []
+        cls.books.append(
+            factories.BookWithoutTagsFactory(
+                title="Magic Of Thinking Big",
+                description="Millions of people throughout the world have "
+                            "improved their lives using The Magic of "
+                            "Thinking Big. Dr. David J. Schwartz, long "
+                            "regarded as one of the foremost experts on "
+                            "motivation, will help you sell better, manage "
+                            "better, earn more money, and-most important "
+                            "of all-find greater happiness and peace of mind."
+            )
+        )
+        cls.books.append(
+            factories.BookWithoutTagsFactory(
+                title="The Power of Positive Thinking",
+                description="The book describes the power positive thinking "
+                            "has and how a firm belief in something, does "
+                            "actually help in achieving it."
+            )
+        )
+        cls.books.append(
+            factories.BookWithoutTagsFactory(
+                title="Think and Grow Rich",
+                description="Think And Grow Rich has earned itself the "
+                            "reputation of being considered a textbook for "
+                            "actionable techniques that can help one get "
+                            "better at doing anything, not just by rich and "
+                            "wealthy, but also by people doing wonderful work "
+                            "in their respective fields."
+            )
+        )
+        cls.books.append(
+            factories.BookWithoutTagsFactory(
+                title="The Magic of thinking Big",
+                description="First published in 1959, David J Schwartz's "
+                            "classic teachings are as powerful today as they "
+                            "were then. Practical, empowering and hugely "
+                            "engaging, this book will not only inspire you, "
+                            "it will give you the tools to change your life "
+                            "for the better - starting from now."
+            )
+        )
+        cls.books.append(
+            factories.BookWithoutTagsFactory(
+                title="How to Stop Worrying and Start Living",
+                description="The book is written to help readers by changing "
+                            "their habit of worrying. The author Dale "
+                            "Carnegie has shared his personal experiences, "
+                            "wherein he was mostly unsatisfied and worried "
+                            "about lot of life situations."
+            )
+        )
+        cls.books.append(
+            factories.BookWithoutTagsFactory(
+                title="Practicing The Power Of Now",
+                description="To make the journey into The Power of Now we "
+                            "will need to leave our analytical mind and its "
+                            "false created self, the ego, behind."
+            )
         )
 
-        cls.not_published_count = 10
-        cls.not_published = factories.BookFactory.create_batch(
-            cls.not_published_count,
-            **{
-                'state': constants.BOOK_PUBLISHING_STATUS_NOT_PUBLISHED,
-            }
-        )
-
-        cls.all_count = cls.published_count + cls.not_published_count
         call_command('search_index', '--rebuild', '-f')
 
-    def _list_results_with_facets(self):
-        """List results with facets."""
-        self.authenticate()
+    def _more_like_this(self, obj, fields):
+        """Filter by field."""
+        res = more_like_this(obj, fields, 2, 2, 2, 10)
+        self.assertGreater(res.count(), 0)
 
-        url = reverse('bookdocument-list', kwargs={})
-        facet_state_url = url + '?facet=state'
-        data = {}
-
-        # Make request
-        no_args_response = self.client.get(url, data)
-        self.assertEqual(no_args_response.status_code, status.HTTP_200_OK)
-
-        # Should contain `self.all_count` results
-        self.assertEqual(len(no_args_response.data['results']), self.all_count)
-
-        # Should contain 1 facets
-        self.assertEqual(len(no_args_response.data['facets']), 1)
-
-        # Make request
-        facet_state_response = self.client.get(facet_state_url, data)
-        self.assertEqual(facet_state_response.status_code, status.HTTP_200_OK)
-
-        # Should contain `self.all_count` results
-        self.assertEqual(
-            len(facet_state_response.data['results']), self.all_count
-        )
-
-        # Should contain 2 facets
-        self.assertEqual(len(facet_state_response.data['facets']), 2)
-        # With 2 state values
-        self.assertEqual(
-            len(facet_state_response.data['facets']
-                ['_filter_state']['state']['buckets']),
-            2
-        )
-
-        self.assertIn('_filter_publisher', facet_state_response.data['facets'])
-        self.assertIn(
-            'publisher',
-            facet_state_response.data['facets']['_filter_publisher']
-        )
-
-        self.assertIn('_filter_state', facet_state_response.data['facets'])
-        self.assertIn(
-            'state',
-            facet_state_response.data['facets']['_filter_state']
-        )
-        self.assertIn(
-            'buckets',
-            facet_state_response.data['facets']['_filter_state']['state']
-        )
-        # self.assertIn(
-        #     'buckets',
-        #     facet_state_response.data['facets']['_filter_state']['state']
-        # )
-        self.assertIn(
-            {
-                "doc_count": self.published_count,
-                "key": "published"
-            },
-            facet_state_response.data['facets']
-                                     ['_filter_state']
-                                     ['state']
-                                     ['buckets']
-        )
-        self.assertIn(
-            {
-                "doc_count": self.not_published_count,
-                "key": "not_published"
-            },
-            facet_state_response.data['facets']
-            ['_filter_state']
-            ['state']
-            ['buckets']
-        )
-
-        filtered_facet_state_url = url + '?facet=state&state={}'.format(
-            constants.BOOK_PUBLISHING_STATUS_PUBLISHED
-        )
-        # Make request
-        facet_state_response = self.client.get(filtered_facet_state_url, data)
-        self.assertEqual(facet_state_response.status_code, status.HTTP_200_OK)
-
-        # Should contain `self.all_count` results
-        self.assertEqual(
-            len(facet_state_response.data['results']), self.published_count
-        )
-
-        # Should contain 2 facets
-        self.assertEqual(len(facet_state_response.data['facets']), 2)
-        # With 1 state values
-        self.assertEqual(
-            len(facet_state_response.data['facets']
-                ['_filter_state']['state']['buckets']),
-            1
-        )
-
-    def test_list_results_with_facets(self):
-        """Test list results with facets."""
-        return self._list_results_with_facets()
+    def test_filter_by_field(self):
+        """Filter by field."""
+        obj = self.books[0]
+        return self._more_like_this(obj, ['title', 'description'])
 
 
 if __name__ == '__main__':

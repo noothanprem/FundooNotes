@@ -1,4 +1,4 @@
-# Copyright 2012-2014 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2012-2015 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -10,1065 +10,452 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
+"""Module for loading various model files.
 
-"""Builtin event handlers.
+This module provides the classes that are used to load models used
+by botocore.  This can include:
 
-This module contains builtin handlers for events emitted by botocore.
+    * Service models (e.g. the model for EC2, S3, DynamoDB, etc.)
+    * Service model extras which customize the service models
+    * Other models associated with a service (pagination, waiters)
+    * Non service-specific config (Endpoint data, retry config)
+
+Loading a module is broken down into several steps:
+
+    * Determining the path to load
+    * Search the data_path for files to load
+    * The mechanics of loading the file
+    * Searching for extras and applying them to the loaded file
+
+The last item is used so that other faster loading mechanism
+besides the default JSON loader can be used.
+
+The Search Path
+===============
+
+Similar to how the PATH environment variable is to finding executables
+and the PYTHONPATH environment variable is to finding python modules
+to import, the botocore loaders have the concept of a data path exposed
+through AWS_DATA_PATH.
+
+This enables end users to provide additional search paths where we
+will attempt to load models outside of the models we ship with
+botocore.  When you create a ``Loader``, there are two paths
+automatically added to the model search path:
+
+    * <botocore root>/data/
+    * ~/.aws/models
+
+The first value is the path where all the model files shipped with
+botocore are located.
+
+The second path is so that users can just drop new model files in
+``~/.aws/models`` without having to mess around with the AWS_DATA_PATH.
+
+The AWS_DATA_PATH using the platform specific path separator to
+separate entries (typically ``:`` on linux and ``;`` on windows).
+
+
+Directory Layout
+================
+
+The Loader expects a particular directory layout.  In order for any
+directory specified in AWS_DATA_PATH to be considered, it must have
+this structure for service models::
+
+    <root>
+      |
+      |-- servicename1
+      |   |-- 2012-10-25
+      |       |-- service-2.json
+      |-- ec2
+      |   |-- 2014-01-01
+      |   |   |-- paginators-1.json
+      |   |   |-- service-2.json
+      |   |   |-- waiters-2.json
+      |   |-- 2015-03-01
+      |       |-- paginators-1.json
+      |       |-- service-2.json
+      |       |-- waiters-2.json
+      |       |-- service-2.sdk-extras.json
+
+
+That is:
+
+    * The root directory contains sub directories that are the name
+      of the services.
+    * Within each service directory, there's a sub directory for each
+      available API version.
+    * Within each API version, there are model specific files, including
+      (but not limited to): service-2.json, waiters-2.json, paginators-1.json
+
+The ``-1`` and ``-2`` suffix at the end of the model files denote which version
+schema is used within the model.  Even though this information is available in
+the ``version`` key within the model, this version is also part of the filename
+so that code does not need to load the JSON model in order to determine which
+version to use.
+
+The ``sdk-extras`` and similar files represent extra data that needs to be
+applied to the model after it is loaded. Data in these files might represent
+information that doesn't quite fit in the original models, but is still needed
+for the sdk. For instance, additional operation parameters might be added here
+which don't represent the actual service api.
 """
-
-import base64
+import os
 import logging
-import xml.etree.cElementTree
-import copy
-import re
-import warnings
-import uuid
 
-from botocore.compat import unquote, json, six, unquote_str, \
-    ensure_bytes, get_md5, MD5_AVAILABLE, OrderedDict, urlsplit, urlunsplit
-from botocore.docs.utils import AutoPopulatedParam
-from botocore.docs.utils import HideParamFromOperations
-from botocore.docs.utils import AppendParamDocumentation
-from botocore.signers import add_generate_presigned_url
-from botocore.signers import add_generate_presigned_post
-from botocore.signers import add_generate_db_auth_token
-from botocore.exceptions import ParamValidationError
-from botocore.exceptions import AliasConflictParameterError
-from botocore.exceptions import UnsupportedTLSVersionWarning
-from botocore.exceptions import MissingServiceIdError
-from botocore.utils import percent_encode, SAFE_CHARS
-from botocore.utils import switch_host_with_param
-from botocore.utils import hyphenize_service_id
-
-from botocore import retryhandler
-from botocore import utils
-from botocore import translate
-import botocore
-import botocore.auth
+from botocore import BOTOCORE_ROOT
+from botocore.compat import json
+from botocore.compat import OrderedDict
+from botocore.exceptions import DataNotFoundError, UnknownServiceError
+from botocore.utils import deep_merge
 
 
 logger = logging.getLogger(__name__)
 
-REGISTER_FIRST = object()
-REGISTER_LAST = object()
-# From the S3 docs:
-# The rules for bucket names in the US Standard region allow bucket names
-# to be as long as 255 characters, and bucket names can contain any
-# combination of uppercase letters, lowercase letters, numbers, periods
-# (.), hyphens (-), and underscores (_).
-VALID_BUCKET = re.compile(r'^[a-zA-Z0-9.\-_]{1,255}$')
-VERSION_ID_SUFFIX = re.compile(r'\?versionId=[^\s]+$')
 
-SERVICE_NAME_ALIASES = {
-    'runtime.sagemaker': 'sagemaker-runtime'
-}
+def instance_cache(func):
+    """Cache the result of a method on a per instance basis.
 
-
-def handle_service_name_alias(service_name, **kwargs):
-    return SERVICE_NAME_ALIASES.get(service_name, service_name)
-
-
-def check_for_200_error(response, **kwargs):
-    # From: http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html
-    # There are two opportunities for a copy request to return an error. One
-    # can occur when Amazon S3 receives the copy request and the other can
-    # occur while Amazon S3 is copying the files. If the error occurs before
-    # the copy operation starts, you receive a standard Amazon S3 error. If the
-    # error occurs during the copy operation, the error response is embedded in
-    # the 200 OK response. This means that a 200 OK response can contain either
-    # a success or an error. Make sure to design your application to parse the
-    # contents of the response and handle it appropriately.
-    #
-    # So this handler checks for this case.  Even though the server sends a
-    # 200 response, conceptually this should be handled exactly like a
-    # 500 response (with respect to raising exceptions, retries, etc.)
-    # We're connected *before* all the other retry logic handlers, so as long
-    # as we switch the error code to 500, we'll retry the error as expected.
-    if response is None:
-        # A None response can happen if an exception is raised while
-        # trying to retrieve the response.  See Endpoint._get_response().
-        return
-    http_response, parsed = response
-    if _looks_like_special_case_error(http_response):
-        logger.debug("Error found for response with 200 status code, "
-                     "errors: %s, changing status code to "
-                     "500.", parsed)
-        http_response.status_code = 500
-
-
-def _looks_like_special_case_error(http_response):
-    if http_response.status_code == 200:
-        parser = xml.etree.cElementTree.XMLParser(
-            target=xml.etree.cElementTree.TreeBuilder(),
-            encoding='utf-8')
-        parser.feed(http_response.content)
-        root = parser.close()
-        if root.tag == 'Error':
-            return True
-    return False
-
-
-def set_operation_specific_signer(context, signing_name, **kwargs):
-    """ Choose the operation-specific signer.
-
-    Individual operations may have a different auth type than the service as a
-    whole. This will most often manifest as operations that should not be
-    authenticated at all, but can include other auth modes such as sigv4
-    without body signing.
-    """
-    auth_type = context.get('auth_type')
-
-    # Auth type will be None if the operation doesn't have a configured auth
-    # type.
-    if not auth_type:
-        return
-
-    # Auth type will be the string value 'none' if the operation should not
-    # be signed at all.
-    if auth_type == 'none':
-        return botocore.UNSIGNED
-
-    if auth_type.startswith('v4'):
-        signature_version = 'v4'
-        if signing_name == 's3':
-            signature_version = 's3v4'
-
-        # If the operation needs an unsigned body, we set additional context
-        # allowing the signer to be aware of this.
-        if auth_type == 'v4-unsigned-body':
-            context['payload_signing_enabled'] = False
-
-        return signature_version
-
-
-def decode_console_output(parsed, **kwargs):
-    if 'Output' in parsed:
-        try:
-            # We're using 'replace' for errors because it is
-            # possible that console output contains non string
-            # chars we can't utf-8 decode.
-            value = base64.b64decode(six.b(parsed['Output'])).decode(
-                'utf-8', 'replace')
-            parsed['Output'] = value
-        except (ValueError, TypeError, AttributeError):
-            logger.debug('Error decoding base64', exc_info=True)
-
-
-def generate_idempotent_uuid(params, model, **kwargs):
-    for name in model.idempotent_members:
-        if name not in params:
-            params[name] = str(uuid.uuid4())
-            logger.debug("injecting idempotency token (%s) into param '%s'." %
-                         (params[name], name))
-
-
-def decode_quoted_jsondoc(value):
-    try:
-        value = json.loads(unquote(value))
-    except (ValueError, TypeError):
-        logger.debug('Error loading quoted JSON', exc_info=True)
-    return value
-
-
-def json_decode_template_body(parsed, **kwargs):
-    if 'TemplateBody' in parsed:
-        try:
-            value = json.loads(
-                parsed['TemplateBody'], object_pairs_hook=OrderedDict)
-            parsed['TemplateBody'] = value
-        except (ValueError, TypeError):
-            logger.debug('error loading JSON', exc_info=True)
-
-
-def calculate_md5(params, **kwargs):
-    request_dict = params
-    if request_dict['body'] and 'Content-MD5' not in params['headers']:
-        body = request_dict['body']
-        if isinstance(body, (bytes, bytearray)):
-            binary_md5 = _calculate_md5_from_bytes(body)
-        else:
-            binary_md5 = _calculate_md5_from_file(body)
-        base64_md5 = base64.b64encode(binary_md5).decode('ascii')
-        params['headers']['Content-MD5'] = base64_md5
-
-
-def _calculate_md5_from_bytes(body_bytes):
-    md5 = get_md5(body_bytes)
-    return md5.digest()
-
-
-def _calculate_md5_from_file(fileobj):
-    start_position = fileobj.tell()
-    md5 = get_md5()
-    for chunk in iter(lambda: fileobj.read(1024 * 1024), b''):
-        md5.update(chunk)
-    fileobj.seek(start_position)
-    return md5.digest()
-
-
-def conditionally_calculate_md5(params, context, request_signer, **kwargs):
-    """Only add a Content-MD5 if the system supports it."""
-    if MD5_AVAILABLE:
-        calculate_md5(params, **kwargs)
-
-
-def validate_bucket_name(params, **kwargs):
-    if 'Bucket' not in params:
-        return
-    bucket = params['Bucket']
-    if VALID_BUCKET.search(bucket) is None:
-        error_msg = (
-            'Invalid bucket name "%s": Bucket name must match '
-            'the regex "%s"' % (bucket, VALID_BUCKET.pattern))
-        raise ParamValidationError(report=error_msg)
-
-
-def sse_md5(params, **kwargs):
-    """
-    S3 server-side encryption requires the encryption key to be sent to the
-    server base64 encoded, as well as a base64-encoded MD5 hash of the
-    encryption key. This handler does both if the MD5 has not been set by
-    the caller.
-    """
-    _sse_md5(params, 'SSECustomer')
-
-
-def copy_source_sse_md5(params, **kwargs):
-    """
-    S3 server-side encryption requires the encryption key to be sent to the
-    server base64 encoded, as well as a base64-encoded MD5 hash of the
-    encryption key. This handler does both if the MD5 has not been set by
-    the caller specifically if the parameter is for the copy-source sse-c key.
-    """
-    _sse_md5(params, 'CopySourceSSECustomer')
-
-
-def _sse_md5(params, sse_member_prefix='SSECustomer'):
-    if not _needs_s3_sse_customization(params, sse_member_prefix):
-        return
-
-    sse_key_member = sse_member_prefix + 'Key'
-    sse_md5_member = sse_member_prefix + 'KeyMD5'
-    key_as_bytes = params[sse_key_member]
-    if isinstance(key_as_bytes, six.text_type):
-        key_as_bytes = key_as_bytes.encode('utf-8')
-    key_md5_str = base64.b64encode(
-        get_md5(key_as_bytes).digest()).decode('utf-8')
-    key_b64_encoded = base64.b64encode(key_as_bytes).decode('utf-8')
-    params[sse_key_member] = key_b64_encoded
-    params[sse_md5_member] = key_md5_str
-
-
-def _needs_s3_sse_customization(params, sse_member_prefix):
-    return (params.get(sse_member_prefix + 'Key') is not None and
-            sse_member_prefix + 'KeyMD5' not in params)
-
-
-def disable_signing(**kwargs):
-    """
-    This handler disables request signing by setting the signer
-    name to a special sentinel value.
-    """
-    return botocore.UNSIGNED
-
-
-def add_expect_header(model, params, **kwargs):
-    if model.http.get('method', '') not in ['PUT', 'POST']:
-        return
-    if 'body' in params:
-        body = params['body']
-        if hasattr(body, 'read'):
-            # Any file like object will use an expect 100-continue
-            # header regardless of size.
-            logger.debug("Adding expect 100 continue header to request.")
-            params['headers']['Expect'] = '100-continue'
-
-
-class DeprecatedServiceDocumenter(object):
-    def __init__(self, replacement_service_name):
-        self._replacement_service_name = replacement_service_name
-
-    def inject_deprecation_notice(self, section, event_name, **kwargs):
-        section.style.start_important()
-        section.write('This service client is deprecated. Please use ')
-        section.style.ref(
-            self._replacement_service_name,
-            self._replacement_service_name,
-        )
-        section.write(' instead.')
-        section.style.end_important()
-
-
-def document_copy_source_form(section, event_name, **kwargs):
-    if 'request-example' in event_name:
-        parent = section.get_section('structure-value')
-        param_line = parent.get_section('CopySource')
-        value_portion = param_line.get_section('member-value')
-        value_portion.clear_text()
-        value_portion.write("'string' or {'Bucket': 'string', "
-                            "'Key': 'string', 'VersionId': 'string'}")
-    elif 'request-params' in event_name:
-        param_section = section.get_section('CopySource')
-        type_section = param_section.get_section('param-type')
-        type_section.clear_text()
-        type_section.write(':type CopySource: str or dict')
-        doc_section = param_section.get_section('param-documentation')
-        doc_section.clear_text()
-        doc_section.write(
-            "The name of the source bucket, key name of the source object, "
-            "and optional version ID of the source object.  You can either "
-            "provide this value as a string or a dictionary.  The "
-            "string form is {bucket}/{key} or "
-            "{bucket}/{key}?versionId={versionId} if you want to copy a "
-            "specific version.  You can also provide this value as a "
-            "dictionary.  The dictionary format is recommended over "
-            "the string format because it is more explicit.  The dictionary "
-            "format is: {'Bucket': 'bucket', 'Key': 'key', 'VersionId': 'id'}."
-            "  Note that the VersionId key is optional and may be omitted."
-        )
-
-
-def handle_copy_source_param(params, **kwargs):
-    """Convert CopySource param for CopyObject/UploadPartCopy.
-
-    This handler will deal with two cases:
-
-        * CopySource provided as a string.  We'll make a best effort
-          to URL encode the key name as required.  This will require
-          parsing the bucket and version id from the CopySource value
-          and only encoding the key.
-        * CopySource provided as a dict.  In this case we're
-          explicitly given the Bucket, Key, and VersionId so we're
-          able to encode the key and ensure this value is serialized
-          and correctly sent to S3.
+    This is not a general purpose caching decorator.  In order
+    for this to be used, it must be used on methods on an
+    instance, and that instance *must* provide a
+    ``self._cache`` dictionary.
 
     """
-    source = params.get('CopySource')
-    if source is None:
-        # The call will eventually fail but we'll let the
-        # param validator take care of this.  It will
-        # give a better error message.
-        return
-    if isinstance(source, six.string_types):
-        params['CopySource'] = _quote_source_header(source)
-    elif isinstance(source, dict):
-        params['CopySource'] = _quote_source_header_from_dict(source)
+    def _wrapper(self, *args, **kwargs):
+        key = (func.__name__,) + args
+        for pair in sorted(kwargs.items()):
+            key += pair
+        if key in self._cache:
+            return self._cache[key]
+        data = func(self, *args, **kwargs)
+        self._cache[key] = data
+        return data
+    return _wrapper
 
 
-def _quote_source_header_from_dict(source_dict):
-    try:
-        bucket = source_dict['Bucket']
-        key = percent_encode(source_dict['Key'], safe=SAFE_CHARS + '/')
-        version_id = source_dict.get('VersionId')
-    except KeyError as e:
-        raise ParamValidationError(
-            report='Missing required parameter: %s' % str(e))
-    final = '%s/%s' % (bucket, key)
-    if version_id is not None:
-        final += '?versionId=%s' % version_id
-    return final
+class JSONFileLoader(object):
+    """Loader JSON files.
 
-
-def _quote_source_header(value):
-    result = VERSION_ID_SUFFIX.search(value)
-    if result is None:
-        return percent_encode(value, safe=SAFE_CHARS + '/')
-    else:
-        first, version_id = value[:result.start()], value[result.start():]
-        return percent_encode(first, safe=SAFE_CHARS + '/') + version_id
-
-
-def _get_cross_region_presigned_url(request_signer, request_dict, model,
-                                    source_region, destination_region):
-    # The better way to do this is to actually get the
-    # endpoint_resolver and get the endpoint_url given the
-    # source region.  In this specific case, we know that
-    # we can safely replace the dest region with the source
-    # region because of the supported EC2 regions, but in
-    # general this is not a safe assumption to make.
-    # I think eventually we should try to plumb through something
-    # that allows us to resolve endpoints from regions.
-    request_dict_copy = copy.deepcopy(request_dict)
-    request_dict_copy['body']['DestinationRegion'] = destination_region
-    request_dict_copy['url'] = request_dict['url'].replace(
-        destination_region, source_region)
-    request_dict_copy['method'] = 'GET'
-    request_dict_copy['headers'] = {}
-    return request_signer.generate_presigned_url(
-        request_dict_copy, region_name=source_region,
-        operation_name=model.name)
-
-
-def _get_presigned_url_source_and_destination_regions(request_signer, params):
-    # Gets the source and destination regions to be used
-    destination_region = request_signer._region_name
-    source_region = params.get('SourceRegion')
-    return source_region, destination_region
-
-
-def inject_presigned_url_ec2(params, request_signer, model, **kwargs):
-    # The customer can still provide this, so we should pass if they do.
-    if 'PresignedUrl' in params['body']:
-        return
-    src, dest = _get_presigned_url_source_and_destination_regions(
-        request_signer, params['body'])
-    url = _get_cross_region_presigned_url(
-        request_signer, params, model, src, dest)
-    params['body']['PresignedUrl'] = url
-    # EC2 Requires that the destination region be sent over the wire in
-    # addition to the source region.
-    params['body']['DestinationRegion'] = dest
-
-
-def inject_presigned_url_rds(params, request_signer, model, **kwargs):
-    # SourceRegion is not required for RDS operations, so it's possible that
-    # it isn't set. In that case it's probably a local copy so we don't need
-    # to do anything else.
-    if 'SourceRegion' not in params['body']:
-        return
-
-    src, dest = _get_presigned_url_source_and_destination_regions(
-        request_signer, params['body'])
-
-    # Since SourceRegion isn't actually modeled for RDS, it needs to be
-    # removed from the request params before we send the actual request.
-    del params['body']['SourceRegion']
-
-    if 'PreSignedUrl' in params['body']:
-        return
-
-    url = _get_cross_region_presigned_url(
-        request_signer, params, model, src, dest)
-    params['body']['PreSignedUrl'] = url
-
-
-def json_decode_policies(parsed, model, **kwargs):
-    # Any time an IAM operation returns a policy document
-    # it is a string that is json that has been urlencoded,
-    # i.e urlencode(json.dumps(policy_document)).
-    # To give users something more useful, we will urldecode
-    # this value and json.loads() the result so that they have
-    # the policy document as a dictionary.
-    output_shape = model.output_shape
-    if output_shape is not None:
-        _decode_policy_types(parsed, model.output_shape)
-
-
-def _decode_policy_types(parsed, shape):
-    # IAM consistently uses the policyDocumentType shape to indicate
-    # strings that have policy documents.
-    shape_name = 'policyDocumentType'
-    if shape.type_name == 'structure':
-        for member_name, member_shape in shape.members.items():
-            if member_shape.type_name == 'string' and \
-                    member_shape.name == shape_name and \
-                    member_name in parsed:
-                parsed[member_name] = decode_quoted_jsondoc(
-                    parsed[member_name])
-            elif member_name in parsed:
-                _decode_policy_types(parsed[member_name], member_shape)
-    if shape.type_name == 'list':
-        shape_member = shape.member
-        for item in parsed:
-            _decode_policy_types(item, shape_member)
-
-
-def parse_get_bucket_location(parsed, http_response, **kwargs):
-    # s3.GetBucketLocation cannot be modeled properly.  To
-    # account for this we just manually parse the XML document.
-    # The "parsed" passed in only has the ResponseMetadata
-    # filled out.  This handler will fill in the LocationConstraint
-    # value.
-    if 'LocationConstraint' in parsed:
-        # Response already set - a stub?
-        return
-    response_body = http_response.content
-    parser = xml.etree.cElementTree.XMLParser(
-        target=xml.etree.cElementTree.TreeBuilder(),
-        encoding='utf-8')
-    parser.feed(response_body)
-    root = parser.close()
-    region = root.text
-    parsed['LocationConstraint'] = region
-
-
-def base64_encode_user_data(params, **kwargs):
-    if 'UserData' in params:
-        if isinstance(params['UserData'], six.text_type):
-            # Encode it to bytes if it is text.
-            params['UserData'] = params['UserData'].encode('utf-8')
-        params['UserData'] = base64.b64encode(
-            params['UserData']).decode('utf-8')
-
-
-def document_base64_encoding(param):
-    description = ('**This value will be base64 encoded automatically. Do '
-                   'not base64 encode this value prior to performing the '
-                   'operation.**')
-    append = AppendParamDocumentation(param, description)
-    return append.append_documentation
-
-
-def validate_ascii_metadata(params, **kwargs):
-    """Verify S3 Metadata only contains ascii characters.
-
-    From: http://docs.aws.amazon.com/AmazonS3/latest/dev/UsingMetadata.html
-
-    "Amazon S3 stores user-defined metadata in lowercase. Each name, value pair
-    must conform to US-ASCII when using REST and UTF-8 when using SOAP or
-    browser-based uploads via POST."
+    This class can load the default format of models, which is a JSON file.
 
     """
-    metadata = params.get('Metadata')
-    if not metadata or not isinstance(metadata, dict):
-        # We have to at least type check the metadata as a dict type
-        # because this handler is called before param validation.
-        # We'll go ahead and return because the param validator will
-        # give a descriptive error message for us.
-        # We might need a post-param validation event.
-        return
-    for key, value in metadata.items():
-        try:
-            key.encode('ascii')
-            value.encode('ascii')
-        except UnicodeEncodeError as e:
-            error_msg = (
-                'Non ascii characters found in S3 metadata '
-                'for key "%s", value: "%s".  \nS3 metadata can only '
-                'contain ASCII characters. ' % (key, value)
-            )
-            raise ParamValidationError(
-                report=error_msg)
+    def exists(self, file_path):
+        """Checks if the file exists.
 
+        :type file_path: str
+        :param file_path: The full path to the file to load without
+            the '.json' extension.
 
-def fix_route53_ids(params, model, **kwargs):
-    """
-    Check for and split apart Route53 resource IDs, setting
-    only the last piece. This allows the output of one operation
-    (e.g. ``'foo/1234'``) to be used as input in another
-    operation (e.g. it expects just ``'1234'``).
-    """
-    input_shape = model.input_shape
-    if not input_shape or not hasattr(input_shape, 'members'):
-        return
+        :return: True if file path exists, False otherwise.
 
-    members = [name for (name, shape) in input_shape.members.items()
-               if shape.name in ['ResourceId', 'DelegationSetId']]
-
-    for name in members:
-        if name in params:
-            orig_value = params[name]
-            params[name] = orig_value.split('/')[-1]
-            logger.debug('%s %s -> %s', name, orig_value, params[name])
-
-
-def inject_account_id(params, **kwargs):
-    if params.get('accountId') is None:
-        # Glacier requires accountId, but allows you
-        # to specify '-' for the current owners account.
-        # We add this default value if the user does not
-        # provide the accountId as a convenience.
-        params['accountId'] = '-'
-
-
-def add_glacier_version(model, params, **kwargs):
-    request_dict = params
-    request_dict['headers']['x-amz-glacier-version'] = model.metadata[
-        'apiVersion']
-
-
-def add_accept_header(model, params, **kwargs):
-    if params['headers'].get('Accept', None) is None:
-        request_dict = params
-        request_dict['headers']['Accept'] = 'application/json'
-
-
-def add_glacier_checksums(params, **kwargs):
-    """Add glacier checksums to the http request.
-
-    This will add two headers to the http request:
-
-        * x-amz-content-sha256
-        * x-amz-sha256-tree-hash
-
-    These values will only be added if they are not present
-    in the HTTP request.
-
-    """
-    request_dict = params
-    headers = request_dict['headers']
-    body = request_dict['body']
-    if isinstance(body, six.binary_type):
-        # If the user provided a bytes type instead of a file
-        # like object, we're temporarily create a BytesIO object
-        # so we can use the util functions to calculate the
-        # checksums which assume file like objects.  Note that
-        # we're not actually changing the body in the request_dict.
-        body = six.BytesIO(body)
-    starting_position = body.tell()
-    if 'x-amz-content-sha256' not in headers:
-        headers['x-amz-content-sha256'] = utils.calculate_sha256(
-            body, as_hex=True)
-    body.seek(starting_position)
-    if 'x-amz-sha256-tree-hash' not in headers:
-        headers['x-amz-sha256-tree-hash'] = utils.calculate_tree_hash(body)
-    body.seek(starting_position)
-
-
-def document_glacier_tree_hash_checksum():
-    doc = '''
-        This is a required field.
-
-        Ideally you will want to compute this value with checksums from
-        previous uploaded parts, using the algorithm described in
-        `Glacier documentation <http://docs.aws.amazon.com/amazonglacier/latest/dev/checksum-calculations.html>`_.
-
-        But if you prefer, you can also use botocore.utils.calculate_tree_hash()
-        to compute it from raw file by::
-
-            checksum = calculate_tree_hash(open('your_file.txt', 'rb'))
-
-        '''
-    return AppendParamDocumentation('checksum', doc).append_documentation
-
-
-def document_cloudformation_get_template_return_type(section, event_name, **kwargs):
-    if 'response-params' in event_name:
-        template_body_section = section.get_section('TemplateBody')
-        type_section = template_body_section.get_section('param-type')
-        type_section.clear_text()
-        type_section.write('(*dict*) --')
-    elif 'response-example' in event_name:
-        parent = section.get_section('structure-value')
-        param_line = parent.get_section('TemplateBody')
-        value_portion = param_line.get_section('member-value')
-        value_portion.clear_text()
-        value_portion.write('{}')
-
-
-def switch_host_machinelearning(request, **kwargs):
-    switch_host_with_param(request, 'PredictEndpoint')
-
-
-def check_openssl_supports_tls_version_1_2(**kwargs):
-    import ssl
-    try:
-        openssl_version_tuple = ssl.OPENSSL_VERSION_INFO
-        if openssl_version_tuple < (1, 0, 1):
-            warnings.warn(
-                'Currently installed openssl version: %s does not '
-                'support TLS 1.2, which is required for use of iot-data. '
-                'Please use python installed with openssl version 1.0.1 or '
-                'higher.' % (ssl.OPENSSL_VERSION),
-                UnsupportedTLSVersionWarning
-            )
-    # We cannot check the openssl version on python2.6, so we should just
-    # pass on this conveniency check.
-    except AttributeError:
-        pass
-
-
-def change_get_to_post(request, **kwargs):
-    # This is useful when we need to change a potentially large GET request
-    # into a POST with x-www-form-urlencoded encoding.
-    if request.method == 'GET' and '?' in request.url:
-        request.headers['Content-Type'] = 'application/x-www-form-urlencoded'
-        request.method = 'POST'
-        request.url, request.data = request.url.split('?', 1)
-
-
-def set_list_objects_encoding_type_url(params, context, **kwargs):
-    if 'EncodingType' not in params:
-        # We set this context so that we know it wasn't the customer that
-        # requested the encoding.
-        context['encoding_type_auto_set'] = True
-        params['EncodingType'] = 'url'
-
-
-def decode_list_object(parsed, context, **kwargs):
-    # This is needed because we are passing url as the encoding type. Since the
-    # paginator is based on the key, we need to handle it before it can be
-    # round tripped.
-    #
-    # From the documentation: If you specify encoding-type request parameter,
-    # Amazon S3 includes this element in the response, and returns encoded key
-    # name values in the following response elements:
-    # Delimiter, Marker, Prefix, NextMarker, Key.
-    _decode_list_object(
-        top_level_keys=['Delimiter', 'Marker', 'NextMarker'],
-        nested_keys=[('Contents', 'Key'), ('CommonPrefixes', 'Prefix')],
-        parsed=parsed,
-        context=context
-    )
-
-
-def decode_list_object_v2(parsed, context, **kwargs):
-    # From the documentation: If you specify encoding-type request parameter,
-    # Amazon S3 includes this element in the response, and returns encoded key
-    # name values in the following response elements:
-    # Delimiter, Prefix, ContinuationToken, Key, and StartAfter.
-    _decode_list_object(
-        top_level_keys=['Delimiter', 'Prefix', 'StartAfter'],
-        nested_keys=[('Contents', 'Key'), ('CommonPrefixes', 'Prefix')],
-        parsed=parsed,
-        context=context
-    )
-
-
-def _decode_list_object(top_level_keys, nested_keys, parsed, context):
-    if parsed.get('EncodingType') == 'url' and \
-                    context.get('encoding_type_auto_set'):
-        # URL decode top-level keys in the response if present.
-        for key in top_level_keys:
-            if key in parsed:
-                parsed[key] = unquote_str(parsed[key])
-        # URL decode nested keys from the response if present.
-        for (top_key, child_key) in nested_keys:
-            if top_key in parsed:
-                for member in parsed[top_key]:
-                    member[child_key] = unquote_str(member[child_key])
-
-
-def convert_body_to_file_like_object(params, **kwargs):
-    if 'Body' in params:
-        if isinstance(params['Body'], six.string_types):
-            params['Body'] = six.BytesIO(ensure_bytes(params['Body']))
-        elif isinstance(params['Body'], six.binary_type):
-            params['Body'] = six.BytesIO(params['Body'])
-
-
-def _add_parameter_aliases(handler_list):
-    # Mapping of original parameter to parameter alias.
-    # The key is <service>.<operation>.parameter
-    # The first part of the key is used for event registration.
-    # The last part is the original parameter name and the value is the
-    # alias to expose in documentation.
-    aliases = {
-        'ec2.*.Filter': 'Filters',
-        'logs.CreateExportTask.from': 'fromTime',
-        'cloudsearchdomain.Search.return': 'returnFields'
-    }
-
-    for original, new_name in aliases.items():
-        event_portion, original_name = original.rsplit('.', 1)
-        parameter_alias = ParameterAlias(original_name, new_name)
-
-        # Add the handlers to the list of handlers.
-        # One handler is to handle when users provide the alias.
-        # The other handler is to update the documentation to show only
-        # the alias.
-        parameter_build_event_handler_tuple = (
-            'before-parameter-build.' + event_portion,
-            parameter_alias.alias_parameter_in_call,
-            REGISTER_FIRST
-        )
-        docs_event_handler_tuple = (
-            'docs.*.' + event_portion + '.complete-section',
-            parameter_alias.alias_parameter_in_documentation)
-        handler_list.append(parameter_build_event_handler_tuple)
-        handler_list.append(docs_event_handler_tuple)
-
-
-class ParameterAlias(object):
-    def __init__(self, original_name, alias_name):
-        self._original_name = original_name
-        self._alias_name = alias_name
-
-    def alias_parameter_in_call(self, params, model, **kwargs):
-        if model.input_shape:
-            # Only consider accepting the alias if it is modeled in the
-            # input shape.
-            if self._original_name in model.input_shape.members:
-                if self._alias_name in params:
-                    if self._original_name in params:
-                        raise AliasConflictParameterError(
-                            original=self._original_name,
-                            alias=self._alias_name,
-                            operation=model.name
-                        )
-                    # Remove the alias parameter value and use the old name
-                    # instead.
-                    params[self._original_name] = params.pop(self._alias_name)
-
-    def alias_parameter_in_documentation(self, event_name, section, **kwargs):
-        if event_name.startswith('docs.request-params'):
-            if self._original_name not in section.available_sections:
-                return
-            # Replace the name for parameter type
-            param_section = section.get_section(self._original_name)
-            param_type_section = param_section.get_section('param-type')
-            self._replace_content(param_type_section)
-
-            # Replace the name for the parameter description
-            param_name_section = param_section.get_section('param-name')
-            self._replace_content(param_name_section)
-        elif event_name.startswith('docs.request-example'):
-            section = section.get_section('structure-value')
-            if self._original_name not in section.available_sections:
-                return
-            # Replace the name for the example
-            param_section = section.get_section(self._original_name)
-            self._replace_content(param_section)
-
-    def _replace_content(self, section):
-        content = section.getvalue().decode('utf-8')
-        updated_content = content.replace(
-            self._original_name, self._alias_name)
-        section.clear_text()
-        section.write(updated_content)
-
-
-class ClientMethodAlias(object):
-    def __init__(self, actual_name):
-        """ Aliases a non-extant method to an existing method.
-
-        :param actual_name: The name of the method that actually exists on
-            the client.
         """
-        self._actual = actual_name
+        return os.path.isfile(file_path + '.json')
 
-    def __call__(self, client, **kwargs):
-        return getattr(client, self._actual)
+    def load_file(self, file_path):
+        """Attempt to load the file path.
 
+        :type file_path: str
+        :param file_path: The full path to the file to load without
+            the '.json' extension.
 
-class HeaderToHostHoister(object):
-    """Takes a header and moves it to the front of the hoststring.
-    """
-    def __init__(self, header_name):
-        self._header_name = header_name
+        :return: The loaded data if it exists, otherwise None.
 
-    def hoist(self, params, **kwargs):
-        """Hoist a header to the hostname.
-
-        Hoist a header to the beginning of the hostname with a suffix "." after
-        it. The original header should be removed from the header map. This
-        method is intended to be used as a target for the before-call event.
         """
-        if self._header_name not in params['headers']:
+        full_path = file_path + '.json'
+        if not os.path.isfile(full_path):
             return
-        header_value = params['headers'][self._header_name]
-        original_url = params['url']
-        new_url = self._prepend_to_host(original_url, header_value)
-        params['url'] = new_url
 
-    def _prepend_to_host(self, url, prefix):
-        url_components = urlsplit(url)
-        parts = url_components.netloc.split('.')
-        parts = [prefix] + parts
-        new_netloc = '.'.join(parts)
-        new_components = (
-            url_components.scheme,
-            new_netloc,
-            url_components.path,
-            url_components.query,
-            ''
-        )
-        new_url = urlunsplit(new_components)
-        return new_url
+        # By default the file will be opened with locale encoding on Python 3.
+        # We specify "utf8" here to ensure the correct behavior.
+        with open(full_path, 'rb') as fp:
+            payload = fp.read().decode('utf-8')
+            logger.debug("Loading JSON file: %s", full_path)
+            return json.loads(payload, object_pairs_hook=OrderedDict)
 
 
-def inject_api_version_header_if_needed(model, params, **kwargs):
-    if not model.is_endpoint_discovery_operation:
-        return
-    params['headers']['x-amz-api-version'] = model.service_model.api_version
+def create_loader(search_path_string=None):
+    """Create a Loader class.
+
+    This factory function creates a loader given a search string path.
+
+    :type search_string_path: str
+    :param search_string_path: The AWS_DATA_PATH value.  A string
+        of data path values separated by the ``os.path.pathsep`` value,
+        which is typically ``:`` on POSIX platforms and ``;`` on
+        windows.
+
+    :return: A ``Loader`` instance.
+
+    """
+    if search_path_string is None:
+        return Loader()
+    paths = []
+    extra_paths = search_path_string.split(os.pathsep)
+    for path in extra_paths:
+        path = os.path.expanduser(os.path.expandvars(path))
+        paths.append(path)
+    return Loader(extra_search_paths=paths)
 
 
-# This is a list of (event_name, handler).
-# When a Session is created, everything in this list will be
-# automatically registered with that Session.
+class Loader(object):
+    """Find and load data models.
 
-BUILTIN_HANDLERS = [
-    ('choose-service-name', handle_service_name_alias),
-    ('getattr.mturk.list_hi_ts_for_qualification_type',
-     ClientMethodAlias('list_hits_for_qualification_type')),
-    ('before-parameter-build.s3.UploadPart',
-     convert_body_to_file_like_object, REGISTER_LAST),
-    ('before-parameter-build.s3.PutObject',
-     convert_body_to_file_like_object, REGISTER_LAST),
-    ('creating-client-class', add_generate_presigned_url),
-    ('creating-client-class.s3', add_generate_presigned_post),
-    ('creating-client-class.iot-data', check_openssl_supports_tls_version_1_2),
-    ('after-call.iam', json_decode_policies),
+    This class will handle searching for and loading data models.
 
-    ('after-call.ec2.GetConsoleOutput', decode_console_output),
-    ('after-call.cloudformation.GetTemplate', json_decode_template_body),
-    ('after-call.s3.GetBucketLocation', parse_get_bucket_location),
+    The main method used here is ``load_service_model``, which is a
+    convenience method over ``load_data`` and ``determine_latest_version``.
 
-    ('before-parameter-build', generate_idempotent_uuid),
+    """
+    FILE_LOADER_CLASS = JSONFileLoader
+    # The included models in botocore/data/ that we ship with botocore.
+    BUILTIN_DATA_PATH = os.path.join(BOTOCORE_ROOT, 'data')
+    # For convenience we automatically add ~/.aws/models to the data path.
+    CUSTOMER_DATA_PATH = os.path.join(os.path.expanduser('~'),
+                                      '.aws', 'models')
+    BUILTIN_EXTRAS_TYPES = ['sdk']
 
-    ('before-parameter-build.s3', validate_bucket_name),
+    def __init__(self, extra_search_paths=None, file_loader=None,
+                 cache=None, include_default_search_paths=True,
+                 include_default_extras=True):
+        self._cache = {}
+        if file_loader is None:
+            file_loader = self.FILE_LOADER_CLASS()
+        self.file_loader = file_loader
+        if extra_search_paths is not None:
+            self._search_paths = extra_search_paths
+        else:
+            self._search_paths = []
+        if include_default_search_paths:
+            self._search_paths.extend([self.CUSTOMER_DATA_PATH,
+                                       self.BUILTIN_DATA_PATH])
 
-    ('before-parameter-build.s3.ListObjects',
-     set_list_objects_encoding_type_url),
-    ('before-parameter-build.s3.ListObjectsV2',
-     set_list_objects_encoding_type_url),
-    ('before-call.s3.PutBucketTagging', calculate_md5),
-    ('before-call.s3.PutBucketLifecycle', calculate_md5),
-    ('before-call.s3.PutBucketLifecycleConfiguration', calculate_md5),
-    ('before-call.s3.PutBucketCors', calculate_md5),
-    ('before-call.s3.DeleteObjects', calculate_md5),
-    ('before-call.s3.PutBucketReplication', calculate_md5),
-    ('before-call.s3.PutObject', conditionally_calculate_md5),
-    ('before-call.s3.UploadPart', conditionally_calculate_md5),
-    ('before-call.s3.PutBucketAcl', conditionally_calculate_md5),
-    ('before-call.s3.PutBucketLogging', conditionally_calculate_md5),
-    ('before-call.s3.PutBucketNotification', conditionally_calculate_md5),
-    ('before-call.s3.PutBucketPolicy', conditionally_calculate_md5),
-    ('before-call.s3.PutBucketRequestPayment', conditionally_calculate_md5),
-    ('before-call.s3.PutBucketVersioning', conditionally_calculate_md5),
-    ('before-call.s3.PutBucketWebsite', conditionally_calculate_md5),
-    ('before-call.s3.PutObjectAcl', conditionally_calculate_md5),
-    ('before-call.s3.PutObjectLegalHold', calculate_md5),
-    ('before-call.s3.PutObjectRetention', calculate_md5),
-    ('before-call.s3.PutObjectLockConfiguration', calculate_md5),
+        self._extras_types = []
+        if include_default_extras:
+            self._extras_types.extend(self.BUILTIN_EXTRAS_TYPES)
 
-    ('before-parameter-build.s3.CopyObject',
-     handle_copy_source_param),
-    ('before-parameter-build.s3.UploadPartCopy',
-     handle_copy_source_param),
-    ('before-parameter-build.s3.CopyObject', validate_ascii_metadata),
-    ('before-parameter-build.s3.PutObject', validate_ascii_metadata),
-    ('before-parameter-build.s3.CreateMultipartUpload',
-     validate_ascii_metadata),
-    ('docs.*.s3.CopyObject.complete-section', document_copy_source_form),
-    ('docs.*.s3.UploadPartCopy.complete-section', document_copy_source_form),
+        self._extras_processor = ExtrasProcessor()
 
-    ('before-call.s3', add_expect_header),
-    ('before-call.glacier', add_glacier_version),
-    ('before-call.apigateway', add_accept_header),
-    ('before-call.glacier.UploadArchive', add_glacier_checksums),
-    ('before-call.glacier.UploadMultipartPart', add_glacier_checksums),
-    ('before-call.ec2.CopySnapshot', inject_presigned_url_ec2),
-    ('request-created.machinelearning.Predict', switch_host_machinelearning),
-    ('needs-retry.s3.UploadPartCopy', check_for_200_error, REGISTER_FIRST),
-    ('needs-retry.s3.CopyObject', check_for_200_error, REGISTER_FIRST),
-    ('needs-retry.s3.CompleteMultipartUpload', check_for_200_error,
-     REGISTER_FIRST),
-    ('choose-signer.cognito-identity.GetId', disable_signing),
-    ('choose-signer.cognito-identity.GetOpenIdToken', disable_signing),
-    ('choose-signer.cognito-identity.UnlinkIdentity', disable_signing),
-    ('choose-signer.cognito-identity.GetCredentialsForIdentity',
-        disable_signing),
-    ('choose-signer.sts.AssumeRoleWithSAML', disable_signing),
-    ('choose-signer.sts.AssumeRoleWithWebIdentity', disable_signing),
-    ('choose-signer', set_operation_specific_signer),
-    ('before-parameter-build.s3.HeadObject', sse_md5),
-    ('before-parameter-build.s3.GetObject', sse_md5),
-    ('before-parameter-build.s3.PutObject', sse_md5),
-    ('before-parameter-build.s3.CopyObject', sse_md5),
-    ('before-parameter-build.s3.CopyObject', copy_source_sse_md5),
-    ('before-parameter-build.s3.CreateMultipartUpload', sse_md5),
-    ('before-parameter-build.s3.UploadPart', sse_md5),
-    ('before-parameter-build.s3.UploadPartCopy', sse_md5),
-    ('before-parameter-build.s3.UploadPartCopy', copy_source_sse_md5),
-    ('before-parameter-build.ec2.RunInstances', base64_encode_user_data),
-    ('before-parameter-build.autoscaling.CreateLaunchConfiguration',
-     base64_encode_user_data),
-    ('before-parameter-build.route53', fix_route53_ids),
-    ('before-parameter-build.glacier', inject_account_id),
-    ('after-call.s3.ListObjects', decode_list_object),
-    ('after-call.s3.ListObjectsV2', decode_list_object_v2),
+    @property
+    def search_paths(self):
+        return self._search_paths
 
-    # Cloudsearchdomain search operation will be sent by HTTP POST
-    ('request-created.cloudsearchdomain.Search',
-     change_get_to_post),
-    # Glacier documentation customizations
-    ('docs.*.glacier.*.complete-section',
-     AutoPopulatedParam('accountId', 'Note: this parameter is set to "-" by'
-                        'default if no value is not specified.')
-     .document_auto_populated_param),
-    ('docs.*.glacier.UploadArchive.complete-section',
-     AutoPopulatedParam('checksum').document_auto_populated_param),
-    ('docs.*.glacier.UploadMultipartPart.complete-section',
-     AutoPopulatedParam('checksum').document_auto_populated_param),
-    ('docs.request-params.glacier.CompleteMultipartUpload.complete-section',
-     document_glacier_tree_hash_checksum()),
-    # Cloudformation documentation customizations
-    ('docs.*.cloudformation.GetTemplate.complete-section',
-     document_cloudformation_get_template_return_type),
+    @property
+    def extras_types(self):
+        return self._extras_types
 
-    # UserData base64 encoding documentation customizations
-    ('docs.*.ec2.RunInstances.complete-section',
-     document_base64_encoding('UserData')),
-    ('docs.*.autoscaling.CreateLaunchConfiguration.complete-section',
-     document_base64_encoding('UserData')),
+    @instance_cache
+    def list_available_services(self, type_name):
+        """List all known services.
 
-    # EC2 CopySnapshot documentation customizations
-    ('docs.*.ec2.CopySnapshot.complete-section',
-     AutoPopulatedParam('PresignedUrl').document_auto_populated_param),
-    ('docs.*.ec2.CopySnapshot.complete-section',
-     AutoPopulatedParam('DestinationRegion').document_auto_populated_param),
-    # S3 SSE documentation modifications
-    ('docs.*.s3.*.complete-section',
-     AutoPopulatedParam('SSECustomerKeyMD5').document_auto_populated_param),
-    # S3 SSE Copy Source documentation modifications
-    ('docs.*.s3.*.complete-section',
-     AutoPopulatedParam(
-        'CopySourceSSECustomerKeyMD5').document_auto_populated_param),
-    # Add base64 information to Lambda
-    ('docs.*.lambda.UpdateFunctionCode.complete-section',
-     document_base64_encoding('ZipFile')),
-    # The following S3 operations cannot actually accept a ContentMD5
-    ('docs.*.s3.*.complete-section',
-     HideParamFromOperations(
-         's3', 'ContentMD5',
-         ['DeleteObjects', 'PutBucketAcl', 'PutBucketCors',
-          'PutBucketLifecycle', 'PutBucketLogging', 'PutBucketNotification',
-          'PutBucketPolicy', 'PutBucketReplication', 'PutBucketRequestPayment',
-          'PutBucketTagging', 'PutBucketVersioning', 'PutBucketWebsite',
-          'PutObjectAcl']).hide_param),
+        This will traverse the search path and look for all known
+        services.
 
-    #############
-    # RDS
-    #############
-    ('creating-client-class.rds', add_generate_db_auth_token),
+        :type type_name: str
+        :param type_name: The type of the service (service-2,
+            paginators-1, waiters-2, etc).  This is needed because
+            the list of available services depends on the service
+            type.  For example, the latest API version available for
+            a resource-1.json file may not be the latest API version
+            available for a services-2.json file.
 
-    ('before-call.rds.CopyDBClusterSnapshot',
-     inject_presigned_url_rds),
-    ('before-call.rds.CreateDBCluster',
-     inject_presigned_url_rds),
-    ('before-call.rds.CopyDBSnapshot',
-     inject_presigned_url_rds),
-    ('before-call.rds.CreateDBInstanceReadReplica',
-     inject_presigned_url_rds),
+        :return: A list of all services.  The list of services will
+            be sorted.
 
-    # RDS PresignedUrl documentation customizations
-    ('docs.*.rds.CopyDBClusterSnapshot.complete-section',
-     AutoPopulatedParam('PreSignedUrl').document_auto_populated_param),
-    ('docs.*.rds.CreateDBCluster.complete-section',
-     AutoPopulatedParam('PreSignedUrl').document_auto_populated_param),
-    ('docs.*.rds.CopyDBSnapshot.complete-section',
-     AutoPopulatedParam('PreSignedUrl').document_auto_populated_param),
-    ('docs.*.rds.CreateDBInstanceReadReplica.complete-section',
-     AutoPopulatedParam('PreSignedUrl').document_auto_populated_param),
+        """
+        services = set()
+        for possible_path in self._potential_locations():
+            # Any directory in the search path is potentially a service.
+            # We'll collect any initial list of potential services,
+            # but we'll then need to further process these directories
+            # by searching for the corresponding type_name in each
+            # potential directory.
+            possible_services = [
+                d for d in os.listdir(possible_path)
+                if os.path.isdir(os.path.join(possible_path, d))]
+            for service_name in possible_services:
+                full_dirname = os.path.join(possible_path, service_name)
+                api_versions = os.listdir(full_dirname)
+                for api_version in api_versions:
+                    full_load_path = os.path.join(full_dirname,
+                                                  api_version,
+                                                  type_name)
+                    if self.file_loader.exists(full_load_path):
+                        services.add(service_name)
+                        break
+        return sorted(services)
 
-    #############
-    # Neptune
-    #############
-    ('before-call.neptune.CopyDBClusterSnapshot',
-     inject_presigned_url_rds),
-    ('before-call.neptune.CreateDBCluster',
-     inject_presigned_url_rds),
+    @instance_cache
+    def determine_latest_version(self, service_name, type_name):
+        """Find the latest API version available for a service.
 
-    # RDS PresignedUrl documentation customizations
-    ('docs.*.neptune.CopyDBClusterSnapshot.complete-section',
-     AutoPopulatedParam('PreSignedUrl').document_auto_populated_param),
-    ('docs.*.neptune.CreateDBCluster.complete-section',
-     AutoPopulatedParam('PreSignedUrl').document_auto_populated_param),
+        :type service_name: str
+        :param service_name: The name of the service.
 
-    #############
-    # S3 Control
-    #############
-    ('before-call.s3-control.*',
-     HeaderToHostHoister('x-amz-account-id').hoist),
+        :type type_name: str
+        :param type_name: The type of the service (service-2,
+            paginators-1, waiters-2, etc).  This is needed because
+            the latest API version available can depend on the service
+            type.  For example, the latest API version available for
+            a resource-1.json file may not be the latest API version
+            available for a services-2.json file.
 
-    ###########
-    # SMS Voice
-     ##########
-    ('docs.title.sms-voice',
-     DeprecatedServiceDocumenter(
-         'pinpoint-sms-voice').inject_deprecation_notice),
-    ('before-call', inject_api_version_header_if_needed),
+        :rtype: str
+        :return: The latest API version.  If the service does not exist
+            or does not have any available API data, then a
+            ``DataNotFoundError`` exception will be raised.
 
-]
-_add_parameter_aliases(BUILTIN_HANDLERS)
+        """
+        return max(self.list_api_versions(service_name, type_name))
+
+    @instance_cache
+    def list_api_versions(self, service_name, type_name):
+        """List all API versions available for a particular service type
+
+        :type service_name: str
+        :param service_name: The name of the service
+
+        :type type_name: str
+        :param type_name: The type name for the service (i.e service-2,
+            paginators-1, etc.)
+
+        :rtype: list
+        :return: A list of API version strings in sorted order.
+
+        """
+        known_api_versions = set()
+        for possible_path in self._potential_locations(service_name,
+                                                       must_exist=True,
+                                                       is_dir=True):
+            for dirname in os.listdir(possible_path):
+                full_path = os.path.join(possible_path, dirname, type_name)
+                # Only add to the known_api_versions if the directory
+                # contains a service-2, paginators-1, etc. file corresponding
+                # to the type_name passed in.
+                if self.file_loader.exists(full_path):
+                    known_api_versions.add(dirname)
+        if not known_api_versions:
+            raise DataNotFoundError(data_path=service_name)
+        return sorted(known_api_versions)
+
+    @instance_cache
+    def load_service_model(self, service_name, type_name, api_version=None):
+        """Load a botocore service model
+
+        This is the main method for loading botocore models (e.g. a service
+        model, pagination configs, waiter configs, etc.).
+
+        :type service_name: str
+        :param service_name: The name of the service (e.g ``ec2``, ``s3``).
+
+        :type type_name: str
+        :param type_name: The model type.  Valid types include, but are not
+            limited to: ``service-2``, ``paginators-1``, ``waiters-2``.
+
+        :type api_version: str
+        :param api_version: The API version to load.  If this is not
+            provided, then the latest API version will be used.
+
+        :type load_extras: bool
+        :param load_extras: Whether or not to load the tool extras which
+            contain additional data to be added to the model.
+
+        :raises: UnknownServiceError if there is no known service with
+            the provided service_name.
+
+        :raises: DataNotFoundError if no data could be found for the
+            service_name/type_name/api_version.
+
+        :return: The loaded data, as a python type (e.g. dict, list, etc).
+        """
+        # Wrapper around the load_data.  This will calculate the path
+        # to call load_data with.
+        known_services = self.list_available_services(type_name)
+        if service_name not in known_services:
+            raise UnknownServiceError(
+                service_name=service_name,
+                known_service_names=', '.join(sorted(known_services)))
+        if api_version is None:
+            api_version = self.determine_latest_version(
+                service_name, type_name)
+        full_path = os.path.join(service_name, api_version, type_name)
+        model = self.load_data(full_path)
+
+        # Load in all the extras
+        extras_data = self._find_extras(service_name, type_name, api_version)
+        self._extras_processor.process(model, extras_data)
+
+        return model
+
+    def _find_extras(self, service_name, type_name, api_version):
+        """Creates an iterator over all the extras data."""
+        for extras_type in self.extras_types:
+            extras_name = '%s.%s-extras' % (type_name, extras_type)
+            full_path = os.path.join(service_name, api_version, extras_name)
+
+            try:
+                yield self.load_data(full_path)
+            except DataNotFoundError:
+                pass
+
+    @instance_cache
+    def load_data(self, name):
+        """Load data given a data path.
+
+        This is a low level method that will search through the various
+        search paths until it's able to load a value.  This is typically
+        only needed to load *non* model files (such as _endpoints and
+        _retry).  If you need to load model files, you should prefer
+        ``load_service_model``.
+
+        :type name: str
+        :param name: The data path, i.e ``ec2/2015-03-01/service-2``.
+
+        :return: The loaded data.  If no data could be found then
+            a DataNotFoundError is raised.
+
+        """
+        for possible_path in self._potential_locations(name):
+            found = self.file_loader.load_file(possible_path)
+            if found is not None:
+                return found
+        # We didn't find anything that matched on any path.
+        raise DataNotFoundError(data_path=name)
+
+    def _potential_locations(self, name=None, must_exist=False,
+                             is_dir=False):
+        # Will give an iterator over the full path of potential locations
+        # according to the search path.
+        for path in self.search_paths:
+            if os.path.isdir(path):
+                full_path = path
+                if name is not None:
+                    full_path = os.path.join(path, name)
+                if not must_exist:
+                    yield full_path
+                else:
+                    if is_dir and os.path.isdir(full_path):
+                        yield full_path
+                    elif os.path.exists(full_path):
+                        yield full_path
+
+
+class ExtrasProcessor(object):
+    """Processes data from extras files into service models."""
+    def process(self, original_model, extra_models):
+        """Processes data from a list of loaded extras files into a model
+
+        :type original_model: dict
+        :param original_model: The service model to load all the extras into.
+
+        :type extra_models: iterable of dict
+        :param extra_models: A list of loaded extras models.
+        """
+        for extras in extra_models:
+            self._process(original_model, extras)
+
+    def _process(self, model, extra_model):
+        """Process a single extras model into a service model."""
+        if 'merge' in extra_model:
+            deep_merge(model, extra_model['merge'])

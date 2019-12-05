@@ -1,1 +1,1 @@
-½¾;venv/lib/python3.6/site-packages/elasticsearch_dsl/index.py 2pyX–h
+½¾>venv/lib/python3.6/site-packages/elasticsearch_dsl/document.py 2pyX¬h

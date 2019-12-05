@@ -1,1 +1,1 @@
-оф6venv/lib64/python3.6/site-packages/twisted/__main__.py 2pyXh
+оф@venv/lib64/python3.6/site-packages/twisted/trial/_asyncrunner.py 2pyXєh

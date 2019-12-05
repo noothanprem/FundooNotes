@@ -1,1 +1,1 @@
-ôO(venv/lib/python3.6/site-packages/wadllib :‡PˆP‰P
+ôO;venv/lib/python3.6/site-packages/wadllib/tests/test_docs.py 2pyX;h

@@ -1,1 +1,0 @@
-Ê—avenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/langcyrillicmodel.py 2pyXÊh

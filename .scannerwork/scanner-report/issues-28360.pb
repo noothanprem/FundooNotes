@@ -244,132 +244,132 @@
 pythonS3776TRefactor this function to reduce its Cognitive Complexity from 23 to the 15 allowed. )       @2
 ’’ :
 »›
-¥¥ +1:+
-)»›
-ÇÇ +2 (incl 1 for nesting):+
-)»›
-òò +2 (incl 1 for nesting):+
-)»›
-ëë +2 (incl 1 for nesting):
-»›
-™™ +1:+
-)»›
-¥¥ +2 (incl 1 for nesting):
+∞∞ 
++1:
 »›
 ≠≠ +1:+
 )»›
-˚˚ +2 (incl 1 for nesting):
-»›
-‰‰ 
-+1:
-»›
-˙˙ +1:
-»›
-∞∞ 
-+1:+
+üü +2 (incl 1 for nesting):+
 )»›
 ää +2 (incl 1 for nesting):
 »›
-ÈÈ +1:+
-)»›
-´´ +2 (incl 1 for nesting):+
-)»›
-üü +2 (incl 1 for nesting)‡
-pythonS3776TRefactor this function to reduce its Cognitive Complexity from 16 to the 15 allowed. )      ?2
-¶¶ :+
-)»›
-¨¨ +4 (incl 3 for nesting):
+¥¥ +1:
 »›
-±± +1:
+™™ +1:+
+)»›
+òò +2 (incl 1 for nesting):+
+)»›
+¥¥ +2 (incl 1 for nesting):
+»›
+‰‰ 
++1:+
+)»›
+ëë +2 (incl 1 for nesting):
+»›
+˙˙ +1:+
+)»›
+ÇÇ +2 (incl 1 for nesting):+
+)»›
+˚˚ +2 (incl 1 for nesting):+
+)»›
+´´ +2 (incl 1 for nesting):
+»›
+ÈÈ +1‡
+pythonS3776TRefactor this function to reduce its Cognitive Complexity from 16 to the 15 allowed. )      ?2
+¶¶ :
+»›
+±± +1:+
+)»›
+™™ +3 (incl 2 for nesting):
 »›
 ßß 
 +1:+
 )»›
+¨¨ +4 (incl 3 for nesting):+
+)»›
 ÆÆ +5 (incl 4 for nesting):+
 )»›
-©© +2 (incl 1 for nesting):+
-)»›
-™™ +3 (incl 2 for nesting)î
+©© +2 (incl 1 for nesting)î
 pythonS3776TRefactor this function to reduce its Cognitive Complexity from 22 to the 15 allowed. )      @2
 ∂∂ :+
 )»›
-¿¿ +3 (incl 2 for nesting):+
-)»›
-““ +2 (incl 1 for nesting):+
-)»›
-   +2 (incl 1 for nesting):+
-)»›
-”” +3 (incl 2 for nesting):+
-)»›
-ÃÃ +2 (incl 1 for nesting):+
-)»›
-√√ +4 (incl 3 for nesting):+
-)»›
-øø +2 (incl 1 for nesting):
-»›
-∆∆ +1:
+”” +3 (incl 2 for nesting):
 »›
 ºº 
 +1:+
 )»›
-◊◊ +2 (incl 1 for nesting)ˇ
+¿¿ +3 (incl 2 for nesting):+
+)»›
+√√ +4 (incl 3 for nesting):
+»›
+∆∆ +1:+
+)»›
+   +2 (incl 1 for nesting):+
+)»›
+ÃÃ +2 (incl 1 for nesting):+
+)»›
+◊◊ +2 (incl 1 for nesting):+
+)»›
+““ +2 (incl 1 for nesting):+
+)»›
+øø +2 (incl 1 for nesting)ˇ
 pythonS3776TRefactor this function to reduce its Cognitive Complexity from 30 to the 15 allowed. )      .@2
 ÇÇ :+
 )»›
 üü +6 (incl 5 for nesting):+
 )»›
-ùù +5 (incl 4 for nesting):+
+êê +3 (incl 2 for nesting):+
 )»›
-úú +4 (incl 3 for nesting):+
+úú +4 (incl 3 for nesting):
+»›
+ëë7 :+1:+
+)»›
+ëë +4 (incl 3 for nesting):+
+)»›
+õõ +3 (incl 2 for nesting):
+»›
+ââ 
++1:+
 )»›
 èè +2 (incl 1 for nesting):+
 )»›
-õõ +3 (incl 2 for nesting):+
-)»›
-êê +3 (incl 2 for nesting):
+ùù +5 (incl 4 for nesting):
 »›
-ôô +1:+
-)»›
-ëë +4 (incl 3 for nesting):
-»›
-ââ 
-+1:
-»›
-ëë7 :+1˜
+ôô +1˜
 pythonS3776TRefactor this function to reduce its Cognitive Complexity from 25 to the 15 allowed. )      $@2
 öö :
 »›
 µµ 
-+1:
-»›
-≤≤  #+1:+
-)»›
-ªª +2 (incl 1 for nesting):
-»›
-––  "+1:+
++1:+
 )»›
 ◊◊ +2 (incl 1 for nesting):+
 )»›
-‘‘* ,+2 (incl 1 for nesting):
-»›
-«« "+1:+
-)»›
-«« +3 (incl 2 for nesting):
-»›
-±± !+1:
-»›
-”” +1:+
+ªª +2 (incl 1 for nesting):+
 )»›
 √√ +3 (incl 2 for nesting):+
 )»›
 ∂∂ +2 (incl 1 for nesting):
 »›
+––  "+1:
+»›
+”” +1:
+»›
+≤≤  #+1:
+»›
 ¶¶ 
 +1:+
+)»›
+‘‘* ,+2 (incl 1 for nesting):+
 )»›
 ¿¿ +3 (incl 2 for nesting):
 »›
 ÕÕ 
-+1g
++1:
+»›
+±± !+1:+
+)»›
+«« +3 (incl 2 for nesting):
+»›
+«« "+1g
 pythonS100IRename method "ca" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
 ∂∂ 

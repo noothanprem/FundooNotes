@@ -1,1 +1,1 @@
-îîDvenv/lib64/python3.6/site-packages/twisted/names/test/test_server.py 2pyXó	h
+îîIvenv/lib64/python3.6/site-packages/twisted/names/test/test_rootresolve.py 2pyXßh

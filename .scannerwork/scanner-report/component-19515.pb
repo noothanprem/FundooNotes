@@ -1,1 +1,1 @@
-»˜-venv/lib/python3.6/site-packages/amqp/spec.py 2pyX{h
+»˜1venv/lib/python3.6/site-packages/amqp/protocol.py 2pyXh

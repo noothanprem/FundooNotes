@@ -1,1 +1,1 @@
-ÌêZvenv/lib64/python3.6/site-packages/django/db/backends/postgresql_psycopg2/introspection.py 2pyXh
+ÌêRvenv/lib64/python3.6/site-packages/django/db/backends/postgresql_psycopg2/utils.py 2pyXh

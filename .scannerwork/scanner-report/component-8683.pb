@@ -1,1 +1,1 @@
-ÎC6venv/lib/python3.6/site-packages/django/conf/locale/eo :ÍCÏC
+ÎC6venv/lib/python3.6/site-packages/django/conf/locale/eo :ÈCÏC

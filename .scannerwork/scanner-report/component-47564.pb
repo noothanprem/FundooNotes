@@ -1,1 +1,1 @@
-Ìó*venv/lib64/python3.6/site-packages/twisted :ËóêóîôÆõ¦÷
+Ìó<venv/lib64/python3.6/site-packages/twisted/protocols/wire.py 2pyX}h

@@ -1,1 +1,1 @@
-™çAvenv/lib64/python3.6/site-packages/django/views/generic/detail.py 2pyX«h
+™çCvenv/lib64/python3.6/site-packages/django/views/generic/__init__.py 2pyXh

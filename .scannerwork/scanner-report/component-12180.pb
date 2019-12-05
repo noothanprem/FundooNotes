@@ -1,1 +1,0 @@
-”_7venv/lib/python3.6/site-packages/PIL/GimpPaletteFile.py 2pyX?h

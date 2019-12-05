@@ -1,1 +1,0 @@
-Ác/venv/lib/python3.6/site-packages/flask/views.py 2pyX¤h

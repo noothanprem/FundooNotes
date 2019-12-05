@@ -1,1 +1,1 @@
-ÿĞ;venv/lib64/python3.6/site-packages/celery/backends/database :	şĞ€ÑÑ
+ÿĞ;venv/lib64/python3.6/site-packages/celery/backends/database :	şĞÑ€Ñ

@@ -1,1 +1,1 @@
-©л8venv/lib64/python3.6/site-packages/oauth2_provider/views :╬люлалблцлдллл
+©л8venv/lib64/python3.6/site-packages/oauth2_provider/views :╬люлалблцлдлмл

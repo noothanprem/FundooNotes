@@ -1,1 +1,1 @@
-¬‰.venv/lib/python3.6/site-packages/elasticsearch :«‰­‰®‰µ‰¶‰í‰
+¬‰.venv/lib/python3.6/site-packages/elasticsearch :ª‰­‰®‰µ‰¶‰í‰

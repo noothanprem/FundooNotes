@@ -1,1 +1,0 @@
-‡YJvenv/lib/python3.6/site-packages/faker/providers/address/fa_IR/__init__.py 2pyXZh

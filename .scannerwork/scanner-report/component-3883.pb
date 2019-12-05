@@ -1,1 +1,1 @@
-«Avenv/lib/python3.6/site-packages/django/db/models/sql/compiler.py 2pyXìh
+«Ovenv/lib/python3.6/site-packages/django/db/models/fields/related_descriptors.py 2pyXòh

@@ -1,24 +1,28 @@
+from os import environ
+import os
+from decouple import config
+
 from .base import *
 from dotenv import load_dotenv, find_dotenv
 from pathlib import *
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-print(BASE_DIR, "Base dir 111111")
+
 DEBUG = True
-load_dotenv(find_dotenv())
-SECRET_KEY = os.getenv('SECRET_KEY')
-env_path = Path('.') / '.env'
+
+SECRET_KEY = config('SECRET_KEY')
+print(SECRET_KEY,"secccc")
 
 CORS_ORIGIN_ALLOW_ALL = True
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.getenv('NAME'),  # need to replace with .env credentials stored for db
-        'USER': os.getenv('DATABASE_USER'),  # need to replace with .env credentials stored for db
-        'PASSWORD': os.getenv('PASSWORD'),  # need to replace with .env credentials stored for db
-        'HOST': os.getenv('HOST'),  # need to replace with .env credentials stored for db
-        'PORT': os.getenv('PORT'),  # need to replace with .env credentials stored for db
+        'NAME': config('NAME'),
+        'USER': config('USER'),
+        'PASSWORD': config('PASSWORD'),
+        'HOST': config('HOST'),
+        'PORT': config('PORT')
     }
 }
 
@@ -35,26 +39,26 @@ CACHES = {
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
 
-AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
-AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
-AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME')
+AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME')
 AWS_S3_FILE_OVERWRITE = False
 AWS_DEFAULT_ACL = None
 
 DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'  # env based folder bucket settings.
 
-SOCIAL_AUTH_GITHUB_KEY = os.getenv('SOCIAL_AUTH_GITHUB_KEY')
-SOCIAL_AUTH_GITHUB_SECRET = os.getenv('SOCIAL_AUTH_GITHUB_SECRET')
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.getenv('SOCIAL_AUTH_GOOGLE_OAUTH2_KEY')
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv('SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET')
+SOCIAL_AUTH_GITHUB_KEY = config('SOCIAL_AUTH_GITHUB_KEY')
+SOCIAL_AUTH_GITHUB_SECRET = config('SOCIAL_AUTH_GITHUB_SECRET')
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = config('SOCIAL_AUTH_GOOGLE_OAUTH2_KEY')
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = config('SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET')
 
 STATIC_URL = '/static/'
 
-EMAIL_HOST = os.getenv('EMAIL_HOST')
-EMAIL_PORT = os.getenv('EMAIL_PORT')
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS')
+EMAIL_HOST = config('EMAIL_HOST')
+EMAIL_PORT = config('EMAIL_PORT')
+EMAIL_HOST_USER = config('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
+EMAIL_USE_TLS = config('EMAIL_USE_TLS')
 
 LOGIN_URL = 'login'
 LOGOUT_URL = 'logout'
@@ -63,9 +67,9 @@ SOCIAL_AUTH_EMAIL_REQUIRED = True
 SOCIAL_AUTH_GITHUB_SCOPE = ['user:email']
 ACCOUNT_EMAIL_REQUIRED = True
 
-Token = os.getenv('Token')
-BASE_URL = os.getenv('BASE_URL')
-TEST_TOKEN = os.getenv('TEST_TOKEN')
+Token = config('Token')
+BASE_URL = config('BASE_URL')
+TEST_TOKEN = config('TEST_TOKEN')
 
 STATIC_ROOT = os.path.join(BASE_DIR, "static/")
 
@@ -76,7 +80,8 @@ STATIC_ROOT = os.path.join(BASE_DIR, "static/")
 # CELERY_AMOP_TASK_RESULT_EXPIRES = 1000
 
 # For RabbitMQ
-BROKER_URL = 'amqp://[ipaddress]'
+#BROKER_URL = 'amqp://[ipaddress]'
+CELERY_BROKER_URL = 'amqp://guest:guest@rabbit:5672/%2F'
 CELERY_RESULT_BACKEND = 'amqp://[ipaddress]'
 # Celery Data Format
 CELERY_ACCEPT_CONTENT = ['application/json']

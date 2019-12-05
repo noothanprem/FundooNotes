@@ -1,1 +1,1 @@
-Ù•Lvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/urllib3 :Ø•Ú•Û•Ü•Ý•æ•ç•è•é•‡–
+Ù•Lvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/urllib3 :Ø•Û•Ú•Ü•Ý•æ•ç•é•è•‡–

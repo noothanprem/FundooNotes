@@ -1,1 +1,1 @@
-шаGvenv/lib64/python3.6/site-packages/botocore/vendored/requests/compat.py 2pyX?h
+шаIvenv/lib64/python3.6/site-packages/botocore/vendored/requests/__init__.py 2pyXNh

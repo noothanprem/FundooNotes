@@ -1,1 +1,1 @@
-èŽ9venv/lib/python3.6/site-packages/botocore/docs/service.py 2pyXah
+èŽ9venv/lib/python3.6/site-packages/botocore/docs/example.py 2pyXÑh

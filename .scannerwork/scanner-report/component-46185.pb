@@ -1,1 +1,0 @@
-йи.venv/lib64/python3.6/site-packages/zmq/devices :ииниоипириши

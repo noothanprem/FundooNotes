@@ -1,78 +1,215 @@
-#!/usr/bin/env python
-from __future__ import absolute_import
+"""Build Environment used for isolation during sdist building
+"""
 
-import locale
 import logging
 import os
-import warnings
-
 import sys
+import textwrap
+from collections import OrderedDict
+from distutils.sysconfig import get_python_lib
+from sysconfig import get_paths
 
-# 2016-06-17 barry@debian.org: urllib3 1.14 added optional support for socks,
-# but if invoked (i.e. imported), it will issue a warning to stderr if socks
-# isn't available.  requests unconditionally imports urllib3's socks contrib
-# module, triggering this warning.  The warning breaks DEP-8 tests (because of
-# the stderr output) and is just plain annoying in normal usage.  I don't want
-# to add socks as yet another dependency for pip, nor do I want to allow-stder
-# in the DEP-8 tests, so just suppress the warning.  pdb tells me this has to
-# be done before the import of pip.vcs.
-from pip._vendor.urllib3.exceptions import DependencyWarning
-warnings.filterwarnings("ignore", category=DependencyWarning)  # noqa
+from pip._vendor.pkg_resources import Requirement, VersionConflict, WorkingSet
 
-# We want to inject the use of SecureTransport as early as possible so that any
-# references or sessions or what have you are ensured to have it, however we
-# only want to do this in the case that we're running on macOS and the linked
-# OpenSSL is too old to handle TLSv1.2
-try:
-    import ssl
-except ImportError:
-    pass
-else:
-    # Checks for OpenSSL 1.0.1 on MacOS
-    if sys.platform == "darwin" and ssl.OPENSSL_VERSION_NUMBER < 0x1000100f:
-        try:
-            from pip._vendor.urllib3.contrib import securetransport
-        except (ImportError, OSError):
-            pass
-        else:
-            securetransport.inject_into_urllib3()
+from pip import __file__ as pip_location
+from pip._internal.utils.misc import call_subprocess
+from pip._internal.utils.temp_dir import TempDirectory
+from pip._internal.utils.typing import MYPY_CHECK_RUNNING
+from pip._internal.utils.ui import open_spinner
 
-from pip._internal.cli.autocompletion import autocomplete
-from pip._internal.cli.main_parser import parse_command
-from pip._internal.commands import commands_dict
-from pip._internal.exceptions import PipError
-from pip._internal.utils import deprecation
-from pip._internal.vcs import git, mercurial, subversion, bazaar  # noqa
-from pip._vendor.urllib3.exceptions import InsecureRequestWarning
+if MYPY_CHECK_RUNNING:
+    from typing import Tuple, Set, Iterable, Optional, List  # noqa: F401
+    from pip._internal.index import PackageFinder  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
-# Hide the InsecureRequestWarning from urllib3
-warnings.filterwarnings("ignore", category=InsecureRequestWarning)
+
+class _Prefix:
+
+    def __init__(self, path):
+        # type: (str) -> None
+        self.path = path
+        self.setup = False
+        self.bin_dir = get_paths(
+            'nt' if os.name == 'nt' else 'posix_prefix',
+            vars={'base': path, 'platbase': path}
+        )['scripts']
+        # Note: prefer distutils' sysconfig to get the
+        # library paths so PyPy is correctly supported.
+        purelib = get_python_lib(plat_specific=False, prefix=path)
+        platlib = get_python_lib(plat_specific=True, prefix=path)
+        if purelib == platlib:
+            self.lib_dirs = [purelib]
+        else:
+            self.lib_dirs = [purelib, platlib]
 
 
-def main(args=None):
-    if args is None:
-        args = sys.argv[1:]
+class BuildEnvironment(object):
+    """Creates and manages an isolated environment to install build deps
+    """
 
-    # Configure our deprecation warnings to be sent through loggers
-    deprecation.install_warning_logger()
+    def __init__(self):
+        # type: () -> None
+        self._temp_dir = TempDirectory(kind="build-env")
+        self._temp_dir.create()
 
-    autocomplete()
+        self._prefixes = OrderedDict((
+            (name, _Prefix(os.path.join(self._temp_dir.path, name)))
+            for name in ('normal', 'overlay')
+        ))
 
-    try:
-        cmd_name, cmd_args = parse_command(args)
-    except PipError as exc:
-        sys.stderr.write("ERROR: %s" % exc)
-        sys.stderr.write(os.linesep)
-        sys.exit(1)
+        self._bin_dirs = []  # type: List[str]
+        self._lib_dirs = []  # type: List[str]
+        for prefix in reversed(list(self._prefixes.values())):
+            self._bin_dirs.append(prefix.bin_dir)
+            self._lib_dirs.extend(prefix.lib_dirs)
 
-    # Needed for locale.getpreferredencoding(False) to work
-    # in pip._internal.utils.encoding.auto_decode
-    try:
-        locale.setlocale(locale.LC_ALL, '')
-    except locale.Error as e:
-        # setlocale can apparently crash if locale are uninitialized
-        logger.debug("Ignoring error %s when setting locale", e)
-    command = commands_dict[cmd_name](isolated=("--isolated" in cmd_args))
-    return command.main(cmd_args)
+        # Customize site to:
+        # - ensure .pth files are honored
+        # - prevent access to system site packages
+        system_sites = {
+            os.path.normcase(site) for site in (
+                get_python_lib(plat_specific=False),
+                get_python_lib(plat_specific=True),
+            )
+        }
+        self._site_dir = os.path.join(self._temp_dir.path, 'site')
+        if not os.path.exists(self._site_dir):
+            os.mkdir(self._site_dir)
+        with open(os.path.join(self._site_dir, 'sitecustomize.py'), 'w') as fp:
+            fp.write(textwrap.dedent(
+                '''
+                import os, site, sys
+
+                # First, drop system-sites related paths.
+                original_sys_path = sys.path[:]
+                known_paths = set()
+                for path in {system_sites!r}:
+                    site.addsitedir(path, known_paths=known_paths)
+                system_paths = set(
+                    os.path.normcase(path)
+                    for path in sys.path[len(original_sys_path):]
+                )
+                original_sys_path = [
+                    path for path in original_sys_path
+                    if os.path.normcase(path) not in system_paths
+                ]
+                sys.path = original_sys_path
+
+                # Second, add lib directories.
+                # ensuring .pth file are processed.
+                for path in {lib_dirs!r}:
+                    assert not path in sys.path
+                    site.addsitedir(path)
+                '''
+            ).format(system_sites=system_sites, lib_dirs=self._lib_dirs))
+
+    def __enter__(self):
+        self._save_env = {
+            name: os.environ.get(name, None)
+            for name in ('PATH', 'PYTHONNOUSERSITE', 'PYTHONPATH')
+        }
+
+        path = self._bin_dirs[:]
+        old_path = self._save_env['PATH']
+        if old_path:
+            path.extend(old_path.split(os.pathsep))
+
+        pythonpath = [self._site_dir]
+
+        os.environ.update({
+            'PATH': os.pathsep.join(path),
+            'PYTHONNOUSERSITE': '1',
+            'PYTHONPATH': os.pathsep.join(pythonpath),
+        })
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for varname, old_value in self._save_env.items():
+            if old_value is None:
+                os.environ.pop(varname, None)
+            else:
+                os.environ[varname] = old_value
+
+    def cleanup(self):
+        # type: () -> None
+        self._temp_dir.cleanup()
+
+    def check_requirements(self, reqs):
+        # type: (Iterable[str]) -> Tuple[Set[Tuple[str, str]], Set[str]]
+        """Return 2 sets:
+            - conflicting requirements: set of (installed, wanted) reqs tuples
+            - missing requirements: set of reqs
+        """
+        missing = set()
+        conflicting = set()
+        if reqs:
+            ws = WorkingSet(self._lib_dirs)
+            for req in reqs:
+                try:
+                    if ws.find(Requirement.parse(req)) is None:
+                        missing.add(req)
+                except VersionConflict as e:
+                    conflicting.add((str(e.args[0].as_requirement()),
+                                     str(e.args[1])))
+        return conflicting, missing
+
+    def install_requirements(
+        self,
+        finder,  # type: PackageFinder
+        requirements,  # type: Iterable[str]
+        prefix_as_string,  # type: str
+        message  # type: Optional[str]
+    ):
+        # type: (...) -> None
+        prefix = self._prefixes[prefix_as_string]
+        assert not prefix.setup
+        prefix.setup = True
+        if not requirements:
+            return
+        args = [
+            sys.executable, os.path.dirname(pip_location), 'install',
+            '--ignore-installed', '--no-user', '--prefix', prefix.path,
+            '--no-warn-script-location',
+        ]  # type: List[str]
+        if logger.getEffectiveLevel() <= logging.DEBUG:
+            args.append('-v')
+        for format_control in ('no_binary', 'only_binary'):
+            formats = getattr(finder.format_control, format_control)
+            args.extend(('--' + format_control.replace('_', '-'),
+                         ','.join(sorted(formats or {':none:'}))))
+        if finder.index_urls:
+            args.extend(['-i', finder.index_urls[0]])
+            for extra_index in finder.index_urls[1:]:
+                args.extend(['--extra-index-url', extra_index])
+        else:
+            args.append('--no-index')
+        for link in finder.find_links:
+            args.extend(['--find-links', link])
+        for _, host, _ in finder.secure_origins:
+            args.extend(['--trusted-host', host])
+        if finder.allow_all_prereleases:
+            args.append('--pre')
+        args.append('--')
+        args.extend(requirements)
+        with open_spinner(message) as spinner:
+            call_subprocess(args, show_stdout=False, spinner=spinner)
+
+
+class NoOpBuildEnvironment(BuildEnvironment):
+    """A no-op drop-in replacement for BuildEnvironment
+    """
+
+    def __init__(self):
+        pass
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def cleanup(self):
+        pass
+
+    def install_requirements(self, finder, requirements, prefix, message):
+        raise NotImplementedError()

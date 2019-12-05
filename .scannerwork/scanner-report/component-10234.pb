@@ -1,1 +1,1 @@
-úO3venv/lib/python3.6/site-packages/wadllib/tests/data :ùOûOüOşOÿO±P
+úOFvenv/lib/python3.6/site-packages/wadllib/tests/data/launchpad-wadl.xml 2xmlX® h

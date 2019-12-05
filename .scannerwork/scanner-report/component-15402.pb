@@ -1,1 +1,1 @@
-ªxUvenv/lib/python3.6/site-packages/awscli/customizations/servicecatalog/generatebase.py 2pyX6h
+ªxQvenv/lib/python3.6/site-packages/awscli/customizations/servicecatalog/helptext.py 2pyX6h

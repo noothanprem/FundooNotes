@@ -1,1 +1,1 @@
-ÑLvenv/lib/python3.6/site-packages/django/db/migrations/operations/__init__.py 2pyXh
+Ñ@venv/lib/python3.6/site-packages/django/db/migrations/operations :ÉÖÜáèê

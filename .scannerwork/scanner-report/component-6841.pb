@@ -1,1 +1,1 @@
-¹5Pvenv/lib/python3.6/site-packages/django/contrib/sites/migrations/0001_initial.py 2pyX h
+¹5@venv/lib/python3.6/site-packages/django/contrib/sites/migrations :¸5¼5½5

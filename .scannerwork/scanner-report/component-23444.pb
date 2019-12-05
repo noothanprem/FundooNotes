@@ -1,1 +1,1 @@
-”·Nvenv/lib/python3.6/site-packages/social_core/tests/backends/test_wunderlist.py 2pyXh
+”·Jvenv/lib/python3.6/site-packages/social_core/tests/backends/test_amazon.py 2pyX1h

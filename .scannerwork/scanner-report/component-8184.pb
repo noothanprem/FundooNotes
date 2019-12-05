@@ -1,1 +1,0 @@
-ø?8venv/lib/python3.6/site-packages/django/core/serializers :÷?ù?ú?û?ü?„@

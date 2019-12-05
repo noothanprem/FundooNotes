@@ -1,117 +1,131 @@
 # coding=utf-8
 
-from __future__ import print_function
 from __future__ import unicode_literals
+from __future__ import absolute_import
 
-import os
-import pprint
+from importlib import import_module
+import locale as pylocale
+
+import logging
 import sys
 
+from faker import Generator
+from faker.config import DEFAULT_LOCALE, PROVIDERS, AVAILABLE_LOCALES
+from faker.utils.loading import list_module
 
-if sys.version < '3':
-    text_type = unicode
-    binary_type = str
+
+logger = logging.getLogger(__name__)
+
+# identify if python is being run in interactive mode. If so, disable logging.
+inREPL = bool(getattr(sys, 'ps1', False))
+if inREPL:
+    logger.setLevel(logging.CRITICAL)
 else:
-    text_type = str
-    binary_type = bytes
+    logger.debug('Not in REPL -> leaving logger event level as is.')
 
 
-DOCS_ROOT = os.path.abspath(os.path.join('..', 'docs'))
+class Factory(object):
 
+    @classmethod
+    def create(
+            cls,
+            locale=None,
+            providers=None,
+            generator=None,
+            includes=None,
+            **config):
+        if includes is None:
+            includes = []
 
-def write(fh, s):
-    return fh.write(s.encode('utf-8'))
+        # fix locale to package name
+        locale = locale.replace('-', '_') if locale else DEFAULT_LOCALE
+        locale = pylocale.normalize(locale).split('.')[0]
+        if locale not in AVAILABLE_LOCALES:
+            msg = 'Invalid configuration for faker locale `{0}`'.format(locale)
+            raise AttributeError(msg)
 
+        config['locale'] = locale
+        providers = providers or PROVIDERS
 
-def write_provider(fh, doc, provider, formatters, excludes=None):
+        providers += includes
 
-    if excludes is None:
-        excludes = []
+        faker = generator or Generator(**config)
 
-    write(fh, '\n')
-    title = "``{0}``".format(doc.get_provider_name(provider))
-    write(fh, '%s\n' % title)
-    write(fh, "-" * len(title))
-    write(fh, '\n\n::\n')
+        for prov_name in providers:
+            if prov_name == 'faker.providers':
+                continue
 
-    for signature, example in formatters.items():
-        if signature in excludes:
-            continue
-        try:
-            # `pprint` can't format sets of heterogenous types.
-            if not isinstance(example, set):
-                example = pprint.pformat(example, indent=4)
-            lines = text_type(example).expandtabs().splitlines()
-        except UnicodeEncodeError:
-            msg = 'error on "{0}" with value "{1}"'.format(signature, example)
-            raise Exception(msg)
-        write(fh, '\n')
-        write(fh, "\t{fake}\n{example}\n".format(
-            fake=signature,
-            example='\n'.join(['\t# ' + line for line in lines]),
-        ))
+            prov_cls, lang_found = cls._get_provider_class(prov_name, locale)
+            provider = prov_cls(faker)
+            provider.__provider__ = prov_name
+            provider.__lang__ = lang_found
+            faker.add_provider(provider)
 
+        return faker
 
-def write_docs(*args, **kwargs):
-    from faker import Faker, documentor
-    from faker.config import DEFAULT_LOCALE, AVAILABLE_LOCALES
+    @classmethod
+    def _get_provider_class(cls, provider, locale=''):
 
-    fake = Faker(locale=DEFAULT_LOCALE)
+        provider_class = cls._find_provider_class(provider, locale)
 
-    from faker.providers import BaseProvider
-    base_provider_formatters = [f for f in dir(BaseProvider)]
+        if provider_class:
+            return provider_class, locale
 
-    doc = documentor.Documentor(fake)
+        if locale and locale != DEFAULT_LOCALE:
+            # fallback to default locale
+            provider_class = cls._find_provider_class(provider, DEFAULT_LOCALE)
+            if provider_class:
+                return provider_class, DEFAULT_LOCALE
 
-    formatters = doc.get_formatters(with_args=True, with_defaults=True)
+        # fallback to no locale
+        provider_class = cls._find_provider_class(provider)
+        if provider_class:
+            return provider_class, None
 
-    for provider, fakers in formatters:
-        provider_name = doc.get_provider_name(provider)
-        fname = os.path.join(DOCS_ROOT, 'providers', '%s.rst' % provider_name)
-        with open(fname, 'wb') as fh:
-            write_provider(fh, doc, provider, fakers)
+        msg = 'Unable to find provider `{0}` with locale `{1}`'.format(
+            provider, locale)
+        raise ValueError(msg)
 
-    with open(os.path.join(DOCS_ROOT, 'providers.rst'), 'wb') as fh:
-        write(fh, 'Providers\n')
-        write(fh, '=========\n')
-        write(fh, '.. toctree::\n')
-        write(fh, '   :maxdepth: 2\n\n')
-        [write(fh, '   providers/%s\n' % doc.get_provider_name(provider))
-         for provider, fakers in formatters]
+    @classmethod
+    def _find_provider_class(cls, provider_path, locale=None):
 
-    AVAILABLE_LOCALES = sorted(AVAILABLE_LOCALES)
-    for lang in AVAILABLE_LOCALES:
-        fname = os.path.join(DOCS_ROOT, 'locales', '%s.rst' % lang)
-        with open(fname, 'wb') as fh:
-            write(fh, '\n')
-            title = 'Language {0}\n'.format(lang)
-            write(fh, title)
-            write(fh, '=' * len(title))
-            write(fh, '\n')
-            fake = Faker(locale=lang)
-            d = documentor.Documentor(fake)
+        provider_module = import_module(provider_path)
 
-            for p, fs in d.get_formatters(with_args=True, with_defaults=True,
-                                          locale=lang,
-                                          excludes=base_provider_formatters):
-                write_provider(fh, d, p, fs)
+        if getattr(provider_module, 'localized', False):
 
-    with open(os.path.join(DOCS_ROOT, 'locales.rst'), 'wb') as fh:
-        write(fh, 'Locales\n')
-        write(fh, '=======\n')
-        write(fh, '.. toctree::\n')
-        write(fh, '   :maxdepth: 2\n\n')
-        [write(fh, '   locales/%s\n' % lang) for lang in AVAILABLE_LOCALES]
+            logger.debug('Looking for locale `{}` in provider `{}`.'.format(
+                locale, provider_module.__name__))
 
+            available_locales = list_module(provider_module)
+            if not locale or locale not in available_locales:
+                unavailable_locale = locale
+                locale = getattr(
+                    provider_module, 'default_locale', DEFAULT_LOCALE)
+                logger.debug('Specified locale `{}` is not available for '
+                               'provider `{}`. Locale reset to `{}` for this '
+                               'provider.'.format(unavailable_locale,
+                                                  provider_module.__name__,
+                                                  locale)
+                               )
+            else:
+                logger.debug('Provider `{}` has been localized to `{}`.'.format(
+                    provider_module.__name__, locale))
 
-# wrappers for sphinx
-def _main(app, *args, **kwargs):
-    return write_docs(*args, **kwargs)
+            path = "{provider_path}.{locale}".format(
+                provider_path=provider_path,
+                locale=locale,
+            )
+            provider_module = import_module(path)
 
+        else:
 
-def setup(app):
-    app.connect(str('builder-inited'), _main)
+            logger.debug('Provider `{}` does not feature localization. '
+                        'Specified locale `{}` is not utilized for this '
+                        'provider.'.format(
+                            provider_module.__name__, locale)
+                        )
 
+            if locale is not None:
+                provider_module = import_module(provider_path)
 
-if __name__ == "__main__":
-    write_docs(*sys.argv[1:])
+        return provider_module.Provider

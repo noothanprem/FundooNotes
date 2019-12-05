@@ -1,1 +1,1 @@
-ý‡0venv/lib/python3.6/site-packages/kombu/compat.py 2pyXÖh
+ý‡2venv/lib/python3.6/site-packages/kombu/__init__.py 2pyX€h

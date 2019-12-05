@@ -1,1 +1,1 @@
-Á.venv/lib/python3.6/site-packages/celery/fixups :ÀÂ
+Á8venv/lib/python3.6/site-packages/celery/fixups/django.py 2pyXÌh

@@ -13,22 +13,21 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from pbr.hooks import base
+from pbr import packaging
 
-class BaseConfig(object):
 
-    section = None
+class BackwardsCompatConfig(base.BaseConfig):
 
-    def __init__(self, config):
-        self._global_config = config
-        self.config = self._global_config.get(self.section, dict())
-        self.pbr_config = config.get('pbr', dict())
-
-    def run(self):
-        self.hook()
-        self.save()
+    section = 'backwards_compat'
 
     def hook(self):
-        pass
-
-    def save(self):
-        self._global_config[self.section] = self.config
+        self.config['include_package_data'] = 'True'
+        packaging.append_text_list(
+            self.config, 'dependency_links',
+            packaging.parse_dependency_links())
+        packaging.append_text_list(
+            self.config, 'tests_require',
+            packaging.parse_requirements(
+                packaging.TEST_REQUIREMENTS_FILES,
+                strip_markers=True))

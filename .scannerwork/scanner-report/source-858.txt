@@ -1,172 +1,148 @@
 # -*- coding: utf-8 -*-
-"""Base Execution Pool."""
+"""Eventlet execution pool."""
 from __future__ import absolute_import, unicode_literals
 
-import logging
-import os
 import sys
 
-from billiard.einfo import ExceptionInfo
-from billiard.exceptions import WorkerLostError
-from kombu.utils.encoding import safe_repr
+from kombu.asynchronous import timer as _timer  # noqa
+from kombu.five import monotonic
 
-from celery.exceptions import WorkerShutdown, WorkerTerminate
-from celery.five import monotonic, reraise
-from celery.utils import timer2
-from celery.utils.log import get_logger
-from celery.utils.text import truncate
+from celery import signals  # noqa
 
-__all__ = ('BasePool', 'apply_target')
+from . import base  # noqa
 
-logger = get_logger('celery.pool')
+__all__ = ('TaskPool',)
+
+W_RACE = """\
+Celery module with %s imported before eventlet patched\
+"""
+RACE_MODS = ('billiard.', 'celery.', 'kombu.')
+
+
+#: Warn if we couldn't patch early enough,
+#: and thread/socket depending celery modules have already been loaded.
+for mod in (mod for mod in sys.modules if mod.startswith(RACE_MODS)):
+    for side in ('thread', 'threading', 'socket'):  # pragma: no cover
+        if getattr(mod, side, None):
+            import warnings
+            warnings.warn(RuntimeWarning(W_RACE % side))
 
 
 def apply_target(target, args=(), kwargs={}, callback=None,
-                 accept_callback=None, pid=None, getpid=os.getpid,
-                 propagate=(), monotonic=monotonic, **_):
-    """Apply function within pool context."""
-    if accept_callback:
-        accept_callback(pid or getpid(), monotonic())
-    try:
-        ret = target(*args, **kwargs)
-    except propagate:
-        raise
-    except Exception:
-        raise
-    except (WorkerShutdown, WorkerTerminate):
-        raise
-    except BaseException as exc:
+                 accept_callback=None, getpid=None):
+    return base.apply_target(target, args, kwargs, callback, accept_callback,
+                             pid=getpid())
+
+
+class Timer(_timer.Timer):
+    """Eventlet Timer."""
+
+    def __init__(self, *args, **kwargs):
+        from eventlet.greenthread import spawn_after
+        from greenlet import GreenletExit
+        super(Timer, self).__init__(*args, **kwargs)
+
+        self.GreenletExit = GreenletExit
+        self._spawn_after = spawn_after
+        self._queue = set()
+
+    def _enter(self, eta, priority, entry, **kwargs):
+        secs = max(eta - monotonic(), 0)
+        g = self._spawn_after(secs, entry)
+        self._queue.add(g)
+        g.link(self._entry_exit, entry)
+        g.entry = entry
+        g.eta = eta
+        g.priority = priority
+        g.canceled = False
+        return g
+
+    def _entry_exit(self, g, entry):
         try:
-            reraise(WorkerLostError, WorkerLostError(repr(exc)),
-                    sys.exc_info()[2])
-        except WorkerLostError:
-            callback(ExceptionInfo())
-    else:
-        callback(ret)
+            try:
+                g.wait()
+            except self.GreenletExit:
+                entry.cancel()
+                g.canceled = True
+        finally:
+            self._queue.discard(g)
+
+    def clear(self):
+        queue = self._queue
+        while queue:
+            try:
+                queue.pop().cancel()
+            except (KeyError, self.GreenletExit):
+                pass
+
+    def cancel(self, tref):
+        try:
+            tref.cancel()
+        except self.GreenletExit:
+            pass
+
+    @property
+    def queue(self):
+        return self._queue
 
 
-class BasePool(object):
-    """Task pool."""
+class TaskPool(base.BasePool):
+    """Eventlet Task Pool."""
 
-    RUN = 0x1
-    CLOSE = 0x2
-    TERMINATE = 0x3
+    Timer = Timer
 
-    Timer = timer2.Timer
-
-    #: set to true if the pool can be shutdown from within
-    #: a signal handler.
-    signal_safe = True
-
-    #: set to true if pool uses greenlets.
-    is_green = False
-
-    _state = None
+    signal_safe = False
+    is_green = True
+    task_join_will_block = False
     _pool = None
-    _does_debug = True
+    _quick_put = None
 
-    #: only used by multiprocessing pool
-    uses_semaphore = False
+    def __init__(self, *args, **kwargs):
+        from eventlet import greenthread
+        from eventlet.greenpool import GreenPool
+        self.Pool = GreenPool
+        self.getcurrent = greenthread.getcurrent
+        self.getpid = lambda: id(greenthread.getcurrent())
+        self.spawn_n = greenthread.spawn_n
 
-    task_join_will_block = True
-    body_can_be_buffer = False
-
-    def __init__(self, limit=None, putlocks=True, forking_enable=True,
-                 callbacks_propagate=(), app=None, **options):
-        self.limit = limit
-        self.putlocks = putlocks
-        self.options = options
-        self.forking_enable = forking_enable
-        self.callbacks_propagate = callbacks_propagate
-        self.app = app
+        super(TaskPool, self).__init__(*args, **kwargs)
 
     def on_start(self):
-        pass
-
-    def did_start_ok(self):
-        return True
-
-    def flush(self):
-        pass
+        self._pool = self.Pool(self.limit)
+        signals.eventlet_pool_started.send(sender=self)
+        self._quick_put = self._pool.spawn_n
+        self._quick_apply_sig = signals.eventlet_pool_apply.send
 
     def on_stop(self):
-        pass
+        signals.eventlet_pool_preshutdown.send(sender=self)
+        if self._pool is not None:
+            self._pool.waitall()
+        signals.eventlet_pool_postshutdown.send(sender=self)
 
-    def register_with_event_loop(self, loop):
-        pass
+    def on_apply(self, target, args=None, kwargs=None, callback=None,
+                 accept_callback=None, **_):
+        self._quick_apply_sig(
+            sender=self, target=target, args=args, kwargs=kwargs,
+        )
+        self._quick_put(apply_target, target, args, kwargs,
+                        callback, accept_callback,
+                        self.getpid)
 
-    def on_apply(self, *args, **kwargs):
-        pass
+    def grow(self, n=1):
+        limit = self.limit + n
+        self._pool.resize(limit)
+        self.limit = limit
 
-    def on_terminate(self):
-        pass
-
-    def on_soft_timeout(self, job):
-        pass
-
-    def on_hard_timeout(self, job):
-        pass
-
-    def maintain_pool(self, *args, **kwargs):
-        pass
-
-    def terminate_job(self, pid, signal=None):
-        raise NotImplementedError(
-            '{0} does not implement kill_job'.format(type(self)))
-
-    def restart(self):
-        raise NotImplementedError(
-            '{0} does not implement restart'.format(type(self)))
-
-    def stop(self):
-        self.on_stop()
-        self._state = self.TERMINATE
-
-    def terminate(self):
-        self._state = self.TERMINATE
-        self.on_terminate()
-
-    def start(self):
-        self._does_debug = logger.isEnabledFor(logging.DEBUG)
-        self.on_start()
-        self._state = self.RUN
-
-    def close(self):
-        self._state = self.CLOSE
-        self.on_close()
-
-    def on_close(self):
-        pass
-
-    def apply_async(self, target, args=[], kwargs={}, **options):
-        """Equivalent of the :func:`apply` built-in function.
-
-        Callbacks should optimally return as soon as possible since
-        otherwise the thread which handles the result will get blocked.
-        """
-        if self._does_debug:
-            logger.debug('TaskPool: Apply %s (args:%s kwargs:%s)',
-                         target, truncate(safe_repr(args), 1024),
-                         truncate(safe_repr(kwargs), 1024))
-
-        return self.on_apply(target, args, kwargs,
-                             waitforslot=self.putlocks,
-                             callbacks_propagate=self.callbacks_propagate,
-                             **options)
+    def shrink(self, n=1):
+        limit = self.limit - n
+        self._pool.resize(limit)
+        self.limit = limit
 
     def _get_info(self):
-        return {
+        info = super(TaskPool, self)._get_info()
+        info.update({
             'max-concurrency': self.limit,
-        }
-
-    @property
-    def info(self):
-        return self._get_info()
-
-    @property
-    def active(self):
-        return self._state == self.RUN
-
-    @property
-    def num_processes(self):
-        return self.limit
+            'free-threads': self._pool.free(),
+            'running-threads': self._pool.running(),
+        })
+        return info

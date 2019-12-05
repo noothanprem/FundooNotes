@@ -1,1 +1,1 @@
-©øSvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/mysql/features.py 2pyXh
+©øGvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/mysql :¨øªø«ø¬ø­øµø

@@ -1,1 +1,1 @@
-ŠO@venv/lib/python3.6/site-packages/libfuturize/fixes/fix_object.py 2pyXh
+ŠOQvenv/lib/python3.6/site-packages/libfuturize/fixes/fix_future_standard_library.py 2pyXh

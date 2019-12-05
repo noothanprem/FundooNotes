@@ -1,1 +1,1 @@
-ªb2venv/lib/python3.6/site-packages/docutils/nodes.py 2pyXùh
+ªb<venv/lib/python3.6/site-packages/docutils/readers/doctree.py 2pyX/h

@@ -1,1 +1,1 @@
-µä>venv/lib64/python3.6/site-packages/social_django/middleware.py 2pyXBh
+µäSvenv/lib64/python3.6/site-packages/social_django/management/commands/clearsocial.py 2pyX$h

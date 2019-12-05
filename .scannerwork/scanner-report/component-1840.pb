@@ -1,1 +1,0 @@
-°5venv/lib/python3.6/site-packages/launchpadlib/apps.py 2pyX5h

@@ -1,1 +1,1 @@
-ô6venv/lib/python3.6/site-packages/celery/bin/logtool.py 2pyXªh
+ô5venv/lib/python3.6/site-packages/celery/bin/worker.py 2pyXðh

@@ -1,24 +1,37 @@
-"""Fixer that changes unicode to str and unichr to chr, but -- unlike the
-lib2to3 fix_unicode.py fixer, does not change u"..." into "...".
+# coding: utf-8
+"""
+Fixer for the execfile() function on Py2, which was removed in Py3.
 
-The reason is that Py3.3+ supports the u"..." string prefix, and, if
-present, the prefix may provide useful information for disambiguating
-between byte strings and unicode strings, which is often the hardest part
-of the porting task.
+The Lib/lib2to3/fixes/fix_execfile.py module has some problems: see
+python-future issue #37. This fixer merely imports execfile() from
+past.builtins and leaves the code alone.
 
+Adds this import line::
+
+    from past.builtins import execfile
+
+for the function execfile() that was removed from Py3.
 """
 
-from lib2to3.pgen2 import token
+from __future__ import unicode_literals
 from lib2to3 import fixer_base
 
-_mapping = {u"unichr" : u"chr", u"unicode" : u"str"}
+from libfuturize.fixer_util import touch_import_top
 
-class FixUnicodeKeepU(fixer_base.BaseFix):
+
+expression = "name='execfile'"
+
+
+class FixExecfile(fixer_base.BaseFix):
     BM_compatible = True
-    PATTERN = "'unicode' | 'unichr'"
+    run_order = 9
+
+    PATTERN = """
+              power<
+                 ({0}) trailer< '(' args=[any] ')' >
+              rest=any* >
+              """.format(expression)
 
     def transform(self, node, results):
-        if node.type == token.NAME:
-            new = node.clone()
-            new.value = _mapping[node.value]
-            return new
+        name = results["name"]
+        touch_import_top(u'past.builtins', name.value, node)

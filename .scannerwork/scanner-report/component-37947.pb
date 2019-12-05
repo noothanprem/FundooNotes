@@ -1,1 +1,1 @@
-»¨2venv/lib64/python3.6/site-packages/boto3/resources :º¨¼¨½¨¾¨¿¨À¨É¨Ë¨
+»¨2venv/lib64/python3.6/site-packages/boto3/resources :º¨¼¨½¨¾¨¿¨À¨Ê¨Ë¨

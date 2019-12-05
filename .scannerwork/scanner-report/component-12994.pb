@@ -1,1 +1,1 @@
-Âe3venv/lib/python3.6/site-packages/chardet/jisfreq.py 2pyXÆh
+Âe8venv/lib/python3.6/site-packages/chardet/cli/__init__.py 2pyXh

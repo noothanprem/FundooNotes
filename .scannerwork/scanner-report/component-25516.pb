@@ -1,1 +1,1 @@
-¬ÇCvenv/lib/python3.6/site-packages/requests_oauthlib/compliance_fixes :«Ç­Ç®Ç¯Ç¼Ç½Ç¾Ç¿ÇÀÇÁÇ
+¬ÇCvenv/lib/python3.6/site-packages/requests_oauthlib/compliance_fixes :«Ç®Ç¯Ç°Ç¼Ç½Ç¾Ç¿ÇÀÇÃÇ

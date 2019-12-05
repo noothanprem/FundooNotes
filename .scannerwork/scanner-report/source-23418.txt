@@ -1,21 +1,21 @@
-import json
+from six.moves.urllib_parse import urlencode
 
-from .oauth import OAuth2Test
+from .oauth import OAuth1Test
 
 
-class QiitaOAuth2Test(OAuth2Test):
-    backend_path = 'social_core.backends.qiita.QiitaOAuth2'
-    user_data_url = 'https://qiita.com/api/v2/authenticated_user'
+class FlickrOAuth1Test(OAuth1Test):
+    backend_path = 'social_core.backends.flickr.FlickrOAuth'
     expected_username = 'foobar'
-
-    access_token_body = json.dumps({
-        'token': 'foobar',
-        'token_type': 'bearer'
+    access_token_body = urlencode({
+        'oauth_token_secret': 'a-secret',
+        'username': 'foobar',
+        'oauth_token': 'foobar',
+        'user_nsid': '10101010@N01'
     })
-
-    user_data_body = json.dumps({
-        'id': 'foobar',
-        'name': 'Foo Bar'
+    request_token_body = urlencode({
+        'oauth_token_secret': 'foobar-secret',
+        'oauth_token': 'foobar',
+        'oauth_callback_confirmed': 'true'
     })
 
     def test_login(self):

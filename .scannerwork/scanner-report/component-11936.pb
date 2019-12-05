@@ -1,1 +1,1 @@
-†]8venv/lib/python3.6/site-packages/boto3/dynamodb/table.py 2pyXùh
+†];venv/lib/python3.6/site-packages/boto3/dynamodb/__init__.py 2pyXh

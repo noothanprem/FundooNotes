@@ -1,1 +1,0 @@
-щаBvenv/lib64/python3.6/site-packages/celery/contrib/testing/tasks.py 2pyXh

@@ -1,1 +1,1 @@
-©æqvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/migrations/0006_auto_20171017_2113.py 2pyXh
+©æfvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/migrations/0001_initial.py 2pyX*h

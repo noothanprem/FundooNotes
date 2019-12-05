@@ -1,1 +1,1 @@
-½e;venv/lib/python3.6/site-packages/chardet/langhebrewmodel.py 2pyXÉh
+½e8venv/lib/python3.6/site-packages/chardet/gb2312prober.py 2pyX/h

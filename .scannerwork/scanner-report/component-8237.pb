@@ -1,1 +1,1 @@
-­@Pvenv/lib/python3.6/site-packages/django/core/management/commands/makemessages.py 2pyX°h
+­@Rvenv/lib/python3.6/site-packages/django/core/management/commands/makemigrations.py 2pyX¸h

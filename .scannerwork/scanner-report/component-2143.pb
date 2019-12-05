@@ -1,1 +1,1 @@
-ß:venv/lib/python3.6/site-packages/reportlab/graphics/charts : ÝÞàáâãäåæçèúûüýþ
+ß:venv/lib/python3.6/site-packages/reportlab/graphics/charts : Þàáâãäåæçèéûüýþÿ

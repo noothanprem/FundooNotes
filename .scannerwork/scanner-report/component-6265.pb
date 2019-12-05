@@ -1,1 +1,1 @@
-ù0[venv/lib/python3.6/site-packages/django/contrib/sitemaps/management/commands/ping_google.py 2pyXh
+ù08venv/lib/python3.6/site-packages/django/contrib/sitemaps :ø0‚1ƒ1

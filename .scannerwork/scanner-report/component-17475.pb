@@ -1,1 +1,1 @@
-ÈDvenv/lib/python3.6/site-packages/kombu/transport/virtual/__init__.py 2pyXh
+È:venv/lib/python3.6/site-packages/kombu/transport/pyamqp.py 2pyX�h

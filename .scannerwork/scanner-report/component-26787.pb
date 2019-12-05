@@ -1,1 +1,1 @@
-£Ñ;venv/lib64/python3.6/site-packages/celery/worker/request.py 2pyXÀh
+£Ñ=venv/lib64/python3.6/site-packages/celery/backends/couchdb.py 2pyXih

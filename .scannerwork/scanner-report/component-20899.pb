@@ -1,1 +1,1 @@
-££:venv/lib/python3.6/site-packages/twisted/names/_rfc1982.py 2pyX—h
+££5venv/lib/python3.6/site-packages/twisted/names/dns.py 2pyXêh

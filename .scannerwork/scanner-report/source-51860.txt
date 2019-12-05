@@ -1,149 +1,146 @@
-"""Tests for parsing which does not raise Exceptions normally"""
-__version__ = '$Id: test_parse.py 1281 2008-06-04 21:12:29Z cthedot $'
+"""Testcases for cssutils.css.selectorlist.SelectorList."""
 
-import logging
-import io
-import sys
 import xml.dom
 from . import basetest
 import cssutils
+from cssutils.css.selectorlist import SelectorList
 
-class ErrorHandlerTestCase(basetest.BaseTestCase):
+class SelectorListTestCase(basetest.BaseTestCase):
 
     def setUp(self):
-        "replace default log and ignore its output"
-        self._oldlog = cssutils.log._log
-        self._saved = cssutils.log.raiseExceptions
+        self.r = SelectorList()
 
-        cssutils.log.raiseExceptions = False
-        cssutils.log.setLog(logging.getLogger('IGNORED-CSSUTILS-TEST'))
+    def test_init(self):
+        "SelectorList.__init__() and .length"
+        s = SelectorList()
+        self.assertEqual(0, s.length)
 
-    def tearDown(self):
-        "reset default log"
-        cssutils.log.setLog(self._oldlog)
-        # for tests only
-        cssutils.log.setLevel(logging.FATAL)
-        cssutils.log.raiseExceptions = self._saved
+        s = SelectorList('a, b')
+        self.assertEqual(2, s.length)
+        self.assertEqual('a, b', s.selectorText)
 
-    def _setHandler(self):
-        "sets new handler and returns StringIO instance to getvalue"
-        s = io.StringIO()
-        h = logging.StreamHandler(s)
-        h.setFormatter(logging.Formatter('%(levelname)s    %(message)s'))
-        # remove if present already
-        cssutils.log.removeHandler(h)
-        cssutils.log.addHandler(h)
-        return s
+        s = SelectorList(selectorText='a')
+        self.assertEqual(1, s.length)
+        self.assertEqual('a', s.selectorText)
 
-    def test_calls(self):
-        "cssutils.log.*"
-        s = self._setHandler()
-        cssutils.log.setLevel(logging.DEBUG)
-        cssutils.log.debug('msg', neverraise=True)
-        self.assertEqual(s.getvalue(), 'DEBUG    msg\n')
+        s = SelectorList(selectorText=('p|a', {'p': 'uri'})) # n-dict
+        self.assertEqual(1, s.length)
+        self.assertEqual('p|a', s.selectorText)
 
-        s = self._setHandler()
-        cssutils.log.setLevel(logging.INFO)
-        cssutils.log.info('msg', neverraise=True)
-        self.assertEqual(s.getvalue(), 'INFO    msg\n')
+        s = SelectorList(selectorText=('p|a', (('p', 'uri'),))) # n-tuples
+        self.assertEqual(1, s.length)
+        self.assertEqual('p|a', s.selectorText)
 
-        s = self._setHandler()
-        cssutils.log.setLevel(logging.WARNING)
-        cssutils.log.warn('msg', neverraise=True)
-        self.assertEqual(s.getvalue(), 'WARNING    msg\n')
-
-        s = self._setHandler()
-        cssutils.log.setLevel(logging.ERROR)
-        cssutils.log.error('msg', neverraise=True)
-        self.assertEqual(s.getvalue(), 'ERROR    msg\n')
-
-        s = self._setHandler()
-        cssutils.log.setLevel(logging.FATAL)
-        cssutils.log.fatal('msg', neverraise=True)
-        self.assertEqual(s.getvalue(), 'CRITICAL    msg\n')
-
-        s = self._setHandler()
-        cssutils.log.setLevel(logging.CRITICAL)
-        cssutils.log.critical('msg', neverraise=True)
-        self.assertEqual(s.getvalue(), 'CRITICAL    msg\n')
-
-        s = self._setHandler()
-        cssutils.log.setLevel(logging.CRITICAL)
-        cssutils.log.error('msg', neverraise=True)
-        self.assertEqual(s.getvalue(), '')
-
-    def test_linecol(self):
-        "cssutils.log line col"
-        o = cssutils.log.raiseExceptions
-        cssutils.log.raiseExceptions = True
+    def test_parentRule(self):
+        "Selector.parentRule"
+        def check(style):
+            self.assertEqual(style, style.selectorList.parentRule)
+            for sel in style.selectorList:
+                self.assertEqual(style.selectorList, sel.parent)
         
-        s = cssutils.css.CSSStyleSheet()
-        try:
-            s.cssText = '@import x;'
-        except xml.dom.DOMException as e:                
-            self.assertEqual(str(e), 'CSSImportRule: Unexpected ident. [1:9: x]')
-            self.assertEqual(e.line, 1)
-            self.assertEqual(e.col, 9)
-            if sys.platform.startswith('java'):
-                self.assertEqual(e.msg, 'CSSImportRule: Unexpected ident. [1:9: x]')
-            else:
-                self.assertEqual(e.args, ('CSSImportRule: Unexpected ident. [1:9: x]',))
+        style = cssutils.css.CSSStyleRule('a, b')
+        check(style)
+
+        # add new selector
+        style.selectorList.append(cssutils.css.Selector('x'))
+        check(style)
+
+        # replace selectorList
+        style.selectorList = cssutils.css.SelectorList('x')
+        check(style)
+
+        # replace selectorText
+        style.selectorText = ('x, y')
+        check(style)
+            
+    def test_appendSelector(self):
+        "SelectorList.appendSelector() and .length"
+        s = SelectorList()
+        s.appendSelector('a')
+        self.assertEqual(1, s.length)
+
+        self.assertRaises(xml.dom.InvalidModificationErr,
+                          s.appendSelector, 'b,')
+        self.assertEqual(1, s.length)
+
+        self.assertEqual('a', s.selectorText)
+
+        s.append('b')
+        self.assertEqual(2, s.length)
+        self.assertEqual('a, b', s.selectorText)
+
+        s.append('a')
+        self.assertEqual(2, s.length)
+        self.assertEqual('b, a', s.selectorText)
         
-        cssutils.log.raiseExceptions = o
+        # __setitem__    
+        self.assertRaises(IndexError, s.__setitem__, 4, 'x')
+        s[1] = 'c'
+        self.assertEqual(2, s.length)
+        self.assertEqual('b, c', s.selectorText)
+        # TODO: remove duplicates?
+#        s[0] = 'c'
+#        self.assertEqual(1, s.length)
+#        self.assertEqual(u'c', s.selectorText)
 
-    def test_handlers(self):
-        "cssutils.log"
-        s = self._setHandler()
+        s = SelectorList()
+        s.appendSelector(('p|a', {'p': 'uri', 'x': 'xxx'}))
+        self.assertEqual('p|a', s.selectorText)
+        # x gets lost as not used
+        self.assertRaises(xml.dom.NamespaceErr, s.append, 'x|a')
+        # not set at all
+        self.assertRaises(xml.dom.NamespaceErr, s.append, 'y|a')
+        # but p is retained
+        s.append('p|b')
+        self.assertEqual('p|a, p|b', s.selectorText)
 
-        cssutils.log.setLevel(logging.FATAL)
-        self.assertEqual(cssutils.log.getEffectiveLevel(), logging.FATAL)
+    def test_selectorText(self):
+        "SelectorList.selectorText"
+        s = SelectorList()
+        s.selectorText = 'a, b'
+        self.assertEqual('a, b', s.selectorText)
+        self.assertRaises(xml.dom.SyntaxErr, s._setSelectorText, ',')
+        # not changed as invalid!
+        self.assertEqual('a, b', s.selectorText)
 
-        cssutils.parseString('a { color: 1 }')
-        self.assertEqual(s.getvalue(), '')
+        tests = {
+            '*': None,
+            '/*1*/*': None,
+            '/*1*/*, a': None,
+            'a, b': None,
+            'a ,b': 'a, b',
+            'a , b': 'a, b',
+            'a, b, c': 'a, b, c',
+            '#a, x#a, .b, x.b': '#a, x#a, .b, x.b',
+            ('[p|a], p|*', (('p', 'uri'),)): '[p|a], p|*',
+            }
+        # do not parse as not complete
+        self.do_equal_r(tests, att='selectorText')
 
-        cssutils.log.setLevel(logging.DEBUG)
-        cssutils.parseString('a { color: 1 }')
-        # TODO: Fix?
-#        self.assertEqual(s.getvalue(),
-#                         u'ERROR    Property: Invalid value for "CSS Color Module Level 3/CSS Level 2.1" property: 1 [1:5: color]\n')
-        self.assertEqual(s.getvalue(),
-                         'ERROR    Property: Invalid value for "CSS Level 2.1" property: 1 [1:5: color]\n')
+        tests = {
+            'x|*': xml.dom.NamespaceErr,
+            '': xml.dom.SyntaxErr,
+            ' ': xml.dom.SyntaxErr,
+            ',': xml.dom.SyntaxErr,
+            'a,': xml.dom.SyntaxErr,
+            ',a': xml.dom.SyntaxErr,
+            '/* 1 */,a': xml.dom.SyntaxErr,
+            }
+        # only set as not complete
+        self.do_raise_r(tests, att='_setSelectorText')
 
-        s = self._setHandler()
-
-        cssutils.log.setLevel(logging.ERROR)
-        cssutils.parseUrl('http://example.com')
-        self.assertEqual(s.getvalue()[:38],
-                         'ERROR    Expected "text/css" mime type')
-
-    def test_parsevalidation(self):
-        style = 'color: 1'
-        t = 'a { %s }' % style
-                
-        cssutils.log.setLevel(logging.DEBUG)
+    def test_reprANDstr(self):
+        "SelectorList.__repr__(), .__str__()"
+        sel=('a, p|b', { 'p': 'uri'})
         
-        # sheet
-        s = self._setHandler()
-        cssutils.parseString(t)
-        self.assertNotEqual(len(s.getvalue()), 0)
-        
-        s = self._setHandler()
-        cssutils.parseString(t, validate=False)
-        self.assertEqual(s.getvalue(), '')
+        s = cssutils.css.SelectorList(selectorText=sel)
 
-        # style
-        s = self._setHandler()
-        cssutils.parseStyle(style)
-        self.assertNotEqual(len(s.getvalue()), 0)
+        self.assertTrue(sel[0] in str(s))
 
-        s = self._setHandler()
-        cssutils.parseStyle(style, validate=True)
-        self.assertNotEqual(len(s.getvalue()), 0)
+        s2 = eval(repr(s))
+        self.assertTrue(isinstance(s2, s.__class__))
+        self.assertEqual(sel[0], s2.selectorText)
 
-        s = self._setHandler()
-        cssutils.parseStyle(style, validate=False)
-        self.assertEqual(s.getvalue(), '')
-               
 
 if __name__ == '__main__':
     import unittest

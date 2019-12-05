@@ -1,1 +1,1 @@
-þì4venv/lib64/python3.6/site-packages/xdg/MenuEditor.py 2pyX€h
+þì6venv/lib64/python3.6/site-packages/xdg/DesktopEntry.py 2pyX¢h

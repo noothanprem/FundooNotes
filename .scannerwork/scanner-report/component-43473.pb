@@ -1,1 +1,1 @@
-ÑÓ2venv/lib64/python3.6/site-packages/kombu/transport :3ĞÓÒÓÓÓÔÓÚÓÜÓİÓŞÓßÓàÓáÓâÓãÓäÓõÓ€Ô‚Ô
+ÑÓ2venv/lib64/python3.6/site-packages/kombu/transport :3ÏÓÒÓÓÓÕÓÚÓÜÓİÓŞÓßÓàÓáÓâÓãÓäÓöÓşÓ€Ô

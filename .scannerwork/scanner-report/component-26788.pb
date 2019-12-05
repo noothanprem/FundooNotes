@@ -1,1 +1,1 @@
-คั=venv/lib64/python3.6/site-packages/celery/backends/couchdb.py 2pyXih
+คั9venv/lib64/python3.6/site-packages/celery/worker/loops.py 2pyXh

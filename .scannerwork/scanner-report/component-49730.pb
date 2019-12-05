@@ -1,1 +1,1 @@
-Evenv/lib64/python3.6/site-packages/social_core/backends/stocktwits.py 2pyX&h
+Hvenv/lib64/python3.6/site-packages/social_core/backends/openstreetmap.py 2pyX:h

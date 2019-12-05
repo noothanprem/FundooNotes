@@ -1,1 +1,1 @@
-›A?venv/lib/python3.6/site-packages/django/conf/global_settings.py 2pyXýh
+›A8venv/lib/python3.6/site-packages/django/conf/__init__.py 2pyX€h

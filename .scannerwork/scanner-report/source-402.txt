@@ -4,185 +4,215 @@
 
 from __future__ import absolute_import, division, print_function
 
-import os
+import abc
 
-from cryptography import exceptions, utils
-from cryptography.hazmat.backends.openssl import aead
-from cryptography.hazmat.backends.openssl.backend import backend
+import six
+
+from cryptography import utils
 
 
-class ChaCha20Poly1305(object):
-    _MAX_SIZE = 2 ** 32
+@six.add_metaclass(abc.ABCMeta)
+class Mode(object):
+    @abc.abstractproperty
+    def name(self):
+        """
+        A string naming this mode (e.g. "ECB", "CBC").
+        """
 
-    def __init__(self, key):
-        if not backend.aead_cipher_supported(self):
-            raise exceptions.UnsupportedAlgorithm(
-                "ChaCha20Poly1305 is not supported by this version of OpenSSL",
-                exceptions._Reasons.UNSUPPORTED_CIPHER
-            )
-        utils._check_byteslike("key", key)
+    @abc.abstractmethod
+    def validate_for_algorithm(self, algorithm):
+        """
+        Checks that all the necessary invariants of this (mode, algorithm)
+        combination are met.
+        """
 
-        if len(key) != 32:
-            raise ValueError("ChaCha20Poly1305 key must be 32 bytes.")
 
-        self._key = key
+@six.add_metaclass(abc.ABCMeta)
+class ModeWithInitializationVector(object):
+    @abc.abstractproperty
+    def initialization_vector(self):
+        """
+        The value of the initialization vector for this mode as bytes.
+        """
 
-    @classmethod
-    def generate_key(cls):
-        return os.urandom(32)
 
-    def encrypt(self, nonce, data, associated_data):
-        if associated_data is None:
-            associated_data = b""
+@six.add_metaclass(abc.ABCMeta)
+class ModeWithTweak(object):
+    @abc.abstractproperty
+    def tweak(self):
+        """
+        The value of the tweak for this mode as bytes.
+        """
 
-        if len(data) > self._MAX_SIZE or len(associated_data) > self._MAX_SIZE:
-            # This is OverflowError to match what cffi would raise
-            raise OverflowError(
-                "Data or associated data too long. Max 2**32 bytes"
-            )
 
-        self._check_params(nonce, data, associated_data)
-        return aead._encrypt(
-            backend, self, nonce, data, associated_data, 16
+@six.add_metaclass(abc.ABCMeta)
+class ModeWithNonce(object):
+    @abc.abstractproperty
+    def nonce(self):
+        """
+        The value of the nonce for this mode as bytes.
+        """
+
+
+@six.add_metaclass(abc.ABCMeta)
+class ModeWithAuthenticationTag(object):
+    @abc.abstractproperty
+    def tag(self):
+        """
+        The value of the tag supplied to the constructor of this mode.
+        """
+
+
+def _check_aes_key_length(self, algorithm):
+    if algorithm.key_size > 256 and algorithm.name == "AES":
+        raise ValueError(
+            "Only 128, 192, and 256 bit keys are allowed for this AES mode"
         )
 
-    def decrypt(self, nonce, data, associated_data):
-        if associated_data is None:
-            associated_data = b""
 
-        self._check_params(nonce, data, associated_data)
-        return aead._decrypt(
-            backend, self, nonce, data, associated_data, 16
-        )
+def _check_iv_length(self, algorithm):
+    if len(self.initialization_vector) * 8 != algorithm.block_size:
+        raise ValueError("Invalid IV size ({}) for {}.".format(
+            len(self.initialization_vector), self.name
+        ))
 
-    def _check_params(self, nonce, data, associated_data):
+
+def _check_iv_and_key_length(self, algorithm):
+    _check_aes_key_length(self, algorithm)
+    _check_iv_length(self, algorithm)
+
+
+@utils.register_interface(Mode)
+@utils.register_interface(ModeWithInitializationVector)
+class CBC(object):
+    name = "CBC"
+
+    def __init__(self, initialization_vector):
+        utils._check_byteslike("initialization_vector", initialization_vector)
+        self._initialization_vector = initialization_vector
+
+    initialization_vector = utils.read_only_property("_initialization_vector")
+    validate_for_algorithm = _check_iv_and_key_length
+
+
+@utils.register_interface(Mode)
+@utils.register_interface(ModeWithTweak)
+class XTS(object):
+    name = "XTS"
+
+    def __init__(self, tweak):
+        utils._check_byteslike("tweak", tweak)
+
+        if len(tweak) != 16:
+            raise ValueError("tweak must be 128-bits (16 bytes)")
+
+        self._tweak = tweak
+
+    tweak = utils.read_only_property("_tweak")
+
+    def validate_for_algorithm(self, algorithm):
+        if algorithm.key_size not in (256, 512):
+            raise ValueError(
+                "The XTS specification requires a 256-bit key for AES-128-XTS"
+                " and 512-bit key for AES-256-XTS"
+            )
+
+
+@utils.register_interface(Mode)
+class ECB(object):
+    name = "ECB"
+
+    validate_for_algorithm = _check_aes_key_length
+
+
+@utils.register_interface(Mode)
+@utils.register_interface(ModeWithInitializationVector)
+class OFB(object):
+    name = "OFB"
+
+    def __init__(self, initialization_vector):
+        utils._check_byteslike("initialization_vector", initialization_vector)
+        self._initialization_vector = initialization_vector
+
+    initialization_vector = utils.read_only_property("_initialization_vector")
+    validate_for_algorithm = _check_iv_and_key_length
+
+
+@utils.register_interface(Mode)
+@utils.register_interface(ModeWithInitializationVector)
+class CFB(object):
+    name = "CFB"
+
+    def __init__(self, initialization_vector):
+        utils._check_byteslike("initialization_vector", initialization_vector)
+        self._initialization_vector = initialization_vector
+
+    initialization_vector = utils.read_only_property("_initialization_vector")
+    validate_for_algorithm = _check_iv_and_key_length
+
+
+@utils.register_interface(Mode)
+@utils.register_interface(ModeWithInitializationVector)
+class CFB8(object):
+    name = "CFB8"
+
+    def __init__(self, initialization_vector):
+        utils._check_byteslike("initialization_vector", initialization_vector)
+        self._initialization_vector = initialization_vector
+
+    initialization_vector = utils.read_only_property("_initialization_vector")
+    validate_for_algorithm = _check_iv_and_key_length
+
+
+@utils.register_interface(Mode)
+@utils.register_interface(ModeWithNonce)
+class CTR(object):
+    name = "CTR"
+
+    def __init__(self, nonce):
         utils._check_byteslike("nonce", nonce)
-        utils._check_bytes("data", data)
-        utils._check_bytes("associated_data", associated_data)
-        if len(nonce) != 12:
-            raise ValueError("Nonce must be 12 bytes")
+        self._nonce = nonce
+
+    nonce = utils.read_only_property("_nonce")
+
+    def validate_for_algorithm(self, algorithm):
+        _check_aes_key_length(self, algorithm)
+        if len(self.nonce) * 8 != algorithm.block_size:
+            raise ValueError("Invalid nonce size ({}) for {}.".format(
+                len(self.nonce), self.name
+            ))
 
 
-class AESCCM(object):
-    _MAX_SIZE = 2 ** 32
+@utils.register_interface(Mode)
+@utils.register_interface(ModeWithInitializationVector)
+@utils.register_interface(ModeWithAuthenticationTag)
+class GCM(object):
+    name = "GCM"
+    _MAX_ENCRYPTED_BYTES = (2 ** 39 - 256) // 8
+    _MAX_AAD_BYTES = (2 ** 64) // 8
 
-    def __init__(self, key, tag_length=16):
-        utils._check_byteslike("key", key)
-        if len(key) not in (16, 24, 32):
-            raise ValueError("AESCCM key must be 128, 192, or 256 bits.")
+    def __init__(self, initialization_vector, tag=None, min_tag_length=16):
+        # len(initialization_vector) must in [1, 2 ** 64), but it's impossible
+        # to actually construct a bytes object that large, so we don't check
+        # for it
+        utils._check_byteslike("initialization_vector", initialization_vector)
+        if len(initialization_vector) == 0:
+            raise ValueError("initialization_vector must be at least 1 byte")
+        self._initialization_vector = initialization_vector
+        if tag is not None:
+            utils._check_bytes("tag", tag)
+            if min_tag_length < 4:
+                raise ValueError("min_tag_length must be >= 4")
+            if len(tag) < min_tag_length:
+                raise ValueError(
+                    "Authentication tag must be {} bytes or longer.".format(
+                        min_tag_length)
+                )
+        self._tag = tag
+        self._min_tag_length = min_tag_length
 
-        self._key = key
-        if not isinstance(tag_length, int):
-            raise TypeError("tag_length must be an integer")
+    tag = utils.read_only_property("_tag")
+    initialization_vector = utils.read_only_property("_initialization_vector")
 
-        if tag_length not in (4, 6, 8, 10, 12, 14, 16):
-            raise ValueError("Invalid tag_length")
-
-        self._tag_length = tag_length
-
-        if not backend.aead_cipher_supported(self):
-            raise exceptions.UnsupportedAlgorithm(
-                "AESCCM is not supported by this version of OpenSSL",
-                exceptions._Reasons.UNSUPPORTED_CIPHER
-            )
-
-    @classmethod
-    def generate_key(cls, bit_length):
-        if not isinstance(bit_length, int):
-            raise TypeError("bit_length must be an integer")
-
-        if bit_length not in (128, 192, 256):
-            raise ValueError("bit_length must be 128, 192, or 256")
-
-        return os.urandom(bit_length // 8)
-
-    def encrypt(self, nonce, data, associated_data):
-        if associated_data is None:
-            associated_data = b""
-
-        if len(data) > self._MAX_SIZE or len(associated_data) > self._MAX_SIZE:
-            # This is OverflowError to match what cffi would raise
-            raise OverflowError(
-                "Data or associated data too long. Max 2**32 bytes"
-            )
-
-        self._check_params(nonce, data, associated_data)
-        self._validate_lengths(nonce, len(data))
-        return aead._encrypt(
-            backend, self, nonce, data, associated_data, self._tag_length
-        )
-
-    def decrypt(self, nonce, data, associated_data):
-        if associated_data is None:
-            associated_data = b""
-
-        self._check_params(nonce, data, associated_data)
-        return aead._decrypt(
-            backend, self, nonce, data, associated_data, self._tag_length
-        )
-
-    def _validate_lengths(self, nonce, data_len):
-        # For information about computing this, see
-        # https://tools.ietf.org/html/rfc3610#section-2.1
-        l_val = 15 - len(nonce)
-        if 2 ** (8 * l_val) < data_len:
-            raise ValueError("Nonce too long for data")
-
-    def _check_params(self, nonce, data, associated_data):
-        utils._check_byteslike("nonce", nonce)
-        utils._check_bytes("data", data)
-        utils._check_bytes("associated_data", associated_data)
-        if not 7 <= len(nonce) <= 13:
-            raise ValueError("Nonce must be between 7 and 13 bytes")
-
-
-class AESGCM(object):
-    _MAX_SIZE = 2 ** 32
-
-    def __init__(self, key):
-        utils._check_byteslike("key", key)
-        if len(key) not in (16, 24, 32):
-            raise ValueError("AESGCM key must be 128, 192, or 256 bits.")
-
-        self._key = key
-
-    @classmethod
-    def generate_key(cls, bit_length):
-        if not isinstance(bit_length, int):
-            raise TypeError("bit_length must be an integer")
-
-        if bit_length not in (128, 192, 256):
-            raise ValueError("bit_length must be 128, 192, or 256")
-
-        return os.urandom(bit_length // 8)
-
-    def encrypt(self, nonce, data, associated_data):
-        if associated_data is None:
-            associated_data = b""
-
-        if len(data) > self._MAX_SIZE or len(associated_data) > self._MAX_SIZE:
-            # This is OverflowError to match what cffi would raise
-            raise OverflowError(
-                "Data or associated data too long. Max 2**32 bytes"
-            )
-
-        self._check_params(nonce, data, associated_data)
-        return aead._encrypt(
-            backend, self, nonce, data, associated_data, 16
-        )
-
-    def decrypt(self, nonce, data, associated_data):
-        if associated_data is None:
-            associated_data = b""
-
-        self._check_params(nonce, data, associated_data)
-        return aead._decrypt(
-            backend, self, nonce, data, associated_data, 16
-        )
-
-    def _check_params(self, nonce, data, associated_data):
-        utils._check_byteslike("nonce", nonce)
-        utils._check_bytes("data", data)
-        utils._check_bytes("associated_data", associated_data)
-        if len(nonce) == 0:
-            raise ValueError("Nonce must be at least 1 byte")
+    def validate_for_algorithm(self, algorithm):
+        _check_aes_key_length(self, algorithm)

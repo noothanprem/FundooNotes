@@ -1,1 +1,0 @@
-›YJvenv/lib/python3.6/site-packages/faker/providers/address/sl_SI/__init__.py 2pyX€h

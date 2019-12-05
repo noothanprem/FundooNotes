@@ -1,1 +1,1 @@
-ù6venv/lib/python3.6/site-packages/soupsieve/__init__.py 2pyX€h
+ù*venv/lib/python3.6/site-packages/soupsieve :÷øúûƒ„

@@ -1,24 +1,22 @@
-"""Optional fixer that changes all unprefixed string literals "..." to b"...".
-
-br'abcd' is a SyntaxError on Python 2 but valid on Python 3.
-ur'abcd' is a SyntaxError on Python 3 but valid on Python 2.
-
 """
-from __future__ import unicode_literals
+For the ``future`` package.
 
-import re
-from lib2to3.pgen2 import token
-from lib2to3 import fixer_base
+Turns any print statements into functions and adds this import line:
 
-_literal_re = re.compile(r"[^bBuUrR]?[\'\"]")
+    from __future__ import print_function
 
-class FixBytes(fixer_base.BaseFix):
-    BM_compatible = True
-    PATTERN = "STRING"
+at the top to retain compatibility with Python 2.6+.
+"""
 
+from libfuturize.fixes.fix_print import FixPrint
+from libfuturize.fixer_util import future_import
+
+class FixPrintWithImport(FixPrint):
+    run_order = 7
     def transform(self, node, results):
-        if node.type == token.STRING:
-            if _literal_re.match(node.value):
-                new = node.clone()
-                new.value = u'b' + new.value
-                return new
+        # Add the __future__ import first. (Otherwise any shebang or encoding
+        # comment line attached as a prefix to the print statement will be
+        # copied twice and appear twice.)
+        future_import(u'print_function', node)
+        n_stmt = super(FixPrintWithImport, self).transform(node, results)
+        return n_stmt

@@ -1,1 +1,1 @@
-R4venv/lib/python3.6/site-packages/channels/signals.py 2pyX	h
+R8venv/lib/python3.6/site-packages/channels/staticfiles.py 2pyXJh

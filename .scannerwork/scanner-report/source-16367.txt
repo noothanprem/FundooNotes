@@ -1,2 +1,4 @@
-# We simply import a stdlib module
-__import__('netrc')
+from gevent import GreenletExit
+
+assert issubclass(GreenletExit, BaseException)
+assert not issubclass(GreenletExit, Exception)

@@ -24,247 +24,104 @@
 #
 ###############################################################################
 
-from __future__ import absolute_import, print_function
+from __future__ import absolute_import
 
-import os
 import unittest
-from hashlib import sha1
-from base64 import b64encode
 
-from autobahn.websocket.protocol import WebSocketServerProtocol
-from autobahn.websocket.protocol import WebSocketServerFactory
-from autobahn.websocket.protocol import WebSocketClientProtocol
-from autobahn.websocket.protocol import WebSocketClientFactory
-from autobahn.websocket.protocol import WebSocketProtocol
-from autobahn.websocket.types import ConnectingRequest
-from autobahn.test import FakeTransport
-
-import txaio
-
-from mock import Mock
+from autobahn.websocket.util import create_url, parse_url
 
 
-class WebSocketClientProtocolTests(unittest.TestCase):
+class TestCreateWsUrl(unittest.TestCase):
 
-    def setUp(self):
-        t = FakeTransport()
-        f = WebSocketClientFactory()
-        p = WebSocketClientProtocol()
-        p.factory = f
-        p.transport = t
-        p._create_transport_details = Mock()
+    def test_create_url01(self):
+        self.assertEqual(create_url("localhost"), "ws://localhost:80/")
 
-        p._connectionMade()
-        p.state = p.STATE_OPEN
-        p.websocket_version = 18
+    def test_create_url02(self):
+        self.assertEqual(create_url("localhost", port=8090), "ws://localhost:8090/")
 
-        self.protocol = p
-        self.transport = t
+    def test_create_url03(self):
+        self.assertEqual(create_url("localhost", path="ws"), "ws://localhost:80/ws")
 
-    def tearDown(self):
-        for call in [
-                self.protocol.autoPingPendingCall,
-                self.protocol.autoPingTimeoutCall,
-                self.protocol.openHandshakeTimeoutCall,
-                self.protocol.closeHandshakeTimeoutCall,
-        ]:
-            if call is not None:
-                call.cancel()
+    def test_create_url04(self):
+        self.assertEqual(create_url("localhost", path="/ws"), "ws://localhost:80/ws")
 
-    def test_auto_ping(self):
-        self.protocol.autoPingInterval = 1
-        self.protocol.websocket_protocols = [Mock()]
-        self.protocol.websocket_extensions = []
-        self.protocol._onOpen = lambda: None
-        self.protocol._wskey = '0' * 24
-        self.protocol.peer = Mock()
+    def test_create_url05(self):
+        self.assertEqual(create_url("localhost", path="/ws/foobar"), "ws://localhost:80/ws/foobar")
 
-        # usually provided by the Twisted or asyncio specific
-        # subclass, but we're testing the parent here...
-        self.protocol._onConnect = Mock()
-        self.protocol._closeConnection = Mock()
+    def test_create_url06(self):
+        self.assertEqual(create_url("localhost", isSecure=True), "wss://localhost:443/")
 
-        # set up a connection
-        self.protocol._actuallyStartHandshake(
-            ConnectingRequest(
-                host="example.com",
-                port=80,
-                resource="/ws",
-            )
-        )
+    def test_create_url07(self):
+        self.assertEqual(create_url("localhost", isSecure=True, port=443), "wss://localhost:443/")
 
-        key = self.protocol.websocket_key + WebSocketProtocol._WS_MAGIC
-        self.protocol.data = (
-            b"HTTP/1.1 101 Switching Protocols\x0d\x0a"
-            b"Upgrade: websocket\x0d\x0a"
-            b"Connection: upgrade\x0d\x0a"
-            b"Sec-Websocket-Accept: " + b64encode(sha1(key).digest()) + b"\x0d\x0a\x0d\x0a"
-        )
-        self.protocol.processHandshake()
+    def test_create_url08(self):
+        self.assertEqual(create_url("localhost", isSecure=True, port=80), "wss://localhost:80/")
 
-        self.assertTrue(self.protocol.autoPingPendingCall is not None)
+    def test_create_url09(self):
+        self.assertEqual(create_url("localhost", isSecure=True, port=9090, path="ws", params={'foo': 'bar'}), "wss://localhost:9090/ws?foo=bar")
+
+    def test_create_url10(self):
+        wsurl = create_url("localhost", isSecure=True, port=9090, path="ws", params={'foo': 'bar', 'moo': 23})
+        self.assertTrue(wsurl == "wss://localhost:9090/ws?foo=bar&moo=23" or wsurl == "wss://localhost:9090/ws?moo=23&foo=bar")
+
+    def test_create_url11(self):
+        self.assertEqual(create_url("127.0.0.1", path="ws"), "ws://127.0.0.1:80/ws")
+
+    def test_create_url12(self):
+        self.assertEqual(create_url("62.146.25.34", path="ws"), "ws://62.146.25.34:80/ws")
+
+    def test_create_url13(self):
+        self.assertEqual(create_url("subsub1.sub1.something.com", path="ws"), "ws://subsub1.sub1.something.com:80/ws")
+
+    def test_create_url14(self):
+        self.assertEqual(create_url("::1", path="ws"), "ws://::1:80/ws")
+
+    def test_create_url15(self):
+        self.assertEqual(create_url("0:0:0:0:0:0:0:1", path="ws"), "ws://0:0:0:0:0:0:0:1:80/ws")
 
 
-class WebSocketServerProtocolTests(unittest.TestCase):
-    """
-    Tests for autobahn.websocket.protocol.WebSocketProtocol.
-    """
-    def setUp(self):
-        t = FakeTransport()
-        f = WebSocketServerFactory()
-        p = WebSocketServerProtocol()
-        p.factory = f
-        p.transport = t
+class TestParseWsUrl(unittest.TestCase):
 
-        p._connectionMade()
-        p.state = p.STATE_OPEN
-        p.websocket_version = 18
+    # parse_url -> (isSecure, host, port, resource, path, params)
 
-        self.protocol = p
-        self.transport = t
+    def test_parse_url01(self):
+        self.assertEqual(parse_url("ws://localhost"), (False, 'localhost', 80, '/', '/', {}))
 
-    def tearDown(self):
-        for call in [
-                self.protocol.autoPingPendingCall,
-                self.protocol.autoPingTimeoutCall,
-                self.protocol.openHandshakeTimeoutCall,
-                self.protocol.closeHandshakeTimeoutCall,
-        ]:
-            if call is not None:
-                call.cancel()
+    def test_parse_url02(self):
+        self.assertEqual(parse_url("ws://localhost:80"), (False, 'localhost', 80, '/', '/', {}))
 
-    def test_auto_ping(self):
-        proto = Mock()
-        proto._get_seconds = Mock(return_value=1)
-        self.protocol.autoPingInterval = 1
-        self.protocol.websocket_protocols = [proto]
-        self.protocol.websocket_extensions = []
-        self.protocol._onOpen = lambda: None
-        self.protocol._wskey = '0' * 24
-        self.protocol.succeedHandshake(proto)
+    def test_parse_url03(self):
+        self.assertEqual(parse_url("wss://localhost"), (True, 'localhost', 443, '/', '/', {}))
 
-        self.assertTrue(self.protocol.autoPingPendingCall is not None)
+    def test_parse_url04(self):
+        self.assertEqual(parse_url("wss://localhost:443"), (True, 'localhost', 443, '/', '/', {}))
 
-    def test_sendClose_none(self):
-        """
-        sendClose with no code or reason works.
-        """
-        self.protocol.sendClose()
+    def test_parse_url05(self):
+        self.assertEqual(parse_url("wss://localhost/ws"), (True, 'localhost', 443, '/ws', '/ws', {}))
 
-        # We closed properly
-        self.assertEqual(self.transport._written, b"\x88\x00")
-        self.assertEqual(self.protocol.state, self.protocol.STATE_CLOSING)
+    def test_parse_url06(self):
+        self.assertEqual(parse_url("wss://localhost/ws?foo=bar"), (True, 'localhost', 443, '/ws?foo=bar', '/ws', {'foo': ['bar']}))
 
-    def test_sendClose_str_reason(self):
-        """
-        sendClose with a str reason works.
-        """
-        self.protocol.sendClose(code=1000, reason=u"oh no")
+    def test_parse_url07(self):
+        self.assertEqual(parse_url("wss://localhost/ws?foo=bar&moo=23"), (True, 'localhost', 443, '/ws?foo=bar&moo=23', '/ws', {'moo': ['23'], 'foo': ['bar']}))
 
-        # We closed properly
-        self.assertEqual(self.transport._written[2:], b"\x03\xe8oh no")
-        self.assertEqual(self.protocol.state, self.protocol.STATE_CLOSING)
+    def test_parse_url08(self):
+        self.assertEqual(parse_url("wss://localhost/ws?foo=bar&moo=23&moo=44"), (True, 'localhost', 443, '/ws?foo=bar&moo=23&moo=44', '/ws', {'moo': ['23', '44'], 'foo': ['bar']}))
 
-    def test_sendClose_unicode_reason(self):
-        """
-        sendClose with a unicode reason works.
-        """
-        self.protocol.sendClose(code=1000, reason=u"oh no")
+    def test_parse_url09(self):
+        self.assertRaises(Exception, parse_url, "http://localhost")
 
-        # We closed properly
-        self.assertEqual(self.transport._written[2:], b"\x03\xe8oh no")
-        self.assertEqual(self.protocol.state, self.protocol.STATE_CLOSING)
+    def test_parse_url10(self):
+        self.assertRaises(Exception, parse_url, "https://localhost")
 
-    def test_sendClose_toolong(self):
-        """
-        sendClose with a too-long reason will truncate it.
-        """
-        self.protocol.sendClose(code=1000, reason=u"abc" * 1000)
+    def test_parse_url11(self):
+        self.assertRaises(Exception, parse_url, "http://localhost:80")
 
-        # We closed properly
-        self.assertEqual(self.transport._written[2:],
-                         b"\x03\xe8" + (b"abc" * 41))
-        self.assertEqual(self.protocol.state, self.protocol.STATE_CLOSING)
+    def test_parse_url12(self):
+        self.assertRaises(Exception, parse_url, "http://localhost#frag1")
 
-    def test_sendClose_reason_with_no_code(self):
-        """
-        Trying to sendClose with a reason but no code will raise an Exception.
-        """
-        with self.assertRaises(Exception) as e:
-            self.protocol.sendClose(reason=u"abc")
+    def test_parse_url13(self):
+        self.assertRaises(Exception, parse_url, "wss://")
 
-        self.assertIn("close reason without close code", str(e.exception))
-
-        # We shouldn't have closed
-        self.assertEqual(self.transport._written, b"")
-        self.assertEqual(self.protocol.state, self.protocol.STATE_OPEN)
-
-    def test_sendClose_invalid_code_type(self):
-        """
-        Trying to sendClose with a non-int code will raise an Exception.
-        """
-        with self.assertRaises(Exception) as e:
-            self.protocol.sendClose(code="134")
-
-        self.assertIn("invalid type", str(e.exception))
-
-        # We shouldn't have closed
-        self.assertEqual(self.transport._written, b"")
-        self.assertEqual(self.protocol.state, self.protocol.STATE_OPEN)
-
-    def test_sendClose_invalid_code_value(self):
-        """
-        Trying to sendClose with a non-valid int code will raise an Exception.
-        """
-        with self.assertRaises(Exception) as e:
-            self.protocol.sendClose(code=10)
-
-        self.assertIn("invalid close code 10", str(e.exception))
-
-        # We shouldn't have closed
-        self.assertEqual(self.transport._written, b"")
-        self.assertEqual(self.protocol.state, self.protocol.STATE_OPEN)
-
-
-if os.environ.get('USE_TWISTED', False):
-    class TwistedProtocolTests(unittest.TestCase):
-        """
-        Tests which require a specific framework's protocol class to work
-        (in this case, using Twisted)
-        """
-        def setUp(self):
-            from autobahn.twisted.websocket import WebSocketServerProtocol
-            from autobahn.twisted.websocket import WebSocketServerFactory
-            t = FakeTransport()
-            f = WebSocketServerFactory()
-            p = WebSocketServerProtocol()
-            p.factory = f
-            p.transport = t
-
-            p._connectionMade()
-            p.state = p.STATE_OPEN
-            p.websocket_version = 18
-
-            self.protocol = p
-            self.transport = t
-
-        def tearDown(self):
-            for call in [
-                    self.protocol.autoPingPendingCall,
-                    self.protocol.autoPingTimeoutCall,
-                    self.protocol.openHandshakeTimeoutCall,
-                    self.protocol.closeHandshakeTimeoutCall,
-            ]:
-                if call is not None:
-                    call.cancel()
-
-        def test_loseConnection(self):
-            """
-            If we lose our connection before openHandshakeTimeout fires, it is
-            cleaned up
-            """
-            # so, I guess a little cheezy, but we depend on the asyncio or
-            # twisted class to call _connectionLost at some point; faking
-            # that here
-            self.protocol._connectionLost(txaio.create_failure(RuntimeError("testing")))
-            self.assertTrue(self.protocol.openHandshakeTimeoutCall is None)
+    def test_parse_url14(self):
+        self.assertRaises(Exception, parse_url, "ws://")

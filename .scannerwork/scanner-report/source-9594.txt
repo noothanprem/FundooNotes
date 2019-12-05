@@ -1,12 +1,24 @@
 # -*- coding: utf-8 -*-
 
+from __future__ import absolute_import
 
-class BaseCompressor(object):
-    def __init__(self, options):
-        self._options = options
+import zlib
+
+from ..exceptions import CompressorError
+from .base import BaseCompressor
+
+
+class ZlibCompressor(BaseCompressor):
+    min_length = 15
+    preset = 6
 
     def compress(self, value):
-        raise NotImplementedError
+        if len(value) > self.min_length:
+            return zlib.compress(value, self.preset)
+        return value
 
     def decompress(self, value):
-        raise NotImplementedError
+        try:
+            return zlib.decompress(value)
+        except zlib.error as e:
+            raise CompressorError(e)

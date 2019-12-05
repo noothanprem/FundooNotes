@@ -1,58 +1,98 @@
-h
-pythonS107LMethod "__init__" has 10 parameters, which is greater than the 7 authorized. 26< /n
-pythonS100RRename method "_makeResult" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2++ o
-pythonS100SRename method "writeResults" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2NN u
-pythonS100YRename method "createLocalWorkers" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2WW x
-pythonS100\Rename method "launchWorkerProcesses" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ii q
-pythonS100SRename method "_driveWorker" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÉÉ t
-pythonS100VRename method "runUntilFailure" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¸¸ w
-pythonS117[Rename this parameter "reporterFactory" to match the regular expression ^[_a-z][a-z0-9_]*$. 266 &t
-pythonS117XRename this parameter "workerNumber" to match the regular expression ^[_a-z][a-z0-9_]*$. 266( 4w
-pythonS117[Rename this parameter "workerArguments" to match the regular expression ^[_a-z][a-z0-9_]*$. 2666 Ew
-pythonS117[Rename this parameter "tracebackFormat" to match the regular expression ^[_a-z][a-z0-9_]*$. 288  v
-pythonS117ZRename this parameter "realTimeErrors" to match the regular expression ^[_a-z][a-z0-9_]*$. 299 w
-pythonS117[Rename this parameter "uncleanWarnings" to match the regular expression ^[_a-z][a-z0-9_]*$. 2::  x
-pythonS117\Rename this parameter "workingDirectory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2<< !x
-pythonS117\Rename this parameter "workingDirectory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2WW, <|
-pythonS117`Rename this local variable "workertrialPath" to match the regular expression ^[_a-z][a-z0-9_]*$. 2ss u
-pythonS117YRename this local variable "childFDs" to match the regular expression ^[_a-z][a-z0-9_]*$. 2uu s
-pythonS117URename this parameter "testCases" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÉÉ+ 4v
-pythonS117XRename this parameter "untilFailure" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-¢¢ v
-pythonS117XRename this local variable "testDir" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-√√ z
-pythonS117\Rename this local variable "testDirLock" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-√√ {
-pythonS117]Rename this local variable "workerNumber" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-≈≈ y
-pythonS117[Rename this local variable "ampWorkers" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-∆∆ Ç
-pythonS117dRename this local variable "processEndDeferreds" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-»» x
-pythonS117ZRename this local variable "testCases" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÕÕ ~
-pythonS117`Rename this local variable "workerDeferreds" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-œœ x
-pythonS116\Rename this field "_distReporterFactory" to match the regular expression ^[_a-z][_a-z0-9]*$. 2)) q
-pythonS116URename this field "_workerNumber" to match the regular expression ^[_a-z][_a-z0-9]*$. 2== t
-pythonS116XRename this field "_workerArguments" to match the regular expression ^[_a-z][_a-z0-9]*$. 2>> t
-pythonS116XRename this field "_reporterFactory" to match the regular expression ^[_a-z][_a-z0-9]*$. 2?? t
-pythonS116XRename this field "_uncleanWarnings" to match the regular expression ^[_a-z][_a-z0-9]*$. 2EE u
-pythonS116YRename this field "_workingDirectory" to match the regular expression ^[_a-z][_a-z0-9]*$. 2GG l
-pythonS116PRename this field "_logFile" to match the regular expression ^[_a-z][_a-z0-9]*$. 2HH t
-pythonS116XRename this field "_logFileObserver" to match the regular expression ^[_a-z][_a-z0-9]*$. 2II r
-pythonS116VRename this field "_logFileObject" to match the regular expression ^[_a-z][_a-z0-9]*$. 2JJ p
-pythonS116TRename this field "_logWarnings" to match the regular expression ^[_a-z][_a-z0-9]*$. 2KK u
-pythonS1542VRename function "resultErrback" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ïï p
-pythonS1542QRename function "runTests" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÃÃ o
-pythonS1542PRename function "nextRun" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ŸŸ v
-pythonS1542WRename function "beforeShutDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ËË x
-pythonS1542YRename function "continueShutdown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÓÓ 
+s
+pythonS107UFunction "fakeSpawnProcess" has 9 parameters, which is greater than the 7 authorized. 2
+˚˝ *o
+pythonS100SRename method "writeToChild" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2)) o
+pythonS100SRename method "spawnProcess" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2?? h
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2hh 
+pythonS100cRename method "test_providesIReactorProcess" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2mm $t
+pythonS100XRename method "test_spawnProcess" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2tt j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+≥≥ â
+pythonS100kRename method "getFakeSchedulerAndEternalCooperator" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+   ,v
+pythonS100XRename method "test_writeResults" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+€€ |
+pythonS100^Rename method "test_createLocalWorkers" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÊÊ 
+pythonS100aRename method "test_launchWorkerProcesses" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÚÚ "z
+pythonS100\Rename method "test_runUsedDirectory" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+úú q
+pythonS100SRename method "spawnProcess" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+§§ w
+pythonS100YRename method "test_minimalWorker" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ƒƒ |
+pythonS100^Rename method "test_runUncleanWarnings" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+““ x
+pythonS100ZRename method "test_runWithoutTest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‚‚ Ü
+pythonS100hRename method "test_runWithoutTestButWithAnError" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ )|
+pythonS100^Rename method "test_runUnexpectedError" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÇÇ q
+pythonS100SRename method "spawnProcess" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ää o
+pythonS100QRename method "failingRun" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+êê {
+pythonS100]Rename method "test_runStopAfterTests" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+°° q
+pythonS100SRename method "spawnProcess" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+®® r
+pythonS100TRename method "succeedingRun" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÆÆ Ü
+pythonS100hRename method "test_runWaitForProcessesDeferreds" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ƒƒ )y
+pythonS100[Rename method "test_runUntilFailure" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‰‰ q
+pythonS100SRename method "spawnProcess" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÌÌ r
+pythonS100TRename method "succeedingRun" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÛÛ 
+pythonS117aRename this local variable "whenRunningCalls" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ññ w
+pythonS117YRename this local variable "stringIO" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+‡‡ y
+pythonS117[Rename this parameter "processProtocol" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+˚˚ ,p
+pythonS117RRename this parameter "usePTY" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¸¸< Br
+pythonS117TRename this parameter "childFDs" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+˝˝ %z
+pythonS117\Rename this local variable "fakeReactor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ëë {
+pythonS117]Rename this local variable "newDirectory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+∞∞ 
+pythonS117aRename this local variable "workingDirectory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+≤≤ z
+pythonS117\Rename this local variable "fakeReactor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+∫∫ x
+pythonS117ZRename this local variable "localLock" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+™™ z
+pythonS117\Rename this local variable "fakeReactor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+   z
+pythonS117\Rename this local variable "fakeReactor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÿÿ z
+pythonS117\Rename this local variable "fakeReactor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÁÁ z
+pythonS117\Rename this local variable "fakeReactor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ˆˆ z
+pythonS117\Rename this local variable "fakeReactor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ññ 
+pythonS117aRename this local variable "workingDirectory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+±± z
+pythonS117\Rename this local variable "fakeReactor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¥¥ x
+pythonS117ZRename this local variable "localLock" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ππ 
+pythonS117aRename this local variable "workingDirectory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÀÀ z
+pythonS117\Rename this local variable "fakeReactor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÕÕ x
+pythonS117ZRename this local variable "localLock" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+’’ z
+pythonS117\Rename this local variable "fakeReactor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+˙˙ x
+pythonS1542YRename function "fakeSpawnProcess" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+˚˚ q
+pythonS1542RRename function "realCheck" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‘‘ 

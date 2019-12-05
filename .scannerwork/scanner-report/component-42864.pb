@@ -1,1 +1,1 @@
-ğÎGvenv/lib64/python3.6/site-packages/more_itertools/tests/test_recipes.py 2pyXŞh
+ğÎ1venv/lib64/python3.6/site-packages/more_itertools :	ïÎñÎóÎ

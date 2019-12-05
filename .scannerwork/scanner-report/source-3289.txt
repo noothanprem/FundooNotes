@@ -4,101 +4,188 @@
 # Copyright (c) 2005-2019, Ilya Etingof <etingof@gmail.com>
 # License: http://snmplabs.com/pyasn1/license.html
 #
+import datetime
 
-__all__ = ['OpenType']
+from pyasn1 import error
+from pyasn1.compat import dateandtime
+from pyasn1.compat import string
+from pyasn1.type import char
+from pyasn1.type import tag
+from pyasn1.type import univ
+
+__all__ = ['ObjectDescriptor', 'GeneralizedTime', 'UTCTime']
+
+NoValue = univ.NoValue
+noValue = univ.noValue
 
 
-class OpenType(object):
-    """Create ASN.1 type map indexed by a value
+class ObjectDescriptor(char.GraphicString):
+    __doc__ = char.GraphicString.__doc__
 
-    The *OpenType* object models an untyped field of a constructed ASN.1
-    type. In ASN.1 syntax it is usually represented by the
-    `ANY DEFINED BY` for scalars or `SET OF ANY DEFINED BY`,
-    `SEQUENCE OF ANY DEFINED BY` for container types clauses. Typically
-    used together with :class:`~pyasn1.type.univ.Any` object.
+    #: Default :py:class:`~pyasn1.type.tag.TagSet` object for |ASN.1| objects
+    tagSet = char.GraphicString.tagSet.tagImplicitly(
+        tag.Tag(tag.tagClassUniversal, tag.tagFormatSimple, 7)
+    )
 
-    OpenType objects duck-type a read-only Python :class:`dict` objects,
-    however the passed `typeMap` is not copied, but stored by reference.
-    That means the user can manipulate `typeMap` at run time having this
-    reflected on *OpenType* object behavior.
+    # Optimization for faster codec lookup
+    typeId = char.GraphicString.getTypeId()
 
-    The |OpenType| class models an untyped field of a constructed ASN.1
-    type. In ASN.1 syntax it is usually represented by the
-    `ANY DEFINED BY` for scalars or `SET OF ANY DEFINED BY`,
-    `SEQUENCE OF ANY DEFINED BY` for container types clauses. Typically
-    used with :class:`~pyasn1.type.univ.Any` type.
 
-    Parameters
-    ----------
-    name: :py:class:`str`
-        Field name
+class TimeMixIn(object):
 
-    typeMap: :py:class:`dict`
-        A map of value->ASN.1 type. It's stored by reference and can be
-        mutated later to register new mappings.
+    _yearsDigits = 4
+    _hasSubsecond = False
+    _optionalMinutes = False
+    _shortTZ = False
 
-    Examples
-    --------
+    class FixedOffset(datetime.tzinfo):
+        """Fixed offset in minutes east from UTC."""
 
-    For untyped scalars:
+        # defaulted arguments required
+        # https: // docs.python.org / 2.3 / lib / datetime - tzinfo.html
+        def __init__(self, offset=0, name='UTC'):
+            self.__offset = datetime.timedelta(minutes=offset)
+            self.__name = name
 
-    .. code-block:: python
+        def utcoffset(self, dt):
+            return self.__offset
 
-        openType = OpenType(
-            'id', {1: Integer(),
-                   2: OctetString()}
-        )
-        Sequence(
-            componentType=NamedTypes(
-                NamedType('id', Integer()),
-                NamedType('blob', Any(), openType=openType)
-            )
-        )
+        def tzname(self, dt):
+            return self.__name
 
-    For untyped `SET OF` or `SEQUENCE OF` vectors:
+        def dst(self, dt):
+            return datetime.timedelta(0)
 
-    .. code-block:: python
-
-        openType = OpenType(
-            'id', {1: Integer(),
-                   2: OctetString()}
-        )
-        Sequence(
-            componentType=NamedTypes(
-                NamedType('id', Integer()),
-                NamedType('blob', SetOf(componentType=Any()),
-                          openType=openType)
-            )
-        )
-    """
-
-    def __init__(self, name, typeMap=None):
-        self.__name = name
-        if typeMap is None:
-            self.__typeMap = {}
-        else:
-            self.__typeMap = typeMap
+    UTC = FixedOffset()
 
     @property
-    def name(self):
-        return self.__name
+    def asDateTime(self):
+        """Create :py:class:`datetime.datetime` object from a |ASN.1| object.
 
-    # Python dict protocol
+        Returns
+        -------
+        :
+            new instance of :py:class:`datetime.datetime` object
+        """
+        text = str(self)
+        if text.endswith('Z'):
+            tzinfo = TimeMixIn.UTC
+            text = text[:-1]
 
-    def values(self):
-        return self.__typeMap.values()
+        elif '-' in text or '+' in text:
+            if '+' in text:
+                text, plusminus, tz = string.partition(text, '+')
+            else:
+                text, plusminus, tz = string.partition(text, '-')
 
-    def keys(self):
-        return self.__typeMap.keys()
+            if self._shortTZ and len(tz) == 2:
+                tz += '00'
 
-    def items(self):
-        return self.__typeMap.items()
+            if len(tz) != 4:
+                raise error.PyAsn1Error('malformed time zone offset %s' % tz)
 
-    def __contains__(self, key):
-        return key in self.__typeMap
+            try:
+                minutes = int(tz[:2]) * 60 + int(tz[2:])
+                if plusminus == '-':
+                    minutes *= -1
 
-    def __getitem__(self, key):
-        return self.__typeMap[key]
+            except ValueError:
+                raise error.PyAsn1Error('unknown time specification %s' % self)
 
-    def __iter__(self):
-        return iter(self.__typeMap)
+            tzinfo = TimeMixIn.FixedOffset(minutes, '?')
+
+        else:
+            tzinfo = None
+
+        if '.' in text or ',' in text:
+            if '.' in text:
+                text, _, ms = string.partition(text, '.')
+            else:
+                text, _, ms = string.partition(text, ',')
+
+            try:
+                ms = int(ms) * 1000
+
+            except ValueError:
+                raise error.PyAsn1Error('bad sub-second time specification %s' % self)
+
+        else:
+            ms = 0
+
+        if self._optionalMinutes and len(text) - self._yearsDigits == 6:
+            text += '0000'
+        elif len(text) - self._yearsDigits == 8:
+            text += '00'
+
+        try:
+            dt = dateandtime.strptime(text, self._yearsDigits == 4 and '%Y%m%d%H%M%S' or '%y%m%d%H%M%S')
+
+        except ValueError:
+            raise error.PyAsn1Error('malformed datetime format %s' % self)
+
+        return dt.replace(microsecond=ms, tzinfo=tzinfo)
+
+    @classmethod
+    def fromDateTime(cls, dt):
+        """Create |ASN.1| object from a :py:class:`datetime.datetime` object.
+
+        Parameters
+        ----------
+        dt: :py:class:`datetime.datetime` object
+            The `datetime.datetime` object to initialize the |ASN.1| object
+            from
+
+        Returns
+        -------
+        :
+            new instance of |ASN.1| value
+        """
+        text = dt.strftime(cls._yearsDigits == 4 and '%Y%m%d%H%M%S' or '%y%m%d%H%M%S')
+        if cls._hasSubsecond:
+            text += '.%d' % (dt.microsecond // 1000)
+
+        if dt.utcoffset():
+            seconds = dt.utcoffset().seconds
+            if seconds < 0:
+                text += '-'
+            else:
+                text += '+'
+            text += '%.2d%.2d' % (seconds // 3600, seconds % 3600)
+        else:
+            text += 'Z'
+
+        return cls(text)
+
+
+class GeneralizedTime(char.VisibleString, TimeMixIn):
+    __doc__ = char.VisibleString.__doc__
+
+    #: Default :py:class:`~pyasn1.type.tag.TagSet` object for |ASN.1| objects
+    tagSet = char.VisibleString.tagSet.tagImplicitly(
+        tag.Tag(tag.tagClassUniversal, tag.tagFormatSimple, 24)
+    )
+
+    # Optimization for faster codec lookup
+    typeId = char.VideotexString.getTypeId()
+
+    _yearsDigits = 4
+    _hasSubsecond = True
+    _optionalMinutes = True
+    _shortTZ = True
+
+
+class UTCTime(char.VisibleString, TimeMixIn):
+    __doc__ = char.VisibleString.__doc__
+
+    #: Default :py:class:`~pyasn1.type.tag.TagSet` object for |ASN.1| objects
+    tagSet = char.VisibleString.tagSet.tagImplicitly(
+        tag.Tag(tag.tagClassUniversal, tag.tagFormatSimple, 23)
+    )
+
+    # Optimization for faster codec lookup
+    typeId = char.VideotexString.getTypeId()
+
+    _yearsDigits = 2
+    _hasSubsecond = False
+    _optionalMinutes = False
+    _shortTZ = False

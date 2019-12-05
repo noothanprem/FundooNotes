@@ -1,1 +1,2 @@
-¢Gvenv/lib/python3.6/site-packages/django/utils/translation/trans_null.py 2pyXDh
+¢9venv/lib/python3.6/site-packages/django/utils/translation :
+¡£©ª«

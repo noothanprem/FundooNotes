@@ -1,1 +1,0 @@
-í{8venv/lib/python3.6/site-packages/ptyprocess/_fork_pty.py 2pyXOh

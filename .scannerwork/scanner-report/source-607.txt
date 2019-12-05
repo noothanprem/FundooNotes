@@ -1,335 +1,184 @@
 # -*- coding: utf-8 -*-
-"""Threading primitives and utilities."""
-from __future__ import absolute_import, print_function, unicode_literals
+"""Terminals and colors."""
+from __future__ import absolute_import, unicode_literals
 
+import base64
+import codecs
 import os
-import socket
+import platform
 import sys
-import threading
-import traceback
-from contextlib import contextmanager
+from functools import reduce
 
-from celery.five import THREAD_TIMEOUT_MAX, items, python_2_unicode_compatible
-from celery.local import Proxy
+from celery.five import python_2_unicode_compatible, string
+from celery.platforms import isatty
 
-try:
-    from greenlet import getcurrent as get_ident
-except ImportError:  # pragma: no cover
-    try:
-        from _thread import get_ident                   # noqa
-    except ImportError:
-        try:
-            from thread import get_ident                # noqa
-        except ImportError:  # pragma: no cover
-            try:
-                from _dummy_thread import get_ident     # noqa
-            except ImportError:
-                from dummy_thread import get_ident      # noqa
+__all__ = ('colored',)
 
+BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE = range(8)
+OP_SEQ = '\033[%dm'
+RESET_SEQ = '\033[0m'
+COLOR_SEQ = '\033[1;%dm'
 
-__all__ = (
-    'bgThread', 'Local', 'LocalStack', 'LocalManager',
-    'get_ident', 'default_socket_timeout',
-)
+IS_WINDOWS = platform.system() == 'Windows'
 
-USE_FAST_LOCALS = os.environ.get('USE_FAST_LOCALS')
+ITERM_PROFILE = os.environ.get('ITERM_PROFILE')
+TERM = os.environ.get('TERM')
+TERM_IS_SCREEN = TERM and TERM.startswith('screen')
+
+# tmux requires unrecognized OSC sequences to be wrapped with DCS tmux;
+# <sequence> ST, and for all ESCs in <sequence> to be replaced with ESC ESC.
+# It only accepts ESC backslash for ST.
+_IMG_PRE = '\033Ptmux;\033\033]' if TERM_IS_SCREEN else '\033]'
+_IMG_POST = '\a\033\\' if TERM_IS_SCREEN else '\a'
 
 
-@contextmanager
-def default_socket_timeout(timeout):
-    """Context temporarily setting the default socket timeout."""
-    prev = socket.getdefaulttimeout()
-    socket.setdefaulttimeout(timeout)
-    yield
-    socket.setdefaulttimeout(prev)
-
-
-class bgThread(threading.Thread):
-    """Background service thread."""
-
-    def __init__(self, name=None, **kwargs):
-        super(bgThread, self).__init__()
-        self._is_shutdown = threading.Event()
-        self._is_stopped = threading.Event()
-        self.daemon = True
-        self.name = name or self.__class__.__name__
-
-    def body(self):
-        raise NotImplementedError()
-
-    def on_crash(self, msg, *fmt, **kwargs):
-        print(msg.format(*fmt), file=sys.stderr)
-        traceback.print_exc(None, sys.stderr)
-
-    def run(self):
-        body = self.body
-        shutdown_set = self._is_shutdown.is_set
-        try:
-            while not shutdown_set():
-                try:
-                    body()
-                except Exception as exc:  # pylint: disable=broad-except
-                    try:
-                        self.on_crash('{0!r} crashed: {1!r}', self.name, exc)
-                        self._set_stopped()
-                    finally:
-                        sys.stderr.flush()
-                        os._exit(1)  # exiting by normal means won't work
-        finally:
-            self._set_stopped()
-
-    def _set_stopped(self):
-        try:
-            self._is_stopped.set()
-        except TypeError:  # pragma: no cover
-            # we lost the race at interpreter shutdown,
-            # so gc collected built-in modules.
-            pass
-
-    def stop(self):
-        """Graceful shutdown."""
-        self._is_shutdown.set()
-        self._is_stopped.wait()
-        if self.is_alive():
-            self.join(THREAD_TIMEOUT_MAX)
-
-
-def release_local(local):
-    """Release the contents of the local for the current context.
-
-    This makes it possible to use locals without a manager.
-
-    With this function one can release :class:`Local` objects as well as
-    :class:`StackLocal` objects.  However it's not possible to
-    release data held by proxies that way, one always has to retain
-    a reference to the underlying local object in order to be able
-    to release it.
-
-    Example:
-        >>> loc = Local()
-        >>> loc.foo = 42
-        >>> release_local(loc)
-        >>> hasattr(loc, 'foo')
-        False
-    """
-    local.__release_local__()
-
-
-class Local(object):
-    """Local object."""
-
-    __slots__ = ('__storage__', '__ident_func__')
-
-    def __init__(self):
-        object.__setattr__(self, '__storage__', {})
-        object.__setattr__(self, '__ident_func__', get_ident)
-
-    def __iter__(self):
-        return iter(items(self.__storage__))
-
-    def __call__(self, proxy):
-        """Create a proxy for a name."""
-        return Proxy(self, proxy)
-
-    def __release_local__(self):
-        self.__storage__.pop(self.__ident_func__(), None)
-
-    def __getattr__(self, name):
-        try:
-            return self.__storage__[self.__ident_func__()][name]
-        except KeyError:
-            raise AttributeError(name)
-
-    def __setattr__(self, name, value):
-        ident = self.__ident_func__()
-        storage = self.__storage__
-        try:
-            storage[ident][name] = value
-        except KeyError:
-            storage[ident] = {name: value}
-
-    def __delattr__(self, name):
-        try:
-            del self.__storage__[self.__ident_func__()][name]
-        except KeyError:
-            raise AttributeError(name)
-
-
-class _LocalStack(object):
-    """Local stack.
-
-    This class works similar to a :class:`Local` but keeps a stack
-    of objects instead.  This is best explained with an example::
-
-        >>> ls = LocalStack()
-        >>> ls.push(42)
-        >>> ls.top
-        42
-        >>> ls.push(23)
-        >>> ls.top
-        23
-        >>> ls.pop()
-        23
-        >>> ls.top
-        42
-
-    They can be force released by using a :class:`LocalManager` or with
-    the :func:`release_local` function but the correct way is to pop the
-    item from the stack after using.  When the stack is empty it will
-    no longer be bound to the current context (and as such released).
-
-    By calling the stack without arguments it will return a proxy that
-    resolves to the topmost item on the stack.
-    """
-
-    def __init__(self):
-        self._local = Local()
-
-    def __release_local__(self):
-        self._local.__release_local__()
-
-    def _get__ident_func__(self):
-        return self._local.__ident_func__
-
-    def _set__ident_func__(self, value):
-        object.__setattr__(self._local, '__ident_func__', value)
-    __ident_func__ = property(_get__ident_func__, _set__ident_func__)
-    del _get__ident_func__, _set__ident_func__
-
-    def __call__(self):
-        def _lookup():
-            rv = self.top
-            if rv is None:
-                raise RuntimeError('object unbound')
-            return rv
-        return Proxy(_lookup)
-
-    def push(self, obj):
-        """Push a new item to the stack."""
-        rv = getattr(self._local, 'stack', None)
-        if rv is None:
-            # pylint: disable=assigning-non-slot
-            # This attribute is defined now.
-            self._local.stack = rv = []
-        rv.append(obj)
-        return rv
-
-    def pop(self):
-        """Remove the topmost item from the stack.
-
-        Note:
-            Will return the old value or `None` if the stack was already empty.
-        """
-        stack = getattr(self._local, 'stack', None)
-        if stack is None:
-            return None
-        elif len(stack) == 1:
-            release_local(self._local)
-            return stack[-1]
-        else:
-            return stack.pop()
-
-    def __len__(self):
-        stack = getattr(self._local, 'stack', None)
-        return len(stack) if stack else 0
-
-    @property
-    def stack(self):
-        # get_current_worker_task uses this to find
-        # the original task that was executed by the worker.
-        stack = getattr(self._local, 'stack', None)
-        if stack is not None:
-            return stack
-        return []
-
-    @property
-    def top(self):
-        """The topmost item on the stack.
-
-        Note:
-            If the stack is empty, :const:`None` is returned.
-        """
-        try:
-            return self._local.stack[-1]
-        except (AttributeError, IndexError):
-            return None
+def fg(s):
+    return COLOR_SEQ % s
 
 
 @python_2_unicode_compatible
-class LocalManager(object):
-    """Local objects cannot manage themselves.
+class colored(object):
+    """Terminal colored text.
 
-    For that you need a local manager.
-    You can pass a local manager multiple locals or add them
-    later by appending them to ``manager.locals``.  Every time the manager
-    cleans up, it will clean up all the data left in the locals for this
-    context.
-
-    The ``ident_func`` parameter can be added to override the default ident
-    function for the wrapped locals.
+    Example:
+        >>> c = colored(enabled=True)
+        >>> print(str(c.red('the quick '), c.blue('brown ', c.bold('fox ')),
+        ...       c.magenta(c.underline('jumps over')),
+        ...       c.yellow(' the lazy '),
+        ...       c.green('dog ')))
     """
 
-    def __init__(self, locals=None, ident_func=None):
-        if locals is None:
-            self.locals = []
-        elif isinstance(locals, Local):
-            self.locals = [locals]
-        else:
-            self.locals = list(locals)
-        if ident_func is not None:
-            self.ident_func = ident_func
-            for local in self.locals:
-                object.__setattr__(local, '__ident_func__', ident_func)
-        else:
-            self.ident_func = get_ident
+    def __init__(self, *s, **kwargs):
+        self.s = s
+        self.enabled = not IS_WINDOWS and kwargs.get('enabled', True)
+        self.op = kwargs.get('op', '')
+        self.names = {
+            'black': self.black,
+            'red': self.red,
+            'green': self.green,
+            'yellow': self.yellow,
+            'blue': self.blue,
+            'magenta': self.magenta,
+            'cyan': self.cyan,
+            'white': self.white,
+        }
 
-    def get_ident(self):
-        """Return context identifier.
+    def _add(self, a, b):
+        return string(a) + string(b)
 
-        This is the indentifer the local objects use internally
-        for this context.  You cannot override this method to change the
-        behavior but use it to link other context local objects (such as
-        SQLAlchemy's scoped sessions) to the Werkzeug locals.
-        """
-        return self.ident_func()
+    def _fold_no_color(self, a, b):
+        try:
+            A = a.no_color()
+        except AttributeError:
+            A = string(a)
+        try:
+            B = b.no_color()
+        except AttributeError:
+            B = string(b)
 
-    def cleanup(self):
-        """Manually clean up the data in the locals for this context.
+        return ''.join((string(A), string(B)))
 
-        Call this at the end of the request or use ``make_middleware()``.
-        """
-        for local in self.locals:
-            release_local(local)
+    def no_color(self):
+        if self.s:
+            return string(reduce(self._fold_no_color, self.s))
+        return ''
+
+    def embed(self):
+        prefix = ''
+        if self.enabled:
+            prefix = self.op
+        return ''.join((string(prefix), string(reduce(self._add, self.s))))
+
+    def __str__(self):
+        suffix = ''
+        if self.enabled:
+            suffix = RESET_SEQ
+        return string(''.join((self.embed(), string(suffix))))
+
+    def node(self, s, op):
+        return self.__class__(enabled=self.enabled, op=op, *s)
+
+    def black(self, *s):
+        return self.node(s, fg(30 + BLACK))
+
+    def red(self, *s):
+        return self.node(s, fg(30 + RED))
+
+    def green(self, *s):
+        return self.node(s, fg(30 + GREEN))
+
+    def yellow(self, *s):
+        return self.node(s, fg(30 + YELLOW))
+
+    def blue(self, *s):
+        return self.node(s, fg(30 + BLUE))
+
+    def magenta(self, *s):
+        return self.node(s, fg(30 + MAGENTA))
+
+    def cyan(self, *s):
+        return self.node(s, fg(30 + CYAN))
+
+    def white(self, *s):
+        return self.node(s, fg(30 + WHITE))
 
     def __repr__(self):
-        return '<{0} storages: {1}>'.format(
-            self.__class__.__name__, len(self.locals))
+        return repr(self.no_color())
+
+    def bold(self, *s):
+        return self.node(s, OP_SEQ % 1)
+
+    def underline(self, *s):
+        return self.node(s, OP_SEQ % 4)
+
+    def blink(self, *s):
+        return self.node(s, OP_SEQ % 5)
+
+    def reverse(self, *s):
+        return self.node(s, OP_SEQ % 7)
+
+    def bright(self, *s):
+        return self.node(s, OP_SEQ % 8)
+
+    def ired(self, *s):
+        return self.node(s, fg(40 + RED))
+
+    def igreen(self, *s):
+        return self.node(s, fg(40 + GREEN))
+
+    def iyellow(self, *s):
+        return self.node(s, fg(40 + YELLOW))
+
+    def iblue(self, *s):
+        return self.node(s, fg(40 + BLUE))
+
+    def imagenta(self, *s):
+        return self.node(s, fg(40 + MAGENTA))
+
+    def icyan(self, *s):
+        return self.node(s, fg(40 + CYAN))
+
+    def iwhite(self, *s):
+        return self.node(s, fg(40 + WHITE))
+
+    def reset(self, *s):
+        return self.node(s or [''], RESET_SEQ)
+
+    def __add__(self, other):
+        return string(self) + string(other)
 
 
-class _FastLocalStack(threading.local):
-
-    def __init__(self):
-        self.stack = []
-        self.push = self.stack.append
-        self.pop = self.stack.pop
-        super(_FastLocalStack, self).__init__()
-
-    @property
-    def top(self):
-        try:
-            return self.stack[-1]
-        except (AttributeError, IndexError):
-            return None
-
-    def __len__(self):
-        return len(self.stack)
+def supports_images():
+    return isatty(sys.stdin) and ITERM_PROFILE
 
 
-if USE_FAST_LOCALS:  # pragma: no cover
-    LocalStack = _FastLocalStack
-else:  # pragma: no cover
-    # - See #706
-    # since each thread has its own greenlet we can just use those as
-    # identifiers for the context.  If greenlets aren't available we
-    # fall back to the  current thread ident.
-    LocalStack = _LocalStack  # noqa
+def _read_as_base64(path):
+    with codecs.open(path, mode='rb') as fh:
+        encoded = base64.b64encode(fh.read())
+        return encoded if type(encoded) == 'str' else encoded.decode('ascii')
+
+
+def imgcat(path, inline=1, preserve_aspect_ratio=0, **kwargs):
+    return '\n%s1337;File=inline=%d;preserveAspectRatio=%d:%s%s' % (
+        _IMG_PRE, inline, preserve_aspect_ratio,
+        _read_as_base64(path), _IMG_POST)

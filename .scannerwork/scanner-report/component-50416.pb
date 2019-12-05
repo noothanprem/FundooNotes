@@ -1,1 +1,1 @@
-ğ‰4venv/lib64/python3.6/site-packages/elasticsearch_dsl :-ï‰ñ‰ò‰ó‰ô‰õ‰ö‰÷‰ø‰Š‚ŠƒŠ”Š•Š–Š
+ğ‰4venv/lib64/python3.6/site-packages/elasticsearch_dsl :-ï‰ñ‰ò‰ó‰ô‰õ‰ö‰÷‰ø‰€ŠŠƒŠ“Š”Š•Š

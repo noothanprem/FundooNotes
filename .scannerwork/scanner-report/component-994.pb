@@ -1,1 +1,1 @@
-â;venv/lib/python3.6/site-packages/coreapi/codecs/download.py 2pyX–h
+â:venv/lib/python3.6/site-packages/coreapi/codecs/display.py 2pyX}h

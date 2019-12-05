@@ -1,1 +1,0 @@
-ï7venv/lib64/python3.6/site-packages/macaroonbakery/tests :9��ůƯǯȯɯʯ˯̯ͯίϯЯѯү����

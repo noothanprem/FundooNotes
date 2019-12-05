@@ -1,1 +1,1 @@
-§3venv/lib/python3.6/site-packages/celery/app/amqp.py 2pyX÷h
+§2venv/lib/python3.6/site-packages/celery/app/log.py 2pyXÿh

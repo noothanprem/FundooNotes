@@ -1,1 +1,1 @@
-huser/models.py 2pyXh
+huser/__init__.py 2pyXh

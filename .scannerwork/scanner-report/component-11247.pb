@@ -1,1 +1,0 @@
-ÔWOvenv/lib/python3.6/site-packages/faker/providers/phone_number/ar_PS/__init__.py 2pyXëh

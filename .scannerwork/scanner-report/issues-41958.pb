@@ -74,39 +74,18 @@ javascriptFunctionDefinitionInsideLoop'Define this function outside of a loop
 § §  a
 
 javascriptFunctionDefinitionInsideLoop'Define this function outside of a loop. 2
-∂k∂k $Å
-
-javascriptS2814JRename "resource" as this name is already used in declaration at line 264. 2
-ââ :
-Ê«
-àà+ 3}
+∂k∂k $}
 
 javascriptS2814FRename "abs" as this name is already used in declaration at line 2712. 2
 ££ :
 Ê«
-òò {
+òò 
 
-javascriptS2814DRename "d" as this name is already used in declaration at line 4436. 2
-ÿ"ÿ"
- :
+javascriptS2814HRename "param" as this name is already used in declaration at line 4844. 2
+ë&ë&
+ :
 Ê«
-‘"‘"
- Å
-
-javascriptS2814JRename "counter" as this name is already used in declaration at line 2362. 2
-ıı$ +:
-Ê«
-∫∫ %Å
-
-javascriptS2814JRename "counter" as this name is already used in declaration at line 2362. 2
-ùù& -:
-Ê«
-∫∫ %Å
-
-javascriptS2814JRename "resource" as this name is already used in declaration at line 250. 2
-˚˚ :
-Ê«
-˙˙) 1É
+Ï%Ï% É
 
 javascriptS2814LRename "modelName" as this name is already used in declaration at line 2360. 2
 ÛÛ :
@@ -118,16 +97,17 @@ javascriptS2814LRename "modelName" as this name is already used in declaratio
 Ê«
 ∏∏ 
 
-javascriptS2814HRename "param" as this name is already used in declaration at line 4844. 2
-ë&ë&
- :
-Ê«
-Ï%Ï% 
-
 javascriptS2814HRename "value" as this name is already used in declaration at line 2170. 2
 áá :
 Ê«
-˙˙ ~
+˙˙ {
+
+javascriptS2814DRename "d" as this name is already used in declaration at line 4436. 2
+ÿ"ÿ"
+ :
+Ê«
+‘"‘"
+ ~
 
 javascriptS2814GRename "done" as this name is already used in declaration at line 2362. 2
 ıı :
@@ -137,17 +117,22 @@ javascriptS2814GRename "done" as this name is already used in declaration at 
 javascriptS2814GRename "done" as this name is already used in declaration at line 2362. 2
 ùù :
 Ê«
-∫∫ É
+∫∫ Å
 
-javascriptS2814LRename "parameter" as this name is already used in declaration at line 2356. 2
-ÂÂ :
+javascriptS2814JRename "counter" as this name is already used in declaration at line 2362. 2
+ıı$ +:
 Ê«
-¥¥ É
+∫∫ %Å
 
-javascriptS2814LRename "parameter" as this name is already used in declaration at line 2356. 2
-ÌÌ :
+javascriptS2814JRename "counter" as this name is already used in declaration at line 2362. 2
+ùù& -:
 Ê«
-¥¥ ~
+∫∫ %Å
+
+javascriptS2814JRename "resource" as this name is already used in declaration at line 264. 2
+ââ :
+Ê«
+àà+ 3~
 
 javascriptS2814GRename "name" as this name is already used in declaration at line 2325. 2
 ππ :
@@ -165,7 +150,22 @@ javascriptS2814GRename "name" as this name is already used in declaration at 
 úú :
 Ê«
 ïï 
-Å
+É
+
+javascriptS2814LRename "parameter" as this name is already used in declaration at line 2356. 2
+ÂÂ :
+Ê«
+¥¥ É
+
+javascriptS2814LRename "parameter" as this name is already used in declaration at line 2356. 2
+ÌÌ :
+Ê«
+¥¥ Å
+
+javascriptS2814JRename "resource" as this name is already used in declaration at line 250. 2
+˚˚ :
+Ê«
+˙˙) 1Å
 
 javascriptS2814JRename "keyname" as this name is already used in declaration at line 2181. 2
 ÜÜ :
@@ -210,18 +210,10 @@ EmptyBlock)Either remove or fill this block of code. 2
 
 javascript
 EmptyBlock)Either remove or fill this block of code. 2
-á9á9O Qf
-
-javascriptUnusedVariable:Remove the declaration of the unused 'simpleRef' variable. 2
-ÅÅ e
-
-javascriptUnusedVariable7Remove the declaration of the unused 'module' variable. 2üüﬂ Âg
+á9á9O Qg
 
 javascriptUnusedVariable;Remove the declaration of the unused 'optionHtml' variable. 2
-ıı f
-
-javascriptUnusedVariable:Remove the declaration of the unused '_apiToAdd' variable. 2
-•• Z
+ıı Z
 
 javascriptUnusedVariable.Remove unused function 'clippyCopiedCallback'. 2
 ≠≠	 k
@@ -229,12 +221,20 @@ javascriptUnusedVariable.Remove unused function 'clippyCopiedCallback'. 2
 javascriptUnusedVariable=Remove the declaration of the unused 'redirect_uri' variable. 2êúêú d
 
 javascriptUnusedVariable8Remove the declaration of the unused 'oldRoot' variable. 2
-˙˙ `
+˙˙ f
+
+javascriptUnusedVariable:Remove the declaration of the unused '_apiToAdd' variable. 2
+•• f
+
+javascriptUnusedVariable8Remove the declaration of the unused 'exports' variable. 2üüÊ Ìe
+
+javascriptUnusedVariable7Remove the declaration of the unused 'module' variable. 2üüﬂ Âf
+
+javascriptUnusedVariable:Remove the declaration of the unused 'simpleRef' variable. 2
+ÅÅ `
 
 javascriptUnusedVariable4Remove the declaration of the unused 'log' variable. 2
-±!±! f
-
-javascriptUnusedVariable8Remove the declaration of the unused 'exports' variable. 2üüÊ Ì`
+±!±! `
 
 javascriptS1854=Remove this useless assignment to local variable "optionHtml" 2
 ıı _
@@ -258,17 +258,17 @@ javascriptS1854:Remove this useless assignment to local variable "oldRoot" 2
 ˙˙ Y
 
 javascriptS18546Remove this useless assignment to local variable "log" 2
-±!±! X
-
-javascriptS18545Remove this useless assignment to local variable "ch" 2
-øHøH \
+±!±! \
 
 javascriptS18549Remove this useless assignment to local variable "keyTag" 2
 ®H®H 
 ]
 
 javascriptS1854:Remove this useless assignment to local variable "keyNode" 2
-®H®H \
+®H®H X
+
+javascriptS18545Remove this useless assignment to local variable "ch" 2
+øHøH \
 
 javascriptS18549Remove this useless assignment to local variable "keyTag" 2
 ÛJÛJ ]
@@ -284,13 +284,13 @@ javascriptS18545Remove this useless assignment to local variable "ch" 2
  ^
 
 javascriptS1854;Remove this useless assignment to local variable "othIsArr" 2
-ñcñc d
-
-javascriptS1854?Remove this useless assignment to local variable "redirect_uri" 2êúêú Z
+ñcñc Z
 
 javascriptS18545Remove this useless assignment to local variable "ep" 2ÉúÉú Z
 
-javascriptS18545Remove this useless assignment to local variable "ep" 2âúâú [
+javascriptS18545Remove this useless assignment to local variable "ep" 2âúâú d
+
+javascriptS1854?Remove this useless assignment to local variable "redirect_uri" 2êúêú [
 
 javascriptS18546Remove this useless assignment to local variable "pad" 2€£€£ _
 

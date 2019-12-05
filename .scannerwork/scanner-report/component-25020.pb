@@ -1,1 +1,1 @@
-¼ÃYvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/colorama/ansitowin32.py 2pyX‚h
+¼ÃVvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/colorama/__init__.py 2pyXh

@@ -1,1 +1,1 @@
-быAvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/raster :аывыгыдылы
+быMvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/raster/__init__.py 2pyXh

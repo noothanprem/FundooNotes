@@ -1,1 +1,1 @@
-ë=venv/lib/python3.6/site-packages/twisted/words/im/basechat.py 2pyX�h
+ë1venv/lib/python3.6/site-packages/twisted/words/im :��«īūƫǫȫѫ

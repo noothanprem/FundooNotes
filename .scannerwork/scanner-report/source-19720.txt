@@ -1,57 +1,37 @@
-from __future__ import absolute_import
+from hamcrest.core.base_matcher import BaseMatcher
+from hamcrest.core.helpers.wrap_matcher import wrap_matcher
+
 __author__ = "Jon Reid"
 __copyright__ = "Copyright 2011 hamcrest.org"
 __license__ = "BSD, see License.txt"
 
-from hamcrest.core.base_matcher import BaseMatcher, Matcher
-from hamcrest.core.helpers.wrap_matcher import wrap_matcher, is_matchable_type
-from .isequal import equal_to
-from .isinstanceof import instance_of
 
+class AnyOf(BaseMatcher):
 
-class IsNot(BaseMatcher):
-
-    def __init__(self, matcher):
-        self.matcher = matcher
+    def __init__(self, *matchers):
+        self.matchers = matchers
 
     def _matches(self, item):
-        return not self.matcher.matches(item)
+        for matcher in self.matchers:
+            if matcher.matches(item):
+                return True
+        return False
 
     def describe_to(self, description):
-        description.append_text('not ').append_description_of(self.matcher)
+        description.append_list('(', ' or ', ')', self.matchers)
 
 
-def wrap_value_or_type(x):
-    if is_matchable_type(x):
-        return instance_of(x)
-    else:
-        return wrap_matcher(x)
+def any_of(*items):
+    """Matches if any of the given matchers evaluate to ``True``.
 
+    :param matcher1,...:  A comma-separated list of matchers.
 
-def is_not(match):
-    """Inverts the given matcher to its logical negation.
+    The matchers are evaluated from left to right using short-circuit
+    evaluation, so evaluation stops as soon as a matcher returns ``True``.
 
-    :param match: The matcher to negate.
-
-    This matcher compares the evaluated object to the negation of the given
-    matcher. If the ``match`` argument is not a matcher, it is implicitly
-    wrapped in an :py:func:`~hamcrest.core.core.isequal.equal_to` matcher to
-    check for equality, and thus matches for inequality.
-
-    Examples::
-
-        assert_that(cheese, is_not(equal_to(smelly)))
-        assert_that(cheese, is_not(smelly))
+    Any argument that is not a matcher is implicitly wrapped in an
+    :py:func:`~hamcrest.core.core.isequal.equal_to` matcher to check for
+    equality.
 
     """
-    return IsNot(wrap_value_or_type(match))
-
-def not_(match):
-    """Alias of :py:func:`is_not` for better readability of negations.
-
-    Examples::
-
-        assert_that(alist, not_(has_item(item)))
-
-    """
-    return is_not(match)
+    return AnyOf(*[wrap_matcher(item) for item in items])

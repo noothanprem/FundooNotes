@@ -1,1 +1,1 @@
-«[<venv/lib/python3.6/site-packages/faker/providers/color/hr_HR :ª[
+«[6venv/lib/python3.6/site-packages/faker/providers/color :©[

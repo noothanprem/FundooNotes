@@ -1,1 +1,0 @@
-ìûAvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/srs.py 2pyXÐh

@@ -1,1 +1,1 @@
-„éHvenv/lib64/python3.6/site-packages/django/template/loaders/filesystem.py 2pyX/h
+„é6venv/lib64/python3.6/site-packages/django/templatetags :ƒé…é†é‡éˆéé

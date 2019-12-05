@@ -1,1 +1,0 @@
-Ø@venv/lib/python3.6/site-packages/reportlab/graphics/renderSVG.py 2pyXÉh

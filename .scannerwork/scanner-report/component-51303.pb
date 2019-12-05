@@ -1,1 +1,0 @@
-ç+venv/lib64/python3.6/site-packages/dateutil :æğñòüışƒ‘

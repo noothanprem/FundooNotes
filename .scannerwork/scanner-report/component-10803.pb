@@ -1,1 +1,1 @@
-³TKvenv/lib/python3.6/site-packages/faker/providers/internet/bs_BA/__init__.py 2pyXh
+³TEvenv/lib/python3.6/site-packages/faker/providers/internet/__init__.py 2pyX¾h

@@ -1,1 +1,1 @@
-š–bvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/langbulgarianmodel.py 2pyXæh
+š–_venv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/langhebrewmodel.py 2pyXÊh

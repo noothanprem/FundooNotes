@@ -1,1 +1,0 @@
-£WJvenv/lib/python3.6/site-packages/faker/providers/barcode/en_US/__init__.py 2pyXh

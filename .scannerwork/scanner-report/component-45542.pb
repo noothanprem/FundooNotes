@@ -1,1 +1,1 @@
-æã;venv/lib64/python3.6/site-packages/amqp/abstract_channel.py 2pyX™h
+æã5venv/lib64/python3.6/site-packages/amqp/exceptions.py 2pyX¤h

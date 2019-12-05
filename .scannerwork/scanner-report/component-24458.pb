@@ -1,1 +1,1 @@
-Š¿Bvenv/lib/python3.6/site-packages/oauthlib/oauth1/rfc5849/endpoints :‰¿‹¿Œ¿¿¿¿™¿š¿
+Š¿Evenv/lib/python3.6/site-packages/oauthlib/oauth1/rfc5849/signature.py 2pyXèh

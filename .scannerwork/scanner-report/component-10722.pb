@@ -1,1 +1,1 @@
-‚S7venv/lib/python3.6/site-packages/faker/providers/python :·S
+‚S:venv/lib/python3.6/site-packages/faker/providers/ssn/sv_SE :‡S

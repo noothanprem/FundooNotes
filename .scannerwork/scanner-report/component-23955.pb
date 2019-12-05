@@ -1,1 +1,1 @@
-“»Avenv/lib/python3.6/site-packages/social_core/backends/goclioeu.py 2pyXh
+“»Avenv/lib/python3.6/site-packages/social_core/backends/chatwork.py 2pyXDh

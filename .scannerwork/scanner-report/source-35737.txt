@@ -2,29 +2,32 @@
 
 # namespace: proto
 
-import flatbuffers
+class MessageType(object):
+    NULL = 0
+    HELLO = 1
+    WELCOME = 2
+    ABORT = 3
+    CHALLENGE = 4
+    AUTHENTICATE = 5
+    GOODBYE = 6
+    ERROR = 8
+    PUBLISH = 16
+    PUBLISHED = 17
+    SUBSCRIBER_RECEIVED = 18
+    SUBSCRIBE = 32
+    SUBSCRIBED = 33
+    UNSUBSCRIBE = 34
+    UNSUBSCRIBED = 35
+    EVENT = 36
+    EVENT_RECEIVED = 37
+    CALL = 48
+    CANCEL = 49
+    RESULT = 50
+    REGISTER = 64
+    REGISTERED = 65
+    UNREGISTER = 66
+    UNREGISTERED = 67
+    INVOCATION = 68
+    INTERRUPT = 69
+    YIELD = 70
 
-class AuthCryptosignChallenge(object):
-    __slots__ = ['_tab']
-
-    @classmethod
-    def GetRootAsAuthCryptosignChallenge(cls, buf, offset):
-        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
-        x = AuthCryptosignChallenge()
-        x.Init(buf, n + offset)
-        return x
-
-    # AuthCryptosignChallenge
-    def Init(self, buf, pos):
-        self._tab = flatbuffers.table.Table(buf, pos)
-
-    # AuthCryptosignChallenge
-    def ChannelBinding(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
-        return 0
-
-def AuthCryptosignChallengeStart(builder): builder.StartObject(1)
-def AuthCryptosignChallengeAddChannelBinding(builder, channelBinding): builder.PrependUint8Slot(0, channelBinding, 0)
-def AuthCryptosignChallengeEnd(builder): return builder.EndObject()

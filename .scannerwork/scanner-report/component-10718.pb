@@ -1,1 +1,1 @@
-ÞS:venv/lib/python3.6/site-packages/faker/providers/ssn/sv_SE :ÝS
+ÞS:venv/lib/python3.6/site-packages/faker/providers/ssn/zh_TW :ÝS

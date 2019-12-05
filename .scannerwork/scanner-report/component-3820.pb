@@ -1,1 +1,1 @@
-ì?venv/lib/python3.6/site-packages/django/db/migrations/writer.py 2pyX­h
+ìCvenv/lib/python3.6/site-packages/django/db/migrations/questioner.py 2pyXðh

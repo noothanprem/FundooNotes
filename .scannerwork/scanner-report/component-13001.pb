@@ -1,1 +1,1 @@
-Ée2venv/lib/python3.6/site-packages/chardet/jpcntx.py 2pyXêh
+Ée2venv/lib/python3.6/site-packages/txaio/testutil.py 2pyX;h

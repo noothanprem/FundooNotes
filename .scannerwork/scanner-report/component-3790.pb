@@ -1,1 +1,1 @@
-Î4venv/lib/python3.6/site-packages/django/templatetags :ÍÏÐÑÒÚ
+ÎFvenv/lib/python3.6/site-packages/django/template/loaders/filesystem.py 2pyX/h

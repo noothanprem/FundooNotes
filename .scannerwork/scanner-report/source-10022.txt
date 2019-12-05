@@ -1,11 +1,11 @@
-###############################################################################
+########################################
 #
 # The MIT License (MIT)
 #
 # Copyright (c) Crossbar.io Technologies GmbH
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
+# of this software and associated documentation files (the "Software'), to deal
 # in the Software without restriction, including without limitation the rights
 # to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the Software is
@@ -14,7 +14,7 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 #
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# THE SOFTWARE IS PROVIDED "AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 # FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 # AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
@@ -22,272 +22,207 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 #
-###############################################################################
+########################################
 
 from __future__ import absolute_import
 
-# IHostnameResolver et al. were added in Twisted 17.1.0 .. before
-# that, it was IResolverSimple only.
+import sys
+import traceback
 
-try:
-    from twisted.internet.interfaces import IHostnameResolver
-except ImportError:
-    raise ImportError(
-        "Twisted 17.1.0 or later required for autobahn.twisted.testing"
-    )
+import txaio
+txaio.use_twisted()
 
-from twisted.internet.defer import Deferred
-from twisted.internet.address import IPv4Address
-from twisted.internet._resolver import HostResolution  # "internal" class, but it's simple
-from twisted.internet.interfaces import ISSLTransport, IReactorPluggableNameResolver
-try:
-    from twisted.internet.testing import MemoryReactorClock
-except ImportError:
-    from twisted.test.proto_helpers import MemoryReactorClock
-from twisted.test import iosim
-
-from zope.interface import directlyProvides, implementer
-
-from autobahn.websocket.interfaces import IWebSocketClientAgent
-from autobahn.twisted.websocket import _TwistedWebSocketClientAgent
-from autobahn.twisted.websocket import WebSocketServerProtocol
-from autobahn.twisted.websocket import WebSocketServerFactory
-
+from twisted.python import reflect
+from twisted.internet.error import ReactorAlreadyInstalledError
 
 __all__ = (
-    'create_pumper',
-    'create_memory_agent',
-    'MemoryReactorClockResolver',
+    'install_optimal_reactor',
+    'install_reactor',
+    'current_reactor_klass'
 )
 
 
-@implementer(IHostnameResolver)
-class _StaticTestResolver(object):
-    def resolveHostName(self, receiver, hostName, portNumber=0):
-        """
-        Implement IHostnameResolver which always returns 127.0.0.1:31337
-        """
-        resolution = HostResolution(hostName)
-        receiver.resolutionBegan(resolution)
-        receiver.addressResolved(
-            IPv4Address('TCP', '127.0.0.1', 31337 if portNumber == 0 else portNumber)
-        )
-        receiver.resolutionComplete()
-
-
-@implementer(IReactorPluggableNameResolver)
-class _TestNameResolver(object):
+def current_reactor_klass():
     """
-    A test version of IReactorPluggableNameResolver
+    Return class name of currently installed Twisted reactor or None.
     """
-
-    _resolver = None
-
-    @property
-    def nameResolver(self):
-        if self._resolver is None:
-            self._resolver = _StaticTestResolver()
-        return self._resolver
-
-    def installNameResolver(self, resolver):
-        old = self._resolver
-        self._resolver = resolver
-        return old
+    if 'twisted.internet.reactor' in sys.modules:
+        current_reactor = reflect.qual(sys.modules['twisted.internet.reactor'].__class__).split('.')[-1]
+    else:
+        current_reactor = None
+    return current_reactor
 
 
-class MemoryReactorClockResolver(MemoryReactorClock, _TestNameResolver):
+def install_optimal_reactor(require_optimal_reactor=True):
     """
-    Combine MemoryReactor, Clock and an IReactorPluggableNameResolver
-    together.
+    Try to install the optimal Twisted reactor for this platform:
+
+    - Linux:   epoll
+    - BSD/OSX: kqueue
+    - Windows: iocp
+    - Other:   select
+
+    Notes:
+
+    - This function exists, because the reactor types selected based on platform
+      in `twisted.internet.default` are different from here.
+    - The imports are inlined, because the Twisted code base is notorious for
+      importing the reactor as a side-effect of merely importing. Hence we postpone
+      all importing.
+
+    See: http://twistedmatrix.com/documents/current/core/howto/choosing-reactor.html#reactor-functionality
+
+    :param require_optimal_reactor: If ``True`` and the desired reactor could not be installed,
+        raise ``ReactorAlreadyInstalledError``, else fallback to another reactor.
+    :type require_optimal_reactor: bool
+
+    :returns: The Twisted reactor in place (`twisted.internet.reactor`).
     """
-    pass
+    log = txaio.make_logger()
 
+    # determine currently installed reactor, if any
+    #
+    current_reactor = current_reactor_klass()
 
-class _TwistedWebMemoryAgent(IWebSocketClientAgent):
-    """
-    A testing agent which will hook up an instance of
-    `server_protocol` for every client that is created via the `open`
-    API call.
+    # depending on platform, install optimal reactor
+    #
+    if 'bsd' in sys.platform or sys.platform.startswith('darwin'):
 
-    :param reactor: the reactor to use for tests (usually an instance
-        of MemoryReactorClockResolver)
-
-    :param pumper: an implementation IPumper (e.g. as returned by
-        `create_pumper`)
-
-    :param server_protocol: the server-side WebSocket protocol class
-        to instantiate (e.g. a subclass of `WebSocketServerProtocol`
-    """
-
-    def __init__(self, reactor, pumper, server_protocol):
-        self._reactor = reactor
-        self._server_protocol = server_protocol
-        self._pumper = pumper
-
-        # our "real" underlying agent under test
-        self._agent = _TwistedWebSocketClientAgent(self._reactor)
-        self._pumps = set()
-        self._servers = dict()  # client -> server
-
-    def open(self, transport_config, options, protocol_class=None):
-        """
-        Implement IWebSocketClientAgent with in-memory transports.
-
-        :param transport_config: a string starting with 'wss://' or
-            'ws://'
-
-        :param options: a dict containing options
-
-        :param protocol_class: the client protocol class to
-            instantiate (or `None` for defaults, which is to use
-            `WebSocketClientProtocol`)
-        """
-        is_secure = transport_config.startswith("wss://")
-
-        # call our "real" agent
-        real_client_protocol = self._agent.open(
-            transport_config, options,
-            protocol_class=protocol_class,
-        )
-
-        if is_secure:
-            host, port, factory, context_factory, timeout, bindAddress = self._reactor.sslClients[-1]
+        # *BSD and MacOSX
+        #
+        if current_reactor != 'KQueueReactor':
+            if current_reactor is None:
+                try:
+                    from twisted.internet import kqreactor
+                    kqreactor.install()
+                except:
+                    log.warn('Running on *BSD or MacOSX, but cannot install kqueue Twisted reactor: {tb}', tb=traceback.format_exc())
+                else:
+                    log.debug('Running on *BSD or MacOSX and optimal reactor (kqueue) was installed.')
+            else:
+                log.warn('Running on *BSD or MacOSX, but cannot install kqueue Twisted reactor, because another reactor ({klass}) is already installed.', klass=current_reactor)
+                if require_optimal_reactor:
+                    raise ReactorAlreadyInstalledError()
         else:
-            host, port, factory, timeout, bindAddress = self._reactor.tcpClients[-1]
+            log.debug('Running on *BSD or MacOSX and optimal reactor (kqueue) already installed.')
 
-        server_address = IPv4Address('TCP', '127.0.0.1', port)
-        client_address = IPv4Address('TCP', '127.0.0.1', 31337)
+    elif sys.platform in ['win32']:
 
-        server_protocol = self._server_protocol()
-        server_protocol.factory = WebSocketServerFactory()
-
-        server_transport = iosim.FakeTransport(
-            server_protocol, isServer=True,
-            hostAddress=server_address, peerAddress=client_address)
-        clientProtocol = factory.buildProtocol(None)
-        client_transport = iosim.FakeTransport(
-            clientProtocol, isServer=False,
-            hostAddress=client_address, peerAddress=server_address)
-
-        if is_secure:
-            directlyProvides(server_transport, ISSLTransport)
-            directlyProvides(client_transport, ISSLTransport)
-
-        pump = iosim.connect(
-            server_protocol, server_transport, clientProtocol, client_transport)
-        self._pumper.add(pump)
-
-        def add_mapping(proto):
-            self._servers[proto] = server_protocol
-            return proto
-        real_client_protocol.addCallback(add_mapping)
-        return real_client_protocol
-
-
-class _Kalamazoo(object):
-    """
-    Feeling whimsical about class names, see https://en.wikipedia.org/wiki/Handcar
-
-    This is 'an IOPump pumper', an object which causes a series of
-    IOPumps it is monitoring to do their I/O operations
-    periodically. This needs the 'real' reactor which trial drives,
-    because reasons:
-
-     - so @inlineCallbacks / async-def functions work
-       (if I could explain exactly why here, I would)
-
-     - we need to 'break the loop' of synchronous calls somewhere and
-       polluting the tests themselves with that is bad
-
-     - get rid of e.g. .flush() calls in tests themselves (thus
-      'teaching' the tests about details of I/O scheduling that they
-      shouldn't know).
-    """
-
-    def __init__(self):
-        self._pumps = set()
-        self._pumping = False
-        self._waiting_for_stop = []
-        from twisted.internet import reactor as global_reactor
-        self._global_reactor = global_reactor
-
-    def add(self, p):
-        """
-        Add a new IOPump. It will be removed when both its client and
-        server are disconnected.
-        """
-        self._pumps.add(p)
-
-    def start(self):
-        """
-        Begin triggering I/O in all IOPump instances we have. We will keep
-        periodically 'pumping' our IOPumps until `.stop()` is
-        called. Call from `setUp()` for example.
-        """
-        if self._pumping:
-            return
-        self._pumping = True
-        self._global_reactor.callLater(0, self._pump_once)
-
-    def stop(self):
-        """
-        :returns: a Deferred that fires when we have stopped pump()-ing
-
-        Call from `tearDown()`, for example.
-        """
-        if self._pumping or len(self._waiting_for_stop):
-            d = Deferred()
-            self._waiting_for_stop.append(d)
-            self._pumping = False
-            return d
-        d = Deferred()
-        d.callback(None)
-        return d
-
-    def _pump_once(self):
-        """
-        flush all data from all our IOPump instances and schedule another
-        iteration on the global reactor
-        """
-        if self._pumping:
-            self._flush()
-            self._global_reactor.callLater(0.1, self._pump_once)
+        # Windows
+        #
+        if current_reactor != 'IOCPReactor':
+            if current_reactor is None:
+                try:
+                    from twisted.internet.iocpreactor import reactor as iocpreactor
+                    iocpreactor.install()
+                except:
+                    log.warn('Running on Windows, but cannot install IOCP Twisted reactor: {tb}', tb=traceback.format_exc())
+                else:
+                    log.debug('Running on Windows and optimal reactor (ICOP) was installed.')
+            else:
+                log.warn('Running on Windows, but cannot install IOCP Twisted reactor, because another reactor ({klass}) is already installed.', klass=current_reactor)
+                if require_optimal_reactor:
+                    raise ReactorAlreadyInstalledError()
         else:
-            for d in self._waiting_for_stop:
-                d.callback(None)
-            self._waiting_for_stop = []
+            log.debug('Running on Windows and optimal reactor (ICOP) already installed.')
 
-    def _flush(self):
-        """
-        Flush all data between pending client/server pairs.
-        """
-        old_pumps = self._pumps
-        new_pumps = self._pumps = set()
-        for p in old_pumps:
-            p.flush()
-            if p.clientIO.disconnected and p.serverIO.disconnected:
-                continue
-            new_pumps.add(p)
+    elif sys.platform.startswith('linux'):
+
+        # Linux
+        #
+        if current_reactor != 'EPollReactor':
+            if current_reactor is None:
+                try:
+                    from twisted.internet import epollreactor
+                    epollreactor.install()
+                except:
+                    log.warn('Running on Linux, but cannot install Epoll Twisted reactor: {tb}', tb=traceback.format_exc())
+                else:
+                    log.debug('Running on Linux and optimal reactor (epoll) was installed.')
+            else:
+                log.warn('Running on Linux, but cannot install Epoll Twisted reactor, because another reactor ({klass}) is already installed.', klass=current_reactor)
+                if require_optimal_reactor:
+                    raise ReactorAlreadyInstalledError()
+        else:
+            log.debug('Running on Linux and optimal reactor (epoll) already installed.')
+
+    else:
+
+        # Other platform
+        #
+        if current_reactor != 'SelectReactor':
+            if current_reactor is None:
+                try:
+                    from twisted.internet import selectreactor
+                    selectreactor.install()
+                    # from twisted.internet import default as defaultreactor
+                    # defaultreactor.install()
+                except:
+                    log.warn('Running on "{platform}", but cannot install Select Twisted reactor: {tb}', tb=traceback.format_exc(), platform=sys.platform)
+                else:
+                    log.debug('Running on "{platform}" and optimal reactor (Select) was installed.', platform=sys.platform)
+            else:
+                log.warn('Running on "{platform}", but cannot install Select Twisted reactor, because another reactor ({klass}) is already installed.', klass=current_reactor, platform=sys.platform)
+                if require_optimal_reactor:
+                    raise ReactorAlreadyInstalledError()
+        else:
+            log.debug('Running on "{platform}" and optimal reactor (Select) already installed.', platform=sys.platform)
+
+    from twisted.internet import reactor
+    txaio.config.loop = reactor
+
+    return reactor
 
 
-def create_pumper():
+def install_reactor(explicit_reactor=None, verbose=False, log=None, require_optimal_reactor=True):
     """
-    return a new instance implementing IPumper
-    """
-    return _Kalamazoo()
+    Install Twisted reactor.
 
+    :param explicit_reactor: If provided, install this reactor. Else, install
+        the optimal reactor.
+    :type explicit_reactor: obj
 
-def create_memory_agent(reactor, pumper, server_protocol):
-    """
-    return a new instance implementing `IWebSocketClientAgent`.
+    :param verbose: If ``True``, log (at level "info") the reactor that is
+        in place afterwards.
+    :type verbose: bool
 
-    connection attempts will be satisfied by traversing the Upgrade
-    request path starting at `resource` to find a `WebSocketResource`
-    and then exchange data between client and server using purely
-    in-memory buffers.
+    :param log: Explicit logging to this txaio logger object.
+    :type log: obj
+
+    :param require_optimal_reactor: If ``True`` and the desired reactor could not be installed,
+        raise ``ReactorAlreadyInstalledError``, else fallback to another reactor.
+    :type require_optimal_reactor: bool
+
+    :returns: The Twisted reactor in place (`twisted.internet.reactor`).
     """
-    # Note, we currently don't actually do any "resource traversing"
-    # and basically accept any path at all to our websocket resource
-    if server_protocol is None:
-        server_protocol = WebSocketServerProtocol
-    return _TwistedWebMemoryAgent(reactor, pumper, server_protocol)
+    if not log:
+        log = txaio.make_logger()
+
+    if explicit_reactor:
+        # install explicitly given reactor
+        #
+        from twisted.application.reactors import installReactor
+        if verbose:
+            log.info('Trying to install explicitly specified Twisted reactor "{reactor}" ..', reactor=explicit_reactor)
+        try:
+            installReactor(explicit_reactor)
+        except:
+            log.failure('Could not install Twisted reactor {reactor}\n{log_failure.value}',
+                        reactor=explicit_reactor)
+            sys.exit(1)
+    else:
+        # automatically choose optimal reactor
+        #
+        if verbose:
+            log.info('Automatically choosing optimal Twisted reactor ..')
+        install_optimal_reactor(require_optimal_reactor)
+
+    # now the reactor is installed, import it
+    from twisted.internet import reactor
+    txaio.config.loop = reactor
+
+    if verbose:
+        from twisted.python.reflect import qual
+        log.info('Running on Twisted reactor {reactor}', reactor=qual(reactor.__class__))
+
+    return reactor

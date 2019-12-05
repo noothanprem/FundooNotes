@@ -1,1 +1,1 @@
-из6venv/lib64/python3.6/site-packages/MySQLdb/__init__.py 2pyXch
+из4venv/lib64/python3.6/site-packages/MySQLdb/compat.py 2pyXh

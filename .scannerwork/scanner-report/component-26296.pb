@@ -1,1 +1,1 @@
-¸Í8venv/lib64/python3.6/site-packages/soupsieve/__meta__.py 2pyX¿h
+¸Í6venv/lib64/python3.6/site-packages/colorful/widgets.py 2pyX7h

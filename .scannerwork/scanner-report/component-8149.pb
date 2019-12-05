@@ -1,1 +1,1 @@
-Õ?3venv/lib/python3.6/site-packages/django/core/checks :Ô?Ö?×?Ø?Ù?Ú?ß?à?á?
+Õ?9venv/lib/python3.6/site-packages/django/core/paginator.py 2pyXÃh

@@ -2,502 +2,519 @@
 # See LICENSE for details.
 
 """
-Tests for the inotify wrapper in L{twisted.internet.inotify}.
+Tests for L{twisted.internet.protocol}.
 """
-import sys
 
-from twisted.internet import defer, reactor
-from twisted.python import filepath, runtime
-from twisted.python.reflect import requireModule
-from twisted.trial import unittest
+from __future__ import division, absolute_import
 
-if requireModule('twisted.python._inotify') is not None:
-    from twisted.internet import inotify
-else:
-    inotify = None
+from io import BytesIO
+
+from zope.interface import implementer
+from zope.interface.verify import verifyObject
+
+from twisted.internet.defer import CancelledError
+from twisted.internet.interfaces import (
+    IProtocol, ILoggingContext, IProtocolFactory, IConsumer)
+from twisted.internet.protocol import (
+    Protocol, ClientCreator, Factory, ProtocolToConsumerAdapter,
+    ConsumerToProtocolAdapter, FileWrapper)
+from twisted.logger import LogLevel, globalLogPublisher
+from twisted.python.compat import _PY3
+from twisted.python.failure import Failure
+from twisted.test.proto_helpers import MemoryReactorClock, StringTransport
+from twisted.trial.unittest import TestCase
 
 
 
-class INotifyTests(unittest.TestCase):
+class ClientCreatorTests(TestCase):
     """
-    Define all the tests for the basic functionality exposed by
-    L{inotify.INotify}.
+    Tests for L{twisted.internet.protocol.ClientCreator}.
     """
-    if not runtime.platform.supportsINotify():
-        skip = "This platform doesn't support INotify."
-
-    def setUp(self):
-        self.dirname = filepath.FilePath(self.mktemp())
-        self.dirname.createDirectory()
-        self.inotify = inotify.INotify()
-        self.inotify.startReading()
-        self.addCleanup(self.inotify.loseConnection)
-
-
-    def test_initializationErrors(self):
+    def _basicConnectTest(self, check):
         """
-        L{inotify.INotify} emits a C{RuntimeError} when initialized
-        in an environment that doesn't support inotify as we expect it.
+        Helper for implementing a test to verify that one of the I{connect}
+        methods of L{ClientCreator} passes the right arguments to the right
+        reactor method.
 
-        We just try to raise an exception for every possible case in
-        the for loop in L{inotify.INotify._inotify__init__}.
+        @param check: A function which will be invoked with a reactor and a
+            L{ClientCreator} instance and which should call one of the
+            L{ClientCreator}'s I{connect} methods and assert that all of its
+            arguments except for the factory are passed on as expected to the
+            reactor.  The factory should be returned.
         """
-        class FakeINotify:
-            def init(self):
-                raise inotify.INotifyError()
-        self.patch(inotify.INotify, '_inotify', FakeINotify())
-        self.assertRaises(inotify.INotifyError, inotify.INotify)
+        class SomeProtocol(Protocol):
+            pass
+
+        reactor = MemoryReactorClock()
+        cc = ClientCreator(reactor, SomeProtocol)
+        factory = check(reactor, cc)
+        protocol = factory.buildProtocol(None)
+        self.assertIsInstance(protocol, SomeProtocol)
 
 
-    def _notificationTest(self, mask, operation, expectedPath=None):
+    def test_connectTCP(self):
         """
-        Test notification from some filesystem operation.
-
-        @param mask: The event mask to use when setting up the watch.
-
-        @param operation: A function which will be called with the
-            name of a file in the watched directory and which should
-            trigger the event.
-
-        @param expectedPath: Optionally, the name of the path which is
-            expected to come back in the notification event; this will
-            also be passed to C{operation} (primarily useful when the
-            operation is being done to the directory itself, not a
-            file in it).
-
-        @return: A L{Deferred} which fires successfully when the
-            expected event has been received or fails otherwise.
+        L{ClientCreator.connectTCP} calls C{reactor.connectTCP} with the host
+        and port information passed to it, and with a factory which will
+        construct the protocol passed to L{ClientCreator.__init__}.
         """
-        if expectedPath is None:
-            expectedPath = self.dirname.child("foo.bar")
-        notified = defer.Deferred()
-        def cbNotified(result):
-            (watch, filename, events) = result
-            self.assertEqual(filename.asBytesMode(), expectedPath.asBytesMode())
-            self.assertTrue(events & mask)
-        notified.addCallback(cbNotified)
-
-        self.inotify.watch(
-            self.dirname, mask=mask,
-            callbacks=[lambda *args: notified.callback(args)])
-        operation(expectedPath)
-        return notified
+        def check(reactor, cc):
+            cc.connectTCP('example.com', 1234, 4321, ('1.2.3.4', 9876))
+            host, port, factory, timeout, bindAddress = reactor.tcpClients.pop()
+            self.assertEqual(host, 'example.com')
+            self.assertEqual(port, 1234)
+            self.assertEqual(timeout, 4321)
+            self.assertEqual(bindAddress, ('1.2.3.4', 9876))
+            return factory
+        self._basicConnectTest(check)
 
 
-    def test_access(self):
+    def test_connectUNIX(self):
         """
-        Reading from a file in a monitored directory sends an
-        C{inotify.IN_ACCESS} event to the callback.
+        L{ClientCreator.connectUNIX} calls C{reactor.connectUNIX} with the
+        filename passed to it, and with a factory which will construct the
+        protocol passed to L{ClientCreator.__init__}.
         """
-        def operation(path):
-            path.setContent(b"foo")
-            path.getContent()
+        def check(reactor, cc):
+            cc.connectUNIX('/foo/bar', 123, True)
+            address, factory, timeout, checkPID = reactor.unixClients.pop()
+            self.assertEqual(address, '/foo/bar')
+            self.assertEqual(timeout, 123)
+            self.assertTrue(checkPID)
+            return factory
+        self._basicConnectTest(check)
 
-        return self._notificationTest(inotify.IN_ACCESS, operation)
 
-
-    def test_modify(self):
+    def test_connectSSL(self):
         """
-        Writing to a file in a monitored directory sends an
-        C{inotify.IN_MODIFY} event to the callback.
+        L{ClientCreator.connectSSL} calls C{reactor.connectSSL} with the host,
+        port, and context factory passed to it, and with a factory which will
+        construct the protocol passed to L{ClientCreator.__init__}.
         """
-        def operation(path):
-            with path.open("w") as fObj:
-                fObj.write(b'foo')
+        def check(reactor, cc):
+            expectedContextFactory = object()
+            cc.connectSSL('example.com', 1234, expectedContextFactory, 4321, ('4.3.2.1', 5678))
+            host, port, factory, contextFactory, timeout, bindAddress = reactor.sslClients.pop()
+            self.assertEqual(host, 'example.com')
+            self.assertEqual(port, 1234)
+            self.assertIs(contextFactory, expectedContextFactory)
+            self.assertEqual(timeout, 4321)
+            self.assertEqual(bindAddress, ('4.3.2.1', 5678))
+            return factory
+        self._basicConnectTest(check)
 
-        return self._notificationTest(inotify.IN_MODIFY, operation)
 
-
-    def test_attrib(self):
+    def _cancelConnectTest(self, connect):
         """
-        Changing the metadata of a file in a monitored directory
-        sends an C{inotify.IN_ATTRIB} event to the callback.
+        Helper for implementing a test to verify that cancellation of the
+        L{Deferred} returned by one of L{ClientCreator}'s I{connect} methods is
+        implemented to cancel the underlying connector.
+
+        @param connect: A function which will be invoked with a L{ClientCreator}
+            instance as an argument and which should call one its I{connect}
+            methods and return the result.
+
+        @return: A L{Deferred} which fires when the test is complete or fails if
+            there is a problem.
         """
-        def operation(path):
-            path.touch()
-            path.touch()
+        reactor = MemoryReactorClock()
+        cc = ClientCreator(reactor, Protocol)
+        d = connect(cc)
+        connector = reactor.connectors.pop()
+        self.assertFalse(connector._disconnected)
+        d.cancel()
+        self.assertTrue(connector._disconnected)
+        return self.assertFailure(d, CancelledError)
 
-        return self._notificationTest(inotify.IN_ATTRIB, operation)
 
-
-    def test_closeWrite(self):
+    def test_cancelConnectTCP(self):
         """
-        Closing a file which was open for writing in a monitored
-        directory sends an C{inotify.IN_CLOSE_WRITE} event to the
-        callback.
+        The L{Deferred} returned by L{ClientCreator.connectTCP} can be cancelled
+        to abort the connection attempt before it completes.
         """
-        def operation(path):
-            path.open("w").close()
+        def connect(cc):
+            return cc.connectTCP('example.com', 1234)
+        return self._cancelConnectTest(connect)
 
-        return self._notificationTest(inotify.IN_CLOSE_WRITE, operation)
 
-
-    def test_closeNoWrite(self):
+    def test_cancelConnectUNIX(self):
         """
-        Closing a file which was open for reading but not writing in a
-        monitored directory sends an C{inotify.IN_CLOSE_NOWRITE} event
-        to the callback.
+        The L{Deferred} returned by L{ClientCreator.connectTCP} can be cancelled
+        to abort the connection attempt before it completes.
         """
-        def operation(path):
-            path.touch()
-            path.open("r").close()
-
-        return self._notificationTest(inotify.IN_CLOSE_NOWRITE, operation)
+        def connect(cc):
+            return cc.connectUNIX('/foo/bar')
+        return self._cancelConnectTest(connect)
 
 
-    def test_open(self):
+    def test_cancelConnectSSL(self):
         """
-        Opening a file in a monitored directory sends an
-        C{inotify.IN_OPEN} event to the callback.
+        The L{Deferred} returned by L{ClientCreator.connectTCP} can be cancelled
+        to abort the connection attempt before it completes.
         """
-        def operation(path):
-            path.open("w").close()
+        def connect(cc):
+            return cc.connectSSL('example.com', 1234, object())
+        return self._cancelConnectTest(connect)
 
-        return self._notificationTest(inotify.IN_OPEN, operation)
 
-
-    def test_movedFrom(self):
+    def _cancelConnectTimeoutTest(self, connect):
         """
-        Moving a file out of a monitored directory sends an
-        C{inotify.IN_MOVED_FROM} event to the callback.
+        Like L{_cancelConnectTest}, but for the case where the L{Deferred} is
+        cancelled after the connection is set up but before it is fired with the
+        resulting protocol instance.
         """
-        def operation(path):
-            path.open("w").close()
-            path.moveTo(filepath.FilePath(self.mktemp()))
+        reactor = MemoryReactorClock()
+        cc = ClientCreator(reactor, Protocol)
+        d = connect(reactor, cc)
+        connector = reactor.connectors.pop()
+        # Sanity check - there is an outstanding delayed call to fire the
+        # Deferred.
+        self.assertEqual(len(reactor.getDelayedCalls()), 1)
 
-        return self._notificationTest(inotify.IN_MOVED_FROM, operation)
+        # Cancel the Deferred, disconnecting the transport just set up and
+        # cancelling the delayed call.
+        d.cancel()
+
+        self.assertEqual(reactor.getDelayedCalls(), [])
+
+        # A real connector implementation is responsible for disconnecting the
+        # transport as well.  For our purposes, just check that someone told the
+        # connector to disconnect.
+        self.assertTrue(connector._disconnected)
+
+        return self.assertFailure(d, CancelledError)
 
 
-    def test_movedTo(self):
+    def test_cancelConnectTCPTimeout(self):
         """
-        Moving a file into a monitored directory sends an
-        C{inotify.IN_MOVED_TO} event to the callback.
+        L{ClientCreator.connectTCP} inserts a very short delayed call between
+        the time the connection is established and the time the L{Deferred}
+        returned from one of its connect methods actually fires.  If the
+        L{Deferred} is cancelled in this interval, the established connection is
+        closed, the timeout is cancelled, and the L{Deferred} fails with
+        L{CancelledError}.
         """
-        def operation(path):
-            p = filepath.FilePath(self.mktemp())
-            p.touch()
-            p.moveTo(path)
+        def connect(reactor, cc):
+            d = cc.connectTCP('example.com', 1234)
+            host, port, factory, timeout, bindAddress = reactor.tcpClients.pop()
+            protocol = factory.buildProtocol(None)
+            transport = StringTransport()
+            protocol.makeConnection(transport)
+            return d
+        return self._cancelConnectTimeoutTest(connect)
 
-        return self._notificationTest(inotify.IN_MOVED_TO, operation)
 
-
-    def test_create(self):
+    def test_cancelConnectUNIXTimeout(self):
         """
-        Creating a file in a monitored directory sends an
-        C{inotify.IN_CREATE} event to the callback.
+        L{ClientCreator.connectUNIX} inserts a very short delayed call between
+        the time the connection is established and the time the L{Deferred}
+        returned from one of its connect methods actually fires.  If the
+        L{Deferred} is cancelled in this interval, the established connection is
+        closed, the timeout is cancelled, and the L{Deferred} fails with
+        L{CancelledError}.
         """
-        def operation(path):
-            path.open("w").close()
+        def connect(reactor, cc):
+            d = cc.connectUNIX('/foo/bar')
+            address, factory, timeout, bindAddress = reactor.unixClients.pop()
+            protocol = factory.buildProtocol(None)
+            transport = StringTransport()
+            protocol.makeConnection(transport)
+            return d
+        return self._cancelConnectTimeoutTest(connect)
 
-        return self._notificationTest(inotify.IN_CREATE, operation)
 
-
-    def test_delete(self):
+    def test_cancelConnectSSLTimeout(self):
         """
-        Deleting a file in a monitored directory sends an
-        C{inotify.IN_DELETE} event to the callback.
+        L{ClientCreator.connectSSL} inserts a very short delayed call between
+        the time the connection is established and the time the L{Deferred}
+        returned from one of its connect methods actually fires.  If the
+        L{Deferred} is cancelled in this interval, the established connection is
+        closed, the timeout is cancelled, and the L{Deferred} fails with
+        L{CancelledError}.
         """
-        def operation(path):
-            path.touch()
-            path.remove()
+        def connect(reactor, cc):
+            d = cc.connectSSL('example.com', 1234, object())
+            host, port, factory, contextFactory, timeout, bindADdress = reactor.sslClients.pop()
+            protocol = factory.buildProtocol(None)
+            transport = StringTransport()
+            protocol.makeConnection(transport)
+            return d
+        return self._cancelConnectTimeoutTest(connect)
 
-        return self._notificationTest(inotify.IN_DELETE, operation)
 
-
-    def test_deleteSelf(self):
+    def _cancelConnectFailedTimeoutTest(self, connect):
         """
-        Deleting the monitored directory itself sends an
-        C{inotify.IN_DELETE_SELF} event to the callback.
+        Like L{_cancelConnectTest}, but for the case where the L{Deferred} is
+        cancelled after the connection attempt has failed but before it is fired
+        with the resulting failure.
         """
-        def operation(path):
-            path.remove()
+        reactor = MemoryReactorClock()
+        cc = ClientCreator(reactor, Protocol)
+        d, factory = connect(reactor, cc)
+        connector = reactor.connectors.pop()
+        factory.clientConnectionFailed(
+            connector, Failure(Exception("Simulated failure")))
 
-        return self._notificationTest(
-            inotify.IN_DELETE_SELF, operation, expectedPath=self.dirname)
+        # Sanity check - there is an outstanding delayed call to fire the
+        # Deferred.
+        self.assertEqual(len(reactor.getDelayedCalls()), 1)
+
+        # Cancel the Deferred, cancelling the delayed call.
+        d.cancel()
+
+        self.assertEqual(reactor.getDelayedCalls(), [])
+
+        return self.assertFailure(d, CancelledError)
 
 
-    def test_moveSelf(self):
+    def test_cancelConnectTCPFailedTimeout(self):
         """
-        Renaming the monitored directory itself sends an
-        C{inotify.IN_MOVE_SELF} event to the callback.
+        Similar to L{test_cancelConnectTCPTimeout}, but for the case where the
+        connection attempt fails.
         """
-        def operation(path):
-            path.moveTo(filepath.FilePath(self.mktemp()))
+        def connect(reactor, cc):
+            d = cc.connectTCP('example.com', 1234)
+            host, port, factory, timeout, bindAddress = reactor.tcpClients.pop()
+            return d, factory
+        return self._cancelConnectFailedTimeoutTest(connect)
 
-        return self._notificationTest(
-            inotify.IN_MOVE_SELF, operation, expectedPath=self.dirname)
 
-
-    def test_simpleSubdirectoryAutoAdd(self):
+    def test_cancelConnectUNIXFailedTimeout(self):
         """
-        L{inotify.INotify} when initialized with autoAdd==True adds
-        also adds the created subdirectories to the watchlist.
+        Similar to L{test_cancelConnectUNIXTimeout}, but for the case where the
+        connection attempt fails.
         """
-        def _callback(wp, filename, mask):
-            # We are notified before we actually process new
-            # directories, so we need to defer this check.
-            def _():
-                try:
-                    self.assertTrue(self.inotify._isWatched(subdir))
-                    d.callback(None)
-                except Exception:
-                    d.errback()
-            reactor.callLater(0, _)
-
-        checkMask = inotify.IN_ISDIR | inotify.IN_CREATE
-        self.inotify.watch(
-            self.dirname, mask=checkMask, autoAdd=True,
-            callbacks=[_callback])
-        subdir = self.dirname.child('test')
-        d = defer.Deferred()
-        subdir.createDirectory()
-        return d
+        def connect(reactor, cc):
+            d = cc.connectUNIX('/foo/bar')
+            address, factory, timeout, bindAddress = reactor.unixClients.pop()
+            return d, factory
+        return self._cancelConnectFailedTimeoutTest(connect)
 
 
-    def test_simpleDeleteDirectory(self):
+    def test_cancelConnectSSLFailedTimeout(self):
         """
-        L{inotify.INotify} removes a directory from the watchlist when
-        it's removed from the filesystem.
+        Similar to L{test_cancelConnectSSLTimeout}, but for the case where the
+        connection attempt fails.
         """
-        calls = []
-        def _callback(wp, filename, mask):
-            # We are notified before we actually process new
-            # directories, so we need to defer this check.
-            def _():
-                try:
-                    self.assertTrue(self.inotify._isWatched(subdir))
-                    subdir.remove()
-                except Exception:
-                    d.errback()
-            def _eb():
-                # second call, we have just removed the subdir
-                try:
-                    self.assertFalse(self.inotify._isWatched(subdir))
-                    d.callback(None)
-                except Exception:
-                    d.errback()
-
-            if not calls:
-                # first call, it's the create subdir
-                calls.append(filename)
-                reactor.callLater(0, _)
-
-            else:
-                reactor.callLater(0, _eb)
-
-        checkMask = inotify.IN_ISDIR | inotify.IN_CREATE
-        self.inotify.watch(
-            self.dirname, mask=checkMask, autoAdd=True,
-            callbacks=[_callback])
-        subdir = self.dirname.child('test')
-        d = defer.Deferred()
-        subdir.createDirectory()
-        return d
+        def connect(reactor, cc):
+            d = cc.connectSSL('example.com', 1234, object())
+            host, port, factory, contextFactory, timeout, bindADdress = reactor.sslClients.pop()
+            return d, factory
+        return self._cancelConnectFailedTimeoutTest(connect)
 
 
-    def test_ignoreDirectory(self):
+
+class ProtocolTests(TestCase):
+    """
+    Tests for L{twisted.internet.protocol.Protocol}.
+    """
+    def test_interfaces(self):
         """
-        L{inotify.INotify.ignore} removes a directory from the watchlist
+        L{Protocol} instances provide L{IProtocol} and L{ILoggingContext}.
         """
-        self.inotify.watch(self.dirname, autoAdd=True)
-        self.assertTrue(self.inotify._isWatched(self.dirname))
-        self.inotify.ignore(self.dirname)
-        self.assertFalse(self.inotify._isWatched(self.dirname))
+        proto = Protocol()
+        self.assertTrue(verifyObject(IProtocol, proto))
+        self.assertTrue(verifyObject(ILoggingContext, proto))
 
 
-    def test_humanReadableMask(self):
+    def test_logPrefix(self):
         """
-        L{inotify.humaReadableMask} translates all the possible event
-        masks to a human readable string.
+        L{Protocol.logPrefix} returns the protocol class's name.
         """
-        for mask, value in inotify._FLAG_TO_HUMAN:
-            self.assertEqual(inotify.humanReadableMask(mask)[0], value)
-
-        checkMask = (
-            inotify.IN_CLOSE_WRITE | inotify.IN_ACCESS | inotify.IN_OPEN)
-        self.assertEqual(
-            set(inotify.humanReadableMask(checkMask)),
-            set(['close_write', 'access', 'open']))
+        class SomeThing(Protocol):
+            pass
+        self.assertEqual("SomeThing", SomeThing().logPrefix())
 
 
-    def test_recursiveWatch(self):
+    def test_makeConnection(self):
         """
-        L{inotify.INotify.watch} with recursive==True will add all the
-        subdirectories under the given path to the watchlist.
+        L{Protocol.makeConnection} sets the given transport on itself, and
+        then calls C{connectionMade}.
         """
-        subdir = self.dirname.child('test')
-        subdir2 = subdir.child('test2')
-        subdir3 = subdir2.child('test3')
-        subdir3.makedirs()
-        dirs = [subdir, subdir2, subdir3]
-        self.inotify.watch(self.dirname, recursive=True)
-        # let's even call this twice so that we test that nothing breaks
-        self.inotify.watch(self.dirname, recursive=True)
-        for d in dirs:
-            self.assertTrue(self.inotify._isWatched(d))
+        result = []
+        class SomeProtocol(Protocol):
+            def connectionMade(self):
+                result.append(self.transport)
+
+        transport = object()
+        protocol = SomeProtocol()
+        protocol.makeConnection(transport)
+        self.assertEqual(result, [transport])
 
 
-    def test_connectionLostError(self):
+
+class FactoryTests(TestCase):
+    """
+    Tests for L{protocol.Factory}.
+    """
+
+    def test_interfaces(self):
         """
-        L{inotify.INotify.connectionLost} if there's a problem while closing
-        the fd shouldn't raise the exception but should log the error
+        L{Factory} instances provide both L{IProtocolFactory} and
+        L{ILoggingContext}.
         """
-        import os
-        in_ = inotify.INotify()
-        os.close(in_._fd)
-        in_.loseConnection()
-        self.flushLoggedErrors()
+        factory = Factory()
+        self.assertTrue(verifyObject(IProtocolFactory, factory))
+        self.assertTrue(verifyObject(ILoggingContext, factory))
 
-    def test_noAutoAddSubdirectory(self):
+
+    def test_logPrefix(self):
         """
-        L{inotify.INotify.watch} with autoAdd==False will stop inotify
-        from watching subdirectories created under the watched one.
+        L{Factory.logPrefix} returns the name of the factory class.
         """
-        def _callback(wp, fp, mask):
-            # We are notified before we actually process new
-            # directories, so we need to defer this check.
-            def _():
-                try:
-                    self.assertFalse(self.inotify._isWatched(subdir))
-                    d.callback(None)
-                except Exception:
-                    d.errback()
-            reactor.callLater(0, _)
+        class SomeKindOfFactory(Factory):
+            pass
 
-        checkMask = inotify.IN_ISDIR | inotify.IN_CREATE
-        self.inotify.watch(
-            self.dirname, mask=checkMask, autoAdd=False,
-            callbacks=[_callback])
-        subdir = self.dirname.child('test')
-        d = defer.Deferred()
-        subdir.createDirectory()
-        return d
+        self.assertEqual("SomeKindOfFactory", SomeKindOfFactory().logPrefix())
 
 
-    def test_seriesOfWatchAndIgnore(self):
+    def test_defaultBuildProtocol(self):
         """
-        L{inotify.INotify} will watch a filepath for events even if the same
-        path is repeatedly added/removed/re-added to the watchpoints.
+        L{Factory.buildProtocol} by default constructs a protocol by calling
+        its C{protocol} attribute, and attaches the factory to the result.
         """
-        expectedPath = self.dirname.child("foo.bar2")
-        expectedPath.touch()
-
-        notified = defer.Deferred()
-        def cbNotified(result):
-            (ignored, filename, events) = result
-            self.assertEqual(filename.asBytesMode(), expectedPath.asBytesMode())
-            self.assertTrue(events & inotify.IN_DELETE_SELF)
-
-        def callIt(*args):
-            notified.callback(args)
-
-        # Watch, ignore, watch again to get into the state being tested.
-        self.assertTrue(self.inotify.watch(expectedPath, callbacks=[callIt]))
-        self.inotify.ignore(expectedPath)
-        self.assertTrue(
-            self.inotify.watch(
-                expectedPath, mask=inotify.IN_DELETE_SELF, callbacks=[callIt]))
-
-        notified.addCallback(cbNotified)
-
-        # Apparently in kernel version < 2.6.25, inofify has a bug in the way
-        # similar events are coalesced.  So, be sure to generate a different
-        # event here than the touch() at the top of this method might have
-        # generated.
-        expectedPath.remove()
-
-        return notified
+        class SomeProtocol(Protocol):
+            pass
+        f = Factory()
+        f.protocol = SomeProtocol
+        protocol = f.buildProtocol(None)
+        self.assertIsInstance(protocol, SomeProtocol)
+        self.assertIs(protocol.factory, f)
 
 
-    def test_ignoreFilePath(self):
+    def test_forProtocol(self):
         """
-        L{inotify.INotify} will ignore a filepath after it has been removed from
-        the watch list.
+        L{Factory.forProtocol} constructs a Factory, passing along any
+        additional arguments, and sets its C{protocol} attribute to the given
+        Protocol subclass.
         """
-        expectedPath = self.dirname.child("foo.bar2")
-        expectedPath.touch()
-        expectedPath2 = self.dirname.child("foo.bar3")
-        expectedPath2.touch()
-
-        notified = defer.Deferred()
-        def cbNotified(result):
-            (ignored, filename, events) = result
-            self.assertEqual(filename.asBytesMode(), expectedPath2.asBytesMode())
-            self.assertTrue(events & inotify.IN_DELETE_SELF)
-
-        def callIt(*args):
-            notified.callback(args)
-
-        self.assertTrue(
-            self.inotify.watch(
-                expectedPath, inotify.IN_DELETE_SELF, callbacks=[callIt]))
-        notified.addCallback(cbNotified)
-
-        self.assertTrue(
-            self.inotify.watch(
-                expectedPath2, inotify.IN_DELETE_SELF, callbacks=[callIt]))
-
-        self.inotify.ignore(expectedPath)
-
-        expectedPath.remove()
-        expectedPath2.remove()
-
-        return notified
+        class ArgTakingFactory(Factory):
+            def __init__(self, *args, **kwargs):
+                self.args, self.kwargs = args, kwargs
+        factory = ArgTakingFactory.forProtocol(Protocol, 1, 2, foo=12)
+        self.assertEqual(factory.protocol, Protocol)
+        self.assertEqual(factory.args, (1, 2))
+        self.assertEqual(factory.kwargs, {"foo": 12})
 
 
-    def test_ignoreNonWatchedFile(self):
+    def test_doStartLoggingStatement(self):
         """
-        L{inotify.INotify} will raise KeyError if a non-watched filepath is
-        ignored.
+        L{Factory.doStart} logs that it is starting a factory, followed by
+        the L{repr} of the L{Factory} instance that is being started.
         """
-        expectedPath = self.dirname.child("foo.ignored")
-        expectedPath.touch()
+        events = []
+        globalLogPublisher.addObserver(events.append)
+        self.addCleanup(
+            lambda: globalLogPublisher.removeObserver(events.append))
 
-        self.assertRaises(KeyError, self.inotify.ignore, expectedPath)
+        f = Factory()
+        f.doStart()
+
+        self.assertIs(events[0]['factory'], f)
+        self.assertEqual(events[0]['log_level'], LogLevel.info)
+        self.assertEqual(events[0]['log_format'],
+                         'Starting factory {factory!r}')
 
 
-    def test_complexSubdirectoryAutoAdd(self):
+    def test_doStopLoggingStatement(self):
         """
-        L{inotify.INotify} with autoAdd==True for a watched path
-        generates events for every file or directory already present
-        in a newly created subdirectory under the watched one.
-
-        This tests that we solve a race condition in inotify even though
-        we may generate duplicate events.
+        L{Factory.doStop} logs that it is stopping a factory, followed by
+        the L{repr} of the L{Factory} instance that is being stopped.
         """
-        calls = set()
-        def _callback(wp, filename, mask):
-            calls.add(filename)
-            if len(calls) == 6:
-                try:
-                    self.assertTrue(self.inotify._isWatched(subdir))
-                    self.assertTrue(self.inotify._isWatched(subdir2))
-                    self.assertTrue(self.inotify._isWatched(subdir3))
-                    created = someFiles + [subdir, subdir2, subdir3]
-                    created = {f.asBytesMode() for f in created}
-                    self.assertEqual(len(calls), len(created))
-                    self.assertEqual(calls, created)
-                except Exception:
-                    d.errback()
-                else:
-                    d.callback(None)
+        events = []
+        globalLogPublisher.addObserver(events.append)
+        self.addCleanup(
+            lambda: globalLogPublisher.removeObserver(events.append))
 
-        checkMask = inotify.IN_ISDIR | inotify.IN_CREATE
-        self.inotify.watch(
-            self.dirname, mask=checkMask, autoAdd=True,
-            callbacks=[_callback])
-        subdir = self.dirname.child('test')
-        subdir2 = subdir.child('test2')
-        subdir3 = subdir2.child('test3')
-        d = defer.Deferred()
-        subdir3.makedirs()
+        class MyFactory(Factory):
+            numPorts = 1
 
-        someFiles = [subdir.child('file1.dat'),
-                     subdir2.child('file2.dat'),
-                     subdir3.child('file3.dat')]
-        # Add some files in pretty much all the directories so that we
-        # see that we process all of them.
-        for i, filename in enumerate(someFiles):
-            filename.setContent(
-                filename.path.encode(sys.getfilesystemencoding()))
-        return d
+        f = MyFactory()
+        f.doStop()
+
+        self.assertIs(events[0]['factory'], f)
+        self.assertEqual(events[0]['log_level'], LogLevel.info)
+        self.assertEqual(events[0]['log_format'],
+                         'Stopping factory {factory!r}')
+
+
+
+class AdapterTests(TestCase):
+    """
+    Tests for L{ProtocolToConsumerAdapter} and L{ConsumerToProtocolAdapter}.
+    """
+    def test_protocolToConsumer(self):
+        """
+        L{IProtocol} providers can be adapted to L{IConsumer} providers using
+        L{ProtocolToConsumerAdapter}.
+        """
+        result = []
+        p = Protocol()
+        p.dataReceived = result.append
+        consumer = IConsumer(p)
+        consumer.write(b"hello")
+        self.assertEqual(result, [b"hello"])
+        self.assertIsInstance(consumer, ProtocolToConsumerAdapter)
+
+
+    def test_consumerToProtocol(self):
+        """
+        L{IConsumer} providers can be adapted to L{IProtocol} providers using
+        L{ProtocolToConsumerAdapter}.
+        """
+        result = []
+        @implementer(IConsumer)
+        class Consumer(object):
+            def write(self, d):
+                result.append(d)
+
+        c = Consumer()
+        protocol = IProtocol(c)
+        protocol.dataReceived(b"hello")
+        self.assertEqual(result, [b"hello"])
+        self.assertIsInstance(protocol, ConsumerToProtocolAdapter)
+
+
+
+class FileWrapperTests(TestCase):
+    """
+    L{twisted.internet.protocol.FileWrapper}
+    """
+
+    def test_write(self):
+        """
+        L{twisted.internet.protocol.FileWrapper.write}
+        """
+        wrapper = FileWrapper(BytesIO())
+        wrapper.write(b"test1")
+        self.assertEqual(wrapper.file.getvalue(), b"test1")
+
+        wrapper = FileWrapper(BytesIO())
+        # BytesIO() cannot accept unicode, so this will
+        # cause an exception to be thrown which will be
+        # handled by FileWrapper.handle_exception().
+        wrapper.write(u"stuff")
+        self.assertNotEqual(wrapper.file.getvalue(), u"stuff")
+
+
+    def test_writeSequence(self):
+        """
+        L{twisted.internet.protocol.FileWrapper.writeSequence}
+        """
+        wrapper = FileWrapper(BytesIO())
+        wrapper.writeSequence([b"test1", b"test2"])
+        self.assertEqual(wrapper.file.getvalue(), b"test1test2")
+
+        wrapper = FileWrapper(BytesIO())
+        if _PY3:
+            # In Python 3, b"".join([u"a", u"b"]) will raise a TypeError
+            self.assertRaises(TypeError,
+                              wrapper.writeSequence,
+                              [u"test3", u"test4"])
+        else:
+            # In Python 2, b"".join([u"a", u"b"])
+            # will give u"ab", but writing unicode to BytesIO
+            # will throw an exception which will be caught
+            # and ignored by FileWrapper.handle_exception()
+            wrapper.writeSequence([u"test3", u"test4"])
+            self.assertTrue(len(wrapper.file.getvalue()) == 0)

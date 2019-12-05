@@ -1,1 +1,1 @@
-„M@venv/lib/python3.6/site-packages/autobahn/websocket/xormasker.py 2pyXåh
+„MAvenv/lib/python3.6/site-packages/autobahn/websocket/interfaces.py 2pyX∆h

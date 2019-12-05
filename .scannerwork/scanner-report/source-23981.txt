@@ -1,59 +1,88 @@
-DEFAULT_AUTH_PIPELINE = (
-    # Get the information we can about the user and return it in a simple
-    # format to create the user instance later. On some cases the details are
-    # already part of the auth response from the provider, but sometimes this
-    # could hit a provider API.
-    'social_core.pipeline.social_auth.social_details',
+from ..exceptions import AuthAlreadyAssociated, AuthException, AuthForbidden
 
-    # Get the social uid from whichever service we're authing thru. The uid is
-    # the unique identifier of the given user in the provider.
-    'social_core.pipeline.social_auth.social_uid',
 
-    # Verifies that the current auth process is valid within the current
-    # project, this is where emails and domains whitelists are applied (if
-    # defined).
-    'social_core.pipeline.social_auth.auth_allowed',
+def social_details(backend, details, response, *args, **kwargs):
+    return {'details': dict(backend.get_user_details(response), **details)}
 
-    # Checks if the current social-account is already associated in the site.
-    'social_core.pipeline.social_auth.social_user',
 
-    # Make up a username for this person, appends a random string at the end if
-    # there's any collision.
-    'social_core.pipeline.user.get_username',
+def social_uid(backend, details, response, *args, **kwargs):
+    return {'uid': backend.get_user_id(details, response)}
 
-    # Send a validation email to the user to verify its email address.
-    # 'social_core.pipeline.mail.mail_validation',
 
-    # Associates the current social details with another user account with
-    # a similar email address.
-    # 'social_core.pipeline.social_auth.associate_by_email',
+def auth_allowed(backend, details, response, *args, **kwargs):
+    if not backend.auth_allowed(response, details):
+        raise AuthForbidden(backend)
 
-    # Create a user account if we haven't found one yet.
-    'social_core.pipeline.user.create_user',
 
-    # Create the record that associated the social account with this user.
-    'social_core.pipeline.social_auth.associate_user',
+def social_user(backend, uid, user=None, *args, **kwargs):
+    provider = backend.name
+    social = backend.strategy.storage.user.get_social_auth(provider, uid)
+    if social:
+        if user and social.user != user:
+            msg = 'This account is already in use.'
+            raise AuthAlreadyAssociated(backend, msg)
+        elif not user:
+            user = social.user
+    return {'social': social,
+            'user': user,
+            'is_new': user is None,
+            'new_association': social is None}
 
-    # Populate the extra_data field in the social record with the values
-    # specified by settings (and the default ones like access_token, etc).
-    'social_core.pipeline.social_auth.load_extra_data',
 
-    # Update the user record with any changed info from the auth service.
-    'social_core.pipeline.user.user_details'
-)
+def associate_user(backend, uid, user=None, social=None, *args, **kwargs):
+    if user and not social:
+        try:
+            social = backend.strategy.storage.user.create_social_auth(
+                user, uid, backend.name
+            )
+        except Exception as err:
+            if not backend.strategy.storage.is_integrity_error(err):
+                raise
+            # Protect for possible race condition, those bastard with FTL
+            # clicking capabilities, check issue #131:
+            #   https://github.com/omab/django-social-auth/issues/131
+            return social_user(backend, uid, user, *args, **kwargs)
+        else:
+            return {'social': social,
+                    'user': social.user,
+                    'new_association': True}
 
-DEFAULT_DISCONNECT_PIPELINE = (
-    # Verifies that the social association can be disconnected from the current
-    # user (ensure that the user login mechanism is not compromised by this
-    # disconnection).
-    'social_core.pipeline.disconnect.allowed_to_disconnect',
 
-    # Collects the social associations to disconnect.
-    'social_core.pipeline.disconnect.get_entries',
+def associate_by_email(backend, details, user=None, *args, **kwargs):
+    """
+    Associate current auth with a user with the same email address in the DB.
 
-    # Revoke any access_token when possible.
-    'social_core.pipeline.disconnect.revoke_tokens',
+    This pipeline entry is not 100% secure unless you know that the providers
+    enabled enforce email verification on their side, otherwise a user can
+    attempt to take over another user account by using the same (not validated)
+    email address on some provider.  This pipeline entry is disabled by
+    default.
+    """
+    if user:
+        return None
 
-    # Removes the social associations.
-    'social_core.pipeline.disconnect.disconnect'
-)
+    email = details.get('email')
+    if email:
+        # Try to associate accounts registered with the same email address,
+        # only if it's a single object. AuthException is raised if multiple
+        # objects are returned.
+        users = list(backend.strategy.storage.user.get_users_by_email(email))
+        if len(users) == 0:
+            return None
+        elif len(users) > 1:
+            raise AuthException(
+                backend,
+                'The given email address is associated with another account'
+            )
+        else:
+            return {'user': users[0],
+                    'is_new': False}
+
+
+def load_extra_data(backend, details, response, uid, user, *args, **kwargs):
+    social = kwargs.get('social') or \
+             backend.strategy.storage.user.get_social_auth(backend.name, uid)
+    if social:
+        extra_data = backend.extra_data(user, uid, response, details,
+                                        *args, **kwargs)
+        social.set_extra_data(extra_data)

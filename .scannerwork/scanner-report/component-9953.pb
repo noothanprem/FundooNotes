@@ -1,1 +1,1 @@
-·MAvenv/lib/python3.6/site-packages/autobahn/websocket/interfaces.py 2pyX∆h
+·M3venv/lib/python3.6/site-packages/autobahn/websocket :‡M‚M„M‰MÂMÊMÁMËMÈMÍMÎMÏM

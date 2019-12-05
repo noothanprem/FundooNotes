@@ -1,1 +1,1 @@
-ì‚.venv/lib/python3.6/site-packages/gi/_compat.py 2pyX9h
+ì‚#venv/lib/python3.6/site-packages/gi :*ë‚î‚ï‚ñ‚ò‚ó‚ô‚õ‚ö‚÷‚ ƒ¢ƒ£ƒ¥ƒ

@@ -1,1 +1,1 @@
-ã6venv/lib/python3.6/site-packages/django/utils/jslex.py 2pyXÝh
+ã<venv/lib/python3.6/site-packages/django/utils/deprecation.py 2pyXbh

@@ -1,4 +1,11 @@
+"""Write back all data it receives."""
 
-# Helper module for a test_reflect test
+import sys
 
-1//0
+data = sys.stdin.read(1)
+while data:
+    sys.stdout.write(data)
+    sys.stdout.flush()
+    data = sys.stdin.read(1)
+sys.stderr.write("byebye")
+sys.stderr.flush()

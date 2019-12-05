@@ -1,59 +1,86 @@
-# -*- test-case-name: twisted.logger.test.test_buffer -*-
+# -*- test-case-name: twisted.logger.test.test_file -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-Log observer that maintains a buffer.
+File log observer.
 """
-
-from collections import deque
 
 from zope.interface import implementer
 
+from twisted.python.compat import ioType, unicode
 from ._observer import ILogObserver
-
-
-_DEFAULT_BUFFER_MAXIMUM = 64 * 1024
+from ._format import formatTime
+from ._format import timeFormatRFC3339
+from ._format import formatEventAsClassicLogText
 
 
 
 @implementer(ILogObserver)
-class LimitedHistoryLogObserver(object):
+class FileLogObserver(object):
     """
-    L{ILogObserver} that stores events in a buffer of a fixed size::
-
-        >>> from twisted.logger import LimitedHistoryLogObserver
-        >>> history = LimitedHistoryLogObserver(5)
-        >>> for n in range(10): history({'n': n})
-        ...
-        >>> repeats = []
-        >>> history.replayTo(repeats.append)
-        >>> len(repeats)
-        5
-        >>> repeats
-        [{'n': 5}, {'n': 6}, {'n': 7}, {'n': 8}, {'n': 9}]
-        >>>
+    Log observer that writes to a file-like object.
     """
+    def __init__(self, outFile, formatEvent):
+        """
+        @param outFile: A file-like object.  Ideally one should be passed which
+            accepts L{unicode} data.  Otherwise, UTF-8 L{bytes} will be used.
+        @type outFile: L{io.IOBase}
 
-    def __init__(self, size=_DEFAULT_BUFFER_MAXIMUM):
+        @param formatEvent: A callable that formats an event.
+        @type formatEvent: L{callable} that takes an C{event} argument and
+            returns a formatted event as L{unicode}.
         """
-        @param size: The maximum number of events to buffer.  If L{None}, the
-            buffer is unbounded.
-        @type size: L{int}
-        """
-        self._buffer = deque(maxlen=size)
+        if ioType(outFile) is not unicode:
+            self._encoding = "utf-8"
+        else:
+            self._encoding = None
+
+        self._outFile = outFile
+        self.formatEvent = formatEvent
 
 
     def __call__(self, event):
-        self._buffer.append(event)
-
-
-    def replayTo(self, otherObserver):
         """
-        Re-play the buffered events to another log observer.
+        Write event to file.
 
-        @param otherObserver: An observer to replay events to.
-        @type otherObserver: L{ILogObserver}
+        @param event: An event.
+        @type event: L{dict}
         """
-        for event in self._buffer:
-            otherObserver(event)
+        text = self.formatEvent(event)
+
+        if text is None:
+            text = u""
+
+        if self._encoding is not None:
+            text = text.encode(self._encoding)
+
+        if text:
+            self._outFile.write(text)
+            self._outFile.flush()
+
+
+
+def textFileLogObserver(outFile, timeFormat=timeFormatRFC3339):
+    """
+    Create a L{FileLogObserver} that emits text to a specified (writable)
+    file-like object.
+
+    @param outFile: A file-like object.  Ideally one should be passed which
+        accepts L{unicode} data.  Otherwise, UTF-8 L{bytes} will be used.
+    @type outFile: L{io.IOBase}
+
+    @param timeFormat: The format to use when adding timestamp prefixes to
+        logged events.  If L{None}, or for events with no C{"log_timestamp"}
+        key, the default timestamp prefix of C{u"-"} is used.
+    @type timeFormat: L{unicode} or L{None}
+
+    @return: A file log observer.
+    @rtype: L{FileLogObserver}
+    """
+    def formatEvent(event):
+        return formatEventAsClassicLogText(
+            event, formatTime=lambda e: formatTime(e, timeFormat)
+        )
+
+    return FileLogObserver(outFile, formatEvent)

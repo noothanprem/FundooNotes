@@ -1,1 +1,1 @@
-ôCvenv/lib/python3.6/site-packages/django/db/backends/oracle/utils.py 2pyX9h
+ôKvenv/lib/python3.6/site-packages/django/db/backends/oracle/introspection.py 2pyX•h

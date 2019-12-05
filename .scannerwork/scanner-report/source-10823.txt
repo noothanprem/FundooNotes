@@ -1,22 +1,14 @@
 # coding=utf-8
-
 from __future__ import unicode_literals
 from .. import Provider as InternetProvider
 
 
 class Provider(InternetProvider):
+    tlds = (
+        # From https://en.wikipedia.org/wiki/List_of_Internet_top-level_domains
+        'com', 'org', 'net', 'int', 'edu', 'gov', 'mil',
 
-    free_email_domains = (
-        'aol.de', 'gmail.com', 'gmx.de', 'googlemail.com', 'hotmail.de',
-        'web.de', 'yahoo.de',
-    )
-    tlds = ('com', 'com', 'com', 'net', 'org', 'de', 'de', 'de', )
-
-    replacements = (
-        ('ä', 'ae'), ('Ä', 'Ae'),
-        ('ö', 'oe'), ('Ö', 'Oe'),
-        ('ü', 'ue'), ('Ü', 'Ue'),
-        ('é', 'e'), ('É', 'E'),
-        ('à', 'a'), ('À', 'A'),
-        ('ß', 'ss'),
+        # From https://id.wikipedia.org/wiki/.id
+        'id', 'ac.id', 'biz.id', 'co.id', 'desa.id', 'go.id', 'mil.id',
+        'my.id', 'net.id', 'or.id', 'ponpes.id', 'sch.id', 'web.id',
     )

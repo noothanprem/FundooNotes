@@ -1,1 +1,1 @@
-Мо.venv/lib/python3.6/site-packages/twisted/conch :3ЛоЭоЮоЯоаобовогодоео╢о╖о╕о╣оТпУпмп
+Мо<venv/lib/python3.6/site-packages/twisted/conch/interfaces.py 2pyX╜h

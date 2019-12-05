@@ -1,1 +1,1 @@
-้7venv/lib64/python3.6/site-packages/django/db/migrations :*้้้้้ ้ก้ข้ฃ้ค้ฅ้ต้ถ้๊
+้Dvenv/lib64/python3.6/site-packages/django/db/migrations/migration.py 2pyXยh

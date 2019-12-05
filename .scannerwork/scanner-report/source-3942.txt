@@ -1,77 +1,317 @@
-import sys
+from contextlib import ContextDecorator, contextmanager
 
-from psycopg2 import errorcodes
+from django.db import (
+    DEFAULT_DB_ALIAS, DatabaseError, Error, ProgrammingError, connections,
+)
 
-from django.db.backends.base.creation import BaseDatabaseCreation
-from django.db.backends.utils import strip_quotes
+
+class TransactionManagementError(ProgrammingError):
+    """Transaction management is used improperly."""
+    pass
 
 
-class DatabaseCreation(BaseDatabaseCreation):
+def get_connection(using=None):
+    """
+    Get a database connection by name, or the default database connection
+    if no name is provided. This is a private API.
+    """
+    if using is None:
+        using = DEFAULT_DB_ALIAS
+    return connections[using]
 
-    def _quote_name(self, name):
-        return self.connection.ops.quote_name(name)
 
-    def _get_database_create_suffix(self, encoding=None, template=None):
-        suffix = ""
-        if encoding:
-            suffix += " ENCODING '{}'".format(encoding)
-        if template:
-            suffix += " TEMPLATE {}".format(self._quote_name(template))
-        return suffix and "WITH" + suffix
+def get_autocommit(using=None):
+    """Get the autocommit status of the connection."""
+    return get_connection(using).get_autocommit()
 
-    def sql_table_creation_suffix(self):
-        test_settings = self.connection.settings_dict['TEST']
-        assert test_settings['COLLATION'] is None, (
-            "PostgreSQL does not support collation setting at database creation time."
-        )
-        return self._get_database_create_suffix(
-            encoding=test_settings['CHARSET'],
-            template=test_settings.get('TEMPLATE'),
-        )
 
-    def _database_exists(self, cursor, database_name):
-        cursor.execute('SELECT 1 FROM pg_catalog.pg_database WHERE datname = %s', [strip_quotes(database_name)])
-        return cursor.fetchone() is not None
+def set_autocommit(autocommit, using=None):
+    """Set the autocommit status of the connection."""
+    return get_connection(using).set_autocommit(autocommit)
 
-    def _execute_create_test_db(self, cursor, parameters, keepdb=False):
+
+def commit(using=None):
+    """Commit a transaction."""
+    get_connection(using).commit()
+
+
+def rollback(using=None):
+    """Roll back a transaction."""
+    get_connection(using).rollback()
+
+
+def savepoint(using=None):
+    """
+    Create a savepoint (if supported and required by the backend) inside the
+    current transaction. Return an identifier for the savepoint that will be
+    used for the subsequent rollback or commit.
+    """
+    return get_connection(using).savepoint()
+
+
+def savepoint_rollback(sid, using=None):
+    """
+    Roll back the most recent savepoint (if one exists). Do nothing if
+    savepoints are not supported.
+    """
+    get_connection(using).savepoint_rollback(sid)
+
+
+def savepoint_commit(sid, using=None):
+    """
+    Commit the most recent savepoint (if one exists). Do nothing if
+    savepoints are not supported.
+    """
+    get_connection(using).savepoint_commit(sid)
+
+
+def clean_savepoints(using=None):
+    """
+    Reset the counter used to generate unique savepoint ids in this thread.
+    """
+    get_connection(using).clean_savepoints()
+
+
+def get_rollback(using=None):
+    """Get the "needs rollback" flag -- for *advanced use* only."""
+    return get_connection(using).get_rollback()
+
+
+def set_rollback(rollback, using=None):
+    """
+    Set or unset the "needs rollback" flag -- for *advanced use* only.
+
+    When `rollback` is `True`, trigger a rollback when exiting the innermost
+    enclosing atomic block that has `savepoint=True` (that's the default). Use
+    this to force a rollback without raising an exception.
+
+    When `rollback` is `False`, prevent such a rollback. Use this only after
+    rolling back to a known-good state! Otherwise, you break the atomic block
+    and data corruption may occur.
+    """
+    return get_connection(using).set_rollback(rollback)
+
+
+@contextmanager
+def mark_for_rollback_on_error(using=None):
+    """
+    Internal low-level utility to mark a transaction as "needs rollback" when
+    an exception is raised while not enforcing the enclosed block to be in a
+    transaction. This is needed by Model.save() and friends to avoid starting a
+    transaction when in autocommit mode and a single query is executed.
+
+    It's equivalent to:
+
+        connection = get_connection(using)
+        if connection.get_autocommit():
+            yield
+        else:
+            with transaction.atomic(using=using, savepoint=False):
+                yield
+
+    but it uses low-level utilities to avoid performance overhead.
+    """
+    try:
+        yield
+    except Exception:
+        connection = get_connection(using)
+        if connection.in_atomic_block:
+            connection.needs_rollback = True
+        raise
+
+
+def on_commit(func, using=None):
+    """
+    Register `func` to be called when the current transaction is committed.
+    If the current transaction is rolled back, `func` will not be called.
+    """
+    get_connection(using).on_commit(func)
+
+
+#################################
+# Decorators / context managers #
+#################################
+
+class Atomic(ContextDecorator):
+    """
+    Guarantee the atomic execution of a given block.
+
+    An instance can be used either as a decorator or as a context manager.
+
+    When it's used as a decorator, __call__ wraps the execution of the
+    decorated function in the instance itself, used as a context manager.
+
+    When it's used as a context manager, __enter__ creates a transaction or a
+    savepoint, depending on whether a transaction is already in progress, and
+    __exit__ commits the transaction or releases the savepoint on normal exit,
+    and rolls back the transaction or to the savepoint on exceptions.
+
+    It's possible to disable the creation of savepoints if the goal is to
+    ensure that some code runs within a transaction without creating overhead.
+
+    A stack of savepoints identifiers is maintained as an attribute of the
+    connection. None denotes the absence of a savepoint.
+
+    This allows reentrancy even if the same AtomicWrapper is reused. For
+    example, it's possible to define `oa = atomic('other')` and use `@oa` or
+    `with oa:` multiple times.
+
+    Since database connections are thread-local, this is thread-safe.
+
+    This is a private API.
+    """
+
+    def __init__(self, using, savepoint):
+        self.using = using
+        self.savepoint = savepoint
+
+    def __enter__(self):
+        connection = get_connection(self.using)
+
+        if not connection.in_atomic_block:
+            # Reset state when entering an outermost atomic block.
+            connection.commit_on_exit = True
+            connection.needs_rollback = False
+            if not connection.get_autocommit():
+                # sqlite3 in Python < 3.6 doesn't handle transactions and
+                # savepoints properly when autocommit is off.
+                # Turning autocommit back on isn't an option; it would trigger
+                # a premature commit. Give up if that happens.
+                if connection.features.autocommits_when_autocommit_is_off:
+                    raise TransactionManagementError(
+                        "Your database backend doesn't behave properly when "
+                        "autocommit is off. Turn it on before using 'atomic'.")
+                # Pretend we're already in an atomic block to bypass the code
+                # that disables autocommit to enter a transaction, and make a
+                # note to deal with this case in __exit__.
+                connection.in_atomic_block = True
+                connection.commit_on_exit = False
+
+        if connection.in_atomic_block:
+            # We're already in a transaction; create a savepoint, unless we
+            # were told not to or we're already waiting for a rollback. The
+            # second condition avoids creating useless savepoints and prevents
+            # overwriting needs_rollback until the rollback is performed.
+            if self.savepoint and not connection.needs_rollback:
+                sid = connection.savepoint()
+                connection.savepoint_ids.append(sid)
+            else:
+                connection.savepoint_ids.append(None)
+        else:
+            connection.set_autocommit(False, force_begin_transaction_with_broken_autocommit=True)
+            connection.in_atomic_block = True
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        connection = get_connection(self.using)
+
+        if connection.savepoint_ids:
+            sid = connection.savepoint_ids.pop()
+        else:
+            # Prematurely unset this flag to allow using commit or rollback.
+            connection.in_atomic_block = False
+
         try:
-            if keepdb and self._database_exists(cursor, parameters['dbname']):
-                # If the database should be kept and it already exists, don't
-                # try to create a new one.
-                return
-            super()._execute_create_test_db(cursor, parameters, keepdb)
-        except Exception as e:
-            if getattr(e.__cause__, 'pgcode', '') != errorcodes.DUPLICATE_DATABASE:
-                # All errors except "database already exists" cancel tests.
-                self.log('Got an error creating the test database: %s' % e)
-                sys.exit(2)
-            elif not keepdb:
-                # If the database should be kept, ignore "database already
-                # exists".
-                raise e
+            if connection.closed_in_transaction:
+                # The database will perform a rollback by itself.
+                # Wait until we exit the outermost block.
+                pass
 
-    def _clone_test_db(self, suffix, verbosity, keepdb=False):
-        # CREATE DATABASE ... WITH TEMPLATE ... requires closing connections
-        # to the template database.
-        self.connection.close()
+            elif exc_type is None and not connection.needs_rollback:
+                if connection.in_atomic_block:
+                    # Release savepoint if there is one
+                    if sid is not None:
+                        try:
+                            connection.savepoint_commit(sid)
+                        except DatabaseError:
+                            try:
+                                connection.savepoint_rollback(sid)
+                                # The savepoint won't be reused. Release it to
+                                # minimize overhead for the database server.
+                                connection.savepoint_commit(sid)
+                            except Error:
+                                # If rolling back to a savepoint fails, mark for
+                                # rollback at a higher level and avoid shadowing
+                                # the original exception.
+                                connection.needs_rollback = True
+                            raise
+                else:
+                    # Commit transaction
+                    try:
+                        connection.commit()
+                    except DatabaseError:
+                        try:
+                            connection.rollback()
+                        except Error:
+                            # An error during rollback means that something
+                            # went wrong with the connection. Drop it.
+                            connection.close()
+                        raise
+            else:
+                # This flag will be set to True again if there isn't a savepoint
+                # allowing to perform the rollback at this level.
+                connection.needs_rollback = False
+                if connection.in_atomic_block:
+                    # Roll back to savepoint if there is one, mark for rollback
+                    # otherwise.
+                    if sid is None:
+                        connection.needs_rollback = True
+                    else:
+                        try:
+                            connection.savepoint_rollback(sid)
+                            # The savepoint won't be reused. Release it to
+                            # minimize overhead for the database server.
+                            connection.savepoint_commit(sid)
+                        except Error:
+                            # If rolling back to a savepoint fails, mark for
+                            # rollback at a higher level and avoid shadowing
+                            # the original exception.
+                            connection.needs_rollback = True
+                else:
+                    # Roll back transaction
+                    try:
+                        connection.rollback()
+                    except Error:
+                        # An error during rollback means that something
+                        # went wrong with the connection. Drop it.
+                        connection.close()
 
-        source_database_name = self.connection.settings_dict['NAME']
-        target_database_name = self.get_test_db_clone_settings(suffix)['NAME']
-        test_db_params = {
-            'dbname': self._quote_name(target_database_name),
-            'suffix': self._get_database_create_suffix(template=source_database_name),
-        }
-        with self._nodb_connection.cursor() as cursor:
-            try:
-                self._execute_create_test_db(cursor, test_db_params, keepdb)
-            except Exception:
-                try:
-                    if verbosity >= 1:
-                        self.log('Destroying old test database for alias %s...' % (
-                            self._get_database_display_str(verbosity, target_database_name),
-                        ))
-                    cursor.execute('DROP DATABASE %(dbname)s' % test_db_params)
-                    self._execute_create_test_db(cursor, test_db_params, keepdb)
-                except Exception as e:
-                    self.log('Got an error cloning the test database: %s' % e)
-                    sys.exit(2)
+        finally:
+            # Outermost block exit when autocommit was enabled.
+            if not connection.in_atomic_block:
+                if connection.closed_in_transaction:
+                    connection.connection = None
+                else:
+                    connection.set_autocommit(True)
+            # Outermost block exit when autocommit was disabled.
+            elif not connection.savepoint_ids and not connection.commit_on_exit:
+                if connection.closed_in_transaction:
+                    connection.connection = None
+                else:
+                    connection.in_atomic_block = False
+
+
+def atomic(using=None, savepoint=True):
+    # Bare decorator: @atomic -- although the first argument is called
+    # `using`, it's actually the function being decorated.
+    if callable(using):
+        return Atomic(DEFAULT_DB_ALIAS, savepoint)(using)
+    # Decorator: @atomic(...) or context manager: with atomic(...): ...
+    else:
+        return Atomic(using, savepoint)
+
+
+def _non_atomic_requests(view, using):
+    try:
+        view._non_atomic_requests.add(using)
+    except AttributeError:
+        view._non_atomic_requests = {using}
+    return view
+
+
+def non_atomic_requests(using=None):
+    if callable(using):
+        return _non_atomic_requests(using, DEFAULT_DB_ALIAS)
+    else:
+        if using is None:
+            using = DEFAULT_DB_ALIAS
+        return lambda view: _non_atomic_requests(view, using)

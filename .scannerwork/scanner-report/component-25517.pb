@@ -1,1 +1,1 @@
-­ÇLvenv/lib/python3.6/site-packages/requests_oauthlib/compliance_fixes/weibo.py 2pyXh
+­ÇAvenv/lib/python3.6/site-packages/requests_oauthlib/oauth1_auth.py 2pyXvh

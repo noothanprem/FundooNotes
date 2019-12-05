@@ -1,1 +1,0 @@
-‘Ï<venv/lib64/python3.6/site-packages/django_social_share/tests :	”ÏÿÏŸÏ

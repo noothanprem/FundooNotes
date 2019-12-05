@@ -1,1 +1,1 @@
-²T9venv/lib/python3.6/site-packages/faker/providers/internet :±T
+²T?venv/lib/python3.6/site-packages/faker/providers/internet/no_NO :±T

@@ -1,1 +1,1 @@
-º¸Gvenv/lib/python3.6/site-packages/social_core/tests/backends/test_box.py 2pyXEh
+º¸Ivenv/lib/python3.6/site-packages/social_core/tests/backends/test_email.py 2pyXh

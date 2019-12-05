@@ -1,1 +1,1 @@
-Ë@Nvenv/lib/python3.6/site-packages/django/core/management/commands/sqlmigrate.py 2pyXBh
+Ë@Kvenv/lib/python3.6/site-packages/django/core/management/commands/dbshell.py 2pyX h

@@ -1,1 +1,1 @@
-¾f3venv/lib/python3.6/site-packages/defusedxml/lxml.py 2pyXœh
+¾f2venv/lib/python3.6/site-packages/defusedxml/sax.py 2pyX=h

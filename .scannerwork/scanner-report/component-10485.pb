@@ -1,1 +1,1 @@
-õQ5venv/lib/python3.6/site-packages/channels/consumer.py 2pyXrh
+õQ1venv/lib/python3.6/site-packages/channels/http.py 2pyXôh

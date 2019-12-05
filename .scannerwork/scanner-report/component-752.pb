@@ -1,1 +1,1 @@
-ğ.venv/lib/python3.6/site-packages/celery/worker :ïñòóôõö÷š›
+ğ.venv/lib/python3.6/site-packages/celery/worker :ïñòóôõöŠœ¾

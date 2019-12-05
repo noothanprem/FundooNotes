@@ -1,63 +1,55 @@
-import inspect
+from importlib import import_module
+
+from django.utils.version import get_docs_version
 
 
-def get_func_args(func):
-    sig = inspect.signature(func)
-    return [
-        arg_name for arg_name, param in sig.parameters.items()
-        if param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
-    ]
-
-
-def get_func_full_args(func):
+def deconstructible(*args, path=None):
     """
-    Return a list of (argument name, default value) tuples. If the argument
-    does not have a default value, omit it in the tuple. Arguments such as
-    *args and **kwargs are also included.
+    Class decorator that allows the decorated class to be serialized
+    by the migrations subsystem.
+
+    The `path` kwarg specifies the import path.
     """
-    sig = inspect.signature(func)
-    args = []
-    for arg_name, param in sig.parameters.items():
-        name = arg_name
-        # Ignore 'self'
-        if name == 'self':
-            continue
-        if param.kind == inspect.Parameter.VAR_POSITIONAL:
-            name = '*' + name
-        elif param.kind == inspect.Parameter.VAR_KEYWORD:
-            name = '**' + name
-        if param.default != inspect.Parameter.empty:
-            args.append((name, param.default))
-        else:
-            args.append((name,))
-    return args
+    def decorator(klass):
+        def __new__(cls, *args, **kwargs):
+            # We capture the arguments to make returning them trivial
+            obj = super(klass, cls).__new__(cls)
+            obj._constructor_args = (args, kwargs)
+            return obj
 
+        def deconstruct(obj):
+            """
+            Return a 3-tuple of class import path, positional arguments,
+            and keyword arguments.
+            """
+            # Fallback version
+            if path:
+                module_name, _, name = path.rpartition('.')
+            else:
+                module_name = obj.__module__
+                name = obj.__class__.__name__
+            # Make sure it's actually there and not an inner class
+            module = import_module(module_name)
+            if not hasattr(module, name):
+                raise ValueError(
+                    "Could not find object %s in %s.\n"
+                    "Please note that you cannot serialize things like inner "
+                    "classes. Please move the object into the main module "
+                    "body to use migrations.\n"
+                    "For more information, see "
+                    "https://docs.djangoproject.com/en/%s/topics/migrations/#serializing-values"
+                    % (name, module_name, get_docs_version()))
+            return (
+                path or '%s.%s' % (obj.__class__.__module__, name),
+                obj._constructor_args[0],
+                obj._constructor_args[1],
+            )
 
-def func_accepts_kwargs(func):
-    return any(
-        p for p in inspect.signature(func).parameters.values()
-        if p.kind == p.VAR_KEYWORD
-    )
+        klass.__new__ = staticmethod(__new__)
+        klass.deconstruct = deconstruct
 
+        return klass
 
-def func_accepts_var_args(func):
-    """
-    Return True if function 'func' accepts positional arguments *args.
-    """
-    return any(
-        p for p in inspect.signature(func).parameters.values()
-        if p.kind == p.VAR_POSITIONAL
-    )
-
-
-def method_has_no_args(meth):
-    """Return True if a method only accepts 'self'."""
-    count = len([
-        p for p in inspect.signature(meth).parameters.values()
-        if p.kind == p.POSITIONAL_OR_KEYWORD
-    ])
-    return count == 0 if inspect.ismethod(meth) else count == 1
-
-
-def func_supports_parameter(func, parameter):
-    return parameter in inspect.signature(func).parameters
+    if not args:
+        return decorator
+    return decorator(*args)

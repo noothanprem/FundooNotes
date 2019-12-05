@@ -1,1 +1,1 @@
-Æé3venv/lib64/python3.6/site-packages/django/db/models :-ÅéÇéÈéÉéÊéËéÌéÍéðéñéòéóé•ê–ê—ê
+Æé>venv/lib64/python3.6/site-packages/django/db/models/manager.py 2pyXÊh

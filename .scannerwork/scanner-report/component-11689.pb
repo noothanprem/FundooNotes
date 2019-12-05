@@ -1,1 +1,1 @@
-©[6venv/lib/python3.6/site-packages/faker/providers/color :¨[
+©[Bvenv/lib/python3.6/site-packages/faker/providers/color/__init__.py 2pyX·h

@@ -1,303 +1,203 @@
-# -*- test-case-name: twisted.application.runner.test.test_pidfile -*-
+# -*- test-case-name: twisted.test.test_pcp -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-PID file.
+Producer-Consumer Proxy.
 """
 
-import errno
-from os import getpid, kill, name as SYSTEM_NAME
+from zope.interface import implementer
 
-from zope.interface import Interface, implementer
-
-from twisted.logger import Logger
+from twisted.internet import interfaces
 
 
-
-class IPIDFile(Interface):
+@implementer(interfaces.IProducer, interfaces.IConsumer)
+class BasicProducerConsumerProxy:
     """
-    Manages a file that remembers a process ID.
+    I can act as a man in the middle between any Producer and Consumer.
+
+    @ivar producer: the Producer I subscribe to.
+    @type producer: L{IProducer<interfaces.IProducer>}
+    @ivar consumer: the Consumer I publish to.
+    @type consumer: L{IConsumer<interfaces.IConsumer>}
+    @ivar paused: As a Producer, am I paused?
+    @type paused: bool
     """
+    consumer = None
+    producer = None
+    producerIsStreaming = None
+    iAmStreaming = True
+    outstandingPull = False
+    paused = False
+    stopped = False
 
-    def read():
-        """
-        Read the process ID stored in this PID file.
+    def __init__(self, consumer):
+        self._buffer = []
+        if consumer is not None:
+            self.consumer = consumer
+            consumer.registerProducer(self, self.iAmStreaming)
 
-        @return: The contained process ID.
-        @rtype: L{int}
+    # Producer methods:
 
-        @raise NoPIDFound: If this PID file does not exist.
-        @raise EnvironmentError: If this PID file cannot be read.
-        @raise ValueError: If this PID file's content is invalid.
-        """
+    def pauseProducing(self):
+        self.paused = True
+        if self.producer:
+            self.producer.pauseProducing()
 
-
-    def writeRunningPID():
-        """
-        Store the PID of the current process in this PID file.
-
-        @raise EnvironmentError: If this PID file cannot be written.
-        """
-
-
-    def remove():
-        """
-        Remove this PID file.
-
-        @raise EnvironmentError: If this PID file cannot be removed.
-        """
-
-
-    def isRunning():
-        """
-        Determine whether there is a running process corresponding to the PID
-        in this PID file.
-
-        @return: True if this PID file contains a PID and a process with that
-        PID is currently running; false otherwise.
-        @rtype: L{bool}
-
-        @raise EnvironmentError: If this PID file cannot be read.
-        @raise InvalidPIDFileError: If this PID file's content is invalid.
-        @raise StalePIDFileError: If this PID file's content refers to a PID
-            for which there is no corresponding running process.
-        """
-
-
-    def __enter__():
-        """
-        Enter a context using this PIDFile.
-
-        Writes the PID file with the PID of the running process.
-
-        @raise AlreadyRunningError: A process corresponding to the PID in this
-            PID file is already running.
-        """
-
-
-    def __exit__(excType, excValue, traceback):
-        """
-        Exit a context using this PIDFile.
-
-        Removes the PID file.
-        """
-
-
-
-@implementer(IPIDFile)
-class PIDFile(object):
-    """
-    Concrete implementation of L{IPIDFile} based on C{IFilePath}.
-
-    This implementation is presently not supported on non-POSIX platforms.
-    Specifically, calling L{PIDFile.isRunning} will raise
-    L{NotImplementedError}.
-    """
-
-    _log = Logger()
-
-
-    @staticmethod
-    def _format(pid):
-        """
-        Format a PID file's content.
-
-        @param pid: A process ID.
-        @type pid: int
-
-        @return: Formatted PID file contents.
-        @rtype: L{bytes}
-        """
-        return u"{}\n".format(int(pid)).encode("utf-8")
-
-
-    def __init__(self, filePath):
-        """
-        @param filePath: The path to the PID file on disk.
-        @type filePath: L{IFilePath}
-        """
-        self.filePath = filePath
-
-
-    def read(self):
-        pidString = b""
-        try:
-            with self.filePath.open() as fh:
-                for pidString in fh:
-                    break
-        except OSError as e:
-            if e.errno == errno.ENOENT:  # No such file
-                raise NoPIDFound("PID file does not exist")
-            raise
-
-        try:
-            return int(pidString)
-        except ValueError:
-            raise InvalidPIDFileError(
-                "non-integer PID value in PID file: {!r}".format(pidString)
-            )
-
-
-    def _write(self, pid):
-        """
-        Store a PID in this PID file.
-
-        @param pid: A PID to store.
-        @type pid: L{int}
-
-        @raise EnvironmentError: If this PID file cannot be written.
-        """
-        self.filePath.setContent(self._format(pid=pid))
-
-
-    def writeRunningPID(self):
-        self._write(getpid())
-
-
-    def remove(self):
-        self.filePath.remove()
-
-
-    def isRunning(self):
-        try:
-            pid = self.read()
-        except NoPIDFound:
-            return False
-
-        if SYSTEM_NAME == "posix":
-            return self._pidIsRunningPOSIX(pid)
+    def resumeProducing(self):
+        self.paused = False
+        if self._buffer:
+            # TODO: Check to see if consumer supports writeSeq.
+            self.consumer.write(''.join(self._buffer))
+            self._buffer[:] = []
         else:
-            raise NotImplementedError(
-                "isRunning is not implemented on {}".format(SYSTEM_NAME)
-            )
+            if not self.iAmStreaming:
+                self.outstandingPull = True
+
+        if self.producer is not None:
+            self.producer.resumeProducing()
+
+    def stopProducing(self):
+        if self.producer is not None:
+            self.producer.stopProducing()
+        if self.consumer is not None:
+            del self.consumer
+
+    # Consumer methods:
+
+    def write(self, data):
+        if self.paused or (not self.iAmStreaming and not self.outstandingPull):
+            # We could use that fifo queue here.
+            self._buffer.append(data)
+
+        elif self.consumer is not None:
+            self.consumer.write(data)
+            self.outstandingPull = False
+
+    def finish(self):
+        if self.consumer is not None:
+            self.consumer.finish()
+        self.unregisterProducer()
+
+    def registerProducer(self, producer, streaming):
+        self.producer = producer
+        self.producerIsStreaming = streaming
+
+    def unregisterProducer(self):
+        if self.producer is not None:
+            del self.producer
+            del self.producerIsStreaming
+        if self.consumer:
+            self.consumer.unregisterProducer()
+
+    def __repr__(self):
+        return '<%s@%x around %s>' % (self.__class__, id(self), self.consumer)
 
 
-    @staticmethod
-    def _pidIsRunningPOSIX(pid):
-        """
-        POSIX implementation for running process check.
+class ProducerConsumerProxy(BasicProducerConsumerProxy):
+    """ProducerConsumerProxy with a finite buffer.
 
-        Determine whether there is a running process corresponding to the given
-        PID.
+    When my buffer fills up, I have my parent Producer pause until my buffer
+    has room in it again.
+    """
+    # Copies much from abstract.FileDescriptor
+    bufferSize = 2**2**2**2
 
-        @return: True if the given PID is currently running; false otherwise.
-        @rtype: L{bool}
+    producerPaused = False
+    unregistered = False
 
-        @raise EnvironmentError: If this PID file cannot be read.
-        @raise InvalidPIDFileError: If this PID file's content is invalid.
-        @raise StalePIDFileError: If this PID file's content refers to a PID
-            for which there is no corresponding running process.
-        """
-        try:
-            kill(pid, 0)
-        except OSError as e:
-            if e.errno == errno.ESRCH:  # No such process
-                raise StalePIDFileError(
-                    "PID file refers to non-existing process"
-                )
-            elif e.errno == errno.EPERM:  # Not permitted to kill
-                return True
+    def pauseProducing(self):
+        # Does *not* call up to ProducerConsumerProxy to relay the pause
+        # message through to my parent Producer.
+        self.paused = True
+
+    def resumeProducing(self):
+        self.paused = False
+        if self._buffer:
+            data = ''.join(self._buffer)
+            bytesSent = self._writeSomeData(data)
+            if bytesSent < len(data):
+                unsent = data[bytesSent:]
+                assert not self.iAmStreaming, (
+                    "Streaming producer did not write all its data.")
+                self._buffer[:] = [unsent]
             else:
-                raise
+                self._buffer[:] = []
         else:
-            return True
+            bytesSent = 0
 
+        if (self.unregistered and bytesSent and not self._buffer and
+            self.consumer is not None):
+            self.consumer.unregisterProducer()
 
-    def __enter__(self):
-        try:
-            if self.isRunning():
-                raise AlreadyRunningError()
-        except StalePIDFileError:
-            self._log.info("Replacing stale PID file: {log_source}")
-        self.writeRunningPID()
-        return self
+        if not self.iAmStreaming:
+            self.outstandingPull = not bytesSent
 
+        if self.producer is not None:
+            bytesBuffered = sum([len(s) for s in self._buffer])
+            # TODO: You can see here the potential for high and low
+            # watermarks, where bufferSize would be the high mark when we
+            # ask the upstream producer to pause, and we wouldn't have
+            # it resume again until it hit the low mark.  Or if producer
+            # is Pull, maybe we'd like to pull from it as much as necessary
+            # to keep our buffer full to the low mark, so we're never caught
+            # without something to send.
+            if self.producerPaused and (bytesBuffered < self.bufferSize):
+                # Now that our buffer is empty,
+                self.producerPaused = False
+                self.producer.resumeProducing()
+            elif self.outstandingPull:
+                # I did not have any data to write in response to a pull,
+                # so I'd better pull some myself.
+                self.producer.resumeProducing()
 
-    def __exit__(self, excType, excValue, traceback):
-        self.remove()
+    def write(self, data):
+        if self.paused or (not self.iAmStreaming and not self.outstandingPull):
+            # We could use that fifo queue here.
+            self._buffer.append(data)
 
+        elif self.consumer is not None:
+            assert not self._buffer, (
+                "Writing fresh data to consumer before my buffer is empty!")
+            # I'm going to use _writeSomeData here so that there is only one
+            # path to self.consumer.write.  But it doesn't actually make sense,
+            # if I am streaming, for some data to not be all data.  But maybe I
+            # am not streaming, but I am writing here anyway, because there was
+            # an earlier request for data which was not answered.
+            bytesSent = self._writeSomeData(data)
+            self.outstandingPull = False
+            if not bytesSent == len(data):
+                assert not self.iAmStreaming, (
+                    "Streaming producer did not write all its data.")
+                self._buffer.append(data[bytesSent:])
 
+        if (self.producer is not None) and self.producerIsStreaming:
+            bytesBuffered = sum([len(s) for s in self._buffer])
+            if bytesBuffered >= self.bufferSize:
 
-@implementer(IPIDFile)
-class NonePIDFile(object):
-    """
-    PID file implementation that does nothing.
+                self.producer.pauseProducing()
+                self.producerPaused = True
 
-    This is meant to be used as a "active None" object in place of a PID file
-    when no PID file is desired.
-    """
+    def registerProducer(self, producer, streaming):
+        self.unregistered = False
+        BasicProducerConsumerProxy.registerProducer(self, producer, streaming)
+        if not streaming:
+            producer.resumeProducing()
 
-    def __init__(self):
-        pass
+    def unregisterProducer(self):
+        if self.producer is not None:
+            del self.producer
+            del self.producerIsStreaming
+        self.unregistered = True
+        if self.consumer and not self._buffer:
+            self.consumer.unregisterProducer()
 
+    def _writeSomeData(self, data):
+        """Write as much of this data as possible.
 
-    def read(self):
-        raise NoPIDFound("PID file does not exist")
-
-
-    def _write(self, pid):
+        @returns: The number of bytes written.
         """
-        Store a PID in this PID file.
-
-        @param pid: A PID to store.
-        @type pid: L{int}
-
-        @raise EnvironmentError: If this PID file cannot be written.
-
-        @note: This implementation always raises an L{EnvironmentError}.
-        """
-        raise OSError(errno.EPERM, "Operation not permitted")
-
-
-    def writeRunningPID(self):
-        self._write(0)
-
-
-    def remove(self):
-        raise OSError(errno.ENOENT, "No such file or directory")
-
-
-    def isRunning(self):
-        return False
-
-
-    def __enter__(self):
-        return self
-
-
-    def __exit__(self, excType, excValue, traceback):
-        pass
-
-
-
-nonePIDFile = NonePIDFile()
-
-
-
-class AlreadyRunningError(Exception):
-    """
-    Process is already running.
-    """
-
-
-
-class InvalidPIDFileError(Exception):
-    """
-    PID file contents are invalid.
-    """
-
-
-
-class StalePIDFileError(Exception):
-    """
-    PID file contents are valid, but there is no process with the referenced
-    PID.
-    """
-
-
-
-class NoPIDFound(Exception):
-    """
-    No PID found in PID file.
-    """
+        if self.consumer is None:
+            return 0
+        self.consumer.write(data)
+        return len(data)

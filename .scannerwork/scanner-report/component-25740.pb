@@ -1,1 +1,1 @@
-ŒÉ.venv/lib/python3.6/site-packages/attr/_make.py 2pyX§h
+ŒÉ3venv/lib/python3.6/site-packages/attr/converters.py 2pyXOh

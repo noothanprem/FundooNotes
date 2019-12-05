@@ -1,1 +1,1 @@
-¬=Gvenv/lib/python3.6/site-packages/django/contrib/contenttypes/management :«=
+¬=Svenv/lib/python3.6/site-packages/django/contrib/contenttypes/management/__init__.py 2pyX‡h

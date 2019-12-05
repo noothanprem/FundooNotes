@@ -1,1 +1,1 @@
-œV=venv/lib/python3.6/site-packages/faker/providers/person/ka_GE :›V
+œV=venv/lib/python3.6/site-packages/faker/providers/person/ka_GE :šV

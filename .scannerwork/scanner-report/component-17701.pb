@@ -1,1 +1,1 @@
-¥ŠLvenv/lib/python3.6/site-packages/django_inlinecss/tests/test_templatetags.py 2pyX°h
+¥Š7venv/lib/python3.6/site-packages/django_inlinecss/tests :	¤Š§Š¨Š

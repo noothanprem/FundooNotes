@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import socket
+import sys
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -8,67 +9,68 @@ from django_extensions.management.utils import signalcommand
 
 
 class Command(BaseCommand):
-    help = "Set parameters of the default django.contrib.sites Site"
+    help = """Generates the SQL to create your database for you, as specified in settings.py
+The envisioned use case is something like this:
+
+    ./manage.py sqlcreate [--router=<routername>] | mysql -u <db_administrator> -p
+    ./manage.py sqlcreate [--router=<routername>] | psql -U <db_administrator> -W"""
+
+    requires_system_checks = False
+    can_import_settings = True
 
     def add_arguments(self, parser):
         super(Command, self).add_arguments(parser)
         parser.add_argument(
-            '--name', dest='site_name', default=None,
-            help='Use this as site name.'
+            '-R', '--router', action='store', dest='router', default='default',
+            help='Use this router-database other then defined in settings.py'
         )
         parser.add_argument(
-            '--domain', dest='site_domain', default=None,
-            help='Use this as site domain.'
-        )
-        parser.add_argument(
-            '--system-fqdn', dest='set_as_system_fqdn', default=False,
-            action="store_true",
-            help='Use the systems FQDN (Fully Qualified Domain Name) as name '
-            'and domain. Can be used in combination with --name'
+            '-D', '--drop', action='store_true', dest='drop', default=False,
+            help='If given, includes commands to drop any existing user and database.'
         )
 
     @signalcommand
     def handle(self, *args, **options):
-        if 'django.contrib.sites' not in settings.INSTALLED_APPS:
-            raise CommandError('The sites framework is not installed.')
+        router = options['router']
+        dbinfo = settings.DATABASES.get(router)
+        if dbinfo is None:
+            raise CommandError("Unknown database router %s" % router)
 
-        from django.contrib.sites.models import Site
+        engine = dbinfo.get('ENGINE').split('.')[-1]
+        dbuser = dbinfo.get('USER')
+        dbpass = dbinfo.get('PASSWORD')
+        dbname = dbinfo.get('NAME')
+        dbhost = dbinfo.get('HOST')
+        dbclient = socket.gethostname()
 
-        try:
-            site = Site.objects.get(pk=settings.SITE_ID)
-        except Site.DoesNotExist:
-            raise CommandError("Default site with pk=%s does not exist" %
-                               settings.SITE_ID)
+        # django settings file tells you that localhost should be specified by leaving
+        # the DATABASE_HOST blank
+        if not dbhost:
+            dbhost = 'localhost'
+
+        if engine == 'mysql':
+            sys.stderr.write("""-- WARNING!: https://docs.djangoproject.com/en/dev/ref/databases/#collation-settings
+-- Please read this carefully! Collation will be set to utf8_bin to have case-sensitive data.
+""")
+            print("CREATE DATABASE %s CHARACTER SET utf8 COLLATE utf8_bin;" % dbname)
+            print("GRANT ALL PRIVILEGES ON %s.* to '%s'@'%s' identified by '%s';" % (
+                dbname, dbuser, dbclient, dbpass
+            ))
+
+        elif engine in ('postgresql', 'postgresql_psycopg2'):
+            if options['drop']:
+                print("DROP DATABASE IF EXISTS %s;" % (dbname,))
+                print("DROP USER IF EXISTS %s;" % (dbuser,))
+
+            print("CREATE USER %s WITH ENCRYPTED PASSWORD '%s' CREATEDB;" % (dbuser, dbpass))
+            print("CREATE DATABASE %s WITH ENCODING 'UTF-8' OWNER \"%s\";" % (dbname, dbuser))
+            print("GRANT ALL PRIVILEGES ON DATABASE %s TO %s;" % (dbname, dbuser))
+
+        elif engine == 'sqlite3':
+            sys.stderr.write("-- manage.py syncdb will automatically create a sqlite3 database file.\n")
+
         else:
-            name = options["site_name"]
-            domain = options["site_domain"]
-            set_as_system_fqdn = options["set_as_system_fqdn"]
-            if all([domain, set_as_system_fqdn]):
-                raise CommandError(
-                    "The set_as_system_fqdn cannot be used with domain option.")  # noqa
-            if set_as_system_fqdn:
-                domain = socket.getfqdn()
-                if not domain:
-                    raise CommandError("Cannot find systems FQDN")
-                if name is None:
-                    name = domain
-
-            update_kwargs = {}
-            if name and name != site.name:
-                update_kwargs["name"] = name
-
-            if domain and domain != site.domain:
-                update_kwargs["domain"] = domain
-
-            if update_kwargs:
-                Site.objects.filter(
-                    pk=settings.SITE_ID).update(**update_kwargs)
-                site = Site.objects.get(pk=settings.SITE_ID)
-                print("Updated default site. You might need to restart django as sites are cached aggressively.")
-            else:
-                print("Nothing to update (need --name, --domain and/or --system-fqdn)")
-
-            print("Default Site:")
-            print("\tid = %s" % site.id)
-            print("\tname = %s" % site.name)
-            print("\tdomain = %s" % site.domain)
+            # CREATE DATABASE is not SQL standard, but seems to be supported by most.
+            sys.stderr.write("-- Don't know how to handle '%s' falling back to SQL.\n" % engine)
+            print("CREATE DATABASE %s;" % dbname)
+            print("GRANT ALL PRIVILEGES ON DATABASE %s to %s;" % (dbname, dbuser))

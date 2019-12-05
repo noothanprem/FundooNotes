@@ -1,1 +1,1 @@
-×Vvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet/jisfreq.py 2pyXÆh
+×Xvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet/euctwfreq.py 2pyX„h

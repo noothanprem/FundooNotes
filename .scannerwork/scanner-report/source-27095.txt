@@ -1,328 +1,493 @@
 """
-Low-level helpers for the SecureTransport bindings.
+This module uses ctypes to bind a whole bunch of functions and constants from
+SecureTransport. The goal here is to provide the low-level API to
+SecureTransport. These are essentially the C-level functions and constants, and
+they're pretty gross to work with.
 
-These are Python functions that are not directly related to the high-level APIs
-but are necessary to get them to work. They include a whole bunch of low-level
-CoreFoundation messing about and memory management. The concerns in this module
-are almost entirely about trying to avoid memory leaks and providing
-appropriate and useful assistance to the higher-level code.
+This code is a bastardised version of the code found in Will Bond's oscrypto
+library. An enormous debt is owed to him for blazing this trail for us. For
+that reason, this code should be considered to be covered both by urllib3's
+license and by oscrypto's:
+
+    Copyright (c) 2015-2016 Will Bond <will@wbond.net>
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
 """
-import base64
-import ctypes
-import itertools
-import re
-import os
-import ssl
-import tempfile
+from __future__ import absolute_import
 
-from .bindings import Security, CoreFoundation, CFConst
-
-
-# This regular expression is used to grab PEM data out of a PEM bundle.
-_PEM_CERTS_RE = re.compile(
-    b"-----BEGIN CERTIFICATE-----\n(.*?)\n-----END CERTIFICATE-----", re.DOTALL
+import platform
+from ctypes.util import find_library
+from ctypes import (
+    c_void_p,
+    c_int32,
+    c_char_p,
+    c_size_t,
+    c_byte,
+    c_uint32,
+    c_ulong,
+    c_long,
+    c_bool,
 )
+from ctypes import CDLL, POINTER, CFUNCTYPE
 
 
-def _cf_data_from_bytes(bytestring):
-    """
-    Given a bytestring, create a CFData object from it. This CFData object must
-    be CFReleased by the caller.
-    """
-    return CoreFoundation.CFDataCreate(
-        CoreFoundation.kCFAllocatorDefault, bytestring, len(bytestring)
+security_path = find_library("Security")
+if not security_path:
+    raise ImportError("The library Security could not be found")
+
+
+core_foundation_path = find_library("CoreFoundation")
+if not core_foundation_path:
+    raise ImportError("The library CoreFoundation could not be found")
+
+
+version = platform.mac_ver()[0]
+version_info = tuple(map(int, version.split(".")))
+if version_info < (10, 8):
+    raise OSError(
+        "Only OS X 10.8 and newer are supported, not %s.%s"
+        % (version_info[0], version_info[1])
     )
 
+Security = CDLL(security_path, use_errno=True)
+CoreFoundation = CDLL(core_foundation_path, use_errno=True)
 
-def _cf_dictionary_from_tuples(tuples):
-    """
-    Given a list of Python tuples, create an associated CFDictionary.
-    """
-    dictionary_size = len(tuples)
+Boolean = c_bool
+CFIndex = c_long
+CFStringEncoding = c_uint32
+CFData = c_void_p
+CFString = c_void_p
+CFArray = c_void_p
+CFMutableArray = c_void_p
+CFDictionary = c_void_p
+CFError = c_void_p
+CFType = c_void_p
+CFTypeID = c_ulong
 
-    # We need to get the dictionary keys and values out in the same order.
-    keys = (t[0] for t in tuples)
-    values = (t[1] for t in tuples)
-    cf_keys = (CoreFoundation.CFTypeRef * dictionary_size)(*keys)
-    cf_values = (CoreFoundation.CFTypeRef * dictionary_size)(*values)
+CFTypeRef = POINTER(CFType)
+CFAllocatorRef = c_void_p
 
-    return CoreFoundation.CFDictionaryCreate(
-        CoreFoundation.kCFAllocatorDefault,
-        cf_keys,
-        cf_values,
-        dictionary_size,
-        CoreFoundation.kCFTypeDictionaryKeyCallBacks,
-        CoreFoundation.kCFTypeDictionaryValueCallBacks,
-    )
+OSStatus = c_int32
 
+CFDataRef = POINTER(CFData)
+CFStringRef = POINTER(CFString)
+CFArrayRef = POINTER(CFArray)
+CFMutableArrayRef = POINTER(CFMutableArray)
+CFDictionaryRef = POINTER(CFDictionary)
+CFArrayCallBacks = c_void_p
+CFDictionaryKeyCallBacks = c_void_p
+CFDictionaryValueCallBacks = c_void_p
 
-def _cf_string_to_unicode(value):
-    """
-    Creates a Unicode string from a CFString object. Used entirely for error
-    reporting.
-
-    Yes, it annoys me quite a lot that this function is this complex.
-    """
-    value_as_void_p = ctypes.cast(value, ctypes.POINTER(ctypes.c_void_p))
-
-    string = CoreFoundation.CFStringGetCStringPtr(
-        value_as_void_p, CFConst.kCFStringEncodingUTF8
-    )
-    if string is None:
-        buffer = ctypes.create_string_buffer(1024)
-        result = CoreFoundation.CFStringGetCString(
-            value_as_void_p, buffer, 1024, CFConst.kCFStringEncodingUTF8
-        )
-        if not result:
-            raise OSError("Error copying C string from CFStringRef")
-        string = buffer.value
-    if string is not None:
-        string = string.decode("utf-8")
-    return string
-
-
-def _assert_no_error(error, exception_class=None):
-    """
-    Checks the return code and throws an exception if there is an error to
-    report
-    """
-    if error == 0:
-        return
-
-    cf_error_string = Security.SecCopyErrorMessageString(error, None)
-    output = _cf_string_to_unicode(cf_error_string)
-    CoreFoundation.CFRelease(cf_error_string)
-
-    if output is None or output == u"":
-        output = u"OSStatus %s" % error
-
-    if exception_class is None:
-        exception_class = ssl.SSLError
-
-    raise exception_class(output)
+SecCertificateRef = POINTER(c_void_p)
+SecExternalFormat = c_uint32
+SecExternalItemType = c_uint32
+SecIdentityRef = POINTER(c_void_p)
+SecItemImportExportFlags = c_uint32
+SecItemImportExportKeyParameters = c_void_p
+SecKeychainRef = POINTER(c_void_p)
+SSLProtocol = c_uint32
+SSLCipherSuite = c_uint32
+SSLContextRef = POINTER(c_void_p)
+SecTrustRef = POINTER(c_void_p)
+SSLConnectionRef = c_uint32
+SecTrustResultType = c_uint32
+SecTrustOptionFlags = c_uint32
+SSLProtocolSide = c_uint32
+SSLConnectionType = c_uint32
+SSLSessionOption = c_uint32
 
 
-def _cert_array_from_pem(pem_bundle):
-    """
-    Given a bundle of certs in PEM format, turns them into a CFArray of certs
-    that can be used to validate a cert chain.
-    """
-    # Normalize the PEM bundle's line endings.
-    pem_bundle = pem_bundle.replace(b"\r\n", b"\n")
-
-    der_certs = [
-        base64.b64decode(match.group(1)) for match in _PEM_CERTS_RE.finditer(pem_bundle)
+try:
+    Security.SecItemImport.argtypes = [
+        CFDataRef,
+        CFStringRef,
+        POINTER(SecExternalFormat),
+        POINTER(SecExternalItemType),
+        SecItemImportExportFlags,
+        POINTER(SecItemImportExportKeyParameters),
+        SecKeychainRef,
+        POINTER(CFArrayRef),
     ]
-    if not der_certs:
-        raise ssl.SSLError("No root certificates specified")
+    Security.SecItemImport.restype = OSStatus
 
-    cert_array = CoreFoundation.CFArrayCreateMutable(
-        CoreFoundation.kCFAllocatorDefault,
-        0,
-        ctypes.byref(CoreFoundation.kCFTypeArrayCallBacks),
+    Security.SecCertificateGetTypeID.argtypes = []
+    Security.SecCertificateGetTypeID.restype = CFTypeID
+
+    Security.SecIdentityGetTypeID.argtypes = []
+    Security.SecIdentityGetTypeID.restype = CFTypeID
+
+    Security.SecKeyGetTypeID.argtypes = []
+    Security.SecKeyGetTypeID.restype = CFTypeID
+
+    Security.SecCertificateCreateWithData.argtypes = [CFAllocatorRef, CFDataRef]
+    Security.SecCertificateCreateWithData.restype = SecCertificateRef
+
+    Security.SecCertificateCopyData.argtypes = [SecCertificateRef]
+    Security.SecCertificateCopyData.restype = CFDataRef
+
+    Security.SecCopyErrorMessageString.argtypes = [OSStatus, c_void_p]
+    Security.SecCopyErrorMessageString.restype = CFStringRef
+
+    Security.SecIdentityCreateWithCertificate.argtypes = [
+        CFTypeRef,
+        SecCertificateRef,
+        POINTER(SecIdentityRef),
+    ]
+    Security.SecIdentityCreateWithCertificate.restype = OSStatus
+
+    Security.SecKeychainCreate.argtypes = [
+        c_char_p,
+        c_uint32,
+        c_void_p,
+        Boolean,
+        c_void_p,
+        POINTER(SecKeychainRef),
+    ]
+    Security.SecKeychainCreate.restype = OSStatus
+
+    Security.SecKeychainDelete.argtypes = [SecKeychainRef]
+    Security.SecKeychainDelete.restype = OSStatus
+
+    Security.SecPKCS12Import.argtypes = [
+        CFDataRef,
+        CFDictionaryRef,
+        POINTER(CFArrayRef),
+    ]
+    Security.SecPKCS12Import.restype = OSStatus
+
+    SSLReadFunc = CFUNCTYPE(OSStatus, SSLConnectionRef, c_void_p, POINTER(c_size_t))
+    SSLWriteFunc = CFUNCTYPE(
+        OSStatus, SSLConnectionRef, POINTER(c_byte), POINTER(c_size_t)
     )
-    if not cert_array:
-        raise ssl.SSLError("Unable to allocate memory!")
 
-    try:
-        for der_bytes in der_certs:
-            certdata = _cf_data_from_bytes(der_bytes)
-            if not certdata:
-                raise ssl.SSLError("Unable to allocate memory!")
-            cert = Security.SecCertificateCreateWithData(
-                CoreFoundation.kCFAllocatorDefault, certdata
-            )
-            CoreFoundation.CFRelease(certdata)
-            if not cert:
-                raise ssl.SSLError("Unable to build cert object!")
+    Security.SSLSetIOFuncs.argtypes = [SSLContextRef, SSLReadFunc, SSLWriteFunc]
+    Security.SSLSetIOFuncs.restype = OSStatus
 
-            CoreFoundation.CFArrayAppendValue(cert_array, cert)
-            CoreFoundation.CFRelease(cert)
-    except Exception:
-        # We need to free the array before the exception bubbles further.
-        # We only want to do that if an error occurs: otherwise, the caller
-        # should free.
-        CoreFoundation.CFRelease(cert_array)
+    Security.SSLSetPeerID.argtypes = [SSLContextRef, c_char_p, c_size_t]
+    Security.SSLSetPeerID.restype = OSStatus
 
-    return cert_array
+    Security.SSLSetCertificate.argtypes = [SSLContextRef, CFArrayRef]
+    Security.SSLSetCertificate.restype = OSStatus
 
+    Security.SSLSetCertificateAuthorities.argtypes = [SSLContextRef, CFTypeRef, Boolean]
+    Security.SSLSetCertificateAuthorities.restype = OSStatus
 
-def _is_cert(item):
-    """
-    Returns True if a given CFTypeRef is a certificate.
-    """
-    expected = Security.SecCertificateGetTypeID()
-    return CoreFoundation.CFGetTypeID(item) == expected
+    Security.SSLSetConnection.argtypes = [SSLContextRef, SSLConnectionRef]
+    Security.SSLSetConnection.restype = OSStatus
 
+    Security.SSLSetPeerDomainName.argtypes = [SSLContextRef, c_char_p, c_size_t]
+    Security.SSLSetPeerDomainName.restype = OSStatus
 
-def _is_identity(item):
-    """
-    Returns True if a given CFTypeRef is an identity.
-    """
-    expected = Security.SecIdentityGetTypeID()
-    return CoreFoundation.CFGetTypeID(item) == expected
+    Security.SSLHandshake.argtypes = [SSLContextRef]
+    Security.SSLHandshake.restype = OSStatus
 
+    Security.SSLRead.argtypes = [SSLContextRef, c_char_p, c_size_t, POINTER(c_size_t)]
+    Security.SSLRead.restype = OSStatus
 
-def _temporary_keychain():
-    """
-    This function creates a temporary Mac keychain that we can use to work with
-    credentials. This keychain uses a one-time password and a temporary file to
-    store the data. We expect to have one keychain per socket. The returned
-    SecKeychainRef must be freed by the caller, including calling
-    SecKeychainDelete.
+    Security.SSLWrite.argtypes = [SSLContextRef, c_char_p, c_size_t, POINTER(c_size_t)]
+    Security.SSLWrite.restype = OSStatus
 
-    Returns a tuple of the SecKeychainRef and the path to the temporary
-    directory that contains it.
-    """
-    # Unfortunately, SecKeychainCreate requires a path to a keychain. This
-    # means we cannot use mkstemp to use a generic temporary file. Instead,
-    # we're going to create a temporary directory and a filename to use there.
-    # This filename will be 8 random bytes expanded into base64. We also need
-    # some random bytes to password-protect the keychain we're creating, so we
-    # ask for 40 random bytes.
-    random_bytes = os.urandom(40)
-    filename = base64.b16encode(random_bytes[:8]).decode("utf-8")
-    password = base64.b16encode(random_bytes[8:])  # Must be valid UTF-8
-    tempdirectory = tempfile.mkdtemp()
+    Security.SSLClose.argtypes = [SSLContextRef]
+    Security.SSLClose.restype = OSStatus
 
-    keychain_path = os.path.join(tempdirectory, filename).encode("utf-8")
+    Security.SSLGetNumberSupportedCiphers.argtypes = [SSLContextRef, POINTER(c_size_t)]
+    Security.SSLGetNumberSupportedCiphers.restype = OSStatus
 
-    # We now want to create the keychain itself.
-    keychain = Security.SecKeychainRef()
-    status = Security.SecKeychainCreate(
-        keychain_path, len(password), password, False, None, ctypes.byref(keychain)
+    Security.SSLGetSupportedCiphers.argtypes = [
+        SSLContextRef,
+        POINTER(SSLCipherSuite),
+        POINTER(c_size_t),
+    ]
+    Security.SSLGetSupportedCiphers.restype = OSStatus
+
+    Security.SSLSetEnabledCiphers.argtypes = [
+        SSLContextRef,
+        POINTER(SSLCipherSuite),
+        c_size_t,
+    ]
+    Security.SSLSetEnabledCiphers.restype = OSStatus
+
+    Security.SSLGetNumberEnabledCiphers.argtype = [SSLContextRef, POINTER(c_size_t)]
+    Security.SSLGetNumberEnabledCiphers.restype = OSStatus
+
+    Security.SSLGetEnabledCiphers.argtypes = [
+        SSLContextRef,
+        POINTER(SSLCipherSuite),
+        POINTER(c_size_t),
+    ]
+    Security.SSLGetEnabledCiphers.restype = OSStatus
+
+    Security.SSLGetNegotiatedCipher.argtypes = [SSLContextRef, POINTER(SSLCipherSuite)]
+    Security.SSLGetNegotiatedCipher.restype = OSStatus
+
+    Security.SSLGetNegotiatedProtocolVersion.argtypes = [
+        SSLContextRef,
+        POINTER(SSLProtocol),
+    ]
+    Security.SSLGetNegotiatedProtocolVersion.restype = OSStatus
+
+    Security.SSLCopyPeerTrust.argtypes = [SSLContextRef, POINTER(SecTrustRef)]
+    Security.SSLCopyPeerTrust.restype = OSStatus
+
+    Security.SecTrustSetAnchorCertificates.argtypes = [SecTrustRef, CFArrayRef]
+    Security.SecTrustSetAnchorCertificates.restype = OSStatus
+
+    Security.SecTrustSetAnchorCertificatesOnly.argstypes = [SecTrustRef, Boolean]
+    Security.SecTrustSetAnchorCertificatesOnly.restype = OSStatus
+
+    Security.SecTrustEvaluate.argtypes = [SecTrustRef, POINTER(SecTrustResultType)]
+    Security.SecTrustEvaluate.restype = OSStatus
+
+    Security.SecTrustGetCertificateCount.argtypes = [SecTrustRef]
+    Security.SecTrustGetCertificateCount.restype = CFIndex
+
+    Security.SecTrustGetCertificateAtIndex.argtypes = [SecTrustRef, CFIndex]
+    Security.SecTrustGetCertificateAtIndex.restype = SecCertificateRef
+
+    Security.SSLCreateContext.argtypes = [
+        CFAllocatorRef,
+        SSLProtocolSide,
+        SSLConnectionType,
+    ]
+    Security.SSLCreateContext.restype = SSLContextRef
+
+    Security.SSLSetSessionOption.argtypes = [SSLContextRef, SSLSessionOption, Boolean]
+    Security.SSLSetSessionOption.restype = OSStatus
+
+    Security.SSLSetProtocolVersionMin.argtypes = [SSLContextRef, SSLProtocol]
+    Security.SSLSetProtocolVersionMin.restype = OSStatus
+
+    Security.SSLSetProtocolVersionMax.argtypes = [SSLContextRef, SSLProtocol]
+    Security.SSLSetProtocolVersionMax.restype = OSStatus
+
+    Security.SecCopyErrorMessageString.argtypes = [OSStatus, c_void_p]
+    Security.SecCopyErrorMessageString.restype = CFStringRef
+
+    Security.SSLReadFunc = SSLReadFunc
+    Security.SSLWriteFunc = SSLWriteFunc
+    Security.SSLContextRef = SSLContextRef
+    Security.SSLProtocol = SSLProtocol
+    Security.SSLCipherSuite = SSLCipherSuite
+    Security.SecIdentityRef = SecIdentityRef
+    Security.SecKeychainRef = SecKeychainRef
+    Security.SecTrustRef = SecTrustRef
+    Security.SecTrustResultType = SecTrustResultType
+    Security.SecExternalFormat = SecExternalFormat
+    Security.OSStatus = OSStatus
+
+    Security.kSecImportExportPassphrase = CFStringRef.in_dll(
+        Security, "kSecImportExportPassphrase"
     )
-    _assert_no_error(status)
+    Security.kSecImportItemIdentity = CFStringRef.in_dll(
+        Security, "kSecImportItemIdentity"
+    )
 
-    # Having created the keychain, we want to pass it off to the caller.
-    return keychain, tempdirectory
+    # CoreFoundation time!
+    CoreFoundation.CFRetain.argtypes = [CFTypeRef]
+    CoreFoundation.CFRetain.restype = CFTypeRef
+
+    CoreFoundation.CFRelease.argtypes = [CFTypeRef]
+    CoreFoundation.CFRelease.restype = None
+
+    CoreFoundation.CFGetTypeID.argtypes = [CFTypeRef]
+    CoreFoundation.CFGetTypeID.restype = CFTypeID
+
+    CoreFoundation.CFStringCreateWithCString.argtypes = [
+        CFAllocatorRef,
+        c_char_p,
+        CFStringEncoding,
+    ]
+    CoreFoundation.CFStringCreateWithCString.restype = CFStringRef
+
+    CoreFoundation.CFStringGetCStringPtr.argtypes = [CFStringRef, CFStringEncoding]
+    CoreFoundation.CFStringGetCStringPtr.restype = c_char_p
+
+    CoreFoundation.CFStringGetCString.argtypes = [
+        CFStringRef,
+        c_char_p,
+        CFIndex,
+        CFStringEncoding,
+    ]
+    CoreFoundation.CFStringGetCString.restype = c_bool
+
+    CoreFoundation.CFDataCreate.argtypes = [CFAllocatorRef, c_char_p, CFIndex]
+    CoreFoundation.CFDataCreate.restype = CFDataRef
+
+    CoreFoundation.CFDataGetLength.argtypes = [CFDataRef]
+    CoreFoundation.CFDataGetLength.restype = CFIndex
+
+    CoreFoundation.CFDataGetBytePtr.argtypes = [CFDataRef]
+    CoreFoundation.CFDataGetBytePtr.restype = c_void_p
+
+    CoreFoundation.CFDictionaryCreate.argtypes = [
+        CFAllocatorRef,
+        POINTER(CFTypeRef),
+        POINTER(CFTypeRef),
+        CFIndex,
+        CFDictionaryKeyCallBacks,
+        CFDictionaryValueCallBacks,
+    ]
+    CoreFoundation.CFDictionaryCreate.restype = CFDictionaryRef
+
+    CoreFoundation.CFDictionaryGetValue.argtypes = [CFDictionaryRef, CFTypeRef]
+    CoreFoundation.CFDictionaryGetValue.restype = CFTypeRef
+
+    CoreFoundation.CFArrayCreate.argtypes = [
+        CFAllocatorRef,
+        POINTER(CFTypeRef),
+        CFIndex,
+        CFArrayCallBacks,
+    ]
+    CoreFoundation.CFArrayCreate.restype = CFArrayRef
+
+    CoreFoundation.CFArrayCreateMutable.argtypes = [
+        CFAllocatorRef,
+        CFIndex,
+        CFArrayCallBacks,
+    ]
+    CoreFoundation.CFArrayCreateMutable.restype = CFMutableArrayRef
+
+    CoreFoundation.CFArrayAppendValue.argtypes = [CFMutableArrayRef, c_void_p]
+    CoreFoundation.CFArrayAppendValue.restype = None
+
+    CoreFoundation.CFArrayGetCount.argtypes = [CFArrayRef]
+    CoreFoundation.CFArrayGetCount.restype = CFIndex
+
+    CoreFoundation.CFArrayGetValueAtIndex.argtypes = [CFArrayRef, CFIndex]
+    CoreFoundation.CFArrayGetValueAtIndex.restype = c_void_p
+
+    CoreFoundation.kCFAllocatorDefault = CFAllocatorRef.in_dll(
+        CoreFoundation, "kCFAllocatorDefault"
+    )
+    CoreFoundation.kCFTypeArrayCallBacks = c_void_p.in_dll(
+        CoreFoundation, "kCFTypeArrayCallBacks"
+    )
+    CoreFoundation.kCFTypeDictionaryKeyCallBacks = c_void_p.in_dll(
+        CoreFoundation, "kCFTypeDictionaryKeyCallBacks"
+    )
+    CoreFoundation.kCFTypeDictionaryValueCallBacks = c_void_p.in_dll(
+        CoreFoundation, "kCFTypeDictionaryValueCallBacks"
+    )
+
+    CoreFoundation.CFTypeRef = CFTypeRef
+    CoreFoundation.CFArrayRef = CFArrayRef
+    CoreFoundation.CFStringRef = CFStringRef
+    CoreFoundation.CFDictionaryRef = CFDictionaryRef
+
+except (AttributeError):
+    raise ImportError("Error initializing ctypes")
 
 
-def _load_items_from_file(keychain, path):
+class CFConst(object):
     """
-    Given a single file, loads all the trust objects from it into arrays and
-    the keychain.
-    Returns a tuple of lists: the first list is a list of identities, the
-    second a list of certs.
+    A class object that acts as essentially a namespace for CoreFoundation
+    constants.
     """
-    certificates = []
-    identities = []
-    result_array = None
 
-    with open(path, "rb") as f:
-        raw_filedata = f.read()
-
-    try:
-        filedata = CoreFoundation.CFDataCreate(
-            CoreFoundation.kCFAllocatorDefault, raw_filedata, len(raw_filedata)
-        )
-        result_array = CoreFoundation.CFArrayRef()
-        result = Security.SecItemImport(
-            filedata,  # cert data
-            None,  # Filename, leaving it out for now
-            None,  # What the type of the file is, we don't care
-            None,  # what's in the file, we don't care
-            0,  # import flags
-            None,  # key params, can include passphrase in the future
-            keychain,  # The keychain to insert into
-            ctypes.byref(result_array),  # Results
-        )
-        _assert_no_error(result)
-
-        # A CFArray is not very useful to us as an intermediary
-        # representation, so we are going to extract the objects we want
-        # and then free the array. We don't need to keep hold of keys: the
-        # keychain already has them!
-        result_count = CoreFoundation.CFArrayGetCount(result_array)
-        for index in range(result_count):
-            item = CoreFoundation.CFArrayGetValueAtIndex(result_array, index)
-            item = ctypes.cast(item, CoreFoundation.CFTypeRef)
-
-            if _is_cert(item):
-                CoreFoundation.CFRetain(item)
-                certificates.append(item)
-            elif _is_identity(item):
-                CoreFoundation.CFRetain(item)
-                identities.append(item)
-    finally:
-        if result_array:
-            CoreFoundation.CFRelease(result_array)
-
-        CoreFoundation.CFRelease(filedata)
-
-    return (identities, certificates)
+    kCFStringEncodingUTF8 = CFStringEncoding(0x08000100)
 
 
-def _load_client_cert_chain(keychain, *paths):
+class SecurityConst(object):
     """
-    Load certificates and maybe keys from a number of files. Has the end goal
-    of returning a CFArray containing one SecIdentityRef, and then zero or more
-    SecCertificateRef objects, suitable for use as a client certificate trust
-    chain.
+    A class object that acts as essentially a namespace for Security constants.
     """
-    # Ok, the strategy.
-    #
-    # This relies on knowing that macOS will not give you a SecIdentityRef
-    # unless you have imported a key into a keychain. This is a somewhat
-    # artificial limitation of macOS (for example, it doesn't necessarily
-    # affect iOS), but there is nothing inside Security.framework that lets you
-    # get a SecIdentityRef without having a key in a keychain.
-    #
-    # So the policy here is we take all the files and iterate them in order.
-    # Each one will use SecItemImport to have one or more objects loaded from
-    # it. We will also point at a keychain that macOS can use to work with the
-    # private key.
-    #
-    # Once we have all the objects, we'll check what we actually have. If we
-    # already have a SecIdentityRef in hand, fab: we'll use that. Otherwise,
-    # we'll take the first certificate (which we assume to be our leaf) and
-    # ask the keychain to give us a SecIdentityRef with that cert's associated
-    # key.
-    #
-    # We'll then return a CFArray containing the trust chain: one
-    # SecIdentityRef and then zero-or-more SecCertificateRef objects. The
-    # responsibility for freeing this CFArray will be with the caller. This
-    # CFArray must remain alive for the entire connection, so in practice it
-    # will be stored with a single SSLSocket, along with the reference to the
-    # keychain.
-    certificates = []
-    identities = []
 
-    # Filter out bad paths.
-    paths = (path for path in paths if path)
+    kSSLSessionOptionBreakOnServerAuth = 0
 
-    try:
-        for file_path in paths:
-            new_identities, new_certs = _load_items_from_file(keychain, file_path)
-            identities.extend(new_identities)
-            certificates.extend(new_certs)
+    kSSLProtocol2 = 1
+    kSSLProtocol3 = 2
+    kTLSProtocol1 = 4
+    kTLSProtocol11 = 7
+    kTLSProtocol12 = 8
+    # SecureTransport does not support TLS 1.3 even if there's a constant for it
+    kTLSProtocol13 = 10
+    kTLSProtocolMaxSupported = 999
 
-        # Ok, we have everything. The question is: do we have an identity? If
-        # not, we want to grab one from the first cert we have.
-        if not identities:
-            new_identity = Security.SecIdentityRef()
-            status = Security.SecIdentityCreateWithCertificate(
-                keychain, certificates[0], ctypes.byref(new_identity)
-            )
-            _assert_no_error(status)
-            identities.append(new_identity)
+    kSSLClientSide = 1
+    kSSLStreamType = 0
 
-            # We now want to release the original certificate, as we no longer
-            # need it.
-            CoreFoundation.CFRelease(certificates.pop(0))
+    kSecFormatPEMSequence = 10
 
-        # We now need to build a new CFArray that holds the trust chain.
-        trust_chain = CoreFoundation.CFArrayCreateMutable(
-            CoreFoundation.kCFAllocatorDefault,
-            0,
-            ctypes.byref(CoreFoundation.kCFTypeArrayCallBacks),
-        )
-        for item in itertools.chain(identities, certificates):
-            # ArrayAppendValue does a CFRetain on the item. That's fine,
-            # because the finally block will release our other refs to them.
-            CoreFoundation.CFArrayAppendValue(trust_chain, item)
+    kSecTrustResultInvalid = 0
+    kSecTrustResultProceed = 1
+    # This gap is present on purpose: this was kSecTrustResultConfirm, which
+    # is deprecated.
+    kSecTrustResultDeny = 3
+    kSecTrustResultUnspecified = 4
+    kSecTrustResultRecoverableTrustFailure = 5
+    kSecTrustResultFatalTrustFailure = 6
+    kSecTrustResultOtherError = 7
 
-        return trust_chain
-    finally:
-        for obj in itertools.chain(identities, certificates):
-            CoreFoundation.CFRelease(obj)
+    errSSLProtocol = -9800
+    errSSLWouldBlock = -9803
+    errSSLClosedGraceful = -9805
+    errSSLClosedNoNotify = -9816
+    errSSLClosedAbort = -9806
+
+    errSSLXCertChainInvalid = -9807
+    errSSLCrypto = -9809
+    errSSLInternal = -9810
+    errSSLCertExpired = -9814
+    errSSLCertNotYetValid = -9815
+    errSSLUnknownRootCert = -9812
+    errSSLNoRootCert = -9813
+    errSSLHostNameMismatch = -9843
+    errSSLPeerHandshakeFail = -9824
+    errSSLPeerUserCancelled = -9839
+    errSSLWeakPeerEphemeralDHKey = -9850
+    errSSLServerAuthCompleted = -9841
+    errSSLRecordOverflow = -9847
+
+    errSecVerifyFailed = -67808
+    errSecNoTrustSettings = -25263
+    errSecItemNotFound = -25300
+    errSecInvalidTrustSettings = -25262
+
+    # Cipher suites. We only pick the ones our default cipher string allows.
+    # Source: https://developer.apple.com/documentation/security/1550981-ssl_cipher_suite_values
+    TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 = 0xC02C
+    TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 = 0xC030
+    TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 = 0xC02B
+    TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 = 0xC02F
+    TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 = 0xCCA9
+    TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 = 0xCCA8
+    TLS_DHE_RSA_WITH_AES_256_GCM_SHA384 = 0x009F
+    TLS_DHE_RSA_WITH_AES_128_GCM_SHA256 = 0x009E
+    TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384 = 0xC024
+    TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384 = 0xC028
+    TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA = 0xC00A
+    TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA = 0xC014
+    TLS_DHE_RSA_WITH_AES_256_CBC_SHA256 = 0x006B
+    TLS_DHE_RSA_WITH_AES_256_CBC_SHA = 0x0039
+    TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256 = 0xC023
+    TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256 = 0xC027
+    TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA = 0xC009
+    TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA = 0xC013
+    TLS_DHE_RSA_WITH_AES_128_CBC_SHA256 = 0x0067
+    TLS_DHE_RSA_WITH_AES_128_CBC_SHA = 0x0033
+    TLS_RSA_WITH_AES_256_GCM_SHA384 = 0x009D
+    TLS_RSA_WITH_AES_128_GCM_SHA256 = 0x009C
+    TLS_RSA_WITH_AES_256_CBC_SHA256 = 0x003D
+    TLS_RSA_WITH_AES_128_CBC_SHA256 = 0x003C
+    TLS_RSA_WITH_AES_256_CBC_SHA = 0x0035
+    TLS_RSA_WITH_AES_128_CBC_SHA = 0x002F
+    TLS_AES_128_GCM_SHA256 = 0x1301
+    TLS_AES_256_GCM_SHA384 = 0x1302
+    TLS_AES_128_CCM_8_SHA256 = 0x1305
+    TLS_AES_128_CCM_SHA256 = 0x1304

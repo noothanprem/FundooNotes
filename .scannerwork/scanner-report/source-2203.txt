@@ -1,256 +1,232 @@
-#!/usr/pkg/bin/python
+#
+# Copyright (c) 1996-2000 Tyler C. Sarna <tsarna@sarna.org>
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. All advertising materials mentioning features or use of this software
+#    must display the following acknowledgement:
+#      This product includes software developed by Tyler C. Sarna.
+# 4. Neither the name of the author nor the names of contributors
+#    may be used to endorse or promote products derived from this software
+#    without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+# PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS
+# BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+#
 
-import os, sys, time
+from reportlab.lib.units import inch
+from reportlab.graphics.barcode.common import Barcode
+from string import digits as string_digits, whitespace as string_whitespace
+from reportlab.lib.utils import asNative
 
-from reportlab.graphics.barcode.common import *
-from reportlab.graphics.barcode.code39 import *
-from reportlab.graphics.barcode.code93 import *
-from reportlab.graphics.barcode.code128 import *
-from reportlab.graphics.barcode.usps import *
-from reportlab.graphics.barcode.usps4s import USPS_4State
-from reportlab.graphics.barcode.qr import QrCodeWidget
+_fim_patterns = {
+    'A' : "||  |  ||",
+    'B' : "| || || |",
+    'C' : "|| | | ||",
+    'D' : "||| | |||",
+    # XXX There is an E.
+    # The below has been seen, but dunno if it is E or not:
+    # 'E' : '|||| ||||'
+}
 
+_postnet_patterns = {
+    '1' : "...||",    '2' : "..|.|",    '3' : "..||.",    '4' : ".|..|",
+    '5' : ".|.|.",    '6' : ".||..",    '7' : "|...|",    '8' : "|..|.",
+    '9' : "|.|..",    '0' : "||...",    'S' : "|",
+}
 
-from reportlab.platypus import Spacer, SimpleDocTemplate, Table, TableStyle, Preformatted, PageBreak
-from reportlab.lib.units import inch, cm
-from reportlab.lib import colors
+class FIM(Barcode):
+    """
+    FIM (Facing ID Marks) encode only one letter.
+    There are currently four defined:
 
-from reportlab.pdfgen.canvas import Canvas
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus.paragraph import Paragraph
-from reportlab.platypus.frames import Frame
-from reportlab.platypus.flowables import XBox, KeepTogether
-from reportlab.graphics.shapes import Drawing, Rect, Line
+    A   Courtesy reply mail with pre-printed POSTNET
+    B   Business reply mail without pre-printed POSTNET
+    C   Business reply mail with pre-printed POSTNET
+    D   OCR Readable mail without pre-printed POSTNET
 
-from reportlab.graphics.barcode import getCodes, getCodeNames, createBarcodeDrawing, createBarcodeImageInMemory
-def run():
-    styles = getSampleStyleSheet()
-    styleN = styles['Normal']
-    styleH = styles['Heading1']
-    story = []
-    storyAdd = story.append
+    Options that may be passed to constructor:
 
-    #for codeNames in code
-    storyAdd(Paragraph('I2of5', styleN))
-    storyAdd(I2of5(1234, barWidth = inch*0.02, checksum=0))
+        value (single character string from the set A - D. required.):
+            The value to encode.
 
-    storyAdd(Paragraph('MSI', styleN))
-    storyAdd(MSI(1234))
+        quiet (bool, default 0):
+            Whether to include quiet zones in the symbol.
 
-    storyAdd(Paragraph('Codabar', styleN))
-    storyAdd(Codabar("A012345B", barWidth = inch*0.02))
+    The following may also be passed, but doing so will generate nonstandard
+    symbols which should not be used. This is mainly documented here to
+    show the defaults:
 
-    storyAdd(Paragraph('Code 11', styleN))
-    storyAdd(Code11("01234545634563"))
+        barHeight (float, default 5/8 inch):
+            Height of the code. This might legitimately be overriden to make
+            a taller symbol that will 'bleed' off the edge of the paper,
+            leaving 5/8 inch remaining.
 
-    storyAdd(Paragraph('Code 39', styleN))
-    storyAdd(Standard39("A012345B%R"))
+        lquiet (float, default 1/4 inch):
+            Quiet zone size to left of code, if quiet is true.
+            Default is the greater of .25 inch, or .15 times the symbol's
+            length.
 
-    storyAdd(Paragraph('Extended Code 39', styleN))
-    storyAdd(Extended39("A012345B}"))
+        rquiet (float, default 15/32 inch):
+            Quiet zone size to right left of code, if quiet is true.
 
-    storyAdd(Paragraph('Code93', styleN))
-    storyAdd(Standard93("CODE 93"))
+    Sources of information on FIM:
 
-    storyAdd(Paragraph('Extended Code93', styleN))
-    storyAdd(Extended93("L@@K! Code 93 :-)")) #, barWidth=0.005 * inch))
+    USPS Publication 25, A Guide to Business Mail Preparation
+    http://new.usps.com/cpim/ftp/pubs/pub25.pdf
+    """
+    barWidth = inch * (1.0/32.0)
+    spaceWidth = inch * (1.0/16.0)
+    barHeight = inch * (5.0/8.0)
+    rquiet = inch * (0.25)
+    lquiet = inch * (15.0/32.0)
+    quiet = 0
+    def __init__(self, value='', **args):
+        value = str(value) if isinstance(value,int) else asNative(value)
+        for k, v in args.items():
+            setattr(self, k, v)
 
-    storyAdd(Paragraph('Code 128', styleN))
-    storyAdd(Code128("AB-12345678"))
+        Barcode.__init__(self, value)
 
-    storyAdd(Paragraph('Code 128 Auto', styleN))
-    storyAdd(Code128Auto("AB-12345678"))
+    def validate(self):
+        self.valid = 1
+        self.validated = ''
+        for c in self.value:
+            if c in string_whitespace:
+                continue
+            elif c in "abcdABCD":
+                self.validated = self.validated + c.upper()
+            else:
+                self.valid = 0
 
-    storyAdd(Paragraph('USPS FIM', styleN))
-    storyAdd(FIM("A"))
+        if len(self.validated) != 1:
+            raise ValueError("Input must be exactly one character")
 
-    storyAdd(Paragraph('USPS POSTNET', styleN))
-    storyAdd(POSTNET('78247-1043'))
+        return self.validated
 
-    storyAdd(Paragraph('USPS 4 State', styleN))
-    storyAdd(USPS_4State('01234567094987654321','01234567891'))
+    def decompose(self):
+        self.decomposed = ''
+        for c in self.encoded:
+            self.decomposed = self.decomposed + _fim_patterns[c]
 
-    from reportlab.graphics.barcode import createBarcodeDrawing
+        return self.decomposed
 
-    storyAdd(Paragraph('EAN13', styleN))
-    storyAdd(createBarcodeDrawing('EAN13', value='123456789012'))
+    def computeSize(self):
+        self._width = (len(self.decomposed) - 1) * self.spaceWidth + self.barWidth
+        if self.quiet:
+            self._width += self.lquiet + self.rquiet
+        self._height = self.barHeight
 
-    storyAdd(Paragraph('EAN13 quiet=False', styleN))
-    storyAdd(createBarcodeDrawing('EAN13', value='123456789012', quiet=False))
+    def draw(self):
+        self._calculate()
+        left = self.quiet and self.lquiet or 0
+        for c in self.decomposed:
+            if c == '|':
+                self.rect(left, 0.0, self.barWidth, self.barHeight)
+            left += self.spaceWidth
+        self.drawHumanReadable()
 
-    storyAdd(Paragraph('EAN8', styleN))
-    storyAdd(createBarcodeDrawing('EAN8', value='1234567'))
+    def _humanText(self):
+        return self.value
 
-    storyAdd(PageBreak())
+class POSTNET(Barcode):
+    """
+    POSTNET is used in the US to encode "zip codes" (postal codes) on
+    mail. It can encode 5, 9, or 11 digit codes. I've read that it's
+    pointless to do 5 digits, since USPS will just have to re-print
+    them with 9 or 11 digits.
 
-    storyAdd(Paragraph('EAN5 price=True', styleN))
-    storyAdd(createBarcodeDrawing('EAN5', value='11299', price=True))
+    Sources of information on POSTNET:
 
-    storyAdd(Paragraph('EAN5 price=True quiet=False', styleN))
-    storyAdd(createBarcodeDrawing('EAN5', value='11299', price=True, quiet=False))
+    USPS Publication 25, A Guide to Business Mail Preparation
+    http://new.usps.com/cpim/ftp/pubs/pub25.pdf
+    """
+    quiet = 0
+    shortHeight = inch * 0.050
+    barHeight = inch * 0.125
+    barWidth = inch * 0.018
+    spaceWidth = inch * 0.0275
+    def __init__(self, value='', **args):
+        value = str(value) if isinstance(value,int) else asNative(value)
+        for k, v in args.items():
+            setattr(self, k, v)
 
-    storyAdd(Paragraph('EAN5 price=False', styleN))
-    storyAdd(createBarcodeDrawing('EAN5', value='11299', price=False))
+        Barcode.__init__(self, value)
 
-    storyAdd(Paragraph('ISBN alone', styleN))
-    storyAdd(createBarcodeDrawing('ISBN', value='9781565924796'))
+    def validate(self):
+        self.validated = ''
+        self.valid = 1
+        count = 0
+        for c in self.value:
+            if c in (string_whitespace + '-'):
+                pass
+            elif c in string_digits:
+                count = count + 1
+                if count == 6:
+                    self.validated = self.validated + '-'
+                self.validated = self.validated + c
+            else:
+                self.valid = 0
 
-    storyAdd(Paragraph('ISBN  with ean5 price', styleN))
-    storyAdd(createBarcodeDrawing('ISBN', value='9781565924796',price='01299'))
+        if len(self.validated) not in [5, 10, 12]:
+            self.valid = 0
 
-    storyAdd(Paragraph('ISBN  with ean5 price, quiet=False', styleN))
-    storyAdd(createBarcodeDrawing('ISBN', value='9781565924796',price='01299',quiet=False))
+        return self.validated
 
-    storyAdd(Paragraph('UPCA', styleN))
-    storyAdd(createBarcodeDrawing('UPCA', value='03600029145'))
+    def encode(self):
+        self.encoded = "S"
+        check = 0
+        for c in self.validated:
+            if c in string_digits:
+                self.encoded = self.encoded + c
+                check = check + int(c)
+            elif c == '-':
+                pass
+            else:
+                raise ValueError("Invalid character in input")
+        check = (10 - check) % 10
+        self.encoded = self.encoded + repr(check) + 'S'
+        return self.encoded
 
-    storyAdd(Paragraph('USPS_4State', styleN))
-    storyAdd(createBarcodeDrawing('USPS_4State', value='01234567094987654321',routing='01234567891'))
+    def decompose(self):
+        self.decomposed = ''
+        for c in self.encoded:
+            self.decomposed = self.decomposed + _postnet_patterns[c]
+        return self.decomposed
 
-    storyAdd(Paragraph('QR', styleN))
-    storyAdd(createBarcodeDrawing('QR', value='01234567094987654321'))
+    def computeSize(self):
+        self._width = len(self.decomposed) * self.barWidth + (len(self.decomposed) - 1) * self.spaceWidth
+        self._height = self.barHeight
 
-    storyAdd(Paragraph('QR', styleN))
-    storyAdd(createBarcodeDrawing('QR', value='01234567094987654321',x=30,y=50))
+    def draw(self):
+        self._calculate()
+        sdown = self.barHeight - self.shortHeight
+        left = 0
 
-    storyAdd(Paragraph('QR in drawing at (0,0)', styleN))
-    d = Drawing(100,100)
-    d.add(Rect(0,0,100,100,strokeWidth=1,strokeColor=colors.red,fillColor=None))
-    d.add(QrCodeWidget(value='01234567094987654321'))
-    storyAdd(d)
+        for c in self.decomposed:
+            if c == '.':
+                h = self.shortHeight
+            else:
+                h = self.barHeight
+            self.rect(left, 0.0, self.barWidth, h)
+            left = left + self.barWidth + self.spaceWidth
+        self.drawHumanReadable()
 
-    storyAdd(Paragraph('QR in drawing at (10,10)', styleN))
-    d = Drawing(100,100)
-    d.add(Rect(0,0,100,100,strokeWidth=1,strokeColor=colors.red,fillColor=None))
-    d.add(Line(7.5,10,12.5,10,strokeWidth=0.5,strokeColor=colors.blue))
-    d.add(Line(10,7.5, 10, 12.5,strokeWidth=0.5,strokeColor=colors.blue))
-    d.add(QrCodeWidget(value='01234567094987654321',x=10,y=10))
-    storyAdd(d)
-
-    storyAdd(Paragraph('Label Size', styleN))
-    storyAdd(XBox((2.0 + 5.0/8.0)*inch, 1 * inch, '1x2-5/8"'))
-
-    storyAdd(Paragraph('Label Size', styleN))
-    storyAdd(XBox((1.75)*inch, .5 * inch, '1/2x1-3/4"'))
-    
-
-    SimpleDocTemplate('out.pdf').build(story)
-    print('saved out.pdf')
-
-def fullTest(fileName="test_full.pdf"):
-    """Creates large-ish test document with a variety of parameters"""
-
-    story = []
-
-    styles = getSampleStyleSheet()
-    styleN = styles['Normal']
-    styleH = styles['Heading1']
-    styleH2 = styles['Heading2']
-    story = []
-
-    story.append(Paragraph('ReportLab Barcode Test Suite - full output', styleH))
-    story.append(Paragraph('Generated on %s' % time.ctime(time.time()), styleN))
-
-    story.append(Paragraph('', styleN))
-    story.append(Paragraph('Repository information for this build:', styleN))
-    #see if we can figure out where it was built, if we're running in source
-    if os.path.split(os.getcwd())[-1] == 'barcode' and os.path.isdir('.svn'):
-        #runnning in a filesystem svn copy
-        infoLines = os.popen('svn info').read()
-        story.append(Preformatted(infoLines, styles["Code"]))
-        
-    story.append(Paragraph('About this document', styleH2))
-    story.append(Paragraph('History and Status', styleH2))
-
-    story.append(Paragraph("""
-        This is the test suite and docoumentation for the ReportLab open source barcode API,
-        being re-released as part of the forthcoming ReportLab 2.0 release.
-        """, styleN))
-
-    story.append(Paragraph("""
-        Several years ago Ty Sarna contributed a barcode module to the ReportLab community.
-        Several of the codes were used by him in hiw work and to the best of our knowledge
-        this was correct.  These were written as flowable objects and were available in PDFs,
-        but not in our graphics framework.  However, we had no knowledge of barcodes ourselves
-        and did not advertise or extend the package.
-        """, styleN))
-
-    story.append(Paragraph("""
-        We "wrapped" the barcodes to be usable within our graphics framework; they are now available
-        as Drawing objects which can be rendered to EPS files or bitmaps.  For the last 2 years this
-        has been available in our Diagra and Report Markup Language products.  However, we did not
-        charge separately and use was on an "as is" basis.
-        """, styleN))
-
-    story.append(Paragraph("""
-        A major licensee of our technology has kindly agreed to part-fund proper productisation
-        of this code on an open source basis in Q1 2006.  This has involved addition of EAN codes
-        as well as a proper testing program.  Henceforth we intend to publicise the code more widely,
-        gather feedback, accept contributions of code and treat it as "supported".  
-        """, styleN))
-
-    story.append(Paragraph("""
-        This involved making available both downloads and testing resources.  This PDF document
-        is the output of the current test suite.  It contains codes you can scan (if you use a nice sharp
-        laser printer!), and will be extended over coming weeks to include usage examples and notes on
-        each barcode and how widely tested they are.  This is being done through documentation strings in
-        the barcode objects themselves so should always be up to date.
-        """, styleN))
-
-    story.append(Paragraph('Usage examples', styleH2))
-    story.append(Paragraph("""
-        To be completed
-        """, styleN))
-
-    story.append(Paragraph('The codes', styleH2))
-    story.append(Paragraph("""
-        Below we show a scannable code from each barcode, with and without human-readable text.
-        These are magnified about 2x from the natural size done by the original author to aid
-        inspection.  This will be expanded to include several test cases per code, and to add
-        explanations of checksums.  Be aware that (a) if you enter numeric codes which are too
-        short they may be prefixed for you (e.g. "123" for an 8-digit code becomes "00000123"),
-        and that the scanned results and readable text will generally include extra checksums
-        at the end.
-        """, styleN))
-
-    codeNames = getCodeNames()
-    from reportlab.lib.utils import flatten
-    width = [float(x[8:]) for x in sys.argv if x.startswith('--width=')]
-    height = [float(x[9:]) for x in sys.argv if x.startswith('--height=')]
-    isoScale = [int(x[11:]) for x in sys.argv if x.startswith('--isoscale=')]
-    options = {}
-    if width: options['width'] = width[0]
-    if height: options['height'] = height[0]
-    if isoScale: options['isoScale'] = isoScale[0]
-    scales = [x[8:].split(',') for x in sys.argv if x.startswith('--scale=')]
-    scales = list(map(float,scales and flatten(scales) or [1]))
-    scales = list(map(float,scales and flatten(scales) or [1]))
-    for scale in scales:
-        story.append(PageBreak())
-        story.append(Paragraph('Scale = %.1f'%scale, styleH2))
-        story.append(Spacer(36, 12))
-        for codeName in codeNames:
-            s = [Paragraph('Code: ' + codeName, styleH2)]
-            for hr in (0,1):
-                s.append(Spacer(36, 12))
-                dr = createBarcodeDrawing(codeName, humanReadable=hr,**options)
-                dr.renderScale = scale
-                s.append(dr)
-                s.append(Spacer(36, 12))
-            s.append(Paragraph('Barcode should say: ' + dr._bc.value, styleN))
-            story.append(KeepTogether(s))
-
-    SimpleDocTemplate(fileName).build(story)
-    print('created', fileName)
-
-if __name__=='__main__':
-    run()
-    fullTest()
-    def createSample(name,memory):
-        f = open(name,'wb')
-        f.write(memory)
-        f.close()
-    createSample('test_cbcim.png',createBarcodeImageInMemory('EAN13', value='123456789012'))
-    createSample('test_cbcim.gif',createBarcodeImageInMemory('EAN8', value='1234567', format='gif'))
-    createSample('test_cbcim.pdf',createBarcodeImageInMemory('UPCA', value='03600029145',format='pdf', barHeight=40))
-    createSample('test_cbcim.tiff',createBarcodeImageInMemory('USPS_4State', value='01234567094987654321',routing='01234567891',format='tiff'))
+    def _humanText(self):
+        return self.encoded[1:-1]

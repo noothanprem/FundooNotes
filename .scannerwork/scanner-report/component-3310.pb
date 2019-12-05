@@ -1,1 +1,1 @@
-î=venv/lib/python3.6/site-packages/pyasn1/compat/dateandtime.py 2pyXh
+î.venv/lib/python3.6/site-packages/pyasn1/compat :íïðñòûü

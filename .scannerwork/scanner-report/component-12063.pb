@@ -1,1 +1,1 @@
-Ÿ^Cvenv/lib/python3.6/site-packages/locust/static/jquery-1.11.3.min.js 2jsXh
+Ÿ^7venv/lib/python3.6/site-packages/locust/static/chart.js 2jsXgh

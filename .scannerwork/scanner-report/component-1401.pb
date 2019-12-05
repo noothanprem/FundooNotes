@@ -1,4 +1,2 @@
 ù
-2venv/lib/python3.6/site-packages/future/moves/html :ø
-ú
-û
+>venv/lib/python3.6/site-packages/future/moves/html/entities.py 2pyX	h

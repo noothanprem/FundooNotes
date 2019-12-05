@@ -1,1 +1,0 @@
-ˆ‚5venv/lib/python3.6/site-packages/django_cron/backends :‡‚

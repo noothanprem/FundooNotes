@@ -1,1 +1,1 @@
-÷ºAvenv/lib/python3.6/site-packages/social_core/backends/evernote.py 2pyXLh
+÷º?venv/lib/python3.6/site-packages/social_core/backends/deezer.py 2pyX2h

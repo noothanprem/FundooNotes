@@ -1,232 +1,460 @@
-"Some common routines that can be used throughout the code."
 from __future__ import print_function, unicode_literals, with_statement, division
 
-import hashlib
-import os
-import logging
-import datetime
-import threading
+from django.db import models
+from django.views.decorators.csrf import csrf_protect
+from django.utils.decorators import method_decorator
+from django.contrib.admin.options import BaseModelAdmin, ModelAdmin
+from django.contrib.admin.helpers import AdminForm
+from django.core.exceptions import PermissionDenied
+from django.http import Http404
+from django.utils.translation import ugettext as _
+from django.utils.html import escape
+from django.forms.formsets import all_valid
+from django.contrib.admin import helpers
+from django.utils.safestring import mark_safe
+from django.forms.models import (inlineformset_factory, BaseInlineFormSet)
+from django import forms
+from django.utils.functional import curry
 
-try:
-    import json
-except ImportError:
-    from django.utils import simplejson as json
-from django.utils.encoding import force_text
-from django.template import Context
-from django.template.loader import get_template
-from django.core import exceptions
-
-from django_common.tzinfo import utc, Pacific
+from django_common.compat import (atomic_decorator, force_unicode,
+                                  unquote, flatten_fieldsets)
 
 
-class AppException(exceptions.ValidationError):
+csrf_protect_m = method_decorator(csrf_protect)
+
+
+def __init__(self, form, fieldsets, prepopulated_fields, readonly_fields=None, model_admin=None):
     """
-    Base class for exceptions used in our system.
-
-    A common base class permits application code to distinguish between exceptions raised in
-    our code from ones raised in libraries.
+    Monkey-patch for django 1.5
     """
-    pass
+    def normalize_fieldsets(fieldsets):
+        """
+        Make sure the keys in fieldset dictionaries are strings. Returns the
+        normalized data.
+        """
+        result = []
+
+        for name, options in fieldsets:
+            result.append((name, normalize_dictionary(options)))
+
+        return result
+
+    def normalize_dictionary(data_dict):
+        """
+        Converts all the keys in "data_dict" to strings. The keys must be
+        convertible using str().
+        """
+        for key, value in data_dict.items():
+            if not isinstance(key, str):
+                del data_dict[key]
+                data_dict[str(key)] = value
+
+        return data_dict
+
+    if isinstance(prepopulated_fields, list):
+        prepopulated_fields = dict()
+
+    self.form, self.fieldsets = form, normalize_fieldsets(fieldsets)
+    self.prepopulated_fields = [{
+        'field': form[field_name],
+        'dependencies': [form[f] for f in dependencies]
+    } for field_name, dependencies in prepopulated_fields.items()]
+
+    self.model_admin = model_admin
+
+    if readonly_fields is None:
+        readonly_fields = ()
+
+    self.readonly_fields = readonly_fields
+
+AdminForm.__init__ = __init__
 
 
-class InvalidContentType(AppException):
-    def __init__(self, file_types, msg=None):
-        if not msg:
-            msg = 'Only the following file ' \
-                  'content types are permitted: {0}'.format(str(file_types))
-        super(self.__class__, self).__init__(msg)
-        self.file_types = file_types
+class NestedModelAdmin(ModelAdmin):
 
+    @csrf_protect_m
+    @atomic_decorator
+    def add_view(self, request, form_url='', extra_context=None):
+        """The 'add' admin view for this model."""
+        model = self.model
+        opts = model._meta
 
-class FileTooLarge(AppException):
-    def __init__(self, file_size_kb, msg=None):
-        if not msg:
-            msg = 'Files may not be larger than {0} KB'.format(file_size_kb)
-        super(self.__class__, self).__init__(msg)
-        self.file_size = file_size_kb
+        if not self.has_add_permission(request):
+            raise PermissionDenied
 
+        ModelForm = self.get_form(request)
+        formsets = []
 
-def get_class(kls):
-    """
-    Converts a string to a class.
-    Courtesy:
-    http://stackoverflow.com/q/452969/#452981
-    """
-    parts = kls.split('.')
-    module = ".".join(parts[:-1])
-    m = __import__(module)
-    for comp in parts[1:]:
-        m = getattr(m, comp)
-    return m
+        if request.method == 'POST':
+            form = ModelForm(request.POST, request.FILES)
 
-
-def is_among(value, *possibilities):
-    """
-    Ensure that the method that has been used for the request is one
-    of the expected ones (e.g., GET or POST).
-    """
-    for possibility in possibilities:
-        if value == possibility:
-            return True
-    raise Exception('A different request value was encountered than expected: {0}'.format(value))
-
-
-def form_errors_serialize(form):
-    errors = {}
-    for field in form.fields.keys():
-        if field in form.errors:
-            if form.prefix:
-                errors['{0}-{1}'.format(form.prefix, field)] = force_text(form.errors[field])
+            if form.is_valid():
+                new_object = self.save_form(request, form, change=False)
+                form_validated = True
             else:
-                errors[field] = force_text(form.errors[field])
+                form_validated = False
+                new_object = self.model()
 
-    if form.non_field_errors():
-        errors['non_field_errors'] = force_text(form.non_field_errors())
-    return {'errors': errors}
+            prefixes = {}
 
+            for FormSet, inline in zip(self.get_formsets(request),
+                                       self.get_inline_instances(request)):
+                prefix = FormSet.get_default_prefix()
+                prefixes[prefix] = prefixes.get(prefix, 0) + 1
 
-def json_response(data=None, errors=None, success=True):
-    if not errors:
-        errors = []
-    if not data:
-        data = {}
-    data.update({
-        'errors': errors,
-        'success': len(errors) == 0 and success,
-    })
-    return json.dumps(data)
+                if prefixes[prefix] != 1:
+                    prefix = "{0}-{1}".format(prefix, prefixes[prefix])
 
+                formset = FormSet(data=request.POST, files=request.FILES,
+                                  instance=new_object,
+                                  save_as_new="_saveasnew" in request.POST,
+                                  prefix=prefix, queryset=inline.queryset(request))
 
-def sha224_hash():
-    return hashlib.sha224(os.urandom(224)).hexdigest()
+                formsets.append(formset)
 
+                for inline in self.get_inline_instances(request):
+                    # If this is the inline that matches this formset, and
+                    # we have some nested inlines to deal with, then we need
+                    # to get the relevant formset for each of the forms in
+                    # the current formset.
+                    if inline.inlines and inline.model == formset.model:
+                        for nested in inline.inline_instances:
+                            for the_form in formset.forms:
+                                InlineFormSet = nested.get_formset(request, the_form.instance)
+                                prefix = "{0}-{1}".format(the_form.prefix,
+                                                          InlineFormSet.get_default_prefix())
+                                formsets.append(InlineFormSet(request.POST, request.FILES,
+                                                              instance=the_form.instance,
+                                                              prefix=prefix))
+            if all_valid(formsets) and form_validated:
+                self.save_model(request, new_object, form, change=False)
+                form.save_m2m()
 
-def sha1_hash():
-    return hashlib.sha1(os.urandom(224)).hexdigest()
+                for formset in formsets:
+                    self.save_formset(request, form, formset, change=False)
 
+                self.log_addition(request, new_object)
 
-def md5_hash(image=None, max_length=None):
-    # TODO:  Figure out how much entropy is actually needed, and reduce the current number
-    # of bytes if possible if doing so will result in a performance improvement.
-    if max_length:
-        assert max_length > 0
-
-    ret = hashlib.md5(image or os.urandom(224)).hexdigest()
-    return ret if not max_length else ret[:max_length]
-
-
-def start_thread(target, *args):
-    t = threading.Thread(target=target, args=args)
-    t.setDaemon(True)
-    t.start()
-
-
-def send_mail(subject, message, from_email, recipient_emails, files=None,
-              html=False, reply_to=None, bcc=None, cc=None, files_manually=None):
-    """
-    Sends email with advanced optional parameters
-
-    To attach non-file content (e.g. content not saved on disk), use
-    files_manually parameter and provide list of 3 element tuples, e.g.
-    [('design.png', img_data, 'image/png'),] which will be passed to
-    email.attach().
-    """
-    import django.core.mail
-    try:
-        logging.debug('Sending mail to: {0}'.format(', '.join(r for r in recipient_emails)))
-        logging.debug('Message: {0}'.format(message))
-        email = django.core.mail.EmailMessage(subject, message, from_email, recipient_emails,
-                                              bcc, cc=cc)
-        if html:
-            email.content_subtype = "html"
-        if files:
-            for file in files:
-                email.attach_file(file)
-        if files_manually:
-            for filename, content, mimetype in files_manually:
-                email.attach(filename, content, mimetype)
-        if reply_to:
-            email.extra_headers = {'Reply-To': reply_to}
-        email.send()
-    except Exception as e:
-        # TODO:  Raise error again so that more information is included in the logs?
-        logging.error('Error sending message [{0}] from {1} to {2} {3}'.format(
-            subject, from_email, recipient_emails, e))
-
-
-def send_mail_in_thread(subject, message, from_email, recipient_emails, files=None, html=False,
-                        reply_to=None, bcc=None, cc=None, files_manually=None):
-    start_thread(send_mail, subject, message, from_email, recipient_emails, files, html,
-                 reply_to, bcc, cc, files_manually)
-
-
-def send_mail_using_template(subject, template_name, from_email, recipient_emails, context_map,
-                             in_thread=False, files=None, html=False, reply_to=None, bcc=None,
-                             cc=None, files_manually=None):
-    t = get_template(template_name)
-    message = t.render(context_map)
-    if in_thread:
-        return send_mail_in_thread(subject, message, from_email, recipient_emails, files, html,
-                                   reply_to, bcc, cc, files_manually)
-    else:
-        return send_mail(subject, message, from_email, recipient_emails, files, html, reply_to,
-                         bcc, cc, files_manually)
-
-
-def utc_to_pacific(timestamp):
-    return timestamp.replace(tzinfo=utc).astimezone(Pacific)
-
-
-def pacific_to_utc(timestamp):
-    return timestamp.replace(tzinfo=Pacific).astimezone(utc)
-
-
-def humanize_time_since(timestamp=None):
-    """
-    Returns a fuzzy time since. Will only return the largest time. EX: 20 days, 14 min
-    """
-    timeDiff = datetime.datetime.now() - timestamp
-    days = timeDiff.days
-    hours = timeDiff.seconds / 3600
-    minutes = timeDiff.seconds % 3600 / 60
-    seconds = timeDiff.seconds % 3600 % 60
-
-    str = ""
-    if days > 0:
-        if days == 1:
-            t_str = "day"
+                return self.response_add(request, new_object)
         else:
-            t_str = "days"
-        str += "{0} {1}".format(days, t_str)
-        return str
-    elif hours > 0:
-        if hours == 1:
-            t_str = "hour"
+            # Prepare the dict of initial data from the request.
+            # We have to special-case M2Ms as a list of comma-separated PKs.
+            initial = dict(request.GET.items())
+
+            for k in initial:
+                try:
+                    f = opts.get_field(k)
+                except models.FieldDoesNotExist:
+                    continue
+
+                if isinstance(f, models.ManyToManyField):
+                    initial[k] = initial[k].split(",")
+
+            form = ModelForm(initial=initial)
+            prefixes = {}
+
+            for FormSet, inline in zip(self.get_formsets(request),
+                                       self.get_inline_instances(request)):
+                prefix = FormSet.get_default_prefix()
+                prefixes[prefix] = prefixes.get(prefix, 0) + 1
+
+                if prefixes[prefix] != 1:
+                    prefix = "{0}-{1}".format(prefix, prefixes[prefix])
+
+                formset = FormSet(instance=self.model(), prefix=prefix,
+                                  queryset=inline.queryset(request))
+                formsets.append(formset)
+
+        adminForm = helpers.AdminForm(form, list(self.get_fieldsets(request)),
+                                      self.prepopulated_fields, self.get_readonly_fields(request),
+                                      model_admin=self)
+
+        media = self.media + adminForm.media
+        inline_admin_formsets = []
+
+        for inline, formset in zip(self.get_inline_instances(request), formsets):
+            fieldsets = list(inline.get_fieldsets(request))
+            readonly = list(inline.get_readonly_fields(request))
+            inline_admin_formset = helpers.InlineAdminFormSet(inline, formset,
+                                                              fieldsets, readonly,
+                                                              model_admin=self)
+            if inline.inlines:
+                for form in formset.forms:
+                    if form.instance.pk:
+                        instance = form.instance
+                    else:
+                        instance = None
+
+                    form.inlines = inline.get_inlines(request, instance, prefix=form.prefix)
+
+                inline_admin_formset.inlines = inline.get_inlines(request)
+
+            inline_admin_formsets.append(inline_admin_formset)
+            media = media + inline_admin_formset.media
+
+        context = {
+            'title': _('Add %s') % force_unicode(opts.verbose_name),
+            'adminform': adminForm,
+            'is_popup': "_popup" in request.REQUEST,
+            'show_delete': False,
+            'media': mark_safe(media),
+            'inline_admin_formsets': inline_admin_formsets,
+            'errors': helpers.AdminErrorList(form, formsets),
+            'app_label': opts.app_label,
+        }
+
+        context.update(extra_context or {})
+
+        return self.render_change_form(request, context, form_url=form_url, add=True)
+
+    @csrf_protect_m
+    @atomic_decorator
+    def change_view(self, request, object_id, extra_context=None, **kwargs):
+        "The 'change' admin view for this model."
+        model = self.model
+        opts = model._meta
+        obj = self.get_object(request, unquote(object_id))
+
+        if not self.has_change_permission(request, obj):
+            raise PermissionDenied
+
+        if obj is None:
+            raise Http404(_('%(name)s object with primary key %(key)r does not exist.') %
+                          {'name': force_unicode(opts.verbose_name), 'key': escape(object_id)})
+
+        if request.method == 'POST' and "_saveasnew" in request.POST:
+            return self.add_view(request, form_url='../add/')
+
+        ModelForm = self.get_form(request, obj)
+        formsets = []
+
+        if request.method == 'POST':
+            form = ModelForm(request.POST, request.FILES, instance=obj)
+
+            if form.is_valid():
+                form_validated = True
+                new_object = self.save_form(request, form, change=True)
+            else:
+                form_validated = False
+                new_object = obj
+
+            prefixes = {}
+
+            for FormSet, inline in zip(self.get_formsets(request, new_object),
+                                       self.get_inline_instances(request)):
+                prefix = FormSet.get_default_prefix()
+                prefixes[prefix] = prefixes.get(prefix, 0) + 1
+
+                if prefixes[prefix] != 1:
+                    prefix = "{0}-{1}".format(prefix, prefixes[prefix])
+                formset = FormSet(request.POST, request.FILES,
+                                  instance=new_object, prefix=prefix,
+                                  queryset=inline.queryset(request))
+
+                formsets.append(formset)
+
+                for inline in self.get_inline_instances(request):
+                    # If this is the inline that matches this formset, and
+                    # we have some nested inlines to deal with, then we need
+                    # to get the relevant formset for each of the forms in
+                    # the current formset.
+                    if inline.inlines and inline.model == formset.model:
+                        for nested in inline.inline_instances:
+                            for the_form in formset.forms:
+                                InlineFormSet = nested.get_formset(request, the_form.instance)
+                                prefix = "{0}-{1}".format(the_form.prefix,
+                                                          InlineFormSet.get_default_prefix())
+                                formsets.append(InlineFormSet(request.POST, request.FILES,
+                                                              instance=the_form.instance,
+                                                              prefix=prefix))
+            if all_valid(formsets) and form_validated:
+                self.save_model(request, new_object, form, change=True)
+                form.save_m2m()
+
+                for formset in formsets:
+                    self.save_formset(request, form, formset, change=True)
+
+                change_message = self.construct_change_message(request, form, formsets)
+                self.log_change(request, new_object, change_message)
+
+                return self.response_change(request, new_object)
+
         else:
-            t_str = "hours"
-        str += "{0} {1}".format(hours, t_str)
-        return str
-    elif minutes > 0:
-        if minutes == 1:
-            t_str = "min"
-        else:
-            t_str = "mins"
-        str += "{0} {1}".format(minutes, t_str)
-        return str
-    elif seconds > 0:
-        if seconds == 1:
-            t_str = "sec"
-        else:
-            t_str = "secs"
-        str += "{0} {1}".format(seconds, t_str)
-        return str
-    else:
-        return str
+            form = ModelForm(instance=obj)
+            prefixes = {}
+
+            for FormSet, inline in zip(self.get_formsets(request, obj),
+                                       self.get_inline_instances(request)):
+                prefix = FormSet.get_default_prefix()
+                prefixes[prefix] = prefixes.get(prefix, 0) + 1
+                if prefixes[prefix] != 1:
+                    prefix = "{0}-{1}".format(prefix, prefixes[prefix])
+                formset = FormSet(instance=obj, prefix=prefix,
+                                  queryset=inline.queryset(request))
+                formsets.append(formset)
+
+        adminForm = helpers.AdminForm(form, self.get_fieldsets(request, obj),
+                                      self.prepopulated_fields,
+                                      self.get_readonly_fields(request, obj),
+                                      model_admin=self)
+        media = self.media + adminForm.media
+        inline_admin_formsets = []
+
+        for inline, formset in zip(self.get_inline_instances(request), formsets):
+            fieldsets = list(inline.get_fieldsets(request, obj))
+            readonly = list(inline.get_readonly_fields(request, obj))
+            inline_admin_formset = helpers.InlineAdminFormSet(inline, formset, fieldsets,
+                                                              readonly, model_admin=self)
+            if inline.inlines:
+                for form in formset.forms:
+                    if form.instance.pk:
+                        instance = form.instance
+                    else:
+                        instance = None
+
+                    form.inlines = inline.get_inlines(request, instance, prefix=form.prefix)
+
+                inline_admin_formset.inlines = inline.get_inlines(request)
+
+            inline_admin_formsets.append(inline_admin_formset)
+            media = media + inline_admin_formset.media
+
+        context = {
+            'title': _('Change %s') % force_unicode(opts.verbose_name),
+            'adminform': adminForm,
+            'object_id': object_id,
+            'original': obj,
+            'is_popup': "_popup" in request.REQUEST,
+            'media': mark_safe(media),
+            'inline_admin_formsets': inline_admin_formsets,
+            'errors': helpers.AdminErrorList(form, formsets),
+            'app_label': opts.app_label,
+        }
+
+        context.update(extra_context or {})
+
+        return self.render_change_form(request, context, change=True, obj=obj)
+
+    def get_inlines(self, request, obj=None, prefix=None):
+        nested_inlines = []
+
+        for inline in self.get_inline_instances(request):
+            FormSet = inline.get_formset(request, obj)
+            prefix = "{0}-{1}".format(prefix, FormSet.get_default_prefix())
+            formset = FormSet(instance=obj, prefix=prefix)
+            fieldsets = list(inline.get_fieldsets(request, obj))
+            nested_inline = helpers.InlineAdminFormSet(inline, formset, fieldsets)
+            nested_inlines.append(nested_inline)
+
+        return nested_inlines
 
 
-def chunks(l, n):
+class NestedTabularInline(BaseModelAdmin):
     """
-    split successive n-sized chunks from a list.
+    Options for inline editing of ``model`` instances.
+
+    Provide ``name`` to specify the attribute name of the ``ForeignKey`` from
+    ``model`` to its parent. This is required if ``model`` has more than one
+    ``ForeignKey`` to its parent.
     """
-    for i in range(0, len(l), n):
-        yield l[i:i + n]
+    model = None
+    fk_name = None
+    formset = BaseInlineFormSet
+    extra = 3
+    max_num = None
+    template = None
+    verbose_name = None
+    verbose_name_plural = None
+    can_delete = True
+    template = 'common/admin/nested_tabular.html'
+    inlines = []
+
+    def __init__(self, parent_model, admin_site):
+        self.admin_site = admin_site
+        self.parent_model = parent_model
+        self.opts = self.model._meta
+        super(NestedTabularInline, self).__init__()
+
+        if self.verbose_name is None:
+            self.verbose_name = self.model._meta.verbose_name
+
+        if self.verbose_name_plural is None:
+            self.verbose_name_plural = self.model._meta.verbose_name_plural
+
+        self.inline_instances = []
+
+        for inline_class in self.inlines:
+            inline_instance = inline_class(self.model, self.admin_site)
+            self.inline_instances.append(inline_instance)
+
+    def _media(self):
+        from django.conf import settings
+
+        js = ['js/jquery.min.js', 'js/jquery.init.js', 'js/inlines.min.js']
+
+        if self.prepopulated_fields:
+            js.append('js/urlify.js')
+            js.append('js/prepopulate.min.js')
+
+        if self.filter_vertical or self.filter_horizontal:
+            js.extend(['js/SelectBox.js', 'js/SelectFilter2.js'])
+
+        return forms.Media(js=['{0}{1}'.format(settings.ADMIN_MEDIA_PREFIX, url) for url in js])
+
+    media = property(_media)
+
+    def get_formset(self, request, obj=None, **kwargs):
+        """
+        Returns a BaseInlineFormSet class for use in admin add/change views.
+        """
+        if self.declared_fieldsets:
+            fields = flatten_fieldsets(self.declared_fieldsets)
+        else:
+            fields = None
+        if self.exclude is None:
+            exclude = []
+        else:
+            exclude = list(self.exclude)
+
+        exclude.extend(kwargs.get("exclude", []))
+        exclude.extend(self.get_readonly_fields(request, obj))
+
+        # if exclude is an empty list we use None, since that's the actual
+        # default
+        exclude = exclude or None
+        defaults = {
+            "form": self.form,
+            "formset": self.formset,
+            "fk_name": self.fk_name,
+            "fields": fields,
+            "exclude": exclude,
+            "formfield_callback": curry(self.formfield_for_dbfield, request=request),
+            "extra": self.extra,
+            "max_num": self.max_num,
+            "can_delete": self.can_delete,
+        }
+        defaults.update(kwargs)
+
+        return inlineformset_factory(self.parent_model, self.model, **defaults)
+
+    def get_fieldsets(self, request, obj=None):
+        if self.declared_fieldsets:
+            return self.declared_fieldsets
+
+        form = self.get_formset(request).form
+        fields = form.base_fields.keys() + list(self.get_readonly_fields(request, obj))
+
+        return [(None, {'fields': fields})]
+
+    def get_inlines(self, request, obj=None, prefix=None):
+        nested_inlines = []
+
+        for inline in self.inline_instances:
+            FormSet = inline.get_formset(request, obj)
+            prefix = "{0}-{1}".format(prefix, FormSet.get_default_prefix())
+            formset = FormSet(instance=obj, prefix=prefix)
+            fieldsets = list(inline.get_fieldsets(request, obj))
+            nested_inline = helpers.InlineAdminFormSet(inline, formset, fieldsets)
+            nested_inlines.append(nested_inline)
+
+        return nested_inlines

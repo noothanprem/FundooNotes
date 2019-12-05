@@ -1,1 +1,1 @@
-è¼Ovenv/lib/python3.6/site-packages/django_extensions/management/commands/notes.py 2pyXDh
+è¼Rvenv/lib/python3.6/site-packages/django_extensions/management/commands/reset_db.py 2pyX½h

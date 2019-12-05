@@ -1,1 +1,1 @@
-ԸCvenv/lib/python3.6/site-packages/social_core/tests/test_pipeline.py 2pyX�h
+ԸHvenv/lib/python3.6/site-packages/social_core/tests/actions/test_login.py 2pyXEh

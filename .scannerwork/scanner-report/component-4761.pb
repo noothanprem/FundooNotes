@@ -1,1 +1,0 @@
-™%>venv/lib/python3.6/site-packages/django/contrib/auth/mixins.py 2pyXnh

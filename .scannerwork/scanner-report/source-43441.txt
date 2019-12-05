@@ -1,127 +1,213 @@
-"""Messaging library for Python."""
+"""Carrot compatibility interface.
+
+See https://pypi.org/project/carrot/ for documentation.
+"""
 from __future__ import absolute_import, unicode_literals
 
-import os
-import re
-import sys
+from itertools import count
 
-if sys.version_info < (2, 7):  # pragma: no cover
-    raise Exception('Kombu 4.0 requires Python versions 2.7 or later.')
+from . import messaging
+from .entity import Exchange, Queue
+from .five import items
 
-from collections import namedtuple  # noqa
+__all__ = ('Publisher', 'Consumer')
 
-__version__ = '4.6.5'
-__author__ = 'Ask Solem'
-__contact__ = 'auvipy@gmail.com, ask@celeryproject.org'
-__homepage__ = 'https://kombu.readthedocs.io'
-__docformat__ = 'restructuredtext en'
-
-# -eof meta-
-
-version_info_t = namedtuple('version_info_t', (
-    'major', 'minor', 'micro', 'releaselevel', 'serial',
-))
-
-# bumpversion can only search for {current_version}
-# so we have to parse the version here.
-_temp = re.match(
-    r'(\d+)\.(\d+).(\d+)(.+)?', __version__).groups()
-VERSION = version_info = version_info_t(
-    int(_temp[0]), int(_temp[1]), int(_temp[2]), _temp[3] or '', '')
-del(_temp)
-del(re)
-
-STATICA_HACK = True
-globals()['kcah_acitats'[::-1].upper()] = False
-if STATICA_HACK:  # pragma: no cover
-    # This is never executed, but tricks static analyzers (PyDev, PyCharm,
-    # pylint, etc.) into knowing the types of these symbols, and what
-    # they contain.
-    from kombu.connection import Connection, BrokerConnection   # noqa
-    from kombu.entity import Exchange, Queue, binding           # noqa
-    from kombu.message import Message                           # noqa
-    from kombu.messaging import Consumer, Producer              # noqa
-    from kombu.pools import connections, producers              # noqa
-    from kombu.utils.url import parse_url                       # noqa
-    from kombu.common import eventloop, uuid                    # noqa
-    from kombu.serialization import (                           # noqa
-        enable_insecure_serializers,
-        disable_insecure_serializers,
-    )
-
-# Lazy loading.
-# - See werkzeug/__init__.py for the rationale behind this.
-from types import ModuleType  # noqa
-
-all_by_module = {
-    'kombu.connection': ['Connection', 'BrokerConnection'],
-    'kombu.entity': ['Exchange', 'Queue', 'binding'],
-    'kombu.message': ['Message'],
-    'kombu.messaging': ['Consumer', 'Producer'],
-    'kombu.pools': ['connections', 'producers'],
-    'kombu.utils.url': ['parse_url'],
-    'kombu.common': ['eventloop', 'uuid'],
-    'kombu.serialization': [
-        'enable_insecure_serializers',
-        'disable_insecure_serializers',
-    ],
-}
-
-object_origins = {}
-for module, items in all_by_module.items():
-    for item in items:
-        object_origins[item] = module
+# XXX compat attribute
+entry_to_queue = Queue.from_dict
 
 
-class module(ModuleType):
-    """Customized Python module."""
-
-    def __getattr__(self, name):
-        if name in object_origins:
-            module = __import__(object_origins[name], None, None, [name])
-            for extra_name in all_by_module[module.__name__]:
-                setattr(self, extra_name, getattr(module, extra_name))
-            return getattr(module, name)
-        return ModuleType.__getattribute__(self, name)
-
-    def __dir__(self):
-        result = list(new_module.__all__)
-        result.extend(('__file__', '__path__', '__doc__', '__all__',
-                       '__docformat__', '__name__', '__path__', 'VERSION',
-                       '__package__', '__version__', '__author__',
-                       '__contact__', '__homepage__', '__docformat__'))
-        return result
+def _iterconsume(connection, consumer, no_ack=False, limit=None):
+    consumer.consume(no_ack=no_ack)
+    for iteration in count(0):  # for infinity
+        if limit and iteration >= limit:
+            break
+        yield connection.drain_events()
 
 
-# 2.5 does not define __package__
-try:
-    package = __package__
-except NameError:  # pragma: no cover
-    package = 'kombu'
+class Publisher(messaging.Producer):
+    """Carrot compatible producer."""
 
-# keep a reference to this module so that it's not garbage collected
-old_module = sys.modules[__name__]
+    exchange = ''
+    exchange_type = 'direct'
+    routing_key = ''
+    durable = True
+    auto_delete = False
+    _closed = False
 
-new_module = sys.modules[__name__] = module(__name__)
-new_module.__dict__.update({
-    '__file__': __file__,
-    '__path__': __path__,
-    '__doc__': __doc__,
-    '__all__': tuple(object_origins),
-    '__version__': __version__,
-    '__author__': __author__,
-    '__contact__': __contact__,
-    '__homepage__': __homepage__,
-    '__docformat__': __docformat__,
-    '__package__': package,
-    'version_info_t': version_info_t,
-    'version_info': version_info,
-    'VERSION': VERSION,
-    'absolute_import': absolute_import,
-    'unicode_literals': unicode_literals,
-})
+    def __init__(self, connection, exchange=None, routing_key=None,
+                 exchange_type=None, durable=None, auto_delete=None,
+                 channel=None, **kwargs):
+        if channel:
+            connection = channel
 
-if os.environ.get('KOMBU_LOG_DEBUG'):  # pragma: no cover
-    os.environ.update(KOMBU_LOG_CHANNEL='1', KOMBU_LOG_CONNECTION='1')
-    from .utils import debug
-    debug.setup_logging()
+        self.exchange = exchange or self.exchange
+        self.exchange_type = exchange_type or self.exchange_type
+        self.routing_key = routing_key or self.routing_key
+
+        if auto_delete is not None:
+            self.auto_delete = auto_delete
+        if durable is not None:
+            self.durable = durable
+
+        if not isinstance(self.exchange, Exchange):
+            self.exchange = Exchange(name=self.exchange,
+                                     type=self.exchange_type,
+                                     routing_key=self.routing_key,
+                                     auto_delete=self.auto_delete,
+                                     durable=self.durable)
+        super(Publisher, self).__init__(connection, self.exchange, **kwargs)
+
+    def send(self, *args, **kwargs):
+        return self.publish(*args, **kwargs)
+
+    def close(self):
+        super(Publisher, self).close()
+        self._closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        self.close()
+
+    @property
+    def backend(self):
+        return self.channel
+
+
+class Consumer(messaging.Consumer):
+    """Carrot compatible consumer."""
+
+    queue = ''
+    exchange = ''
+    routing_key = ''
+    exchange_type = 'direct'
+    durable = True
+    exclusive = False
+    auto_delete = False
+    _closed = False
+
+    def __init__(self, connection, queue=None, exchange=None,
+                 routing_key=None, exchange_type=None, durable=None,
+                 exclusive=None, auto_delete=None, **kwargs):
+        self.backend = connection.channel()
+
+        if durable is not None:
+            self.durable = durable
+        if exclusive is not None:
+            self.exclusive = exclusive
+        if auto_delete is not None:
+            self.auto_delete = auto_delete
+
+        self.queue = queue or self.queue
+        self.exchange = exchange or self.exchange
+        self.exchange_type = exchange_type or self.exchange_type
+        self.routing_key = routing_key or self.routing_key
+
+        exchange = Exchange(self.exchange,
+                            type=self.exchange_type,
+                            routing_key=self.routing_key,
+                            auto_delete=self.auto_delete,
+                            durable=self.durable)
+        queue = Queue(self.queue,
+                      exchange=exchange,
+                      routing_key=self.routing_key,
+                      durable=self.durable,
+                      exclusive=self.exclusive,
+                      auto_delete=self.auto_delete)
+        super(Consumer, self).__init__(self.backend, queue, **kwargs)
+
+    def revive(self, channel):
+        self.backend = channel
+        super(Consumer, self).revive(channel)
+
+    def close(self):
+        self.cancel()
+        self.backend.close()
+        self._closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        self.close()
+
+    def __iter__(self):
+        return self.iterqueue(infinite=True)
+
+    def fetch(self, no_ack=None, enable_callbacks=False):
+        if no_ack is None:
+            no_ack = self.no_ack
+        message = self.queues[0].get(no_ack)
+        if message:
+            if enable_callbacks:
+                self.receive(message.payload, message)
+        return message
+
+    def process_next(self):
+        raise NotImplementedError('Use fetch(enable_callbacks=True)')
+
+    def discard_all(self, filterfunc=None):
+        if filterfunc is not None:
+            raise NotImplementedError(
+                'discard_all does not implement filters')
+        return self.purge()
+
+    def iterconsume(self, limit=None, no_ack=None):
+        return _iterconsume(self.connection, self, no_ack, limit)
+
+    def wait(self, limit=None):
+        it = self.iterconsume(limit)
+        return list(it)
+
+    def iterqueue(self, limit=None, infinite=False):
+        for items_since_start in count():  # for infinity
+            item = self.fetch()
+            if (not infinite and item is None) or \
+                    (limit and items_since_start >= limit):
+                break
+            yield item
+
+
+class ConsumerSet(messaging.Consumer):
+
+    def __init__(self, connection, from_dict=None, consumers=None,
+                 channel=None, **kwargs):
+        if channel:
+            self._provided_channel = True
+            self.backend = channel
+        else:
+            self._provided_channel = False
+            self.backend = connection.channel()
+
+        queues = []
+        if consumers:
+            for consumer in consumers:
+                queues.extend(consumer.queues)
+        if from_dict:
+            for queue_name, queue_options in items(from_dict):
+                queues.append(Queue.from_dict(queue_name, **queue_options))
+
+        super(ConsumerSet, self).__init__(self.backend, queues, **kwargs)
+
+    def iterconsume(self, limit=None, no_ack=False):
+        return _iterconsume(self.connection, self, no_ack, limit)
+
+    def discard_all(self):
+        return self.purge()
+
+    def add_consumer_from_dict(self, queue, **options):
+        return self.add_queue(Queue.from_dict(queue, **options))
+
+    def add_consumer(self, consumer):
+        for queue in consumer.queues:
+            self.add_queue(queue)
+
+    def revive(self, channel):
+        self.backend = channel
+        super(ConsumerSet, self).revive(channel)
+
+    def close(self):
+        self.cancel()
+        if not self._provided_channel:
+            self.channel.close()

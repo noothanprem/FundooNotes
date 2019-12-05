@@ -1,1 +1,1 @@
-ã]>venv/lib/python3.6/site-packages/boto3/resources/collection.py 2pyXèh
+ã]8venv/lib/python3.6/site-packages/boto3/resources/base.py 2pyXïh

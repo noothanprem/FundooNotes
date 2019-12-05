@@ -1,1 +1,1 @@
- –Wvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/jisfreq.py 2pyXºh
+ –Vvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/jpcntx.py 2pyXäh

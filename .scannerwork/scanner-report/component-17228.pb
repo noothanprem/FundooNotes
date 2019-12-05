@@ -1,1 +1,1 @@
-Ì†+venv/lib/python3.6/site-packages/simplejson :Ë†Í†Î†Ï†Ð†‘‡’‡“‡•‡
+Ì†5venv/lib/python3.6/site-packages/simplejson/errors.py 2pyX6h

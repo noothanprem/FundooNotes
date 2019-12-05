@@ -1,1 +1,1 @@
-ú7venv/lib/python3.6/site-packages/celery/worker/consumer :ùûüışÿ‹Œ§
+úAvenv/lib/python3.6/site-packages/celery/worker/consumer/mingle.py 2pyXPh

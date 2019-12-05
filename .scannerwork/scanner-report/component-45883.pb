@@ -1,1 +1,1 @@
-»æUvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/models.py 2pyX-h
+»æKvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/token_blacklist :ºæ¼æÍæÏæ

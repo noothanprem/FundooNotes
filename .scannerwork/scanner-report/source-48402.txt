@@ -2,393 +2,566 @@
 # See LICENSE for details.
 
 """
-Tests for L{twisted.conch.ssh.agent}.
+Tests for L{twisted.conch.scripts.ckeygen}.
 """
-from __future__ import absolute_import, division
 
-import struct
+import getpass
+import sys
+import subprocess
 
-from twisted.trial import unittest
-from twisted.test import iosim
+from io import BytesIO, StringIO
 
-try:
-    import cryptography
-except ImportError:
-    cryptography = None
+from twisted.python.compat import unicode, _PY3
+from twisted.python.reflect import requireModule
 
-try:
-    import pyasn1
-except ImportError:
-    pyasn1 = None
-
-if cryptography and pyasn1:
-    from twisted.conch.ssh import keys, agent
+if requireModule('cryptography') and requireModule('pyasn1'):
+    from twisted.conch.ssh.keys import (Key, BadKeyError,
+        BadFingerPrintFormat, FingerprintFormats)
+    from twisted.conch.scripts.ckeygen import (
+        changePassPhrase, displayPublicKey, printFingerprint,
+        _saveKey, enumrepresentation)
 else:
-    keys = agent = None
+    skip = "cryptography and pyasn1 required for twisted.conch.scripts.ckeygen"
 
-from twisted.conch.test import keydata
-from twisted.conch.error import ConchError, MissingKeyStoreError
+from twisted.python.filepath import FilePath
+from twisted.trial.unittest import TestCase
+from twisted.conch.test.keydata import (
+    publicRSA_openssh, privateRSA_openssh, privateRSA_openssh_encrypted, privateECDSA_openssh)
 
 
-class StubFactory(object):
+
+def makeGetpass(*passphrases):
     """
-    Mock factory that provides the keys attribute required by the
-    SSHAgentServerProtocol
+    Return a callable to patch C{getpass.getpass}.  Yields a passphrase each
+    time called. Use case is to provide an old, then new passphrase(s) as if
+    requested interactively.
+
+    @param passphrases: The list of passphrases returned, one per each call.
+
+    @return: A callable to patch C{getpass.getpass}.
     """
-    def __init__(self):
-        self.keys = {}
+    passphrases = iter(passphrases)
+
+    def fakeGetpass(_):
+        return next(passphrases)
+
+    return fakeGetpass
 
 
 
-class AgentTestBase(unittest.TestCase):
+class KeyGenTests(TestCase):
     """
-    Tests for SSHAgentServer/Client.
+    Tests for various functions used to implement the I{ckeygen} script.
     """
-    if iosim is None:
-        skip = "iosim requires SSL, but SSL is not available"
-    elif agent is None or keys is None:
-        skip = "Cannot run without cryptography or PyASN1"
-
     def setUp(self):
-        # wire up our client <-> server
-        self.client, self.server, self.pump = iosim.connectedServerAndClient(
-            agent.SSHAgentServer, agent.SSHAgentClient)
-
-        # the server's end of the protocol is stateful and we store it on the
-        # factory, for which we only need a mock
-        self.server.factory = StubFactory()
-
-        # pub/priv keys of each kind
-        self.rsaPrivate = keys.Key.fromString(keydata.privateRSA_openssh)
-        self.dsaPrivate = keys.Key.fromString(keydata.privateDSA_openssh)
-
-        self.rsaPublic = keys.Key.fromString(keydata.publicRSA_openssh)
-        self.dsaPublic = keys.Key.fromString(keydata.publicDSA_openssh)
-
-
-
-class ServerProtocolContractWithFactoryTests(AgentTestBase):
-    """
-    The server protocol is stateful and so uses its factory to track state
-    across requests.  This test asserts that the protocol raises if its factory
-    doesn't provide the necessary storage for that state.
-    """
-    def test_factorySuppliesKeyStorageForServerProtocol(self):
-        # need a message to send into the server
-        msg = struct.pack('!LB',1, agent.AGENTC_REQUEST_IDENTITIES)
-        del self.server.factory.__dict__['keys']
-        self.assertRaises(MissingKeyStoreError,
-                          self.server.dataReceived, msg)
-
-
-
-class UnimplementedVersionOneServerTests(AgentTestBase):
-    """
-    Tests for methods with no-op implementations on the server. We need these
-    for clients, such as openssh, that try v1 methods before going to v2.
-
-    Because the client doesn't expose these operations with nice method names,
-    we invoke sendRequest directly with an op code.
-    """
-
-    def test_agentc_REQUEST_RSA_IDENTITIES(self):
         """
-        assert that we get the correct op code for an RSA identities request
+        Patch C{sys.stdout} so tests can make assertions about what's printed.
         """
-        d = self.client.sendRequest(agent.AGENTC_REQUEST_RSA_IDENTITIES, b'')
-        self.pump.flush()
-        def _cb(packet):
-            self.assertEqual(
-                agent.AGENT_RSA_IDENTITIES_ANSWER, ord(packet[0:1]))
-        return d.addCallback(_cb)
+        if _PY3:
+            self.stdout = StringIO()
+        else:
+            self.stdout = BytesIO()
+        self.patch(sys, 'stdout', self.stdout)
 
 
-    def test_agentc_REMOVE_RSA_IDENTITY(self):
+
+    def _testrun(self, keyType, keySize=None):
+        filename = self.mktemp()
+        if keySize is None:
+            subprocess.call(['ckeygen', '-t', keyType, '-f', filename, '--no-passphrase'])
+        else:
+            subprocess.call(['ckeygen', '-t', keyType, '-f', filename, '--no-passphrase',
+                '-b', keySize])
+        privKey = Key.fromFile(filename)
+        pubKey = Key.fromFile(filename + '.pub')
+        if keyType == 'ecdsa':
+            self.assertEqual(privKey.type(), 'EC')
+        else:
+            self.assertEqual(privKey.type(), keyType.upper())
+        self.assertTrue(pubKey.isPublic())
+
+
+    def test_keygeneration(self):
+        self._testrun('ecdsa', '384')
+        self._testrun('ecdsa')
+        self._testrun('dsa', '2048')
+        self._testrun('dsa')
+        self._testrun('rsa', '2048')
+        self._testrun('rsa')
+
+
+
+    def test_runBadKeytype(self):
+        filename = self.mktemp()
+        with self.assertRaises(subprocess.CalledProcessError):
+            subprocess.check_call(['ckeygen', '-t', 'foo', '-f', filename])
+
+
+
+    def test_enumrepresentation(self):
         """
-        assert that we get the correct op code for an RSA remove identity request
+        L{enumrepresentation} takes a dictionary as input and returns a
+        dictionary with its attributes changed to enum representation.
         """
-        d = self.client.sendRequest(agent.AGENTC_REMOVE_RSA_IDENTITY, b'')
-        self.pump.flush()
-        return d.addCallback(self.assertEqual, b'')
+        options = enumrepresentation({'format': 'md5-hex'})
+        self.assertIs(options['format'],
+            FingerprintFormats.MD5_HEX)
 
 
-    def test_agentc_REMOVE_ALL_RSA_IDENTITIES(self):
+    def test_enumrepresentationsha256(self):
         """
-        assert that we get the correct op code for an RSA remove all identities
-        request.
+        Test for format L{FingerprintFormats.SHA256-BASE64}.
         """
-        d = self.client.sendRequest(agent.AGENTC_REMOVE_ALL_RSA_IDENTITIES, b'')
-        self.pump.flush()
-        return d.addCallback(self.assertEqual, b'')
+        options = enumrepresentation({'format': 'sha256-base64'})
+        self.assertIs(options['format'],
+            FingerprintFormats.SHA256_BASE64)
 
 
 
-if agent is not None:
-    class CorruptServer(agent.SSHAgentServer):
+    def test_enumrepresentationBadFormat(self):
         """
-        A misbehaving server that returns bogus response op codes so that we can
-        verify that our callbacks that deal with these op codes handle such
-        miscreants.
+        Test for unsupported fingerprint format
         """
-        def agentc_REQUEST_IDENTITIES(self, data):
-            self.sendResponse(254, b'')
-
-
-        def agentc_SIGN_REQUEST(self, data):
-            self.sendResponse(254, b'')
+        with self.assertRaises(BadFingerPrintFormat) as em:
+            enumrepresentation({'format': 'sha-base64'})
+        self.assertEqual('Unsupported fingerprint format: sha-base64',
+            em.exception.args[0])
 
 
 
-class ClientWithBrokenServerTests(AgentTestBase):
-    """
-    verify error handling code in the client using a misbehaving server
-    """
-
-    def setUp(self):
-        AgentTestBase.setUp(self)
-        self.client, self.server, self.pump = iosim.connectedServerAndClient(
-            CorruptServer, agent.SSHAgentClient)
-        # the server's end of the protocol is stateful and we store it on the
-        # factory, for which we only need a mock
-        self.server.factory = StubFactory()
-
-
-    def test_signDataCallbackErrorHandling(self):
+    def test_printFingerprint(self):
         """
-        Assert that L{SSHAgentClient.signData} raises a ConchError
-        if we get a response from the server whose opcode doesn't match
-        the protocol for data signing requests.
+        L{printFingerprint} writes a line to standard out giving the number of
+        bits of the key, its fingerprint, and the basename of the file from it
+        was read.
         """
-        d = self.client.signData(self.rsaPublic.blob(), b"John Hancock")
-        self.pump.flush()
-        return self.assertFailure(d, ConchError)
+        filename = self.mktemp()
+        FilePath(filename).setContent(publicRSA_openssh)
+        printFingerprint({'filename': filename,
+            'format': 'md5-hex'})
+        self.assertEqual(
+            self.stdout.getvalue(),
+            '2048 85:25:04:32:58:55:96:9f:57:ee:fb:a8:1a:ea:69:da temp\n')
 
 
-    def test_requestIdentitiesCallbackErrorHandling(self):
+    def test_printFingerprintsha256(self):
         """
-        Assert that L{SSHAgentClient.requestIdentities} raises a ConchError
-        if we get a response from the server whose opcode doesn't match
-        the protocol for identity requests.
+        L{printFigerprint} will print key fingerprint in
+        L{FingerprintFormats.SHA256-BASE64} format if explicitly specified.
         """
-        d = self.client.requestIdentities()
-        self.pump.flush()
-        return self.assertFailure(d, ConchError)
+        filename = self.mktemp()
+        FilePath(filename).setContent(publicRSA_openssh)
+        printFingerprint({'filename': filename,
+            'format': 'sha256-base64'})
+        self.assertEqual(
+            self.stdout.getvalue(),
+            '2048 FBTCOoknq0mHy+kpfnY9tDdcAJuWtCpuQMaV3EsvbUI= temp\n')
 
 
-
-class AgentKeyAdditionTests(AgentTestBase):
-    """
-    Test adding different flavors of keys to an agent.
-    """
-
-    def test_addRSAIdentityNoComment(self):
+    def test_printFingerprintBadFingerPrintFormat(self):
         """
-        L{SSHAgentClient.addIdentity} adds the private key it is called
-        with to the SSH agent server to which it is connected, associating
-        it with the comment it is called with.
-
-        This test asserts that omitting the comment produces an
-        empty string for the comment on the server.
+        L{printFigerprint} raises C{keys.BadFingerprintFormat} when unsupported
+        formats are requested.
         """
-        d = self.client.addIdentity(self.rsaPrivate.privateBlob())
-        self.pump.flush()
-        def _check(ignored):
-            serverKey = self.server.factory.keys[self.rsaPrivate.blob()]
-            self.assertEqual(self.rsaPrivate, serverKey[0])
-            self.assertEqual(b'', serverKey[1])
-        return d.addCallback(_check)
+        filename = self.mktemp()
+        FilePath(filename).setContent(publicRSA_openssh)
+        with self.assertRaises(BadFingerPrintFormat) as em:
+            printFingerprint({'filename': filename, 'format':'sha-base64'})
+        self.assertEqual('Unsupported fingerprint format: sha-base64',
+            em.exception.args[0])
 
 
-    def test_addDSAIdentityNoComment(self):
+
+    def test_saveKey(self):
         """
-        L{SSHAgentClient.addIdentity} adds the private key it is called
-        with to the SSH agent server to which it is connected, associating
-        it with the comment it is called with.
-
-        This test asserts that omitting the comment produces an
-        empty string for the comment on the server.
+        L{_saveKey} writes the private and public parts of a key to two
+        different files and writes a report of this to standard out.
         """
-        d = self.client.addIdentity(self.dsaPrivate.privateBlob())
-        self.pump.flush()
-        def _check(ignored):
-            serverKey = self.server.factory.keys[self.dsaPrivate.blob()]
-            self.assertEqual(self.dsaPrivate, serverKey[0])
-            self.assertEqual(b'', serverKey[1])
-        return d.addCallback(_check)
+        base = FilePath(self.mktemp())
+        base.makedirs()
+        filename = base.child('id_rsa').path
+        key = Key.fromString(privateRSA_openssh)
+        _saveKey(key, {'filename': filename, 'pass': 'passphrase',
+            'format': 'md5-hex'})
+        self.assertEqual(
+            self.stdout.getvalue(),
+            "Your identification has been saved in %s\n"
+            "Your public key has been saved in %s.pub\n"
+            "The key fingerprint in <FingerprintFormats=MD5_HEX> is:\n"
+            "85:25:04:32:58:55:96:9f:57:ee:fb:a8:1a:ea:69:da\n" % (
+                filename,
+                filename))
+        self.assertEqual(
+            key.fromString(
+                base.child('id_rsa').getContent(), None, 'passphrase'),
+            key)
+        self.assertEqual(
+            Key.fromString(base.child('id_rsa.pub').getContent()),
+            key.public())
 
 
-    def test_addRSAIdentityWithComment(self):
+    def test_saveKeyECDSA(self):
         """
-        L{SSHAgentClient.addIdentity} adds the private key it is called
-        with to the SSH agent server to which it is connected, associating
-        it with the comment it is called with.
-
-        This test asserts that the server receives/stores the comment
-        as sent by the client.
+        L{_saveKey} writes the private and public parts of a key to two
+        different files and writes a report of this to standard out.
+        Test with ECDSA key.
         """
-        d = self.client.addIdentity(
-            self.rsaPrivate.privateBlob(), comment=b'My special key')
-        self.pump.flush()
-        def _check(ignored):
-            serverKey = self.server.factory.keys[self.rsaPrivate.blob()]
-            self.assertEqual(self.rsaPrivate, serverKey[0])
-            self.assertEqual(b'My special key', serverKey[1])
-        return d.addCallback(_check)
+        base = FilePath(self.mktemp())
+        base.makedirs()
+        filename = base.child('id_ecdsa').path
+        key = Key.fromString(privateECDSA_openssh)
+        _saveKey(key, {'filename': filename, 'pass': 'passphrase',
+            'format': 'md5-hex'})
+        self.assertEqual(
+            self.stdout.getvalue(),
+            "Your identification has been saved in %s\n"
+            "Your public key has been saved in %s.pub\n"
+            "The key fingerprint in <FingerprintFormats=MD5_HEX> is:\n"
+            "1e:ab:83:a6:f2:04:22:99:7c:64:14:d2:ab:fa:f5:16\n" % (
+                filename,
+                filename))
+        self.assertEqual(
+            key.fromString(
+                base.child('id_ecdsa').getContent(), None, 'passphrase'),
+            key)
+        self.assertEqual(
+            Key.fromString(base.child('id_ecdsa.pub').getContent()),
+            key.public())
 
 
-    def test_addDSAIdentityWithComment(self):
+    def test_saveKeysha256(self):
         """
-        L{SSHAgentClient.addIdentity} adds the private key it is called
-        with to the SSH agent server to which it is connected, associating
-        it with the comment it is called with.
-
-        This test asserts that the server receives/stores the comment
-        as sent by the client.
+        L{_saveKey} will generate key fingerprint in
+        L{FingerprintFormats.SHA256-BASE64} format if explicitly specified.
         """
-        d = self.client.addIdentity(
-            self.dsaPrivate.privateBlob(), comment=b'My special key')
-        self.pump.flush()
-        def _check(ignored):
-            serverKey = self.server.factory.keys[self.dsaPrivate.blob()]
-            self.assertEqual(self.dsaPrivate, serverKey[0])
-            self.assertEqual(b'My special key', serverKey[1])
-        return d.addCallback(_check)
+        base = FilePath(self.mktemp())
+        base.makedirs()
+        filename = base.child('id_rsa').path
+        key = Key.fromString(privateRSA_openssh)
+        _saveKey(key, {'filename': filename, 'pass': 'passphrase',
+            'format': 'sha256-base64'})
+        self.assertEqual(
+            self.stdout.getvalue(),
+            "Your identification has been saved in %s\n"
+            "Your public key has been saved in %s.pub\n"
+            "The key fingerprint in <FingerprintFormats=SHA256_BASE64> is:\n"
+            "FBTCOoknq0mHy+kpfnY9tDdcAJuWtCpuQMaV3EsvbUI=\n" % (
+                filename,
+                filename))
+        self.assertEqual(
+            key.fromString(
+                base.child('id_rsa').getContent(), None, 'passphrase'),
+            key)
+        self.assertEqual(
+            Key.fromString(base.child('id_rsa.pub').getContent()),
+            key.public())
 
 
-
-class AgentClientFailureTests(AgentTestBase):
-    def test_agentFailure(self):
+    def test_saveKeyBadFingerPrintformat(self):
         """
-        verify that the client raises ConchError on AGENT_FAILURE
+        L{_saveKey} raises C{keys.BadFingerprintFormat} when unsupported
+        formats are requested.
         """
-        d = self.client.sendRequest(254, b'')
-        self.pump.flush()
-        return self.assertFailure(d, ConchError)
+        base = FilePath(self.mktemp())
+        base.makedirs()
+        filename = base.child('id_rsa').path
+        key = Key.fromString(privateRSA_openssh)
+        with self.assertRaises(BadFingerPrintFormat) as em:
+            _saveKey(key, {'filename': filename, 'pass': 'passphrase',
+                'format': 'sha-base64'})
+        self.assertEqual('Unsupported fingerprint format: sha-base64',
+            em.exception.args[0])
 
 
-
-class AgentIdentityRequestsTests(AgentTestBase):
-    """
-    Test operations against a server with identities already loaded.
-    """
-
-    def setUp(self):
-        AgentTestBase.setUp(self)
-        self.server.factory.keys[self.dsaPrivate.blob()] = (
-            self.dsaPrivate, b'a comment')
-        self.server.factory.keys[self.rsaPrivate.blob()] = (
-            self.rsaPrivate, b'another comment')
-
-
-    def test_signDataRSA(self):
+    def test_saveKeyEmptyPassphrase(self):
         """
-        Sign data with an RSA private key and then verify it with the public
+        L{_saveKey} will choose an empty string for the passphrase if
+        no-passphrase is C{True}.
+        """
+        base = FilePath(self.mktemp())
+        base.makedirs()
+        filename = base.child('id_rsa').path
+        key = Key.fromString(privateRSA_openssh)
+        _saveKey(key, {'filename': filename, 'no-passphrase': True,
+            'format': 'md5-hex'})
+        self.assertEqual(
+            key.fromString(
+                base.child('id_rsa').getContent(), None, b''),
+            key)
+
+
+    def test_saveKeyECDSAEmptyPassphrase(self):
+        """
+        L{_saveKey} will choose an empty string for the passphrase if
+        no-passphrase is C{True}.
+        """
+        base = FilePath(self.mktemp())
+        base.makedirs()
+        filename = base.child('id_ecdsa').path
+        key = Key.fromString(privateECDSA_openssh)
+        _saveKey(key, {'filename': filename, 'no-passphrase': True,
+            'format': 'md5-hex'})
+        self.assertEqual(
+            key.fromString(
+                base.child('id_ecdsa').getContent(), None),
+            key)
+
+
+
+    def test_saveKeyNoFilename(self):
+        """
+        When no path is specified, it will ask for the path used to store the
         key.
         """
-        d = self.client.signData(self.rsaPublic.blob(), b"John Hancock")
-        self.pump.flush()
-        signature = self.successResultOf(d)
+        base = FilePath(self.mktemp())
+        base.makedirs()
+        keyPath = base.child('custom_key').path
 
-        expected = self.rsaPrivate.sign(b"John Hancock")
-        self.assertEqual(expected, signature)
-        self.assertTrue(self.rsaPublic.verify(signature, b"John Hancock"))
+        import twisted.conch.scripts.ckeygen
+        self.patch(twisted.conch.scripts.ckeygen, 'raw_input', lambda _: keyPath)
+        key = Key.fromString(privateRSA_openssh)
+        _saveKey(key, {'filename': None, 'no-passphrase': True,
+            'format': 'md5-hex'})
+
+        persistedKeyContent = base.child('custom_key').getContent()
+        persistedKey = key.fromString(persistedKeyContent, None, b'')
+        self.assertEqual(key, persistedKey)
 
 
-    def test_signDataDSA(self):
+    def test_displayPublicKey(self):
         """
-        Sign data with a DSA private key and then verify it with the public
+        L{displayPublicKey} prints out the public key associated with a given
+        private key.
+        """
+        filename = self.mktemp()
+        pubKey = Key.fromString(publicRSA_openssh)
+        FilePath(filename).setContent(privateRSA_openssh)
+        displayPublicKey({'filename': filename})
+        displayed = self.stdout.getvalue().strip('\n')
+        if isinstance(displayed, unicode):
+            displayed = displayed.encode("ascii")
+        self.assertEqual(
+            displayed,
+            pubKey.toString('openssh'))
+
+
+    def test_displayPublicKeyEncrypted(self):
+        """
+        L{displayPublicKey} prints out the public key associated with a given
+        private key using the given passphrase when it's encrypted.
+        """
+        filename = self.mktemp()
+        pubKey = Key.fromString(publicRSA_openssh)
+        FilePath(filename).setContent(privateRSA_openssh_encrypted)
+        displayPublicKey({'filename': filename, 'pass': 'encrypted'})
+        displayed = self.stdout.getvalue().strip('\n')
+        if isinstance(displayed, unicode):
+            displayed = displayed.encode("ascii")
+        self.assertEqual(
+            displayed,
+            pubKey.toString('openssh'))
+
+
+    def test_displayPublicKeyEncryptedPassphrasePrompt(self):
+        """
+        L{displayPublicKey} prints out the public key associated with a given
+        private key, asking for the passphrase when it's encrypted.
+        """
+        filename = self.mktemp()
+        pubKey = Key.fromString(publicRSA_openssh)
+        FilePath(filename).setContent(privateRSA_openssh_encrypted)
+        self.patch(getpass, 'getpass', lambda x: 'encrypted')
+        displayPublicKey({'filename': filename})
+        displayed = self.stdout.getvalue().strip('\n')
+        if isinstance(displayed, unicode):
+            displayed = displayed.encode("ascii")
+        self.assertEqual(
+            displayed,
+            pubKey.toString('openssh'))
+
+
+    def test_displayPublicKeyWrongPassphrase(self):
+        """
+        L{displayPublicKey} fails with a L{BadKeyError} when trying to decrypt
+        an encrypted key with the wrong password.
+        """
+        filename = self.mktemp()
+        FilePath(filename).setContent(privateRSA_openssh_encrypted)
+        self.assertRaises(
+            BadKeyError, displayPublicKey,
+            {'filename': filename, 'pass': 'wrong'})
+
+
+    def test_changePassphrase(self):
+        """
+        L{changePassPhrase} allows a user to change the passphrase of a
+        private key interactively.
+        """
+        oldNewConfirm = makeGetpass('encrypted', 'newpass', 'newpass')
+        self.patch(getpass, 'getpass', oldNewConfirm)
+
+        filename = self.mktemp()
+        FilePath(filename).setContent(privateRSA_openssh_encrypted)
+
+        changePassPhrase({'filename': filename})
+        self.assertEqual(
+            self.stdout.getvalue().strip('\n'),
+            'Your identification has been saved with the new passphrase.')
+        self.assertNotEqual(privateRSA_openssh_encrypted,
+                            FilePath(filename).getContent())
+
+
+    def test_changePassphraseWithOld(self):
+        """
+        L{changePassPhrase} allows a user to change the passphrase of a
+        private key, providing the old passphrase and prompting for new one.
+        """
+        newConfirm = makeGetpass('newpass', 'newpass')
+        self.patch(getpass, 'getpass', newConfirm)
+
+        filename = self.mktemp()
+        FilePath(filename).setContent(privateRSA_openssh_encrypted)
+
+        changePassPhrase({'filename': filename, 'pass': 'encrypted'})
+        self.assertEqual(
+            self.stdout.getvalue().strip('\n'),
+            'Your identification has been saved with the new passphrase.')
+        self.assertNotEqual(privateRSA_openssh_encrypted,
+                            FilePath(filename).getContent())
+
+
+    def test_changePassphraseWithBoth(self):
+        """
+        L{changePassPhrase} allows a user to change the passphrase of a private
+        key by providing both old and new passphrases without prompting.
+        """
+        filename = self.mktemp()
+        FilePath(filename).setContent(privateRSA_openssh_encrypted)
+
+        changePassPhrase(
+            {'filename': filename, 'pass': 'encrypted',
+             'newpass': 'newencrypt'})
+        self.assertEqual(
+            self.stdout.getvalue().strip('\n'),
+            'Your identification has been saved with the new passphrase.')
+        self.assertNotEqual(privateRSA_openssh_encrypted,
+                            FilePath(filename).getContent())
+
+
+    def test_changePassphraseWrongPassphrase(self):
+        """
+        L{changePassPhrase} exits if passed an invalid old passphrase when
+        trying to change the passphrase of a private key.
+        """
+        filename = self.mktemp()
+        FilePath(filename).setContent(privateRSA_openssh_encrypted)
+        error = self.assertRaises(
+            SystemExit, changePassPhrase,
+            {'filename': filename, 'pass': 'wrong'})
+        self.assertEqual('Could not change passphrase: old passphrase error',
+                         str(error))
+        self.assertEqual(privateRSA_openssh_encrypted,
+                         FilePath(filename).getContent())
+
+
+    def test_changePassphraseEmptyGetPass(self):
+        """
+        L{changePassPhrase} exits if no passphrase is specified for the
+        C{getpass} call and the key is encrypted.
+        """
+        self.patch(getpass, 'getpass', makeGetpass(''))
+        filename = self.mktemp()
+        FilePath(filename).setContent(privateRSA_openssh_encrypted)
+        error = self.assertRaises(
+            SystemExit, changePassPhrase, {'filename': filename})
+        self.assertEqual(
+            'Could not change passphrase: Passphrase must be provided '
+            'for an encrypted key',
+            str(error))
+        self.assertEqual(privateRSA_openssh_encrypted,
+                         FilePath(filename).getContent())
+
+
+    def test_changePassphraseBadKey(self):
+        """
+        L{changePassPhrase} exits if the file specified points to an invalid
         key.
         """
-        d = self.client.signData(self.dsaPublic.blob(), b"John Hancock")
-        self.pump.flush()
-        def _check(sig):
-            # Cannot do this b/c DSA uses random numbers when signing
-            #   expected = self.dsaPrivate.sign("John Hancock")
-            #   self.assertEqual(expected, sig)
-            self.assertTrue(self.dsaPublic.verify(sig, b"John Hancock"))
-        return d.addCallback(_check)
+        filename = self.mktemp()
+        FilePath(filename).setContent(b'foobar')
+        error = self.assertRaises(
+            SystemExit, changePassPhrase, {'filename': filename})
+
+        if _PY3:
+            expected = "Could not change passphrase: cannot guess the type of b'foobar'"
+        else:
+            expected = "Could not change passphrase: cannot guess the type of 'foobar'"
+        self.assertEqual(expected, str(error))
+        self.assertEqual(b'foobar', FilePath(filename).getContent())
 
 
-    def test_signDataRSAErrbackOnUnknownBlob(self):
+    def test_changePassphraseCreateError(self):
         """
-        Assert that we get an errback if we try to sign data using a key that
-        wasn't added.
+        L{changePassPhrase} doesn't modify the key file if an unexpected error
+        happens when trying to create the key with the new passphrase.
         """
-        del self.server.factory.keys[self.rsaPublic.blob()]
-        d = self.client.signData(self.rsaPublic.blob(), b"John Hancock")
-        self.pump.flush()
-        return self.assertFailure(d, ConchError)
+        filename = self.mktemp()
+        FilePath(filename).setContent(privateRSA_openssh)
+
+        def toString(*args, **kwargs):
+            raise RuntimeError('oops')
+
+        self.patch(Key, 'toString', toString)
+
+        error = self.assertRaises(
+            SystemExit, changePassPhrase,
+            {'filename': filename,
+             'newpass': 'newencrypt'})
+
+        self.assertEqual(
+            'Could not change passphrase: oops', str(error))
+
+        self.assertEqual(privateRSA_openssh, FilePath(filename).getContent())
 
 
-    def test_requestIdentities(self):
+    def test_changePassphraseEmptyStringError(self):
         """
-        Assert that we get all of the keys/comments that we add when we issue a
-        request for all identities.
+        L{changePassPhrase} doesn't modify the key file if C{toString} returns
+        an empty string.
         """
-        d = self.client.requestIdentities()
-        self.pump.flush()
-        def _check(keyt):
-            expected = {}
-            expected[self.dsaPublic.blob()] = b'a comment'
-            expected[self.rsaPublic.blob()] = b'another comment'
+        filename = self.mktemp()
+        FilePath(filename).setContent(privateRSA_openssh)
 
-            received = {}
-            for k in keyt:
-                received[keys.Key.fromString(k[0], type='blob').blob()] = k[1]
-            self.assertEqual(expected, received)
-        return d.addCallback(_check)
+        def toString(*args, **kwargs):
+            return ''
 
+        self.patch(Key, 'toString', toString)
 
+        error = self.assertRaises(
+            SystemExit, changePassPhrase,
+            {'filename': filename, 'newpass': 'newencrypt'})
 
-class AgentKeyRemovalTests(AgentTestBase):
-    """
-    Test support for removing keys in a remote server.
-    """
+        if _PY3:
+            expected = (
+                "Could not change passphrase: cannot guess the type of b''")
+        else:
+            expected = (
+                "Could not change passphrase: cannot guess the type of ''")
+        self.assertEqual(expected, str(error))
 
-    def setUp(self):
-        AgentTestBase.setUp(self)
-        self.server.factory.keys[self.dsaPrivate.blob()] = (
-            self.dsaPrivate, b'a comment')
-        self.server.factory.keys[self.rsaPrivate.blob()] = (
-            self.rsaPrivate, b'another comment')
+        self.assertEqual(privateRSA_openssh, FilePath(filename).getContent())
 
 
-    def test_removeRSAIdentity(self):
+    def test_changePassphrasePublicKey(self):
         """
-        Assert that we can remove an RSA identity.
+        L{changePassPhrase} exits when trying to change the passphrase on a
+        public key, and doesn't change the file.
         """
-        # only need public key for this
-        d = self.client.removeIdentity(self.rsaPrivate.blob())
-        self.pump.flush()
-
-        def _check(ignored):
-            self.assertEqual(1, len(self.server.factory.keys))
-            self.assertIn(self.dsaPrivate.blob(), self.server.factory.keys)
-            self.assertNotIn(self.rsaPrivate.blob(), self.server.factory.keys)
-        return d.addCallback(_check)
-
-
-    def test_removeDSAIdentity(self):
-        """
-        Assert that we can remove a DSA identity.
-        """
-        # only need public key for this
-        d = self.client.removeIdentity(self.dsaPrivate.blob())
-        self.pump.flush()
-
-        def _check(ignored):
-            self.assertEqual(1, len(self.server.factory.keys))
-            self.assertIn(self.rsaPrivate.blob(), self.server.factory.keys)
-        return d.addCallback(_check)
-
-
-    def test_removeAllIdentities(self):
-        """
-        Assert that we can remove all identities.
-        """
-        d = self.client.removeAllIdentities()
-        self.pump.flush()
-
-        def _check(ignored):
-            self.assertEqual(0, len(self.server.factory.keys))
-        return d.addCallback(_check)
+        filename = self.mktemp()
+        FilePath(filename).setContent(publicRSA_openssh)
+        error = self.assertRaises(
+            SystemExit, changePassPhrase,
+            {'filename': filename, 'newpass': 'pass'})
+        self.assertEqual(
+            'Could not change passphrase: key not encrypted', str(error))
+        self.assertEqual(publicRSA_openssh, FilePath(filename).getContent())

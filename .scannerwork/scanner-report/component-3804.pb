@@ -1,1 +1,2 @@
-Ü0venv/lib/python3.6/site-packages/django/dispatch :Ûá
+Ü<venv/lib/python3.6/site-packages/django/dispatch/__init__.py 2pyX
+h

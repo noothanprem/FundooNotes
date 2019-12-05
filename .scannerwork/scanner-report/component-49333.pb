@@ -1,1 +1,1 @@
-µÅJvenv/lib64/python3.6/site-packages/rest_framework/static/rest_framework/js :≥Å¥Å∂Å∑Å∏ÅπÅªÅ
+µÅUvenv/lib64/python3.6/site-packages/rest_framework/static/rest_framework/js/default.js 2jsX0h

@@ -1,1 +1,1 @@
-роAvenv/lib64/python3.6/site-packages/twisted/names/test/test_tap.py 2pyX|h
+роEvenv/lib64/python3.6/site-packages/twisted/names/test/test_resolve.py 2pyX'h

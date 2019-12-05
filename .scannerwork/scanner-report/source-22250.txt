@@ -2,715 +2,295 @@
 # See LICENSE for details.
 
 """
-Tests for twisted SSL support.
+Implements the SSH v2 key agent protocol.  This protocol is documented in the
+SSH source code, in the file
+U{PROTOCOL.agent<http://www.openbsd.org/cgi-bin/cvsweb/src/usr.bin/ssh/PROTOCOL.agent>}.
+
+Maintainer: Paul Swartz
 """
-from __future__ import division, absolute_import
 
-from twisted.python.filepath import FilePath
-from twisted.trial import unittest
-from twisted.internet import protocol, reactor, interfaces, defer
-from twisted.internet.error import ConnectionDone
-from twisted.protocols import basic
-from twisted.python.runtime import platform
-from twisted.test.test_tcp import ProperlyCloseFilesMixin
-from twisted.test.proto_helpers import waitUntilAllDisconnected
+from __future__ import absolute_import, division
 
-import os
-import hamcrest
+import struct
 
-try:
-    from OpenSSL import SSL, crypto
-    from twisted.internet import ssl
-    from twisted.test.ssl_helpers import ClientTLSContext, certPath
-except ImportError:
-    def _noSSL():
-        # ugh, make pyflakes happy.
-        global SSL
-        global ssl
-        SSL = ssl = None
-    _noSSL()
-
-from zope.interface import implementer
+from twisted.conch.ssh.common import NS, getNS, getMP
+from twisted.conch.error import ConchError, MissingKeyStoreError
+from twisted.conch.ssh import keys
+from twisted.internet import defer, protocol
+from twisted.python.compat import itervalues
 
 
 
-class UnintelligentProtocol(basic.LineReceiver):
+class SSHAgentClient(protocol.Protocol):
     """
-    @ivar deferred: a deferred that will fire at connection lost.
-    @type deferred: L{defer.Deferred}
-
-    @cvar pretext: text sent before TLS is set up.
-    @type pretext: C{bytes}
-
-    @cvar posttext: text sent after TLS is set up.
-    @type posttext: C{bytes}
-    """
-    pretext = [
-        b"first line",
-        b"last thing before tls starts",
-        b"STARTTLS"]
-
-    posttext = [
-        b"first thing after tls started",
-        b"last thing ever"]
-
-    def __init__(self):
-        self.deferred = defer.Deferred()
-
-
-    def connectionMade(self):
-        for l in self.pretext:
-            self.sendLine(l)
-
-
-    def lineReceived(self, line):
-        if line == b"READY":
-            self.transport.startTLS(ClientTLSContext(), self.factory.client)
-            for l in self.posttext:
-                self.sendLine(l)
-            self.transport.loseConnection()
-
-
-    def connectionLost(self, reason):
-        self.deferred.callback(None)
-
-
-
-class LineCollector(basic.LineReceiver):
-    """
-    @ivar deferred: a deferred that will fire at connection lost.
-    @type deferred: L{defer.Deferred}
-
-    @ivar doTLS: whether the protocol is initiate TLS or not.
-    @type doTLS: C{bool}
-
-    @ivar fillBuffer: if set to True, it will send lots of data once
-        C{STARTTLS} is received.
-    @type fillBuffer: C{bool}
-    """
-
-    def __init__(self, doTLS, fillBuffer=False):
-        self.doTLS = doTLS
-        self.fillBuffer = fillBuffer
-        self.deferred = defer.Deferred()
-
-
-    def connectionMade(self):
-        self.factory.rawdata = b''
-        self.factory.lines = []
-
-
-    def lineReceived(self, line):
-        self.factory.lines.append(line)
-        if line == b'STARTTLS':
-            if self.fillBuffer:
-                for x in range(500):
-                    self.sendLine(b'X' * 1000)
-            self.sendLine(b'READY')
-            if self.doTLS:
-                ctx = ServerTLSContext(
-                    privateKeyFileName=certPath,
-                    certificateFileName=certPath,
-                )
-                self.transport.startTLS(ctx, self.factory.server)
-            else:
-                self.setRawMode()
-
-
-    def rawDataReceived(self, data):
-        self.factory.rawdata += data
-        self.transport.loseConnection()
-
-
-    def connectionLost(self, reason):
-        self.deferred.callback(None)
-
-
-
-class SingleLineServerProtocol(protocol.Protocol):
-    """
-    A protocol that sends a single line of data at C{connectionMade}.
-    """
-
-    def connectionMade(self):
-        self.transport.write(b"+OK <some crap>\r\n")
-        self.transport.getPeerCertificate()
-
-
-
-class RecordingClientProtocol(protocol.Protocol):
-    """
-    @ivar deferred: a deferred that will fire with first received content.
-    @type deferred: L{defer.Deferred}
+    The client side of the SSH agent protocol.  This is equivalent to
+    ssh-add(1) and can be used with either ssh-agent(1) or the SSHAgentServer
+    protocol, also in this package.
     """
 
     def __init__(self):
-        self.deferred = defer.Deferred()
-
-
-    def connectionMade(self):
-        self.transport.getPeerCertificate()
+        self.buf = b''
+        self.deferreds = []
 
 
     def dataReceived(self, data):
-        self.deferred.callback(data)
+        self.buf += data
+        while 1:
+            if len(self.buf) <= 4:
+                return
+            packLen = struct.unpack('!L', self.buf[:4])[0]
+            if len(self.buf) < 4 + packLen:
+                return
+            packet, self.buf = self.buf[4:4 + packLen], self.buf[4 + packLen:]
+            reqType = ord(packet[0:1])
+            d = self.deferreds.pop(0)
+            if reqType == AGENT_FAILURE:
+                d.errback(ConchError('agent failure'))
+            elif reqType == AGENT_SUCCESS:
+                d.callback(b'')
+            else:
+                d.callback(packet)
 
 
-
-@implementer(interfaces.IHandshakeListener)
-class ImmediatelyDisconnectingProtocol(protocol.Protocol):
-    """
-    A protocol that disconnect immediately on connection. It fires the
-    C{connectionDisconnected} deferred of its factory on connetion lost.
-    """
-
-    def handshakeCompleted(self):
-        self.transport.loseConnection()
+    def sendRequest(self, reqType, data):
+        pack = struct.pack('!LB',len(data) + 1, reqType) + data
+        self.transport.write(pack)
+        d = defer.Deferred()
+        self.deferreds.append(d)
+        return d
 
 
-    def connectionLost(self, reason):
-        self.factory.connectionDisconnected.callback(None)
-
-
-
-def generateCertificateObjects(organization, organizationalUnit):
-    """
-    Create a certificate for given C{organization} and C{organizationalUnit}.
-
-    @return: a tuple of (key, request, certificate) objects.
-    """
-    pkey = crypto.PKey()
-    pkey.generate_key(crypto.TYPE_RSA, 1024)
-    req = crypto.X509Req()
-    subject = req.get_subject()
-    subject.O = organization
-    subject.OU = organizationalUnit
-    req.set_pubkey(pkey)
-    req.sign(pkey, "md5")
-
-    # Here comes the actual certificate
-    cert = crypto.X509()
-    cert.set_serial_number(1)
-    cert.gmtime_adj_notBefore(0)
-    cert.gmtime_adj_notAfter(60) # Testing certificates need not be long lived
-    cert.set_issuer(req.get_subject())
-    cert.set_subject(req.get_subject())
-    cert.set_pubkey(req.get_pubkey())
-    cert.sign(pkey, "md5")
-
-    return pkey, req, cert
-
-
-
-def generateCertificateFiles(basename, organization, organizationalUnit):
-    """
-    Create certificate files key, req and cert prefixed by C{basename} for
-    given C{organization} and C{organizationalUnit}.
-    """
-    pkey, req, cert = generateCertificateObjects(organization, organizationalUnit)
-
-    for ext, obj, dumpFunc in [
-        ('key', pkey, crypto.dump_privatekey),
-        ('req', req, crypto.dump_certificate_request),
-        ('cert', cert, crypto.dump_certificate)]:
-        fName = os.extsep.join((basename, ext)).encode("utf-8")
-        FilePath(fName).setContent(dumpFunc(crypto.FILETYPE_PEM, obj))
-
-
-
-class ContextGeneratingMixin:
-    """
-    Offer methods to create L{ssl.DefaultOpenSSLContextFactory} for both client
-    and server.
-
-    @ivar clientBase: prefix of client certificate files.
-    @type clientBase: C{str}
-
-    @ivar serverBase: prefix of server certificate files.
-    @type serverBase: C{str}
-
-    @ivar clientCtxFactory: a generated context factory to be used in
-        L{IReactorSSL.connectSSL}.
-    @type clientCtxFactory: L{ssl.DefaultOpenSSLContextFactory}
-
-    @ivar serverCtxFactory: a generated context factory to be used in
-        L{IReactorSSL.listenSSL}.
-    @type serverCtxFactory: L{ssl.DefaultOpenSSLContextFactory}
-    """
-
-    def makeContextFactory(self, org, orgUnit, *args, **kwArgs):
-        base = self.mktemp()
-        generateCertificateFiles(base, org, orgUnit)
-        serverCtxFactory = ssl.DefaultOpenSSLContextFactory(
-            os.extsep.join((base, 'key')),
-            os.extsep.join((base, 'cert')),
-            *args, **kwArgs)
-
-        return base, serverCtxFactory
-
-
-    def setupServerAndClient(self, clientArgs, clientKwArgs, serverArgs,
-                             serverKwArgs):
-        self.clientBase, self.clientCtxFactory = self.makeContextFactory(
-            *clientArgs, **clientKwArgs)
-        self.serverBase, self.serverCtxFactory = self.makeContextFactory(
-            *serverArgs, **serverKwArgs)
-
-
-
-if SSL is not None:
-    class ServerTLSContext(ssl.DefaultOpenSSLContextFactory):
+    def requestIdentities(self):
         """
-        A context factory with a default method set to
-        L{OpenSSL.SSL.TLSv1_METHOD}.
+        @return: A L{Deferred} which will fire with a list of all keys found in
+            the SSH agent. The list of keys is comprised of (public key blob,
+            comment) tuples.
         """
-        isClient = False
-
-        def __init__(self, *args, **kw):
-            kw['sslmethod'] = SSL.TLSv1_METHOD
-            ssl.DefaultOpenSSLContextFactory.__init__(self, *args, **kw)
+        d = self.sendRequest(AGENTC_REQUEST_IDENTITIES, b'')
+        d.addCallback(self._cbRequestIdentities)
+        return d
 
 
+    def _cbRequestIdentities(self, data):
+        """
+        Unpack a collection of identities into a list of tuples comprised of
+        public key blobs and comments.
+        """
+        if ord(data[0:1]) != AGENT_IDENTITIES_ANSWER:
+            raise ConchError('unexpected response: %i' % ord(data[0:1]))
+        numKeys = struct.unpack('!L', data[1:5])[0]
+        result = []
+        data = data[5:]
+        for i in range(numKeys):
+            blob, data = getNS(data)
+            comment, data = getNS(data)
+            result.append((blob, comment))
+        return result
 
-class StolenTCPTests(ProperlyCloseFilesMixin, unittest.TestCase):
+
+    def addIdentity(self, blob, comment = b''):
+        """
+        Add a private key blob to the agent's collection of keys.
+        """
+        req = blob
+        req += NS(comment)
+        return self.sendRequest(AGENTC_ADD_IDENTITY, req)
+
+
+    def signData(self, blob, data):
+        """
+        Request that the agent sign the given C{data} with the private key
+        which corresponds to the public key given by C{blob}.  The private
+        key should have been added to the agent already.
+
+        @type blob: L{bytes}
+        @type data: L{bytes}
+        @return: A L{Deferred} which fires with a signature for given data
+            created with the given key.
+        """
+        req = NS(blob)
+        req += NS(data)
+        req += b'\000\000\000\000' # flags
+        return self.sendRequest(AGENTC_SIGN_REQUEST, req).addCallback(self._cbSignData)
+
+
+    def _cbSignData(self, data):
+        if ord(data[0:1]) != AGENT_SIGN_RESPONSE:
+            raise ConchError('unexpected data: %i' % ord(data[0:1]))
+        signature = getNS(data[1:])[0]
+        return signature
+
+
+    def removeIdentity(self, blob):
+        """
+        Remove the private key corresponding to the public key in blob from the
+        running agent.
+        """
+        req = NS(blob)
+        return self.sendRequest(AGENTC_REMOVE_IDENTITY, req)
+
+
+    def removeAllIdentities(self):
+        """
+        Remove all keys from the running agent.
+        """
+        return self.sendRequest(AGENTC_REMOVE_ALL_IDENTITIES, b'')
+
+
+
+class SSHAgentServer(protocol.Protocol):
     """
-    For SSL transports, test many of the same things which are tested for
-    TCP transports.
+    The server side of the SSH agent protocol.  This is equivalent to
+    ssh-agent(1) and can be used with either ssh-add(1) or the SSHAgentClient
+    protocol, also in this package.
     """
 
-    def createServer(self, address, portNumber, factory):
+    def __init__(self):
+        self.buf = b''
+
+
+    def dataReceived(self, data):
+        self.buf += data
+        while 1:
+            if len(self.buf) <= 4:
+                return
+            packLen = struct.unpack('!L', self.buf[:4])[0]
+            if len(self.buf) < 4 + packLen:
+                return
+            packet, self.buf = self.buf[4:4 + packLen], self.buf[4 + packLen:]
+            reqType = ord(packet[0:1])
+            reqName = messages.get(reqType, None)
+            if not reqName:
+                self.sendResponse(AGENT_FAILURE, b'')
+            else:
+                f = getattr(self, 'agentc_%s' % reqName)
+                if getattr(self.factory, 'keys', None) is None:
+                    self.sendResponse(AGENT_FAILURE, b'')
+                    raise MissingKeyStoreError()
+                f(packet[1:])
+
+
+    def sendResponse(self, reqType, data):
+        pack = struct.pack('!LB', len(data) + 1, reqType) + data
+        self.transport.write(pack)
+
+
+    def agentc_REQUEST_IDENTITIES(self, data):
         """
-        Create an SSL server with a certificate using L{IReactorSSL.listenSSL}.
+        Return all of the identities that have been added to the server
         """
-        cert = ssl.PrivateCertificate.loadPEM(FilePath(certPath).getContent())
-        contextFactory = cert.options()
-        return reactor.listenSSL(
-            portNumber, factory, contextFactory, interface=address)
+        assert data == b''
+        numKeys = len(self.factory.keys)
+        resp = []
+
+        resp.append(struct.pack('!L', numKeys))
+        for key, comment in itervalues(self.factory.keys):
+            resp.append(NS(key.blob())) # yes, wrapped in an NS
+            resp.append(NS(comment))
+        self.sendResponse(AGENT_IDENTITIES_ANSWER, b''.join(resp))
 
 
-    def connectClient(self, address, portNumber, clientCreator):
+    def agentc_SIGN_REQUEST(self, data):
         """
-        Create an SSL client using L{IReactorSSL.connectSSL}.
+        Data is a structure with a reference to an already added key object and
+        some data that the clients wants signed with that key.  If the key
+        object wasn't loaded, return AGENT_FAILURE, else return the signature.
         """
-        contextFactory = ssl.CertificateOptions()
-        return clientCreator.connectSSL(address, portNumber, contextFactory)
+        blob, data = getNS(data)
+        if blob not in self.factory.keys:
+            return self.sendResponse(AGENT_FAILURE, b'')
+        signData, data = getNS(data)
+        assert data == b'\000\000\000\000'
+        self.sendResponse(AGENT_SIGN_RESPONSE, NS(self.factory.keys[blob][0].sign(signData)))
 
 
-    def getHandleExceptionType(self):
+    def agentc_ADD_IDENTITY(self, data):
         """
-        Return L{OpenSSL.SSL.Error} as the expected error type which will be
-        raised by a write to the L{OpenSSL.SSL.Connection} object after it has
-        been closed.
+        Adds a private key to the agent's collection of identities.  On
+        subsequent interactions, the private key can be accessed using only the
+        corresponding public key.
         """
-        return SSL.Error
 
-
-    def getHandleErrorCodeMatcher(self):
-        """
-        Return a L{hamcrest.core.matcher.Matcher} for the argument
-        L{OpenSSL.SSL.Error} will be constructed with for this case.
-        This is basically just a random OpenSSL implementation detail.
-        It would be better if this test worked in a way which did not
-        require this.
-        """
-        # We expect an error about how we tried to write to a shutdown
-        # connection.  This is terribly implementation-specific.
-        return hamcrest.contains(
-            hamcrest.contains(
-                hamcrest.equal_to('SSL routines'),
-                hamcrest.any_of(
-                    hamcrest.equal_to('SSL_write'),
-                    hamcrest.equal_to('ssl_write_internal'),
-                ),
-                hamcrest.equal_to('protocol is shutdown'),
-            ),
-        )
-
-
-
-class TLSTests(unittest.TestCase):
-    """
-    Tests for startTLS support.
-
-    @ivar fillBuffer: forwarded to L{LineCollector.fillBuffer}
-    @type fillBuffer: C{bool}
-    """
-    fillBuffer = False
-
-    clientProto = None
-    serverProto = None
-
-
-    def tearDown(self):
-        if self.clientProto.transport is not None:
-            self.clientProto.transport.loseConnection()
-        if self.serverProto.transport is not None:
-            self.serverProto.transport.loseConnection()
-
-
-    def _runTest(self, clientProto, serverProto, clientIsServer=False):
-        """
-        Helper method to run TLS tests.
-
-        @param clientProto: protocol instance attached to the client
-            connection.
-        @param serverProto: protocol instance attached to the server
-            connection.
-        @param clientIsServer: flag indicated if client should initiate
-            startTLS instead of server.
-
-        @return: a L{defer.Deferred} that will fire when both connections are
-            lost.
-        """
-        self.clientProto = clientProto
-        cf = self.clientFactory = protocol.ClientFactory()
-        cf.protocol = lambda: clientProto
-        if clientIsServer:
-            cf.server = False
+        # need to pre-read the key data so we can get past it to the comment string
+        keyType, rest = getNS(data)
+        if keyType == b'ssh-rsa':
+            nmp = 6
+        elif keyType == b'ssh-dss':
+            nmp = 5
         else:
-            cf.client = True
+            raise keys.BadKeyError('unknown blob type: %s' % keyType)
 
-        self.serverProto = serverProto
-        sf = self.serverFactory = protocol.ServerFactory()
-        sf.protocol = lambda: serverProto
-        if clientIsServer:
-            sf.client = False
-        else:
-            sf.server = True
+        rest = getMP(rest, nmp)[-1] # ignore the key data for now, we just want the comment
+        comment, rest = getNS(rest) # the comment, tacked onto the end of the key blob
 
-        port = reactor.listenTCP(0, sf, interface="127.0.0.1")
-        self.addCleanup(port.stopListening)
-
-        reactor.connectTCP('127.0.0.1', port.getHost().port, cf)
-
-        return defer.gatherResults([clientProto.deferred, serverProto.deferred])
+        k = keys.Key.fromString(data, type='private_blob') # not wrapped in NS here
+        self.factory.keys[k.blob()] = (k, comment)
+        self.sendResponse(AGENT_SUCCESS, b'')
 
 
-    def test_TLS(self):
+    def agentc_REMOVE_IDENTITY(self, data):
         """
-        Test for server and client startTLS: client should received data both
-        before and after the startTLS.
+        Remove a specific key from the agent's collection of identities.
         """
-        def check(ignore):
-            self.assertEqual(
-                self.serverFactory.lines,
-                UnintelligentProtocol.pretext + UnintelligentProtocol.posttext
-            )
-        d = self._runTest(UnintelligentProtocol(),
-                          LineCollector(True, self.fillBuffer))
-        return d.addCallback(check)
+        blob, _ = getNS(data)
+        k = keys.Key.fromString(blob, type='blob')
+        del self.factory.keys[k.blob()]
+        self.sendResponse(AGENT_SUCCESS, b'')
 
 
-    def test_unTLS(self):
+    def agentc_REMOVE_ALL_IDENTITIES(self, data):
         """
-        Test for server startTLS not followed by a startTLS in client: the data
-        received after server startTLS should be received as raw.
+        Remove all keys from the agent's collection of identities.
         """
-        def check(ignored):
-            self.assertEqual(
-                self.serverFactory.lines,
-                UnintelligentProtocol.pretext
-            )
-            self.assertTrue(self.serverFactory.rawdata,
-                            "No encrypted bytes received")
-        d = self._runTest(UnintelligentProtocol(),
-                          LineCollector(False, self.fillBuffer))
-        return d.addCallback(check)
+        assert data == b''
+        self.factory.keys = {}
+        self.sendResponse(AGENT_SUCCESS, b'')
 
+    # v1 messages that we ignore because we don't keep v1 keys
+    # open-ssh sends both v1 and v2 commands, so we have to
+    # do no-ops for v1 commands or we'll get "bad request" errors
 
-    def test_backwardsTLS(self):
+    def agentc_REQUEST_RSA_IDENTITIES(self, data):
         """
-        Test startTLS first initiated by client.
+        v1 message for listing RSA1 keys; superseded by
+        agentc_REQUEST_IDENTITIES, which handles different key types.
         """
-        def check(ignored):
-            self.assertEqual(
-                self.clientFactory.lines,
-                UnintelligentProtocol.pretext + UnintelligentProtocol.posttext
-            )
-        d = self._runTest(LineCollector(True, self.fillBuffer),
-                          UnintelligentProtocol(), True)
-        return d.addCallback(check)
+        self.sendResponse(AGENT_RSA_IDENTITIES_ANSWER, struct.pack('!L', 0))
 
 
-
-class SpammyTLSTests(TLSTests):
-    """
-    Test TLS features with bytes sitting in the out buffer.
-    """
-    fillBuffer = True
-
-
-
-class BufferingTests(unittest.TestCase):
-    serverProto = None
-    clientProto = None
-
-
-    def tearDown(self):
-        if self.serverProto.transport is not None:
-            self.serverProto.transport.loseConnection()
-        if self.clientProto.transport is not None:
-            self.clientProto.transport.loseConnection()
-
-        return waitUntilAllDisconnected(
-            reactor, [self.serverProto, self.clientProto])
-
-
-    def test_openSSLBuffering(self):
-        serverProto = self.serverProto = SingleLineServerProtocol()
-        clientProto = self.clientProto = RecordingClientProtocol()
-
-        server = protocol.ServerFactory()
-        client = self.client = protocol.ClientFactory()
-
-        server.protocol = lambda: serverProto
-        client.protocol = lambda: clientProto
-
-        sCTX = ssl.DefaultOpenSSLContextFactory(certPath, certPath)
-        cCTX = ssl.ClientContextFactory()
-
-        port = reactor.listenSSL(0, server, sCTX, interface='127.0.0.1')
-        self.addCleanup(port.stopListening)
-
-        clientConnector = reactor.connectSSL('127.0.0.1', port.getHost().port,
-                                             client, cCTX)
-        self.addCleanup(clientConnector.disconnect)
-
-        return clientProto.deferred.addCallback(
-            self.assertEqual, b"+OK <some crap>\r\n")
-
-
-
-class ConnectionLostTests(unittest.TestCase, ContextGeneratingMixin):
-    """
-    SSL connection closing tests.
-    """
-
-    def testImmediateDisconnect(self):
-        org = "twisted.test.test_ssl"
-        self.setupServerAndClient(
-            (org, org + ", client"), {},
-            (org, org + ", server"), {})
-
-        # Set up a server, connect to it with a client, which should work since our verifiers
-        # allow anything, then disconnect.
-        serverProtocolFactory = protocol.ServerFactory()
-        serverProtocolFactory.protocol = protocol.Protocol
-        self.serverPort = serverPort = reactor.listenSSL(0,
-            serverProtocolFactory, self.serverCtxFactory)
-
-        clientProtocolFactory = protocol.ClientFactory()
-        clientProtocolFactory.protocol = ImmediatelyDisconnectingProtocol
-        clientProtocolFactory.connectionDisconnected = defer.Deferred()
-        reactor.connectSSL('127.0.0.1',
-            serverPort.getHost().port, clientProtocolFactory, self.clientCtxFactory)
-
-        return clientProtocolFactory.connectionDisconnected.addCallback(
-            lambda ignoredResult: self.serverPort.stopListening())
-
-
-    def test_bothSidesLoseConnection(self):
+    def agentc_REMOVE_RSA_IDENTITY(self, data):
         """
-        Both sides of SSL connection close connection; the connections should
-        close cleanly, and only after the underlying TCP connection has
-        disconnected.
+        v1 message for removing RSA1 keys; superseded by
+        agentc_REMOVE_IDENTITY, which handles different key types.
         """
-        @implementer(interfaces.IHandshakeListener)
-        class CloseAfterHandshake(protocol.Protocol):
-            gotData = False
-
-            def __init__(self):
-                self.done = defer.Deferred()
-
-            def handshakeCompleted(self):
-                self.transport.loseConnection()
-
-            def connectionLost(self, reason):
-                self.done.errback(reason)
-                del self.done
-
-        org = "twisted.test.test_ssl"
-        self.setupServerAndClient(
-            (org, org + ", client"), {},
-            (org, org + ", server"), {})
-
-        serverProtocol = CloseAfterHandshake()
-        serverProtocolFactory = protocol.ServerFactory()
-        serverProtocolFactory.protocol = lambda: serverProtocol
-        serverPort = reactor.listenSSL(0,
-            serverProtocolFactory, self.serverCtxFactory)
-        self.addCleanup(serverPort.stopListening)
-
-        clientProtocol = CloseAfterHandshake()
-        clientProtocolFactory = protocol.ClientFactory()
-        clientProtocolFactory.protocol = lambda: clientProtocol
-        reactor.connectSSL('127.0.0.1',
-            serverPort.getHost().port, clientProtocolFactory, self.clientCtxFactory)
-
-        def checkResult(failure):
-            failure.trap(ConnectionDone)
-        return defer.gatherResults(
-            [clientProtocol.done.addErrback(checkResult),
-             serverProtocol.done.addErrback(checkResult)])
+        self.sendResponse(AGENT_SUCCESS, b'')
 
 
-    def testFailedVerify(self):
-        org = "twisted.test.test_ssl"
-        self.setupServerAndClient(
-            (org, org + ", client"), {},
-            (org, org + ", server"), {})
-
-        def verify(*a):
-            return False
-        self.clientCtxFactory.getContext().set_verify(SSL.VERIFY_PEER, verify)
-
-        serverConnLost = defer.Deferred()
-        serverProtocol = protocol.Protocol()
-        serverProtocol.connectionLost = serverConnLost.callback
-        serverProtocolFactory = protocol.ServerFactory()
-        serverProtocolFactory.protocol = lambda: serverProtocol
-        self.serverPort = serverPort = reactor.listenSSL(0,
-            serverProtocolFactory, self.serverCtxFactory)
-
-        clientConnLost = defer.Deferred()
-        clientProtocol = protocol.Protocol()
-        clientProtocol.connectionLost = clientConnLost.callback
-        clientProtocolFactory = protocol.ClientFactory()
-        clientProtocolFactory.protocol = lambda: clientProtocol
-        reactor.connectSSL('127.0.0.1',
-            serverPort.getHost().port, clientProtocolFactory, self.clientCtxFactory)
-
-        dl = defer.DeferredList([serverConnLost, clientConnLost], consumeErrors=True)
-        return dl.addCallback(self._cbLostConns)
-
-
-    def _cbLostConns(self, results):
-        (sSuccess, sResult), (cSuccess, cResult) = results
-
-        self.assertFalse(sSuccess)
-        self.assertFalse(cSuccess)
-
-        acceptableErrors = [SSL.Error]
-
-        # Rather than getting a verification failure on Windows, we are getting
-        # a connection failure.  Without something like sslverify proxying
-        # in-between we can't fix up the platform's errors, so let's just
-        # specifically say it is only OK in this one case to keep the tests
-        # passing.  Normally we'd like to be as strict as possible here, so
-        # we're not going to allow this to report errors incorrectly on any
-        # other platforms.
-
-        if platform.isWindows():
-            from twisted.internet.error import ConnectionLost
-            acceptableErrors.append(ConnectionLost)
-
-        sResult.trap(*acceptableErrors)
-        cResult.trap(*acceptableErrors)
-
-        return self.serverPort.stopListening()
-
-
-
-class FakeContext:
-    """
-    L{OpenSSL.SSL.Context} double which can more easily be inspected.
-    """
-    def __init__(self, method):
-        self._method = method
-        self._options = 0
-
-
-    def set_options(self, options):
-        self._options |= options
-
-
-    def use_certificate_file(self, fileName):
-        pass
-
-
-    def use_privatekey_file(self, fileName):
-        pass
-
-
-
-class DefaultOpenSSLContextFactoryTests(unittest.TestCase):
-    """
-    Tests for L{ssl.DefaultOpenSSLContextFactory}.
-    """
-    def setUp(self):
-        # pyOpenSSL Context objects aren't introspectable enough.  Pass in
-        # an alternate context factory so we can inspect what is done to it.
-        self.contextFactory = ssl.DefaultOpenSSLContextFactory(
-            certPath, certPath, _contextFactory=FakeContext)
-        self.context = self.contextFactory.getContext()
-
-
-    def test_method(self):
+    def agentc_REMOVE_ALL_RSA_IDENTITIES(self, data):
         """
-        L{ssl.DefaultOpenSSLContextFactory.getContext} returns an SSL context
-        which can use SSLv3 or TLSv1 but not SSLv2.
+        v1 message for removing all RSA1 keys; superseded by
+        agentc_REMOVE_ALL_IDENTITIES, which handles different key types.
         """
-        # SSLv23_METHOD allows SSLv2, SSLv3, or TLSv1
-        self.assertEqual(self.context._method, SSL.SSLv23_METHOD)
-
-        # And OP_NO_SSLv2 disables the SSLv2 support.
-        self.assertEqual(self.context._options & SSL.OP_NO_SSLv2,
-                         SSL.OP_NO_SSLv2)
-
-        # Make sure SSLv3 and TLSv1 aren't disabled though.
-        self.assertFalse(self.context._options & SSL.OP_NO_SSLv3)
-        self.assertFalse(self.context._options & SSL.OP_NO_TLSv1)
+        self.sendResponse(AGENT_SUCCESS, b'')
 
 
-    def test_missingCertificateFile(self):
-        """
-        Instantiating L{ssl.DefaultOpenSSLContextFactory} with a certificate
-        filename which does not identify an existing file results in the
-        initializer raising L{OpenSSL.SSL.Error}.
-        """
-        self.assertRaises(
-            SSL.Error,
-            ssl.DefaultOpenSSLContextFactory, certPath, self.mktemp())
+AGENTC_REQUEST_RSA_IDENTITIES   = 1
+AGENT_RSA_IDENTITIES_ANSWER     = 2
+AGENT_FAILURE                   = 5
+AGENT_SUCCESS                   = 6
 
+AGENTC_REMOVE_RSA_IDENTITY         = 8
+AGENTC_REMOVE_ALL_RSA_IDENTITIES   = 9
 
-    def test_missingPrivateKeyFile(self):
-        """
-        Instantiating L{ssl.DefaultOpenSSLContextFactory} with a private key
-        filename which does not identify an existing file results in the
-        initializer raising L{OpenSSL.SSL.Error}.
-        """
-        self.assertRaises(
-            SSL.Error,
-            ssl.DefaultOpenSSLContextFactory, self.mktemp(), certPath)
+AGENTC_REQUEST_IDENTITIES       = 11
+AGENT_IDENTITIES_ANSWER         = 12
+AGENTC_SIGN_REQUEST             = 13
+AGENT_SIGN_RESPONSE             = 14
+AGENTC_ADD_IDENTITY             = 17
+AGENTC_REMOVE_IDENTITY          = 18
+AGENTC_REMOVE_ALL_IDENTITIES    = 19
 
-
-
-class ClientContextFactoryTests(unittest.TestCase):
-    """
-    Tests for L{ssl.ClientContextFactory}.
-    """
-    def setUp(self):
-        self.contextFactory = ssl.ClientContextFactory()
-        self.contextFactory._contextFactory = FakeContext
-        self.context = self.contextFactory.getContext()
-
-
-    def test_method(self):
-        """
-        L{ssl.ClientContextFactory.getContext} returns a context which can use
-        SSLv3 or TLSv1 but not SSLv2.
-        """
-        self.assertEqual(self.context._method, SSL.SSLv23_METHOD)
-        self.assertEqual(self.context._options & SSL.OP_NO_SSLv2,
-                         SSL.OP_NO_SSLv2)
-        self.assertFalse(self.context._options & SSL.OP_NO_SSLv3)
-        self.assertFalse(self.context._options & SSL.OP_NO_TLSv1)
-
-
-
-if interfaces.IReactorSSL(reactor, None) is None:
-    for tCase in [StolenTCPTests, TLSTests, SpammyTLSTests,
-                  BufferingTests, ConnectionLostTests,
-                  DefaultOpenSSLContextFactoryTests,
-                  ClientContextFactoryTests]:
-        tCase.skip = "Reactor does not support SSL, cannot run SSL tests"
+messages = {}
+for name, value in locals().copy().items():
+    if name[:7] == 'AGENTC_':
+        messages[value] = name[7:] # doesn't handle doubles

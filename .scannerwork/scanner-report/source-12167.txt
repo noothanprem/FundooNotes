@@ -1,245 +1,276 @@
 #
-# THIS IS WORK IN PROGRESS
-#
 # The Python Imaging Library
 # $Id$
 #
-# portable compiled font file parser
+# JPEG2000 file handling
 #
-# history:
-# 1997-08-19 fl   created
-# 2003-09-13 fl   fixed loading of unicode fonts
+# History:
+# 2014-03-12 ajh  Created
 #
-# Copyright (c) 1997-2003 by Secret Labs AB.
-# Copyright (c) 1997-2003 by Fredrik Lundh.
+# Copyright (c) 2014 Coriolis Systems Limited
+# Copyright (c) 2014 Alastair Houghton
 #
 # See the README file for information on usage and redistribution.
 #
+from . import Image, ImageFile
+import struct
+import os
+import io
 
-from . import Image, FontFile
-from ._binary import i8, i16le as l16, i32le as l32, i16be as b16, i32be as b32
-
-# --------------------------------------------------------------------
-# declarations
-
-PCF_MAGIC = 0x70636601  # "\x01fcp"
-
-PCF_PROPERTIES = (1 << 0)
-PCF_ACCELERATORS = (1 << 1)
-PCF_METRICS = (1 << 2)
-PCF_BITMAPS = (1 << 3)
-PCF_INK_METRICS = (1 << 4)
-PCF_BDF_ENCODINGS = (1 << 5)
-PCF_SWIDTHS = (1 << 6)
-PCF_GLYPH_NAMES = (1 << 7)
-PCF_BDF_ACCELERATORS = (1 << 8)
-
-BYTES_PER_ROW = [
-    lambda bits: ((bits+7) >> 3),
-    lambda bits: ((bits+15) >> 3) & ~1,
-    lambda bits: ((bits+31) >> 3) & ~3,
-    lambda bits: ((bits+63) >> 3) & ~7,
-]
+__version__ = "0.1"
 
 
-def sz(s, o):
-    return s[o:s.index(b"\0", o)]
+def _parse_codestream(fp):
+    """Parse the JPEG 2000 codestream to extract the size and component
+    count from the SIZ marker segment, returning a PIL (size, mode) tuple."""
 
+    hdr = fp.read(2)
+    lsiz = struct.unpack('>H', hdr)[0]
+    siz = hdr + fp.read(lsiz - 2)
+    lsiz, rsiz, xsiz, ysiz, xosiz, yosiz, xtsiz, ytsiz, \
+        xtosiz, ytosiz, csiz \
+        = struct.unpack_from('>HHIIIIIIIIH', siz)
+    ssiz = [None]*csiz
+    xrsiz = [None]*csiz
+    yrsiz = [None]*csiz
+    for i in range(csiz):
+        ssiz[i], xrsiz[i], yrsiz[i] \
+            = struct.unpack_from('>BBB', siz, 36 + 3 * i)
+
+    size = (xsiz - xosiz, ysiz - yosiz)
+    if csiz == 1:
+        if (yrsiz[0] & 0x7f) > 8:
+            mode = 'I;16'
+        else:
+            mode = 'L'
+    elif csiz == 2:
+        mode = 'LA'
+    elif csiz == 3:
+        mode = 'RGB'
+    elif csiz == 4:
+        mode = 'RGBA'
+    else:
+        mode = None
+
+    return (size, mode)
+
+
+def _parse_jp2_header(fp):
+    """Parse the JP2 header box to extract size, component count and
+    color space information, returning a PIL (size, mode) tuple."""
+
+    # Find the JP2 header box
+    header = None
+    while True:
+        lbox, tbox = struct.unpack('>I4s', fp.read(8))
+        if lbox == 1:
+            lbox = struct.unpack('>Q', fp.read(8))[0]
+            hlen = 16
+        else:
+            hlen = 8
+
+        if lbox < hlen:
+            raise SyntaxError('Invalid JP2 header length')
+
+        if tbox == b'jp2h':
+            header = fp.read(lbox - hlen)
+            break
+        else:
+            fp.seek(lbox - hlen, os.SEEK_CUR)
+
+    if header is None:
+        raise SyntaxError('could not find JP2 header')
+
+    size = None
+    mode = None
+    bpc = None
+    nc = None
+
+    hio = io.BytesIO(header)
+    while True:
+        lbox, tbox = struct.unpack('>I4s', hio.read(8))
+        if lbox == 1:
+            lbox = struct.unpack('>Q', hio.read(8))[0]
+            hlen = 16
+        else:
+            hlen = 8
+
+        content = hio.read(lbox - hlen)
+
+        if tbox == b'ihdr':
+            height, width, nc, bpc, c, unkc, ipr \
+                = struct.unpack('>IIHBBBB', content)
+            size = (width, height)
+            if unkc:
+                if nc == 1 and (bpc & 0x7f) > 8:
+                    mode = 'I;16'
+                elif nc == 1:
+                    mode = 'L'
+                elif nc == 2:
+                    mode = 'LA'
+                elif nc == 3:
+                    mode = 'RGB'
+                elif nc == 4:
+                    mode = 'RGBA'
+                break
+        elif tbox == b'colr':
+            meth, prec, approx = struct.unpack_from('>BBB', content)
+            if meth == 1:
+                cs = struct.unpack_from('>I', content, 3)[0]
+                if cs == 16:   # sRGB
+                    if nc == 1 and (bpc & 0x7f) > 8:
+                        mode = 'I;16'
+                    elif nc == 1:
+                        mode = 'L'
+                    elif nc == 3:
+                        mode = 'RGB'
+                    elif nc == 4:
+                        mode = 'RGBA'
+                    break
+                elif cs == 17:  # grayscale
+                    if nc == 1 and (bpc & 0x7f) > 8:
+                        mode = 'I;16'
+                    elif nc == 1:
+                        mode = 'L'
+                    elif nc == 2:
+                        mode = 'LA'
+                    break
+                elif cs == 18:  # sYCC
+                    if nc == 3:
+                        mode = 'RGB'
+                    elif nc == 4:
+                        mode = 'RGBA'
+                    break
+
+    if size is None or mode is None:
+        raise SyntaxError("Malformed jp2 header")
+
+    return (size, mode)
 
 ##
-# Font file plugin for the X11 PCF format.
+# Image plugin for JPEG2000 images.
 
-class PcfFontFile(FontFile.FontFile):
 
-    name = "name"
+class Jpeg2KImageFile(ImageFile.ImageFile):
+    format = "JPEG2000"
+    format_description = "JPEG 2000 (ISO 15444)"
 
-    def __init__(self, fp):
-
-        magic = l32(fp.read(4))
-        if magic != PCF_MAGIC:
-            raise SyntaxError("not a PCF file")
-
-        FontFile.FontFile.__init__(self)
-
-        count = l32(fp.read(4))
-        self.toc = {}
-        for i in range(count):
-            type = l32(fp.read(4))
-            self.toc[type] = l32(fp.read(4)), l32(fp.read(4)), l32(fp.read(4))
-
-        self.fp = fp
-
-        self.info = self._load_properties()
-
-        metrics = self._load_metrics()
-        bitmaps = self._load_bitmaps(metrics)
-        encoding = self._load_encoding()
-
-        #
-        # create glyph structure
-
-        for ch in range(256):
-            ix = encoding[ch]
-            if ix is not None:
-                x, y, l, r, w, a, d, f = metrics[ix]
-                glyph = (w, 0), (l, d-y, x+l, d), (0, 0, x, y), bitmaps[ix]
-                self.glyph[ch] = glyph
-
-    def _getformat(self, tag):
-
-        format, size, offset = self.toc[tag]
-
-        fp = self.fp
-        fp.seek(offset)
-
-        format = l32(fp.read(4))
-
-        if format & 4:
-            i16, i32 = b16, b32
+    def _open(self):
+        sig = self.fp.read(4)
+        if sig == b'\xff\x4f\xff\x51':
+            self.codec = "j2k"
+            self.size, self.mode = _parse_codestream(self.fp)
         else:
-            i16, i32 = l16, l32
+            sig = sig + self.fp.read(8)
 
-        return fp, format, i16, i32
+            if sig == b'\x00\x00\x00\x0cjP  \x0d\x0a\x87\x0a':
+                self.codec = "jp2"
+                self.size, self.mode = _parse_jp2_header(self.fp)
+            else:
+                raise SyntaxError('not a JPEG 2000 file')
 
-    def _load_properties(self):
+        if self.size is None or self.mode is None:
+            raise SyntaxError('unable to determine size/mode')
 
-        #
-        # font properties
+        self.reduce = 0
+        self.layers = 0
 
-        properties = {}
+        fd = -1
+        length = -1
 
-        fp, format, i16, i32 = self._getformat(PCF_PROPERTIES)
+        try:
+            fd = self.fp.fileno()
+            length = os.fstat(fd).st_size
+        except:
+            fd = -1
+            try:
+                pos = self.fp.tell()
+                self.fp.seek(0, 2)
+                length = self.fp.tell()
+                self.fp.seek(pos, 0)
+            except:
+                length = -1
 
-        nprops = i32(fp.read(4))
+        self.tile = [('jpeg2k', (0, 0) + self.size, 0,
+                      (self.codec, self.reduce, self.layers, fd, length))]
 
-        # read property description
-        p = []
-        for i in range(nprops):
-            p.append((i32(fp.read(4)), i8(fp.read(1)), i32(fp.read(4))))
-        if nprops & 3:
-            fp.seek(4 - (nprops & 3), 1)  # pad
+    def load(self):
+        if self.reduce:
+            power = 1 << self.reduce
+            adjust = power >> 1
+            self.size = (int((self.size[0] + adjust) / power),
+                         int((self.size[1] + adjust) / power))
 
-        data = fp.read(i32(fp.read(4)))
+        if self.tile:
+            # Update the reduce and layers settings
+            t = self.tile[0]
+            t3 = (t[3][0], self.reduce, self.layers, t[3][3], t[3][4])
+            self.tile = [(t[0], (0, 0) + self.size, t[2], t3)]
 
-        for k, s, v in p:
-            k = sz(data, k)
-            if s:
-                v = sz(data, v)
-            properties[k] = v
+        return ImageFile.ImageFile.load(self)
 
-        return properties
 
-    def _load_metrics(self):
+def _accept(prefix):
+    return (prefix[:4] == b'\xff\x4f\xff\x51' or
+            prefix[:12] == b'\x00\x00\x00\x0cjP  \x0d\x0a\x87\x0a')
 
-        #
-        # font metrics
 
-        metrics = []
+# ------------------------------------------------------------
+# Save support
 
-        fp, format, i16, i32 = self._getformat(PCF_METRICS)
+def _save(im, fp, filename):
+    if filename.endswith('.j2k'):
+        kind = 'j2k'
+    else:
+        kind = 'jp2'
 
-        append = metrics.append
+    # Get the keyword arguments
+    info = im.encoderinfo
 
-        if (format & 0xff00) == 0x100:
+    offset = info.get('offset', None)
+    tile_offset = info.get('tile_offset', None)
+    tile_size = info.get('tile_size', None)
+    quality_mode = info.get('quality_mode', 'rates')
+    quality_layers = info.get('quality_layers', None)
+    num_resolutions = info.get('num_resolutions', 0)
+    cblk_size = info.get('codeblock_size', None)
+    precinct_size = info.get('precinct_size', None)
+    irreversible = info.get('irreversible', False)
+    progression = info.get('progression', 'LRCP')
+    cinema_mode = info.get('cinema_mode', 'no')
+    fd = -1
 
-            # "compressed" metrics
-            for i in range(i16(fp.read(2))):
-                left = i8(fp.read(1)) - 128
-                right = i8(fp.read(1)) - 128
-                width = i8(fp.read(1)) - 128
-                ascent = i8(fp.read(1)) - 128
-                descent = i8(fp.read(1)) - 128
-                xsize = right - left
-                ysize = ascent + descent
-                append(
-                    (xsize, ysize, left, right, width,
-                     ascent, descent, 0)
-                    )
+    if hasattr(fp, "fileno"):
+        try:
+            fd = fp.fileno()
+        except:
+            fd = -1
 
-        else:
+    im.encoderconfig = (
+        offset,
+        tile_offset,
+        tile_size,
+        quality_mode,
+        quality_layers,
+        num_resolutions,
+        cblk_size,
+        precinct_size,
+        irreversible,
+        progression,
+        cinema_mode,
+        fd
+    )
 
-            # "jumbo" metrics
-            for i in range(i32(fp.read(4))):
-                left = i16(fp.read(2))
-                right = i16(fp.read(2))
-                width = i16(fp.read(2))
-                ascent = i16(fp.read(2))
-                descent = i16(fp.read(2))
-                attributes = i16(fp.read(2))
-                xsize = right - left
-                ysize = ascent + descent
-                append(
-                    (xsize, ysize, left, right, width,
-                     ascent, descent, attributes)
-                    )
+    ImageFile._save(im, fp, [('jpeg2k', (0, 0)+im.size, 0, kind)])
 
-        return metrics
+# ------------------------------------------------------------
+# Registry stuff
 
-    def _load_bitmaps(self, metrics):
 
-        #
-        # bitmap data
+Image.register_open(Jpeg2KImageFile.format, Jpeg2KImageFile, _accept)
+Image.register_save(Jpeg2KImageFile.format, _save)
 
-        bitmaps = []
+Image.register_extensions(Jpeg2KImageFile.format, [".jp2", ".j2k", ".jpc", ".jpf", ".jpx", ".j2c"])
 
-        fp, format, i16, i32 = self._getformat(PCF_BITMAPS)
-
-        nbitmaps = i32(fp.read(4))
-
-        if nbitmaps != len(metrics):
-            raise IOError("Wrong number of bitmaps")
-
-        offsets = []
-        for i in range(nbitmaps):
-            offsets.append(i32(fp.read(4)))
-
-        bitmapSizes = []
-        for i in range(4):
-            bitmapSizes.append(i32(fp.read(4)))
-
-        # byteorder = format & 4  # non-zero => MSB
-        bitorder = format & 8   # non-zero => MSB
-        padindex = format & 3
-
-        bitmapsize = bitmapSizes[padindex]
-        offsets.append(bitmapsize)
-
-        data = fp.read(bitmapsize)
-
-        pad = BYTES_PER_ROW[padindex]
-        mode = "1;R"
-        if bitorder:
-            mode = "1"
-
-        for i in range(nbitmaps):
-            x, y, l, r, w, a, d, f = metrics[i]
-            b, e = offsets[i], offsets[i+1]
-            bitmaps.append(
-                Image.frombytes("1", (x, y), data[b:e], "raw", mode, pad(x))
-                )
-
-        return bitmaps
-
-    def _load_encoding(self):
-
-        # map character code to bitmap index
-        encoding = [None] * 256
-
-        fp, format, i16, i32 = self._getformat(PCF_BDF_ENCODINGS)
-
-        firstCol, lastCol = i16(fp.read(2)), i16(fp.read(2))
-        firstRow, lastRow = i16(fp.read(2)), i16(fp.read(2))
-
-        default = i16(fp.read(2))
-
-        nencoding = (lastCol - firstCol + 1) * (lastRow - firstRow + 1)
-
-        for i in range(nencoding):
-            encodingOffset = i16(fp.read(2))
-            if encodingOffset != 0xFFFF:
-                try:
-                    encoding[i+firstCol] = encodingOffset
-                except IndexError:
-                    break  # only load ISO-8859-1 glyphs
-
-        return encoding
+Image.register_mime(Jpeg2KImageFile.format, 'image/jp2')
+Image.register_mime(Jpeg2KImageFile.format, 'image/jpx')

@@ -1,4 +1,5 @@
-# Copyright 2014 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright (c) 2012-2013 Mitch Garnaat http://garnaat.org/
+# Copyright 2012-2014 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -10,964 +11,508 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-"""Response parsers for the various protocol types.
-
-The module contains classes that can take an HTTP response, and given
-an output shape, parse the response into a dict according to the
-rules in the output shape.
-
-There are many similarities amongst the different protocols with regard
-to response parsing, and the code is structured in a way to avoid
-code duplication when possible.  The diagram below is a diagram
-showing the inheritance hierarchy of the response classes.
-
-::
+from __future__ import unicode_literals
+from botocore.vendored import requests
+from botocore.vendored.requests.packages import urllib3
 
 
-
-                                 +--------------+
-                                 |ResponseParser|
-                                 +--------------+
-                                    ^    ^    ^
-               +--------------------+    |    +-------------------+
-               |                         |                        |
-    +----------+----------+       +------+-------+        +-------+------+
-    |BaseXMLResponseParser|       |BaseRestParser|        |BaseJSONParser|
-    +---------------------+       +--------------+        +--------------+
-              ^         ^          ^           ^           ^        ^
-              |         |          |           |           |        |
-              |         |          |           |           |        |
-              |        ++----------+-+       +-+-----------++       |
-              |        |RestXMLParser|       |RestJSONParser|       |
-        +-----+-----+  +-------------+       +--------------+  +----+-----+
-        |QueryParser|                                          |JSONParser|
-        +-----------+                                          +----------+
+def _exception_from_packed_args(exception_cls, args=None, kwargs=None):
+    # This is helpful for reducing Exceptions that only accept kwargs as
+    # only positional arguments can be provided for __reduce__
+    # Ideally, this would also be a class method on the BotoCoreError
+    # but instance methods cannot be pickled.
+    if args is None:
+        args = ()
+    if kwargs is None:
+        kwargs = {}
+    return exception_cls(*args, **kwargs)
 
 
-The diagram above shows that there is a base class, ``ResponseParser`` that
-contains logic that is similar amongst all the different protocols (``query``,
-``json``, ``rest-json``, ``rest-xml``).  Amongst the various services there
-is shared logic that can be grouped several ways:
+class BotoCoreError(Exception):
+    """
+    The base exception class for BotoCore exceptions.
 
-* The ``query`` and ``rest-xml`` both have XML bodies that are parsed in the
-  same way.
-* The ``json`` and ``rest-json`` protocols both have JSON bodies that are
-  parsed in the same way.
-* The ``rest-json`` and ``rest-xml`` protocols have additional attributes
-  besides body parameters that are parsed the same (headers, query string,
-  status code).
+    :ivar msg: The descriptive message associated with the error.
+    """
+    fmt = 'An unspecified error occurred'
 
-This is reflected in the class diagram above.  The ``BaseXMLResponseParser``
-and the BaseJSONParser contain logic for parsing the XML/JSON body,
-and the BaseRestParser contains logic for parsing out attributes that
-come from other parts of the HTTP response.  Classes like the
-``RestXMLParser`` inherit from the ``BaseXMLResponseParser`` to get the
-XML body parsing logic and the ``BaseRestParser`` to get the HTTP
-header/status code/query string parsing.
+    def __init__(self, **kwargs):
+        msg = self.fmt.format(**kwargs)
+        Exception.__init__(self, msg)
+        self.kwargs = kwargs
 
-Additionally, there are event stream parsers that are used by the other parsers
-to wrap streaming bodies that represent a stream of events. The
-BaseEventStreamParser extends from ResponseParser and defines the logic for
-parsing values from the headers and payload of a message from the underlying
-binary encoding protocol. Currently, event streams support parsing bodies
-encoded as JSON and XML through the following hierarchy.
+    def __reduce__(self):
+        return _exception_from_packed_args, (self.__class__, None, self.kwargs)
 
 
-                                  +--------------+
-                                  |ResponseParser|
-                                  +--------------+
-                                    ^    ^    ^
-               +--------------------+    |    +------------------+
-               |                         |                       |
-    +----------+----------+   +----------+----------+    +-------+------+
-    |BaseXMLResponseParser|   |BaseEventStreamParser|    |BaseJSONParser|
-    +---------------------+   +---------------------+    +--------------+
-                     ^                ^        ^                 ^
-                     |                |        |                 |
-                     |                |        |                 |
-                   +-+----------------+-+    +-+-----------------+-+
-                   |EventStreamXMLParser|    |EventStreamJSONParser|
-                   +--------------------+    +---------------------+
+class DataNotFoundError(BotoCoreError):
+    """
+    The data associated with a particular path could not be loaded.
 
-Return Values
-=============
-
-Each call to ``parse()`` returns a dict has this form::
-
-    Standard Response
-
-    {
-      "ResponseMetadata": {"RequestId": <requestid>}
-      <response keys>
-    }
-
-    Error response
-
-    {
-      "ResponseMetadata": {"RequestId": <requestid>}
-      "Error": {
-        "Code": <string>,
-        "Message": <string>,
-        "Type": <string>,
-        <additional keys>
-      }
-    }
-
-"""
-import re
-import base64
-import json
-import xml.etree.cElementTree
-import logging
-
-from botocore.compat import six, XMLParseError
-from botocore.eventstream import EventStream, NoInitialResponseError
-
-from botocore.utils import parse_timestamp, merge_dicts, \
-    is_json_value_header, lowercase_dict
-
-LOG = logging.getLogger(__name__)
-
-DEFAULT_TIMESTAMP_PARSER = parse_timestamp
+    :ivar path: The data path that the user attempted to load.
+    """
+    fmt = 'Unable to load data for: {data_path}'
 
 
-class ResponseParserFactory(object):
-    def __init__(self):
-        self._defaults = {}
+class UnknownServiceError(DataNotFoundError):
+    """Raised when trying to load data for an unknown service.
 
-    def set_parser_defaults(self, **kwargs):
-        """Set default arguments when a parser instance is created.
+    :ivar service_name: The name of the unknown service.
 
-        You can specify any kwargs that are allowed by a ResponseParser
-        class.  There are currently two arguments:
-
-            * timestamp_parser - A callable that can parse a timetsamp string
-            * blob_parser - A callable that can parse a blob type
-
-        """
-        self._defaults.update(kwargs)
-
-    def create_parser(self, protocol_name):
-        parser_cls = PROTOCOL_PARSERS[protocol_name]
-        return parser_cls(**self._defaults)
+    """
+    fmt = (
+        "Unknown service: '{service_name}'. Valid service names are: "
+        "{known_service_names}")
 
 
-def create_parser(protocol):
-    return ResponseParserFactory().create_parser(protocol)
+class ApiVersionNotFoundError(BotoCoreError):
+    """
+    The data associated with either that API version or a compatible one
+    could not be loaded.
+
+    :ivar path: The data path that the user attempted to load.
+    :ivar path: The API version that the user attempted to load.
+    """
+    fmt = 'Unable to load data {data_path} for: {api_version}'
 
 
-def _text_content(func):
-    # This decorator hides the difference between
-    # an XML node with text or a plain string.  It's used
-    # to ensure that scalar processing operates only on text
-    # strings, which allows the same scalar handlers to be used
-    # for XML nodes from the body and HTTP headers.
-    def _get_text_content(self, shape, node_or_string):
-        if hasattr(node_or_string, 'text'):
-            text = node_or_string.text
-            if text is None:
-                # If an XML node is empty <foo></foo>,
-                # we want to parse that as an empty string,
-                # not as a null/None value.
-                text = ''
-        else:
-            text = node_or_string
-        return func(self, shape, text)
-    return _get_text_content
+class HTTPClientError(BotoCoreError):
+    fmt = 'An HTTP Client raised and unhandled exception: {error}'
+    def __init__(self, request=None, response=None, **kwargs):
+        self.request = request
+        self.response = response
+        super(HTTPClientError, self).__init__(**kwargs)
+
+    def __reduce__(self):
+        return _exception_from_packed_args, (
+            self.__class__, (self.request, self.response), self.kwargs)
 
 
-class ResponseParserError(Exception):
+class ConnectionError(BotoCoreError):
+    fmt = 'An HTTP Client failed to establish a connection: {error}'
+
+
+class EndpointConnectionError(ConnectionError):
+    fmt = 'Could not connect to the endpoint URL: "{endpoint_url}"'
+
+
+class SSLError(ConnectionError, requests.exceptions.SSLError):
+    fmt = 'SSL validation failed for {endpoint_url} {error}'
+
+
+class ConnectionClosedError(HTTPClientError):
+    fmt = (
+        'Connection was closed before we received a valid response '
+        'from endpoint URL: "{endpoint_url}".')
+
+
+class ReadTimeoutError(HTTPClientError, requests.exceptions.ReadTimeout,
+                       urllib3.exceptions.ReadTimeoutError):
+    fmt = 'Read timeout on endpoint URL: "{endpoint_url}"'
+
+
+class ConnectTimeoutError(ConnectionError, requests.exceptions.ConnectTimeout):
+    fmt = 'Connect timeout on endpoint URL: "{endpoint_url}"'
+
+
+class ProxyConnectionError(ConnectionError, requests.exceptions.ProxyError):
+    fmt = 'Failed to connect to proxy URL: "{proxy_url}"'
+
+
+class NoCredentialsError(BotoCoreError):
+    """
+    No credentials could be found
+    """
+    fmt = 'Unable to locate credentials'
+
+
+class PartialCredentialsError(BotoCoreError):
+    """
+    Only partial credentials were found.
+
+    :ivar cred_var: The missing credential variable name.
+
+    """
+    fmt = 'Partial credentials found in {provider}, missing: {cred_var}'
+
+
+class CredentialRetrievalError(BotoCoreError):
+    """
+    Error attempting to retrieve credentials from a remote source.
+
+    :ivar provider: The name of the credential provider.
+    :ivar error_msg: The msg explaning why credentials could not be
+        retrieved.
+
+    """
+    fmt = 'Error when retrieving credentials from {provider}: {error_msg}'
+
+
+class UnknownSignatureVersionError(BotoCoreError):
+    """
+    Requested Signature Version is not known.
+
+    :ivar signature_version: The name of the requested signature version.
+    """
+    fmt = 'Unknown Signature Version: {signature_version}.'
+
+
+class ServiceNotInRegionError(BotoCoreError):
+    """
+    The service is not available in requested region.
+
+    :ivar service_name: The name of the service.
+    :ivar region_name: The name of the region.
+    """
+    fmt = 'Service {service_name} not available in region {region_name}'
+
+
+class BaseEndpointResolverError(BotoCoreError):
+    """Base error for endpoint resolving errors.
+
+    Should never be raised directly, but clients can catch
+    this exception if they want to generically handle any errors
+    during the endpoint resolution process.
+
+    """
+
+
+class NoRegionError(BaseEndpointResolverError):
+    """No region was specified."""
+    fmt = 'You must specify a region.'
+
+
+class UnknownEndpointError(BaseEndpointResolverError, ValueError):
+    """
+    Could not construct an endpoint.
+
+    :ivar service_name: The name of the service.
+    :ivar region_name: The name of the region.
+    """
+    fmt = (
+        'Unable to construct an endpoint for '
+        '{service_name} in region {region_name}')
+
+
+class ProfileNotFound(BotoCoreError):
+    """
+    The specified configuration profile was not found in the
+    configuration file.
+
+    :ivar profile: The name of the profile the user attempted to load.
+    """
+    fmt = 'The config profile ({profile}) could not be found'
+
+
+class ConfigParseError(BotoCoreError):
+    """
+    The configuration file could not be parsed.
+
+    :ivar path: The path to the configuration file.
+    """
+    fmt = 'Unable to parse config file: {path}'
+
+
+class ConfigNotFound(BotoCoreError):
+    """
+    The specified configuration file could not be found.
+
+    :ivar path: The path to the configuration file.
+    """
+    fmt = 'The specified config file ({path}) could not be found.'
+
+
+class MissingParametersError(BotoCoreError):
+    """
+    One or more required parameters were not supplied.
+
+    :ivar object: The object that has missing parameters.
+        This can be an operation or a parameter (in the
+        case of inner params).  The str() of this object
+        will be used so it doesn't need to implement anything
+        other than str().
+    :ivar missing: The names of the missing parameters.
+    """
+    fmt = ('The following required parameters are missing for '
+           '{object_name}: {missing}')
+
+
+class ValidationError(BotoCoreError):
+    """
+    An exception occurred validating parameters.
+
+    Subclasses must accept a ``value`` and ``param``
+    argument in their ``__init__``.
+
+    :ivar value: The value that was being validated.
+    :ivar param: The parameter that failed validation.
+    :ivar type_name: The name of the underlying type.
+    """
+    fmt = ("Invalid value ('{value}') for param {param} "
+           "of type {type_name} ")
+
+
+class ParamValidationError(BotoCoreError):
+    fmt = 'Parameter validation failed:\n{report}'
+
+
+# These exceptions subclass from ValidationError so that code
+# can just 'except ValidationError' to catch any possibly validation
+# error.
+class UnknownKeyError(ValidationError):
+    """
+    Unknown key in a struct paramster.
+
+    :ivar value: The value that was being checked.
+    :ivar param: The name of the parameter.
+    :ivar choices: The valid choices the value can be.
+    """
+    fmt = ("Unknown key '{value}' for param '{param}'.  Must be one "
+           "of: {choices}")
+
+
+class RangeError(ValidationError):
+    """
+    A parameter value was out of the valid range.
+
+    :ivar value: The value that was being checked.
+    :ivar param: The parameter that failed validation.
+    :ivar min_value: The specified minimum value.
+    :ivar max_value: The specified maximum value.
+    """
+    fmt = ('Value out of range for param {param}: '
+           '{min_value} <= {value} <= {max_value}')
+
+
+class UnknownParameterError(ValidationError):
+    """
+    Unknown top level parameter.
+
+    :ivar name: The name of the unknown parameter.
+    :ivar operation: The name of the operation.
+    :ivar choices: The valid choices the parameter name can be.
+    """
+    fmt = (
+        "Unknown parameter '{name}' for operation {operation}.  Must be one "
+        "of: {choices}"
+    )
+
+
+class AliasConflictParameterError(ValidationError):
+    """
+    Error when an alias is provided for a parameter as well as the original.
+
+    :ivar original: The name of the original parameter.
+    :ivar alias: The name of the alias
+    :ivar operation: The name of the operation.
+    """
+    fmt = (
+        "Parameter '{original}' and its alias '{alias}' were provided "
+        "for operation {operation}.  Only one of them may be used."
+    )
+
+
+class UnknownServiceStyle(BotoCoreError):
+    """
+    Unknown style of service invocation.
+
+    :ivar service_style: The style requested.
+    """
+    fmt = 'The service style ({service_style}) is not understood.'
+
+
+class PaginationError(BotoCoreError):
+    fmt = 'Error during pagination: {message}'
+
+
+class OperationNotPageableError(BotoCoreError):
+    fmt = 'Operation cannot be paginated: {operation_name}'
+
+
+class ChecksumError(BotoCoreError):
+    """The expected checksum did not match the calculated checksum.
+
+    """
+    fmt = ('Checksum {checksum_type} failed, expected checksum '
+           '{expected_checksum} did not match calculated checksum '
+           '{actual_checksum}.')
+
+
+class UnseekableStreamError(BotoCoreError):
+    """Need to seek a stream, but stream does not support seeking.
+
+    """
+    fmt = ('Need to rewind the stream {stream_object}, but stream '
+           'is not seekable.')
+
+
+class WaiterError(BotoCoreError):
+    """Waiter failed to reach desired state."""
+    fmt = 'Waiter {name} failed: {reason}'
+
+    def __init__(self, name, reason, last_response):
+        super(WaiterError, self).__init__(name=name, reason=reason)
+        self.last_response = last_response
+
+
+class IncompleteReadError(BotoCoreError):
+    """HTTP response did not return expected number of bytes."""
+    fmt = ('{actual_bytes} read, but total bytes '
+           'expected is {expected_bytes}.')
+
+
+class InvalidExpressionError(BotoCoreError):
+    """Expression is either invalid or too complex."""
+    fmt = 'Invalid expression {expression}: Only dotted lookups are supported.'
+
+
+class UnknownCredentialError(BotoCoreError):
+    """Tried to insert before/after an unregistered credential type."""
+    fmt = 'Credential named {name} not found.'
+
+
+class WaiterConfigError(BotoCoreError):
+    """Error when processing waiter configuration."""
+    fmt = 'Error processing waiter config: {error_msg}'
+
+
+class UnknownClientMethodError(BotoCoreError):
+    """Error when trying to access a method on a client that does not exist."""
+    fmt = 'Client does not have method: {method_name}'
+
+
+class UnsupportedSignatureVersionError(BotoCoreError):
+    """Error when trying to access a method on a client that does not exist."""
+    fmt = 'Signature version is not supported: {signature_version}'
+
+
+class ClientError(Exception):
+    MSG_TEMPLATE = (
+        'An error occurred ({error_code}) when calling the {operation_name} '
+        'operation{retry_info}: {error_message}')
+
+    def __init__(self, error_response, operation_name):
+        retry_info = self._get_retry_info(error_response)
+        error = error_response.get('Error', {})
+        msg = self.MSG_TEMPLATE.format(
+            error_code=error.get('Code', 'Unknown'),
+            error_message=error.get('Message', 'Unknown'),
+            operation_name=operation_name,
+            retry_info=retry_info,
+        )
+        super(ClientError, self).__init__(msg)
+        self.response = error_response
+        self.operation_name = operation_name
+
+    def _get_retry_info(self, response):
+        retry_info = ''
+        if 'ResponseMetadata' in response:
+            metadata = response['ResponseMetadata']
+            if metadata.get('MaxAttemptsReached', False):
+                if 'RetryAttempts' in metadata:
+                    retry_info = (' (reached max retries: %s)' %
+                                  metadata['RetryAttempts'])
+        return retry_info
+
+    def __reduce__(self):
+        # Subclasses of ClientError's are dynamically generated and
+        # cannot be pickled unless they are attributes of a
+        # module. So at the very least return a ClientError back.
+        return ClientError, (self.response, self.operation_name)
+
+
+class EventStreamError(ClientError):
     pass
 
 
-class ResponseParser(object):
-    """Base class for response parsing.
+class UnsupportedTLSVersionWarning(Warning):
+    """Warn when an openssl version that uses TLS 1.2 is required"""
+    pass
 
-    This class represents the interface that all ResponseParsers for the
-    various protocols must implement.
 
-    This class will take an HTTP response and a model shape and parse the
-    HTTP response into a dictionary.
+class ImminentRemovalWarning(Warning):
+    pass
 
-    There is a single public method exposed: ``parse``.  See the ``parse``
-    docstring for more info.
 
-    """
-    DEFAULT_ENCODING = 'utf-8'
-    EVENT_STREAM_PARSER_CLS = None
+class InvalidDNSNameError(BotoCoreError):
+    """Error when virtual host path is forced on a non-DNS compatible bucket"""
+    fmt = (
+        'Bucket named {bucket_name} is not DNS compatible. Virtual '
+        'hosted-style addressing cannot be used. The addressing style '
+        'can be configured by removing the addressing_style value '
+        'or setting that value to \'path\' or \'auto\' in the AWS Config '
+        'file or in the botocore.client.Config object.'
+    )
 
-    def __init__(self, timestamp_parser=None, blob_parser=None):
-        if timestamp_parser is None:
-            timestamp_parser = DEFAULT_TIMESTAMP_PARSER
-        self._timestamp_parser = timestamp_parser
-        if blob_parser is None:
-            blob_parser = self._default_blob_parser
-        self._blob_parser = blob_parser
-        self._event_stream_parser = None
-        if self.EVENT_STREAM_PARSER_CLS is not None:
-            self._event_stream_parser = self.EVENT_STREAM_PARSER_CLS(
-                timestamp_parser, blob_parser)
 
-    def _default_blob_parser(self, value):
-        # Blobs are always returned as bytes type (this matters on python3).
-        # We don't decode this to a str because it's entirely possible that the
-        # blob contains binary data that actually can't be decoded.
-        return base64.b64decode(value)
+class InvalidS3AddressingStyleError(BotoCoreError):
+    """Error when an invalid path style is specified"""
+    fmt = (
+        'S3 addressing style {s3_addressing_style} is invaild. Valid options '
+        'are: \'auto\', \'virtual\', and \'path\''
+    )
 
-    def parse(self, response, shape):
-        """Parse the HTTP response given a shape.
 
-        :param response: The HTTP response dictionary.  This is a dictionary
-            that represents the HTTP request.  The dictionary must have the
-            following keys, ``body``, ``headers``, and ``status_code``.
+class InvalidRetryConfigurationError(BotoCoreError):
+    """Error when invalid retry configuration is specified"""
+    fmt = (
+        'Cannot provide retry configuration for "{retry_config_option}". '
+        'Valid retry configuration options are: \'max_attempts\''
+    )
 
-        :param shape: The model shape describing the expected output.
-        :return: Returns a dictionary representing the parsed response
-            described by the model.  In addition to the shape described from
-            the model, each response will also have a ``ResponseMetadata``
-            which contains metadata about the response, which contains at least
-            two keys containing ``RequestId`` and ``HTTPStatusCode``.  Some
-            responses may populate additional keys, but ``RequestId`` will
-            always be present.
 
-        """
-        LOG.debug('Response headers: %s', response['headers'])
-        LOG.debug('Response body:\n%s', response['body'])
-        if response['status_code'] >= 301:
-            if self._is_generic_error_response(response):
-                parsed = self._do_generic_error_parse(response)
-            else:
-                parsed = self._do_error_parse(response, shape)
-        else:
-            parsed = self._do_parse(response, shape)
+class InvalidMaxRetryAttemptsError(InvalidRetryConfigurationError):
+    """Error when invalid retry configuration is specified"""
+    fmt = (
+        'Value provided to "max_attempts": {provided_max_attempts} must '
+        'be an integer greater than or equal to zero.'
+    )
 
-        # We don't want to decorate event stream responses with metadata
-        if shape and shape.serialization.get('eventstream'):
-            return parsed
+class StubResponseError(BotoCoreError):
+    fmt = 'Error getting response stub for operation {operation_name}: {reason}'
 
-        # Add ResponseMetadata if it doesn't exist and inject the HTTP
-        # status code and headers from the response.
-        if isinstance(parsed, dict):
-            response_metadata = parsed.get('ResponseMetadata', {})
-            response_metadata['HTTPStatusCode'] = response['status_code']
-            # Ensure that the http header keys are all lower cased. Older
-            # versions of urllib3 (< 1.11) would unintentionally do this for us
-            # (see urllib3#633). We need to do this conversion manually now.
-            headers = response['headers']
-            response_metadata['HTTPHeaders'] = lowercase_dict(headers)
-            parsed['ResponseMetadata'] = response_metadata
-        return parsed
 
-    def _is_generic_error_response(self, response):
-        # There are times when a service will respond with a generic
-        # error response such as:
-        # '<html><body><b>Http/1.1 Service Unavailable</b></body></html>'
-        #
-        # This can also happen if you're going through a proxy.
-        # In this case the protocol specific _do_error_parse will either
-        # fail to parse the response (in the best case) or silently succeed
-        # and treat the HTML above as an XML response and return
-        # non sensical parsed data.
-        # To prevent this case from happening we first need to check
-        # whether or not this response looks like the generic response.
-        if response['status_code'] >= 500:
-            if 'body' not in response or response['body'] is None:
-                return True
+class StubAssertionError(StubResponseError, AssertionError):
+    pass
 
-            body = response['body'].strip()
-            return body.startswith(b'<html>') or not body
+class UnStubbedResponseError(StubResponseError):
+    pass
 
-    def _do_generic_error_parse(self, response):
-        # There's not really much we can do when we get a generic
-        # html response.
-        LOG.debug("Received a non protocol specific error response from the "
-                  "service, unable to populate error code and message.")
-        return {
-            'Error': {'Code': str(response['status_code']),
-                      'Message': six.moves.http_client.responses.get(
-                          response['status_code'], '')},
-            'ResponseMetadata': {},
-        }
+class InvalidConfigError(BotoCoreError):
+    fmt = '{error_msg}'
 
-    def _do_parse(self, response, shape):
-        raise NotImplementedError("%s._do_parse" % self.__class__.__name__)
 
-    def _do_error_parse(self, response, shape):
-        raise NotImplementedError(
-            "%s._do_error_parse" % self.__class__.__name__)
+class InfiniteLoopConfigError(InvalidConfigError):
+    fmt = (
+        'Infinite loop in credential configuration detected. Attempting to '
+        'load from profile {source_profile} which has already been visited. '
+        'Visited profiles: {visited_profiles}'
+    )
 
-    def _parse_shape(self, shape, node):
-        handler = getattr(self, '_handle_%s' % shape.type_name,
-                          self._default_handle)
-        return handler(shape, node)
 
-    def _handle_list(self, shape, node):
-        # Enough implementations share list serialization that it's moved
-        # up here in the base class.
-        parsed = []
-        member_shape = shape.member
-        for item in node:
-            parsed.append(self._parse_shape(member_shape, item))
-        return parsed
+class RefreshWithMFAUnsupportedError(BotoCoreError):
+    fmt = 'Cannot refresh credentials: MFA token required.'
 
-    def _default_handle(self, shape, value):
-        return value
 
-    def _create_event_stream(self, response, shape):
-        parser = self._event_stream_parser
-        name = response['context'].get('operation_name')
-        return EventStream(response['body'], shape, parser, name)
+class MD5UnavailableError(BotoCoreError):
+    fmt = "This system does not support MD5 generation."
 
 
-class BaseXMLResponseParser(ResponseParser):
-    def __init__(self, timestamp_parser=None, blob_parser=None):
-        super(BaseXMLResponseParser, self).__init__(timestamp_parser,
-                                                    blob_parser)
-        self._namespace_re = re.compile('{.*}')
+class MetadataRetrievalError(BotoCoreError):
+    fmt = "Error retrieving metadata: {error_msg}"
 
-    def _handle_map(self, shape, node):
-        parsed = {}
-        key_shape = shape.key
-        value_shape = shape.value
-        key_location_name = key_shape.serialization.get('name') or 'key'
-        value_location_name = value_shape.serialization.get('name') or 'value'
-        if shape.serialization.get('flattened') and not isinstance(node, list):
-            node = [node]
-        for keyval_node in node:
-            for single_pair in keyval_node:
-                # Within each <entry> there's a <key> and a <value>
-                tag_name = self._node_tag(single_pair)
-                if tag_name == key_location_name:
-                    key_name = self._parse_shape(key_shape, single_pair)
-                elif tag_name == value_location_name:
-                    val_name = self._parse_shape(value_shape, single_pair)
-                else:
-                    raise ResponseParserError("Unknown tag: %s" % tag_name)
-            parsed[key_name] = val_name
-        return parsed
 
-    def _node_tag(self, node):
-        return self._namespace_re.sub('', node.tag)
+class UndefinedModelAttributeError(Exception):
+    pass
 
-    def _handle_list(self, shape, node):
-        # When we use _build_name_to_xml_node, repeated elements are aggregated
-        # into a list.  However, we can't tell the difference between a scalar
-        # value and a single element flattened list.  So before calling the
-        # real _handle_list, we know that "node" should actually be a list if
-        # it's flattened, and if it's not, then we make it a one element list.
-        if shape.serialization.get('flattened') and not isinstance(node, list):
-            node = [node]
-        return super(BaseXMLResponseParser, self)._handle_list(shape, node)
 
-    def _handle_structure(self, shape, node):
-        parsed = {}
-        members = shape.members
-        xml_dict = self._build_name_to_xml_node(node)
-        for member_name in members:
-            member_shape = members[member_name]
-            if 'location' in member_shape.serialization or \
-               member_shape.serialization.get('eventheader'):
-                # All members with locations have already been handled,
-                # so we don't need to parse these members.
-                continue
-            xml_name = self._member_key_name(member_shape, member_name)
-            member_node = xml_dict.get(xml_name)
-            if member_node is not None:
-                parsed[member_name] = self._parse_shape(
-                    member_shape, member_node)
-            elif member_shape.serialization.get('xmlAttribute'):
-                attribs = {}
-                location_name = member_shape.serialization['name']
-                for key, value in node.attrib.items():
-                    new_key = self._namespace_re.sub(
-                        location_name.split(':')[0] + ':', key)
-                    attribs[new_key] = value
-                if location_name in attribs:
-                    parsed[member_name] = attribs[location_name]
-        return parsed
+class MissingServiceIdError(UndefinedModelAttributeError):
+    fmt = (
+        "The model being used for the service {service_name} is missing the "
+        "serviceId metadata property, which is required."
+    )
 
-    def _member_key_name(self, shape, member_name):
-        # This method is needed because we have to special case flattened list
-        # with a serialization name.  If this is the case we use the
-        # locationName from the list's member shape as the key name for the
-        # surrounding structure.
-        if shape.type_name == 'list' and shape.serialization.get('flattened'):
-            list_member_serialized_name = shape.member.serialization.get(
-                'name')
-            if list_member_serialized_name is not None:
-                return list_member_serialized_name
-        serialized_name = shape.serialization.get('name')
-        if serialized_name is not None:
-            return serialized_name
-        return member_name
-
-    def _build_name_to_xml_node(self, parent_node):
-        # If the parent node is actually a list. We should not be trying
-        # to serialize it to a dictionary. Instead, return the first element
-        # in the list.
-        if isinstance(parent_node, list):
-            return self._build_name_to_xml_node(parent_node[0])
-        xml_dict = {}
-        for item in parent_node:
-            key = self._node_tag(item)
-            if key in xml_dict:
-                # If the key already exists, the most natural
-                # way to handle this is to aggregate repeated
-                # keys into a single list.
-                # <foo>1</foo><foo>2</foo> -> {'foo': [Node(1), Node(2)]}
-                if isinstance(xml_dict[key], list):
-                    xml_dict[key].append(item)
-                else:
-                    # Convert from a scalar to a list.
-                    xml_dict[key] = [xml_dict[key], item]
-            else:
-                xml_dict[key] = item
-        return xml_dict
-
-    def _parse_xml_string_to_dom(self, xml_string):
-        try:
-            parser = xml.etree.cElementTree.XMLParser(
-                target=xml.etree.cElementTree.TreeBuilder(),
-                encoding=self.DEFAULT_ENCODING)
-            parser.feed(xml_string)
-            root = parser.close()
-        except XMLParseError as e:
-            raise ResponseParserError(
-                "Unable to parse response (%s), "
-                "invalid XML received:\n%s" % (e, xml_string))
-        return root
-
-    def _replace_nodes(self, parsed):
-        for key, value in parsed.items():
-            if list(value):
-                sub_dict = self._build_name_to_xml_node(value)
-                parsed[key] = self._replace_nodes(sub_dict)
-            else:
-                parsed[key] = value.text
-        return parsed
-
-    @_text_content
-    def _handle_boolean(self, shape, text):
-        if text == 'true':
-            return True
-        else:
-            return False
-
-    @_text_content
-    def _handle_float(self, shape, text):
-        return float(text)
-
-    @_text_content
-    def _handle_timestamp(self, shape, text):
-        return self._timestamp_parser(text)
-
-    @_text_content
-    def _handle_integer(self, shape, text):
-        return int(text)
-
-    @_text_content
-    def _handle_string(self, shape, text):
-        return text
-
-    @_text_content
-    def _handle_blob(self, shape, text):
-        return self._blob_parser(text)
-
-    _handle_character = _handle_string
-    _handle_double = _handle_float
-    _handle_long = _handle_integer
-
-
-class QueryParser(BaseXMLResponseParser):
-
-    def _do_error_parse(self, response, shape):
-        xml_contents = response['body']
-        root = self._parse_xml_string_to_dom(xml_contents)
-        parsed = self._build_name_to_xml_node(root)
-        self._replace_nodes(parsed)
-        # Once we've converted xml->dict, we need to make one or two
-        # more adjustments to extract nested errors and to be consistent
-        # with ResponseMetadata for non-error responses:
-        # 1. {"Errors": {"Error": {...}}} -> {"Error": {...}}
-        # 2. {"RequestId": "id"} -> {"ResponseMetadata": {"RequestId": "id"}}
-        if 'Errors' in parsed:
-            parsed.update(parsed.pop('Errors'))
-        if 'RequestId' in parsed:
-            parsed['ResponseMetadata'] = {'RequestId': parsed.pop('RequestId')}
-        return parsed
-
-    def _do_parse(self, response, shape):
-        xml_contents = response['body']
-        root = self._parse_xml_string_to_dom(xml_contents)
-        parsed = {}
-        if shape is not None:
-            start = root
-            if 'resultWrapper' in shape.serialization:
-                start = self._find_result_wrapped_shape(
-                    shape.serialization['resultWrapper'],
-                    root)
-            parsed = self._parse_shape(shape, start)
-        self._inject_response_metadata(root, parsed)
-        return parsed
-
-    def _find_result_wrapped_shape(self, element_name, xml_root_node):
-        mapping = self._build_name_to_xml_node(xml_root_node)
-        return mapping[element_name]
-
-    def _inject_response_metadata(self, node, inject_into):
-        mapping = self._build_name_to_xml_node(node)
-        child_node = mapping.get('ResponseMetadata')
-        if child_node is not None:
-            sub_mapping = self._build_name_to_xml_node(child_node)
-            for key, value in sub_mapping.items():
-                sub_mapping[key] = value.text
-            inject_into['ResponseMetadata'] = sub_mapping
-
-
-class EC2QueryParser(QueryParser):
-
-    def _inject_response_metadata(self, node, inject_into):
-        mapping = self._build_name_to_xml_node(node)
-        child_node = mapping.get('requestId')
-        if child_node is not None:
-            inject_into['ResponseMetadata'] = {'RequestId': child_node.text}
-
-    def _do_error_parse(self, response, shape):
-        # EC2 errors look like:
-        # <Response>
-        #   <Errors>
-        #     <Error>
-        #       <Code>InvalidInstanceID.Malformed</Code>
-        #       <Message>Invalid id: "1343124"</Message>
-        #     </Error>
-        #   </Errors>
-        #   <RequestID>12345</RequestID>
-        # </Response>
-        # This is different from QueryParser in that it's RequestID,
-        # not RequestId
-        original = super(EC2QueryParser, self)._do_error_parse(response, shape)
-        original['ResponseMetadata'] = {
-            'RequestId': original.pop('RequestID')
-        }
-        return original
-
-
-class BaseJSONParser(ResponseParser):
-
-    def _handle_structure(self, shape, value):
-        member_shapes = shape.members
-        if value is None:
-            # If the comes across the wire as "null" (None in python),
-            # we should be returning this unchanged, instead of as an
-            # empty dict.
-            return None
-        final_parsed = {}
-        for member_name in member_shapes:
-            member_shape = member_shapes[member_name]
-            json_name = member_shape.serialization.get('name', member_name)
-            raw_value = value.get(json_name)
-            if raw_value is not None:
-                final_parsed[member_name] = self._parse_shape(
-                    member_shapes[member_name],
-                    raw_value)
-        return final_parsed
-
-    def _handle_map(self, shape, value):
-        parsed = {}
-        key_shape = shape.key
-        value_shape = shape.value
-        for key, value in value.items():
-            actual_key = self._parse_shape(key_shape, key)
-            actual_value = self._parse_shape(value_shape, value)
-            parsed[actual_key] = actual_value
-        return parsed
-
-    def _handle_blob(self, shape, value):
-        return self._blob_parser(value)
-
-    def _handle_timestamp(self, shape, value):
-        return self._timestamp_parser(value)
-
-    def _do_error_parse(self, response, shape):
-        body = self._parse_body_as_json(response['body'])
-        error = {"Error": {"Message": '', "Code": ''}, "ResponseMetadata": {}}
-        # Error responses can have slightly different structures for json.
-        # The basic structure is:
-        #
-        # {"__type":"ConnectClientException",
-        #  "message":"The error message."}
-
-        # The error message can either come in the 'message' or 'Message' key
-        # so we need to check for both.
-        error['Error']['Message'] = body.get('message',
-                                             body.get('Message', ''))
-        # if the message did not contain an error code
-        # include the response status code
-        response_code = response.get('status_code')
-        code = body.get('__type', response_code and str(response_code))
-        if code is not None:
-            # code has a couple forms as well:
-            # * "com.aws.dynamodb.vAPI#ProvisionedThroughputExceededException"
-            # * "ResourceNotFoundException"
-            if '#' in code:
-                code = code.rsplit('#', 1)[1]
-            error['Error']['Code'] = code
-        self._inject_response_metadata(error, response['headers'])
-        return error
-
-    def _inject_response_metadata(self, parsed, headers):
-        if 'x-amzn-requestid' in headers:
-            parsed.setdefault('ResponseMetadata', {})['RequestId'] = (
-                headers['x-amzn-requestid'])
-
-    def _parse_body_as_json(self, body_contents):
-        if not body_contents:
-            return {}
-        body = body_contents.decode(self.DEFAULT_ENCODING)
-        try:
-            original_parsed = json.loads(body)
-            return original_parsed
-        except ValueError:
-            # if the body cannot be parsed, include
-            # the literal string as the message
-            return { 'message': body }
-
-
-class BaseEventStreamParser(ResponseParser):
-
-    def _do_parse(self, response, shape):
-        final_parsed = {}
-        if shape.serialization.get('eventstream'):
-            event_type = response['headers'].get(':event-type')
-            event_shape = shape.members.get(event_type)
-            if event_shape:
-                final_parsed[event_type] = self._do_parse(response, event_shape)
-        else:
-            self._parse_non_payload_attrs(response, shape,
-                                          shape.members, final_parsed)
-            self._parse_payload(response, shape, shape.members, final_parsed)
-        return final_parsed
-
-    def _do_error_parse(self, response, shape):
-        exception_type = response['headers'].get(':exception-type')
-        exception_shape = shape.members.get(exception_type)
-        if exception_shape is not None:
-            original_parsed = self._initial_body_parse(response['body'])
-            body = self._parse_shape(exception_shape, original_parsed)
-            error = {
-                'Error': {
-                    'Code': exception_type,
-                    'Message': body.get('Message', body.get('message', ''))
-                }
-            }
-        else:
-            error = {
-                'Error': {
-                    'Code': response['headers'].get(':error-code', ''),
-                    'Message': response['headers'].get(':error-message', ''),
-                }
-            }
-        return error
-
-    def _parse_payload(self, response, shape, member_shapes, final_parsed):
-        if shape.serialization.get('event'):
-            for name in member_shapes:
-                member_shape = member_shapes[name]
-                if member_shape.serialization.get('eventpayload'):
-                    body = response['body']
-                    if member_shape.type_name == 'blob':
-                        parsed_body = body
-                    elif member_shape.type_name == 'string':
-                        parsed_body = body.decode(self.DEFAULT_ENCODING)
-                    else:
-                        raw_parse = self._initial_body_parse(body)
-                        parsed_body = self._parse_shape(member_shape, raw_parse)
-                    final_parsed[name] = parsed_body
-                    return
-            # If we didn't find an explicit payload, use the current shape
-            original_parsed = self._initial_body_parse(response['body'])
-            body_parsed = self._parse_shape(shape, original_parsed)
-            final_parsed.update(body_parsed)
-
-    def _parse_non_payload_attrs(self, response, shape,
-                                 member_shapes, final_parsed):
-        headers = response['headers']
-        for name in member_shapes:
-            member_shape = member_shapes[name]
-            if member_shape.serialization.get('eventheader'):
-                if name in headers:
-                    value = headers[name]
-                    if member_shape.type_name == 'timestamp':
-                        # Event stream timestamps are an in milleseconds so we
-                        # divide by 1000 to convert to seconds.
-                        value = self._timestamp_parser(value / 1000.0)
-                    final_parsed[name] = value
-
-    def _initial_body_parse(self, body_contents):
-        # This method should do the initial xml/json parsing of the
-        # body.  We we still need to walk the parsed body in order
-        # to convert types, but this method will do the first round
-        # of parsing.
-        raise NotImplementedError("_initial_body_parse")
-
-
-class EventStreamJSONParser(BaseEventStreamParser, BaseJSONParser):
-
-    def _initial_body_parse(self, body_contents):
-        return self._parse_body_as_json(body_contents)
-
-
-class EventStreamXMLParser(BaseEventStreamParser, BaseXMLResponseParser):
-
-    def _initial_body_parse(self, xml_string):
-        if not xml_string:
-            return xml.etree.cElementTree.Element('')
-        return self._parse_xml_string_to_dom(xml_string)
-
-
-class JSONParser(BaseJSONParser):
-
-    EVENT_STREAM_PARSER_CLS = EventStreamJSONParser
-
-    """Response parser for the "json" protocol."""
-    def _do_parse(self, response, shape):
-        parsed = {}
-        if shape is not None:
-            event_name = shape.event_stream_name
-            if event_name:
-                parsed = self._handle_event_stream(response, shape, event_name)
-            else:
-                parsed = self._handle_json_body(response['body'], shape)
-        self._inject_response_metadata(parsed, response['headers'])
-        return parsed
-
-    def _handle_event_stream(self, response, shape, event_name):
-        event_stream_shape = shape.members[event_name]
-        event_stream = self._create_event_stream(response, event_stream_shape)
-        try:
-            event = event_stream.get_initial_response()
-        except NoInitialResponseError:
-            error_msg = 'First event was not of type initial-response'
-            raise ResponseParserError(error_msg)
-        parsed = self._handle_json_body(event.payload, shape)
-        parsed[event_name] = event_stream
-        return parsed
-
-    def _handle_json_body(self, raw_body, shape):
-        # The json.loads() gives us the primitive JSON types,
-        # but we need to traverse the parsed JSON data to convert
-        # to richer types (blobs, timestamps, etc.
-        parsed_json = self._parse_body_as_json(raw_body)
-        return self._parse_shape(shape, parsed_json)
-
-
-class BaseRestParser(ResponseParser):
-
-    def _do_parse(self, response, shape):
-        final_parsed = {}
-        final_parsed['ResponseMetadata'] = self._populate_response_metadata(
-            response)
-        if shape is None:
-            return final_parsed
-        member_shapes = shape.members
-        self._parse_non_payload_attrs(response, shape,
-                                      member_shapes, final_parsed)
-        self._parse_payload(response, shape, member_shapes, final_parsed)
-        return final_parsed
-
-    def _populate_response_metadata(self, response):
-        metadata = {}
-        headers = response['headers']
-        if 'x-amzn-requestid' in headers:
-            metadata['RequestId'] = headers['x-amzn-requestid']
-        elif 'x-amz-request-id' in headers:
-            metadata['RequestId'] = headers['x-amz-request-id']
-            # HostId is what it's called whenver this value is returned
-            # in an XML response body, so to be consistent, we'll always
-            # call is HostId.
-            metadata['HostId'] = headers.get('x-amz-id-2', '')
-        return metadata
-
-    def _parse_payload(self, response, shape, member_shapes, final_parsed):
-        if 'payload' in shape.serialization:
-            # If a payload is specified in the output shape, then only that
-            # shape is used for the body payload.
-            payload_member_name = shape.serialization['payload']
-            body_shape = member_shapes[payload_member_name]
-            if body_shape.serialization.get('eventstream'):
-                body = self._create_event_stream(response, body_shape)
-                final_parsed[payload_member_name] = body
-            elif body_shape.type_name in ['string', 'blob']:
-                # This is a stream
-                body = response['body']
-                if isinstance(body, bytes):
-                    body = body.decode(self.DEFAULT_ENCODING)
-                final_parsed[payload_member_name] = body
-            else:
-                original_parsed = self._initial_body_parse(response['body'])
-                final_parsed[payload_member_name] = self._parse_shape(
-                    body_shape, original_parsed)
-        else:
-            original_parsed = self._initial_body_parse(response['body'])
-            body_parsed = self._parse_shape(shape, original_parsed)
-            final_parsed.update(body_parsed)
-
-    def _parse_non_payload_attrs(self, response, shape,
-                                 member_shapes, final_parsed):
-        headers = response['headers']
-        for name in member_shapes:
-            member_shape = member_shapes[name]
-            location = member_shape.serialization.get('location')
-            if location is None:
-                continue
-            elif location == 'statusCode':
-                final_parsed[name] = self._parse_shape(
-                    member_shape, response['status_code'])
-            elif location == 'headers':
-                final_parsed[name] = self._parse_header_map(member_shape,
-                                                            headers)
-            elif location == 'header':
-                header_name = member_shape.serialization.get('name', name)
-                if header_name in headers:
-                    final_parsed[name] = self._parse_shape(
-                        member_shape, headers[header_name])
-
-    def _parse_header_map(self, shape, headers):
-        # Note that headers are case insensitive, so we .lower()
-        # all header names and header prefixes.
-        parsed = {}
-        prefix = shape.serialization.get('name', '').lower()
-        for header_name in headers:
-            if header_name.lower().startswith(prefix):
-                # The key name inserted into the parsed hash
-                # strips off the prefix.
-                name = header_name[len(prefix):]
-                parsed[name] = headers[header_name]
-        return parsed
-
-    def _initial_body_parse(self, body_contents):
-        # This method should do the initial xml/json parsing of the
-        # body.  We we still need to walk the parsed body in order
-        # to convert types, but this method will do the first round
-        # of parsing.
-        raise NotImplementedError("_initial_body_parse")
-
-    def _handle_string(self, shape, value):
-        parsed = value
-        if is_json_value_header(shape):
-            decoded = base64.b64decode(value).decode(self.DEFAULT_ENCODING)
-            parsed = json.loads(decoded)
-        return parsed
-
-
-class RestJSONParser(BaseRestParser, BaseJSONParser):
-
-    EVENT_STREAM_PARSER_CLS = EventStreamJSONParser
-
-    def _initial_body_parse(self, body_contents):
-        return self._parse_body_as_json(body_contents)
-
-    def _do_error_parse(self, response, shape):
-        error = super(RestJSONParser, self)._do_error_parse(response, shape)
-        self._inject_error_code(error, response)
-        return error
-
-    def _inject_error_code(self, error, response):
-        # The "Code" value can come from either a response
-        # header or a value in the JSON body.
-        body = self._initial_body_parse(response['body'])
-        if 'x-amzn-errortype' in response['headers']:
-            code = response['headers']['x-amzn-errortype']
-            # Could be:
-            # x-amzn-errortype: ValidationException:
-            code = code.split(':')[0]
-            error['Error']['Code'] = code
-        elif 'code' in body or 'Code' in body:
-            error['Error']['Code'] = body.get(
-                'code', body.get('Code', ''))
-
-
-class RestXMLParser(BaseRestParser, BaseXMLResponseParser):
-
-    EVENT_STREAM_PARSER_CLS = EventStreamXMLParser
-
-    def _initial_body_parse(self, xml_string):
-        if not xml_string:
-            return xml.etree.cElementTree.Element('')
-        return self._parse_xml_string_to_dom(xml_string)
-
-    def _do_error_parse(self, response, shape):
-        # We're trying to be service agnostic here, but S3 does have a slightly
-        # different response structure for its errors compared to other
-        # rest-xml serivces (route53/cloudfront).  We handle this by just
-        # trying to parse both forms.
-        # First:
-        # <ErrorResponse xmlns="...">
-        #   <Error>
-        #     <Type>Sender</Type>
-        #     <Code>InvalidInput</Code>
-        #     <Message>Invalid resource type: foo</Message>
-        #   </Error>
-        #   <RequestId>request-id</RequestId>
-        # </ErrorResponse>
-        if response['body']:
-            # If the body ends up being invalid xml, the xml parser should not
-            # blow up. It should at least try to pull information about the
-            # the error response from other sources like the HTTP status code.
-            try:
-                return self._parse_error_from_body(response)
-            except ResponseParserError as e:
-                LOG.debug(
-                    'Exception caught when parsing error response body:',
-                    exc_info=True)
-        return self._parse_error_from_http_status(response)
-
-    def _parse_error_from_http_status(self, response):
-        return {
-            'Error': {
-                'Code': str(response['status_code']),
-                'Message': six.moves.http_client.responses.get(
-                    response['status_code'], ''),
-            },
-            'ResponseMetadata': {
-                'RequestId': response['headers'].get('x-amz-request-id', ''),
-                'HostId': response['headers'].get('x-amz-id-2', ''),
-            }
-        }
-
-    def _parse_error_from_body(self, response):
-        xml_contents = response['body']
-        root = self._parse_xml_string_to_dom(xml_contents)
-        parsed = self._build_name_to_xml_node(root)
-        self._replace_nodes(parsed)
-        if root.tag == 'Error':
-            # This is an S3 error response.  First we'll populate the
-            # response metadata.
-            metadata = self._populate_response_metadata(response)
-            # The RequestId and the HostId are already in the
-            # ResponseMetadata, but are also duplicated in the XML
-            # body.  We don't need these values in both places,
-            # we'll just remove them from the parsed XML body.
-            parsed.pop('RequestId', '')
-            parsed.pop('HostId', '')
-            return {'Error': parsed, 'ResponseMetadata': metadata}
-        elif 'RequestId' in parsed:
-            # Other rest-xml serivces:
-            parsed['ResponseMetadata'] = {'RequestId': parsed.pop('RequestId')}
-        default = {'Error': {'Message': '', 'Code': ''}}
-        merge_dicts(default, parsed)
-        return default
-
-    @_text_content
-    def _handle_string(self, shape, text):
-        text = super(RestXMLParser, self)._handle_string(shape, text)
-        return text
-
-
-PROTOCOL_PARSERS = {
-    'ec2': EC2QueryParser,
-    'query': QueryParser,
-    'json': JSONParser,
-    'rest-json': RestJSONParser,
-    'rest-xml': RestXMLParser,
-}
+    def __init__(self, **kwargs):
+        msg = self.fmt.format(**kwargs)
+        Exception.__init__(self, msg)
+        self.kwargs = kwargs

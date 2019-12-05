@@ -1,1 +1,1 @@
-ÍB6venv/lib/python3.6/site-packages/django/conf/locale/vi :ÈBÎB
+ÍBBvenv/lib/python3.6/site-packages/django/conf/locale/vi/__init__.py 2pyXh

@@ -1,1 +1,1 @@
-¢T?venv/lib/python3.6/site-packages/faker/providers/internet/zh_CN :¡T
+¢T?venv/lib/python3.6/site-packages/faker/providers/internet/it_IT :¡T

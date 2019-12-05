@@ -1,183 +1,144 @@
-from django.contrib import messages
+import warnings
+
 from django.core.exceptions import ImproperlyConfigured
-from django.utils import six
-from django.utils.decorators import method_decorator
-from django.utils.encoding import force_text
-from django.utils.functional import curry, Promise
-from django.views.decorators.csrf import csrf_exempt
-try:
-    from django.urls import reverse
-except ImportError:
-    from django.core.urlresolvers import reverse
 
 
-class CsrfExemptMixin(object):
+class SelectRelatedMixin(object):
     """
-    Exempts the view from CSRF requirements.
-
-    NOTE:
-        This should be the left-most mixin of a view.
+    Mixin allows you to provide a tuple or list of related models to
+    perform a select_related on.
     """
+    select_related = None  # Default related fields to none
 
-    @method_decorator(csrf_exempt)
-    def dispatch(self, *args, **kwargs):
-        return super(CsrfExemptMixin, self).dispatch(*args, **kwargs)
-
-
-class UserFormKwargsMixin(object):
-    """
-    CBV mixin which puts the user from the request into the form kwargs.
-    Note: Using this mixin requires you to pop the `user` kwarg
-    out of the dict in the super of your form's `__init__`.
-    """
-    def get_form_kwargs(self):
-        kwargs = super(UserFormKwargsMixin, self).get_form_kwargs()
-        # Update the existing form kwargs dict with the request's user.
-        kwargs.update({"user": self.request.user})
-        return kwargs
-
-
-class SuccessURLRedirectListMixin(object):
-    """
-    Simple CBV mixin which sets the success url to the list view of
-    a given app. Set success_list_url as a class attribute of your
-    CBV and don't worry about overloading the get_success_url.
-
-    This is only to be used for redirecting to a list page. If you need
-    to reverse the url with kwargs, this is not the mixin to use.
-    """
-    success_list_url = None  # Default the success url to none
-
-    def get_success_url(self):
-        # Return the reversed success url.
-        if self.success_list_url is None:
+    def get_queryset(self):
+        if self.select_related is None:
+            # If no fields were provided, raise a configuration error
             raise ImproperlyConfigured(
-                '{0} is missing a success_list_url '
-                'name to reverse and redirect to. Define '
-                '{0}.success_list_url or override '
-                '{0}.get_success_url().'.format(self.__class__.__name__))
-        return reverse(self.success_list_url)
+                '{0} is missing the select_related property. This must be '
+                'a tuple or list.'.format(self.__class__.__name__))
 
-
-class _MessageAPIWrapper(object):
-    """
-    Wrap the django.contrib.messages.api module to automatically pass a given
-    request object as the first parameter of function calls.
-    """
-    API = set([
-        'add_message', 'get_messages',
-        'get_level', 'set_level',
-        'debug', 'info', 'success', 'warning', 'error',
-    ])
-
-    def __init__(self, request):
-        for name in self.API:
-            api_fn = getattr(messages.api, name)
-            setattr(self, name, curry(api_fn, request))
-
-
-class _MessageDescriptor(object):
-    """
-    A descriptor that binds the _MessageAPIWrapper to the view's
-    request.
-    """
-    def __get__(self, instance, owner):
-        return _MessageAPIWrapper(instance.request)
-
-
-class MessageMixin(object):
-    """
-    Add a `messages` attribute on the view instance that wraps
-    `django.contrib .messages`, automatically passing the current
-    request object.
-    """
-    messages = _MessageDescriptor()
-
-
-class FormValidMessageMixin(MessageMixin):
-    """
-    Mixin allows you to set static message which is displayed by
-    Django's messages framework through a static property on the class
-    or programmatically by overloading the get_form_valid_message method.
-    """
-    form_valid_message = None  # Default to None
-
-    def get_form_valid_message(self):
-        """
-        Validate that form_valid_message is set and is either a
-        unicode or str object.
-        """
-        if self.form_valid_message is None:
+        if not isinstance(self.select_related, (tuple, list)):
+            # If the select_related argument is *not* a tuple or list,
+            # raise a configuration error.
             raise ImproperlyConfigured(
-                '{0}.form_valid_message is not set. Define '
-                '{0}.form_valid_message, or override '
-                '{0}.get_form_valid_message().'.format(self.__class__.__name__)
-            )
+                "{0}'s select_related property must be a tuple or "
+                "list.".format(self.__class__.__name__))
 
-        if not isinstance(self.form_valid_message,
-                          (six.string_types, six.text_type, Promise)):
-            raise ImproperlyConfigured(
-                '{0}.form_valid_message must be a str or unicode '
-                'object.'.format(self.__class__.__name__)
-            )
+        # Get the current queryset of the view
+        queryset = super(SelectRelatedMixin, self).get_queryset()
 
-        return force_text(self.form_valid_message)
+        if not self.select_related:
+            warnings.warn('The select_related attribute is empty')
+            return queryset
 
-    def form_valid(self, form):
-        """
-        Call the super first, so that when overriding
-        get_form_valid_message, we have access to the newly saved object.
-        """
-        response = super(FormValidMessageMixin, self).form_valid(form)
-        self.messages.success(self.get_form_valid_message(),
-                              fail_silently=True)
-        return response
-
-    def delete(self, *args, **kwargs):
-        response = super(FormValidMessageMixin, self).delete(*args, **kwargs)
-        self.messages.success(self.get_form_valid_message(),
-                              fail_silently=True)
-        return response
+        return queryset.select_related(*self.select_related)
 
 
-class FormInvalidMessageMixin(MessageMixin):
+class PrefetchRelatedMixin(object):
     """
-    Mixin allows you to set static message which is displayed by
-    Django's messages framework through a static property on the class
-    or programmatically by overloading the get_form_invalid_message method.
+    Mixin allows you to provide a tuple or list of related models to
+    perform a prefetch_related on.
     """
-    form_invalid_message = None
+    prefetch_related = None  # Default prefetch fields to none
 
-    def get_form_invalid_message(self):
-        """
-        Validate that form_invalid_message is set and is either a
-        unicode or str object.
-        """
-        if self.form_invalid_message is None:
+    def get_queryset(self):
+        if self.prefetch_related is None:
+            # If no fields were provided, raise a configuration error
             raise ImproperlyConfigured(
-                '{0}.form_invalid_message is not set. Define '
-                '{0}.form_invalid_message, or override '
-                '{0}.get_form_invalid_message().'.format(
+                '{0} is missing the prefetch_related property. This must be '
+                'a tuple or list.'.format(self.__class__.__name__))
+
+        if not isinstance(self.prefetch_related, (tuple, list)):
+            # If the prefetch_related argument is *not* a tuple or list,
+            # raise a configuration error.
+            raise ImproperlyConfigured(
+                "{0}'s prefetch_related property must be a tuple or "
+                "list.".format(self.__class__.__name__))
+
+        # Get the current queryset of the view
+        queryset = super(PrefetchRelatedMixin, self).get_queryset()
+
+        if not self.prefetch_related:
+            warnings.warn('The prefetch_related attribute is empty')
+            return queryset
+
+        return queryset.prefetch_related(*self.prefetch_related)
+
+
+class OrderableListMixin(object):
+    """
+    Mixin allows your users to order records using GET parameters
+    """
+
+    orderable_columns = None
+    orderable_columns_default = None
+    ordering_default = None
+    order_by = None
+    ordering = None
+
+    def get_context_data(self, **kwargs):
+        """
+        Augments context with:
+
+            * ``order_by`` - name of the field
+            * ``ordering`` - order of ordering, either ``asc`` or ``desc``
+        """
+        context = super(OrderableListMixin, self).get_context_data(**kwargs)
+        context["order_by"] = self.order_by
+        context["ordering"] = self.ordering
+        return context
+
+    def get_orderable_columns(self):
+        if not self.orderable_columns:
+            raise ImproperlyConfigured(
+                '{0} needs the ordering columns defined.'.format(
                     self.__class__.__name__))
+        return self.orderable_columns
 
-        if not isinstance(self.form_invalid_message,
-                          (six.string_types, six.text_type, Promise)):
+    def get_orderable_columns_default(self):
+        if not self.orderable_columns_default:
             raise ImproperlyConfigured(
-                '{0}.form_invalid_message must be a str or unicode '
-                'object.'.format(self.__class__.__name__))
+                '{0} needs the default ordering column defined.'.format(
+                    self.__class__.__name__))
+        return self.orderable_columns_default
 
-        return force_text(self.form_invalid_message)
+    def get_ordering_default(self):
+        if not self.ordering_default:
+            return "asc"
+        else:
+            if self.ordering_default not in ["asc", "desc"]:
+                raise ImproperlyConfigured(
+                    '{0} only allows asc or desc as ordering option'.format(
+                        self.__class__.__name__))
+            return self.ordering_default
 
-    def form_invalid(self, form):
-        response = super(FormInvalidMessageMixin, self).form_invalid(form)
-        self.messages.error(self.get_form_invalid_message(),
-                            fail_silently=True)
-        return response
+    def get_ordered_queryset(self, queryset=None):
+        """
+        Augments ``QuerySet`` with order_by statement if possible
 
+        :param QuerySet queryset: ``QuerySet`` to ``order_by``
+        :return: QuerySet
+        """
+        get_order_by = self.request.GET.get("order_by")
 
-class FormMessagesMixin(FormValidMessageMixin, FormInvalidMessageMixin):
-    """
-    Mixin is a shortcut to use both FormValidMessageMixin and
-    FormInvalidMessageMixin.
-    """
-    pass
+        if get_order_by in self.get_orderable_columns():
+            order_by = get_order_by
+        else:
+            order_by = self.get_orderable_columns_default()
+
+        self.order_by = order_by
+        self.ordering = self.get_ordering_default()
+
+        if order_by and self.request.GET.get(
+                "ordering", self.ordering) == "desc":
+            order_by = "-" + order_by
+        self.ordering = self.request.GET.get("ordering", self.ordering)
+
+        return queryset.order_by(order_by)
+
+    def get_queryset(self):
+        """
+        Returns ordered ``QuerySet``
+        """
+        unordered_queryset = super(OrderableListMixin, self).get_queryset()
+        return self.get_ordered_queryset(unordered_queryset)

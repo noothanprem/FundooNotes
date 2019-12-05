@@ -13,55 +13,79 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with lazr.restfulclient.  If not, see <http://www.gnu.org/licenses/>.
-"Test client for the lazr.restful example web service."
+"Test harness for doctests."
+
+# pylint: disable-msg=E0611,W0142
 
 __metaclass__ = type
 __all__ = [
-    'CookbookWebServiceClient',
+    'additional_tests',
     ]
 
+import atexit
+import doctest
+import os
+from pkg_resources import (
+    resource_filename, resource_exists, resource_listdir, cleanup_resources)
+import wsgi_intercept
+from wsgi_intercept.httplib2_intercept import install, uninstall
 
-try:
-    # Python 3.
-    from urllib.parse import quote
-except ImportError:
-    from urllib import quote
+# We avoid importing anything from lazr.restful into the module level,
+# so that standalone_tests() can run without any support from
+# lazr.restful.
 
-from lazr.restfulclient.resource import (
-    CollectionWithKeyBasedLookup, ServiceRoot)
-
-
-class CookbookSet(CollectionWithKeyBasedLookup):
-    """A custom subclass capable of cookbook lookup by cookbook name."""
-
-    def _get_url_from_id(self, id):
-        """Transform a cookbook name into the URL to a cookbook resource."""
-        return (str(self._root._root_uri.ensureSlash())
-                + 'cookbooks/' + quote(str(id)))
-
-    collection_of = "cookbook"
+DOCTEST_FLAGS = (
+    doctest.ELLIPSIS |
+    doctest.NORMALIZE_WHITESPACE |
+    doctest.REPORT_NDIFF)
 
 
-class RecipeSet(CollectionWithKeyBasedLookup):
-    """A custom subclass capable of recipe lookup by recipe ID."""
-
-    def _get_url_from_id(self, id):
-        """Transform a recipe ID into the URL to a recipe resource."""
-        return str(self._root._root_uri.ensureSlash()) + 'recipes/' + str(id)
-
-    collection_of = "recipe"
+def setUp(test):
+    from lazr.restful.example.base.tests.test_integration import WSGILayer
+    install()
+    wsgi_intercept.add_wsgi_intercept(
+        'cookbooks.dev', 80, WSGILayer.make_application)
 
 
-class CookbookWebServiceClient(ServiceRoot):
+def tearDown(test):
+    from lazr.restful.example.base.interfaces import IFileManager
+    from zope.component import getUtility
+    uninstall()
+    file_manager = getUtility(IFileManager)
+    file_manager.files = {}
+    file_manager.counter = 0
 
-    RESOURCE_TYPE_CLASSES = dict(ServiceRoot.RESOURCE_TYPE_CLASSES)
-    RESOURCE_TYPE_CLASSES['recipes'] = RecipeSet
-    RESOURCE_TYPE_CLASSES['cookbooks'] = CookbookSet
 
-    DEFAULT_SERVICE_ROOT = "http://cookbooks.dev/"
-    DEFAULT_VERSION = "1.0"
+def find_doctests(suffix):
+    """Find doctests matching a certain suffix."""
+    # Always include README.txt.
+    doctest_files = [
+        os.path.abspath(resource_filename('lazr.restfulclient', 'README.txt'))]
+    # Match other doctests against the suffix.
+    if resource_exists('lazr.restfulclient', 'docs'):
+        for name in resource_listdir('lazr.restfulclient', 'docs'):
+            if name.endswith(suffix):
+                doctest_files.append(
+                    os.path.abspath(
+                        resource_filename(
+                            'lazr.restfulclient', 'docs/%s' % name)))
+    return doctest_files
 
-    def __init__(self, service_root=DEFAULT_SERVICE_ROOT,
-                 version=DEFAULT_VERSION, cache=None):
-        super(CookbookWebServiceClient, self).__init__(
-            None, service_root, cache=cache, version=version)
+
+def additional_tests():
+    "Run the doc tests (README.txt and docs/*, if any exist)"
+    from lazr.restful.example.base.tests.test_integration import WSGILayer
+    kwargs = dict(module_relative=False, optionflags=DOCTEST_FLAGS,
+                  setUp=setUp, tearDown=tearDown)
+    atexit.register(cleanup_resources)
+    suite = doctest.DocFileSuite(*find_doctests('.txt'), **kwargs)
+    suite.layer = WSGILayer
+    return suite
+
+
+def standalone_tests():
+    "Run the tests that don't need lazr.restful."
+    kwargs = dict(module_relative=False, optionflags=DOCTEST_FLAGS)
+    atexit.register(cleanup_resources)
+    suite = doctest.DocFileSuite(*find_doctests('.standalone.txt'), **kwargs)
+    return suite

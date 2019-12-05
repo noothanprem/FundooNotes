@@ -1,1 +1,1 @@
-Ɋ>venv/lib/python3.6/site-packages/importlib_metadata/_compat.py 2pyX\h
+Ɋ3venv/lib/python3.6/site-packages/importlib_metadata :Ȋ�

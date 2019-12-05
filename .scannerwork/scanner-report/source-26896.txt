@@ -1,172 +1,167 @@
 # -*- coding: utf-8 -*-
-"""Base Execution Pool."""
+"""Prefork execution pool.
+
+Pool implementation using :mod:`multiprocessing`.
+"""
 from __future__ import absolute_import, unicode_literals
 
-import logging
 import os
-import sys
 
-from billiard.einfo import ExceptionInfo
-from billiard.exceptions import WorkerLostError
-from kombu.utils.encoding import safe_repr
+from billiard import forking_enable
+from billiard.common import REMAP_SIGTERM, TERM_SIGNAME
+from billiard.pool import CLOSE, RUN
+from billiard.pool import Pool as BlockingPool
 
-from celery.exceptions import WorkerShutdown, WorkerTerminate
-from celery.five import monotonic, reraise
-from celery.utils import timer2
+from celery import platforms, signals
+from celery._state import _set_task_join_will_block, set_default_app
+from celery.app import trace
+from celery.concurrency.base import BasePool
+from celery.five import items
+from celery.utils.functional import noop
 from celery.utils.log import get_logger
-from celery.utils.text import truncate
 
-__all__ = ('BasePool', 'apply_target')
+from .asynpool import AsynPool
 
-logger = get_logger('celery.pool')
+__all__ = ('TaskPool', 'process_initializer', 'process_destructor')
+
+#: List of signals to reset when a child process starts.
+WORKER_SIGRESET = {
+    'SIGTERM', 'SIGHUP', 'SIGTTIN', 'SIGTTOU', 'SIGUSR1',
+}
+
+#: List of signals to ignore when a child process starts.
+if REMAP_SIGTERM:
+    WORKER_SIGIGNORE = {'SIGINT', TERM_SIGNAME}
+else:
+    WORKER_SIGIGNORE = {'SIGINT'}
+
+logger = get_logger(__name__)
+warning, debug = logger.warning, logger.debug
 
 
-def apply_target(target, args=(), kwargs={}, callback=None,
-                 accept_callback=None, pid=None, getpid=os.getpid,
-                 propagate=(), monotonic=monotonic, **_):
-    """Apply function within pool context."""
-    if accept_callback:
-        accept_callback(pid or getpid(), monotonic())
-    try:
-        ret = target(*args, **kwargs)
-    except propagate:
-        raise
-    except Exception:
-        raise
-    except (WorkerShutdown, WorkerTerminate):
-        raise
-    except BaseException as exc:
-        try:
-            reraise(WorkerLostError, WorkerLostError(repr(exc)),
-                    sys.exc_info()[2])
-        except WorkerLostError:
-            callback(ExceptionInfo())
+def process_initializer(app, hostname):
+    """Pool child process initializer.
+
+    Initialize the child pool process to ensure the correct
+    app instance is used and things like logging works.
+    """
+    _set_task_join_will_block(True)
+    platforms.signals.reset(*WORKER_SIGRESET)
+    platforms.signals.ignore(*WORKER_SIGIGNORE)
+    platforms.set_mp_process_title('celeryd', hostname=hostname)
+    # This is for Windows and other platforms not supporting
+    # fork().  Note that init_worker makes sure it's only
+    # run once per process.
+    app.loader.init_worker()
+    app.loader.init_worker_process()
+    logfile = os.environ.get('CELERY_LOG_FILE') or None
+    if logfile and '%i' in logfile.lower():
+        # logfile path will differ so need to set up logging again.
+        app.log.already_setup = False
+    app.log.setup(int(os.environ.get('CELERY_LOG_LEVEL', 0) or 0),
+                  logfile,
+                  bool(os.environ.get('CELERY_LOG_REDIRECT', False)),
+                  str(os.environ.get('CELERY_LOG_REDIRECT_LEVEL')),
+                  hostname=hostname)
+    if os.environ.get('FORKED_BY_MULTIPROCESSING'):
+        # pool did execv after fork
+        trace.setup_worker_optimizations(app, hostname)
     else:
-        callback(ret)
+        app.set_current()
+        set_default_app(app)
+        app.finalize()
+        trace._tasks = app._tasks  # enables fast_trace_task optimization.
+    # rebuild execution handler for all tasks.
+    from celery.app.trace import build_tracer
+    for name, task in items(app.tasks):
+        task.__trace__ = build_tracer(name, task, app.loader, hostname,
+                                      app=app)
+    from celery.worker import state as worker_state
+    worker_state.reset_state()
+    signals.worker_process_init.send(sender=None)
 
 
-class BasePool(object):
-    """Task pool."""
+def process_destructor(pid, exitcode):
+    """Pool child process destructor.
 
-    RUN = 0x1
-    CLOSE = 0x2
-    TERMINATE = 0x3
+    Dispatch the :signal:`worker_process_shutdown` signal.
+    """
+    signals.worker_process_shutdown.send(
+        sender=None, pid=pid, exitcode=exitcode,
+    )
 
-    Timer = timer2.Timer
 
-    #: set to true if the pool can be shutdown from within
-    #: a signal handler.
-    signal_safe = True
+class TaskPool(BasePool):
+    """Multiprocessing Pool implementation."""
 
-    #: set to true if pool uses greenlets.
-    is_green = False
+    Pool = AsynPool
+    BlockingPool = BlockingPool
 
-    _state = None
-    _pool = None
-    _does_debug = True
-
-    #: only used by multiprocessing pool
-    uses_semaphore = False
-
-    task_join_will_block = True
-    body_can_be_buffer = False
-
-    def __init__(self, limit=None, putlocks=True, forking_enable=True,
-                 callbacks_propagate=(), app=None, **options):
-        self.limit = limit
-        self.putlocks = putlocks
-        self.options = options
-        self.forking_enable = forking_enable
-        self.callbacks_propagate = callbacks_propagate
-        self.app = app
+    uses_semaphore = True
+    write_stats = None
 
     def on_start(self):
-        pass
+        forking_enable(self.forking_enable)
+        Pool = (self.BlockingPool if self.options.get('threads', True)
+                else self.Pool)
+        P = self._pool = Pool(processes=self.limit,
+                              initializer=process_initializer,
+                              on_process_exit=process_destructor,
+                              enable_timeouts=True,
+                              synack=False,
+                              **self.options)
 
-    def did_start_ok(self):
-        return True
-
-    def flush(self):
-        pass
-
-    def on_stop(self):
-        pass
-
-    def register_with_event_loop(self, loop):
-        pass
-
-    def on_apply(self, *args, **kwargs):
-        pass
-
-    def on_terminate(self):
-        pass
-
-    def on_soft_timeout(self, job):
-        pass
-
-    def on_hard_timeout(self, job):
-        pass
-
-    def maintain_pool(self, *args, **kwargs):
-        pass
-
-    def terminate_job(self, pid, signal=None):
-        raise NotImplementedError(
-            '{0} does not implement kill_job'.format(type(self)))
+        # Create proxy methods
+        self.on_apply = P.apply_async
+        self.maintain_pool = P.maintain_pool
+        self.terminate_job = P.terminate_job
+        self.grow = P.grow
+        self.shrink = P.shrink
+        self.flush = getattr(P, 'flush', None)  # FIXME add to billiard
 
     def restart(self):
-        raise NotImplementedError(
-            '{0} does not implement restart'.format(type(self)))
+        self._pool.restart()
+        self._pool.apply_async(noop)
 
-    def stop(self):
-        self.on_stop()
-        self._state = self.TERMINATE
+    def did_start_ok(self):
+        return self._pool.did_start_ok()
 
-    def terminate(self):
-        self._state = self.TERMINATE
-        self.on_terminate()
+    def register_with_event_loop(self, loop):
+        try:
+            reg = self._pool.register_with_event_loop
+        except AttributeError:
+            return
+        return reg(loop)
 
-    def start(self):
-        self._does_debug = logger.isEnabledFor(logging.DEBUG)
-        self.on_start()
-        self._state = self.RUN
+    def on_stop(self):
+        """Gracefully stop the pool."""
+        if self._pool is not None and self._pool._state in (RUN, CLOSE):
+            self._pool.close()
+            self._pool.join()
+            self._pool = None
 
-    def close(self):
-        self._state = self.CLOSE
-        self.on_close()
+    def on_terminate(self):
+        """Force terminate the pool."""
+        if self._pool is not None:
+            self._pool.terminate()
+            self._pool = None
 
     def on_close(self):
-        pass
-
-    def apply_async(self, target, args=[], kwargs={}, **options):
-        """Equivalent of the :func:`apply` built-in function.
-
-        Callbacks should optimally return as soon as possible since
-        otherwise the thread which handles the result will get blocked.
-        """
-        if self._does_debug:
-            logger.debug('TaskPool: Apply %s (args:%s kwargs:%s)',
-                         target, truncate(safe_repr(args), 1024),
-                         truncate(safe_repr(kwargs), 1024))
-
-        return self.on_apply(target, args, kwargs,
-                             waitforslot=self.putlocks,
-                             callbacks_propagate=self.callbacks_propagate,
-                             **options)
+        if self._pool is not None and self._pool._state == RUN:
+            self._pool.close()
 
     def _get_info(self):
+        write_stats = getattr(self._pool, 'human_write_stats', None)
         return {
             'max-concurrency': self.limit,
+            'processes': [p.pid for p in self._pool._pool],
+            'max-tasks-per-child': self._pool._maxtasksperchild or 'N/A',
+            'put-guarded-by-semaphore': self.putlocks,
+            'timeouts': (self._pool.soft_timeout or 0,
+                         self._pool.timeout or 0),
+            'writes': write_stats() if write_stats is not None else 'N/A',
         }
 
     @property
-    def info(self):
-        return self._get_info()
-
-    @property
-    def active(self):
-        return self._state == self.RUN
-
-    @property
     def num_processes(self):
-        return self.limit
+        return self._pool._processes

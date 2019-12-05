@@ -1,1 +1,1 @@
-דעRvenv/lib64/python3.6/site-packages/django/contrib/redirects/migrations/__init__.py 2pyXh
+דעFvenv/lib64/python3.6/site-packages/django/contrib/redirects/migrations :בעגע

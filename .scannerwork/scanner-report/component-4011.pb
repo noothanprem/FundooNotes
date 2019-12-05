@@ -1,1 +1,1 @@
-«Evenv/lib/python3.6/site-packages/django/db/backends/mysql/compiler.py 2pyXh
+«Lvenv/lib/python3.6/site-packages/django/db/backends/sqlite3/introspection.py 2pyX³h

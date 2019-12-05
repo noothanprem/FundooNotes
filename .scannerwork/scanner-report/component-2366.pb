@@ -1,1 +1,1 @@
-¾'venv/lib/python3.6/site-packages/apipkg :½¿
+¾'venv/lib/python3.6/site-packages/apipkg :½À

@@ -1,1 +1,1 @@
-éŽ:venv/lib/python3.6/site-packages/botocore/docs/__init__.py 2pyX'h
+éŽ9venv/lib/python3.6/site-packages/botocore/docs/service.py 2pyXah

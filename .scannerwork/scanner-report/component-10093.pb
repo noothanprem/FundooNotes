@@ -1,1 +1,1 @@
-ÌNGvenv/lib/python3.6/site-packages/libfuturize/fixes/fix_division_safe.py 2pyXnh
+ÌN=venv/lib/python3.6/site-packages/libfuturize/fixes/fix_cmp.py 2pyX"h

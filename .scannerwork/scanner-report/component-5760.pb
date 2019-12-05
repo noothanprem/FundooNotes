@@ -1,1 +1,0 @@
-€-Vvenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/mysql/introspection.py 2pyX'h

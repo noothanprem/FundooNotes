@@ -1,1 +1,1 @@
-ö÷Avenv/lib64/python3.6/site-packages/django/contrib/gis/serializers :õ÷÷÷
+ö÷Lvenv/lib64/python3.6/site-packages/django/contrib/gis/serializers/geojson.py 2pyXDh

@@ -1,1 +1,1 @@
-çf;venv/lib/python3.6/site-packages/chardet/mbcsgroupprober.py 2pyX7h
+çf=venv/lib/python3.6/site-packages/chardet/universaldetector.py 2pyXüh

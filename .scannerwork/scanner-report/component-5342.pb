@@ -1,1 +1,1 @@
-Þ)Fvenv/lib/python3.6/site-packages/django/contrib/staticfiles/testing.py 2pyXh
+Þ)\venv/lib/python3.6/site-packages/django/contrib/staticfiles/management/commands/runserver.py 2pyX!h

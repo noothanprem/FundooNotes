@@ -1,1 +1,1 @@
-æ\:venv/lib/python3.6/site-packages/boto3/docs/subresource.py 2pyXqh
+æ\2venv/lib/python3.6/site-packages/dotenv/ipython.py 2pyX*h

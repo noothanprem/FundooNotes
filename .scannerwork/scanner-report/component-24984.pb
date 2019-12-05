@@ -1,1 +1,1 @@
-˜ÃUvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/distlib/__init__.py 2pyXh
+˜ÃVvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/distlib/resources.py 2pyXäh

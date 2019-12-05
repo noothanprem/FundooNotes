@@ -1,1 +1,1 @@
-–»Dvenv/lib/python3.6/site-packages/social_core/backends/loginradius.py 2pyXFh
+–»>venv/lib/python3.6/site-packages/social_core/backends/monzo.py 2pyX!h

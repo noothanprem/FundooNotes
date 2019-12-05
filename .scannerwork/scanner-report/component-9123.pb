@@ -1,1 +1,2 @@
-£G)venv/lib/python3.6/site-packages/httplib2 :¢G¦G
+£G5venv/lib/python3.6/site-packages/httplib2/__init__.py 2pyXð
+h

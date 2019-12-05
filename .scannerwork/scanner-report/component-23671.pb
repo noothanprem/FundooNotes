@@ -1,1 +1,1 @@
-÷¸>venv/lib/python3.6/site-packages/social_core/backends/qiita.py 2pyXCh
+÷¸?venv/lib/python3.6/site-packages/social_core/backends/zotero.py 2pyXh

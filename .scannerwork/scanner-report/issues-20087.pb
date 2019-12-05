@@ -1,18 +1,14 @@
-K
-pythonS1313.Make this IP "127.0.0.1" address configurable. 2JJ 0M
-pythonS1313.Make this IP "127.0.0.1" address configurable. 2
-‚‚  M
-pythonS1313.Make this IP "127.0.0.1" address configurable. 2
-ÂÂ M
-pythonS1313.Make this IP "127.0.0.1" address configurable. 2
-≈≈ %M
-pythonS1313.Make this IP "127.0.0.1" address configurable. 2
-ÃÃ )d
-pythonS101FRename class "S" to match the regular expression ^[A-Z_][a-zA-Z0-9]+$. 2
-ÕÕ B
-pythonS1481%Remove the unused local variable "p". 2FF 	E
-pythonS1481&Remove the unused local variable "pm". 2
-õõ 
-F
-pythonS1481'Remove the unused local variable "tic". 2
- 
+;
+pythonS125Remove this commented out code. 2uu '=
+pythonS125Remove this commented out code. 2
+òò '=
+pythonS125Remove this commented out code. 2
+†† !D
+pythonS1481%Remove the unused local variable "m". 2
+–– 	D
+pythonS1481%Remove the unused local variable "v". 2
+êê 	
+pythonS1764LCorrect one of the identical sub-expressions on both sides of operator "is". 2
+ﬁﬁ! ):
+˜ú
+ﬁﬁ 

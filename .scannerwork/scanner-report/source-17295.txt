@@ -1,38 +1,71 @@
-import unittest
+from unittest import TestCase
 
 import simplejson as json
 
-class TestEncodeForHTML(unittest.TestCase):
+# from http://json.org/JSON_checker/test/pass1.json
+JSON = r'''
+[
+    "JSON Test Pattern pass1",
+    {"object with 1 member":["array with 1 element"]},
+    {},
+    [],
+    -42,
+    true,
+    false,
+    null,
+    {
+        "integer": 1234567890,
+        "real": -9876.543210,
+        "e": 0.123456789e-12,
+        "E": 1.234567890E+34,
+        "":  23456789012E66,
+        "zero": 0,
+        "one": 1,
+        "space": " ",
+        "quote": "\"",
+        "backslash": "\\",
+        "controls": "\b\f\n\r\t",
+        "slash": "/ & \/",
+        "alpha": "abcdefghijklmnopqrstuvwyz",
+        "ALPHA": "ABCDEFGHIJKLMNOPQRSTUVWYZ",
+        "digit": "0123456789",
+        "special": "`1~!@#$%^&*()_+-={':[,]}|;.</>?",
+        "hex": "\u0123\u4567\u89AB\uCDEF\uabcd\uef4A",
+        "true": true,
+        "false": false,
+        "null": null,
+        "array":[  ],
+        "object":{  },
+        "address": "50 St. James Street",
+        "url": "http://www.JSON.org/",
+        "comment": "// /* <!-- --",
+        "# -- --> */": " ",
+        " s p a c e d " :[1,2 , 3
 
-    def setUp(self):
-        self.decoder = json.JSONDecoder()
-        self.encoder = json.JSONEncoderForHTML()
-        self.non_ascii_encoder = json.JSONEncoderForHTML(ensure_ascii=False)
+,
 
-    def test_basic_encode(self):
-        self.assertEqual(r'"\u0026"', self.encoder.encode('&'))
-        self.assertEqual(r'"\u003c"', self.encoder.encode('<'))
-        self.assertEqual(r'"\u003e"', self.encoder.encode('>'))
-        self.assertEqual(r'"\u2028"', self.encoder.encode(u'\u2028'))
+4 , 5        ,          6           ,7        ],"compact": [1,2,3,4,5,6,7],
+        "jsontext": "{\"object with 1 member\":[\"array with 1 element\"]}",
+        "quotes": "&#34; \u0022 %22 0x22 034 &#x22;",
+        "\/\\\"\uCAFE\uBABE\uAB98\uFCDE\ubcda\uef4A\b\f\n\r\t`1~!@#$%^&*()_+-=[]{}|;:',./<>?"
+: "A key can be any string"
+    },
+    0.5 ,98.6
+,
+99.44
+,
 
-    def test_non_ascii_basic_encode(self):
-        self.assertEqual(r'"\u0026"', self.non_ascii_encoder.encode('&'))
-        self.assertEqual(r'"\u003c"', self.non_ascii_encoder.encode('<'))
-        self.assertEqual(r'"\u003e"', self.non_ascii_encoder.encode('>'))
-        self.assertEqual(r'"\u2028"', self.non_ascii_encoder.encode(u'\u2028'))
+1066,
+1e1,
+0.1e1,
+1e-1,
+1e00,2e+00,2e-00
+,"rosebud"]
+'''
 
-    def test_basic_roundtrip(self):
-        for char in '&<>':
-            self.assertEqual(
-                char, self.decoder.decode(
-                    self.encoder.encode(char)))
-
-    def test_prevent_script_breakout(self):
-        bad_string = '</script><script>alert("gotcha")</script>'
-        self.assertEqual(
-            r'"\u003c/script\u003e\u003cscript\u003e'
-            r'alert(\"gotcha\")\u003c/script\u003e"',
-            self.encoder.encode(bad_string))
-        self.assertEqual(
-            bad_string, self.decoder.decode(
-                self.encoder.encode(bad_string)))
+class TestPass1(TestCase):
+    def test_parse(self):
+        # test in/out equivalence and parsing
+        res = json.loads(JSON)
+        out = json.dumps(res)
+        self.assertEqual(res, json.loads(out))

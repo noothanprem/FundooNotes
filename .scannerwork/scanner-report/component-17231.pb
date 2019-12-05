@@ -1,1 +1,1 @@
-φ3venv/lib/python3.6/site-packages/simplejson/tool.py 2pyX+h
+φ6venv/lib/python3.6/site-packages/simplejson/encoder.py 2pyX�h

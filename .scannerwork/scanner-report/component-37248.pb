@@ -1,1 +1,1 @@
-€£=venv/lib64/python3.6/site-packages/faker/providers/bank/fr_FR :þ¢
+€£=venv/lib64/python3.6/site-packages/faker/providers/bank/fr_FR :ÿ¢

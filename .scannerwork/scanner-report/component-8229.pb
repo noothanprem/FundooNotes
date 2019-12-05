@@ -1,1 +1,1 @@
-¥@Lvenv/lib/python3.6/site-packages/django/core/management/commands/loaddata.py 2pyXàh
+¥@Mvenv/lib/python3.6/site-packages/django/core/management/commands/inspectdb.py 2pyX­h

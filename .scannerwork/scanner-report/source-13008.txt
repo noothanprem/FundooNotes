@@ -1,13 +1,14 @@
 ######################## BEGIN LICENSE BLOCK ########################
-# The Original Code is mozilla.org code.
+# The Original Code is Mozilla Universal charset detector code.
 #
 # The Initial Developer of the Original Code is
 # Netscape Communications Corporation.
-# Portions created by the Initial Developer are Copyright (C) 1998
+# Portions created by the Initial Developer are Copyright (C) 2001
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
 #   Mark Pilgrim - port to Python
+#   Shy Shalom - original C code
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -25,68 +26,120 @@
 # 02110-1301  USA
 ######################### END LICENSE BLOCK #########################
 
-from .mbcharsetprober import MultiByteCharSetProber
-from .codingstatemachine import CodingStateMachine
-from .chardistribution import SJISDistributionAnalysis
-from .jpcntx import SJISContextAnalysis
-from .mbcssm import SJIS_SM_MODEL
-from .enums import ProbingState, MachineState
+import logging
+import re
+
+from .enums import ProbingState
 
 
-class SJISProber(MultiByteCharSetProber):
-    def __init__(self):
-        super(SJISProber, self).__init__()
-        self.coding_sm = CodingStateMachine(SJIS_SM_MODEL)
-        self.distribution_analyzer = SJISDistributionAnalysis()
-        self.context_analyzer = SJISContextAnalysis()
-        self.reset()
+class CharSetProber(object):
+
+    SHORTCUT_THRESHOLD = 0.95
+
+    def __init__(self, lang_filter=None):
+        self._state = None
+        self.lang_filter = lang_filter
+        self.logger = logging.getLogger(__name__)
 
     def reset(self):
-        super(SJISProber, self).reset()
-        self.context_analyzer.reset()
+        self._state = ProbingState.DETECTING
 
     @property
     def charset_name(self):
-        return self.context_analyzer.charset_name
+        return None
+
+    def feed(self, buf):
+        pass
 
     @property
-    def language(self):
-        return "Japanese"
-
-    def feed(self, byte_str):
-        for i in range(len(byte_str)):
-            coding_state = self.coding_sm.next_state(byte_str[i])
-            if coding_state == MachineState.ERROR:
-                self.logger.debug('%s %s prober hit error at byte %s',
-                                  self.charset_name, self.language, i)
-                self._state = ProbingState.NOT_ME
-                break
-            elif coding_state == MachineState.ITS_ME:
-                self._state = ProbingState.FOUND_IT
-                break
-            elif coding_state == MachineState.START:
-                char_len = self.coding_sm.get_current_charlen()
-                if i == 0:
-                    self._last_char[1] = byte_str[0]
-                    self.context_analyzer.feed(self._last_char[2 - char_len:],
-                                               char_len)
-                    self.distribution_analyzer.feed(self._last_char, char_len)
-                else:
-                    self.context_analyzer.feed(byte_str[i + 1 - char_len:i + 3
-                                                        - char_len], char_len)
-                    self.distribution_analyzer.feed(byte_str[i - 1:i + 1],
-                                                    char_len)
-
-        self._last_char[0] = byte_str[-1]
-
-        if self.state == ProbingState.DETECTING:
-            if (self.context_analyzer.got_enough_data() and
-               (self.get_confidence() > self.SHORTCUT_THRESHOLD)):
-                self._state = ProbingState.FOUND_IT
-
-        return self.state
+    def state(self):
+        return self._state
 
     def get_confidence(self):
-        context_conf = self.context_analyzer.get_confidence()
-        distrib_conf = self.distribution_analyzer.get_confidence()
-        return max(context_conf, distrib_conf)
+        return 0.0
+
+    @staticmethod
+    def filter_high_byte_only(buf):
+        buf = re.sub(b'([\x00-\x7F])+', b' ', buf)
+        return buf
+
+    @staticmethod
+    def filter_international_words(buf):
+        """
+        We define three types of bytes:
+        alphabet: english alphabets [a-zA-Z]
+        international: international characters [\x80-\xFF]
+        marker: everything else [^a-zA-Z\x80-\xFF]
+
+        The input buffer can be thought to contain a series of words delimited
+        by markers. This function works to filter all words that contain at
+        least one international character. All contiguous sequences of markers
+        are replaced by a single space ascii character.
+
+        This filter applies to all scripts which do not use English characters.
+        """
+        filtered = bytearray()
+
+        # This regex expression filters out only words that have at-least one
+        # international character. The word may include one marker character at
+        # the end.
+        words = re.findall(b'[a-zA-Z]*[\x80-\xFF]+[a-zA-Z]*[^a-zA-Z\x80-\xFF]?',
+                           buf)
+
+        for word in words:
+            filtered.extend(word[:-1])
+
+            # If the last character in the word is a marker, replace it with a
+            # space as markers shouldn't affect our analysis (they are used
+            # similarly across all languages and may thus have similar
+            # frequencies).
+            last_char = word[-1:]
+            if not last_char.isalpha() and last_char < b'\x80':
+                last_char = b' '
+            filtered.extend(last_char)
+
+        return filtered
+
+    @staticmethod
+    def filter_with_english_letters(buf):
+        """
+        Returns a copy of ``buf`` that retains only the sequences of English
+        alphabet and high byte characters that are not between <> characters.
+        Also retains English alphabet and high byte characters immediately
+        before occurrences of >.
+
+        This filter can be applied to all scripts which contain both English
+        characters and extended ASCII characters, but is currently only used by
+        ``Latin1Prober``.
+        """
+        filtered = bytearray()
+        in_tag = False
+        prev = 0
+
+        for curr in range(len(buf)):
+            # Slice here to get bytes instead of an int with Python 3
+            buf_char = buf[curr:curr + 1]
+            # Check if we're coming out of or entering an HTML tag
+            if buf_char == b'>':
+                in_tag = False
+            elif buf_char == b'<':
+                in_tag = True
+
+            # If current character is not extended-ASCII and not alphabetic...
+            if buf_char < b'\x80' and not buf_char.isalpha():
+                # ...and we're not in a tag
+                if curr > prev and not in_tag:
+                    # Keep everything after last non-extended-ASCII,
+                    # non-alphabetic character
+                    filtered.extend(buf[prev:curr])
+                    # Output a space to delimit stretch we kept
+                    filtered.extend(b' ')
+                prev = curr + 1
+
+        # If we're not in a tag...
+        if not in_tag:
+            # Keep everything after last non-extended-ASCII, non-alphabetic
+            # character
+            filtered.extend(buf[prev:])
+
+        return filtered

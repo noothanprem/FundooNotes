@@ -1,6 +1,2 @@
-m
-pythonS1066/Merge this if statement with the enclosing one. 2
-ˆˆ :
-Ðµ
-‡‡ 
-	enclosing
+q
+pythonS107UFunction "get_schema_view" has 10 parameters, which is greater than the 7 authorized. 2" B

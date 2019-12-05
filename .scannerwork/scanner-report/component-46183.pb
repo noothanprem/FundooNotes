@@ -1,1 +1,1 @@
-зи.venv/lib64/python3.6/site-packages/zmq/asyncio :жи
+зи.venv/lib64/python3.6/site-packages/zmq/asyncio :еи

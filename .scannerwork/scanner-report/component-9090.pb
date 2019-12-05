@@ -1,2 +1,1 @@
-‚G:venv/lib/python3.6/site-packages/django/urls/exceptions.py 2pyX
-h
+‚G,venv/lib/python3.6/site-packages/django/urls :GƒG„G…G†GGG

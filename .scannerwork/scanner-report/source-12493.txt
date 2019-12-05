@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-# $Id: sv.py 8012 2017-01-03 23:08:19Z milde $
-# Author: Adam Chodorowski <chodorowski@users.sourceforge.net>
+# $Id: fa.py 4564 2016-08-10 11:48:42Z
+# Author: Shahin <me@5hah.in>
 # Copyright: This module has been placed in the public domain.
 
 # New language mappings are welcome.  Before doing a new translation, please
@@ -9,87 +9,94 @@
 # docutils/parsers/rst/languages.
 
 """
-Swedish language mappings for language-dependent features of reStructuredText.
+Persian-language mappings for language-dependent features of
+reStructuredText.
 """
 
 __docformat__ = 'reStructuredText'
 
+
 directives = {
-      'observera': 'attention',
-      'akta': 'caution', # also 'försiktigt'
-      'kod': 'code',
-      'fara': 'danger',
-      'fel': 'error',
-      'vink': 'hint', # also 'hint'
-      'viktigt': 'important',
-      'notera': 'note',
-      'tips': 'tip',
-      'varning': 'warning',
-      'anmärkning': 'admonition', # literal 'tillrättavisning', 'förmaning'
-      'sidorad': 'sidebar',
-      'ämne': 'topic',
-      'tema': 'topic',
-      'rad-block': 'line-block',
-      'parsed-literal (translation required)': 'parsed-literal', # 'tolkad-bokstavlig'?
-      'rubrik': 'rubric',
-      'epigraf': 'epigraph',
-      'höjdpunkter': 'highlights',
-      'pull-quote (translation required)': 'pull-quote',
-      'sammansatt': 'compound',
-      'container': 'container',
-      # u'frågor': 'questions',
-      # NOTE: A bit long, but recommended by http://www.nada.kth.se/dataterm/:
-      # u'frågor-och-svar': 'questions',
-      # u'vanliga-frågor': 'questions',
-      'tabell': 'table',
-      'csv-tabell': 'csv-table',
-      'list-tabell': 'list-table',
-      'meta': 'meta',
-      'matematik': 'math',
-      # u'bildkarta': 'imagemap',   # FIXME: Translation might be too literal.
-      'bild': 'image',
-      'figur': 'figure',
-      'inkludera': 'include',
-      'rå': 'raw',
-      'ersätta': 'replace',
-      'unicode': 'unicode',
-      'datum': 'date',
-      'klass': 'class',
-      'roll': 'role',
-      'standardroll': 'default-role',
-      'titel': 'title',
-      'innehåll': 'contents',
-      'sektionsnumrering': 'sectnum',
-      'target-notes (translation required)': 'target-notes',
-      'sidhuvud': 'header',
-      'sidfot': 'footer',
-      # u'fotnoter': 'footnotes',
-      # u'citeringar': 'citations',
-      }
-"""Swedish name to registered (in directives/__init__.py) directive name
+      # language-dependent: fixed
+      'توجه': 'attention',
+      'احتیاط': 'caution',
+      'کد': 'code',
+      'بلوک-کد': 'code',
+      'کد-منبع': 'code',
+      'خطر': 'danger',
+      'خطا': 'error',
+      'راهنما': 'hint',
+      'مهم': 'important',
+      'یادداشت': 'note',
+      'نکته': 'tip',
+      'اخطار': 'warning',
+      'تذکر': 'admonition',
+      'نوار-کناری': 'sidebar',
+      'موضوع': 'topic',
+      'بلوک-خط': 'line-block',
+      'تلفظ-پردازش-شده': 'parsed-literal',
+      'سر-فصل': 'rubric',
+      'کتیبه': 'epigraph',
+      'نکات-برجسته': 'highlights',
+      'نقل-قول': 'pull-quote',
+      'ترکیب': 'compound',
+      'ظرف': 'container',
+      #'questions': u'questions',
+      'جدول': 'table',
+      'جدول-csv': 'csv-table',
+      'جدول-لیست': 'list-table',
+      #'qa': u'questions',
+      #'faq': u'questions',
+      'متا': 'meta',
+      'ریاضی': 'math',
+      #'imagemap': u'imagemap',
+      'تصویر': 'image',
+      'شکل': 'figure',
+      'شامل': 'include',
+      'خام': 'raw',
+      'جایگزین': 'replace',
+      'یونیکد': 'unicode',
+      'تاریخ': 'date',
+      'کلاس': 'class',
+      'قانون': 'role',
+      'قانون-پیش‌فرض': 'default-role',
+      'عنوان': 'title',
+      'محتوا': 'contents',
+      'شماره-فصل': 'sectnum',
+      'شماره‌گذاری-فصل': 'sectnum',
+      'سرآیند': 'header',
+      'پاصفحه': 'footer',
+      #'footnotes': u'footnotes',
+      #'citations': u'citations',
+      'یادداشت-هدف': 'target-notes',
+    }
+"""Persian name to registered (in directives/__init__.py) directive name
 mapping."""
 
 roles = {
-      'förkortning': 'abbreviation',
-      'akronym': 'acronym',
-      'kod': 'code',
-      'index': 'index',
-      'nedsänkt': 'subscript',
-      'upphöjd': 'superscript',
-      'titel-referens': 'title-reference',
-      'pep-referens': 'pep-reference',
-      'rfc-referens': 'rfc-reference',
-      'betoning': 'emphasis',
-      'stark': 'strong',
-      'bokstavlig': 'literal', # also 'ordagranna'
-      'matematik': 'math',
-      'namngiven-referens': 'named-reference',
-      'anonym-referens': 'anonymous-reference',
-      'fotnot-referens': 'footnote-reference',
-      'citat-referens': 'citation-reference',
-      'ersättnings-referens': 'substitution-reference',
-      'mål': 'target',
-      'uri-referens': 'uri-reference',
-      'rå': 'raw',}
-"""Mapping of Swedish role names to canonical role names for interpreted text.
+    # language-dependent: fixed
+    'مخفف': 'abbreviation',
+    'سرنام': 'acronym',
+    'کد': 'code',
+    'شاخص': 'index',
+    'زیرنویس': 'subscript',
+    'بالانویس': 'superscript',
+    'عنوان': 'title-reference',
+    'نیرو': 'pep-reference',
+    'rfc-reference (translation required)': 'rfc-reference',
+    'تاکید': 'emphasis',
+    'قوی': 'strong',
+    'لفظی': 'literal',
+    'ریاضی': 'math',
+    'منبع-نام‌گذاری': 'named-reference',
+    'منبع-ناشناس': 'anonymous-reference',
+    'منبع-پانویس': 'footnote-reference',
+    'منبع-نقل‌فول': 'citation-reference',
+    'منبع-جایگزینی': 'substitution-reference',
+    'هدف': 'target',
+    'منبع-uri': 'uri-reference',
+    'uri': 'uri-reference',
+    'url': 'uri-reference',
+    'خام': 'raw',}
+"""Mapping of Persian role names to canonical role names for interpreted text.
 """

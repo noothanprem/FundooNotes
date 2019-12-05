@@ -1,1 +1,1 @@
-܉>venv/lib/python3.6/site-packages/elasticsearch/client/nodes.py 2pyX�h
+܉?venv/lib/python3.6/site-packages/elasticsearch/client/remote.py 2pyXh

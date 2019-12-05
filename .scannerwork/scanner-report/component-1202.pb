@@ -1,1 +1,1 @@
-²	Avenv/lib/python3.6/site-packages/future/backports/urllib/error.py 2pyXLh
+²	8venv/lib/python3.6/site-packages/future/backports/urllib :±	´	µ	¶	·	¾	

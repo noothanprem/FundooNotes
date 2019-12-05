@@ -1,114 +1,83 @@
-"""Scheduling Utilities."""
+"""Token bucket implementation for rate limiting."""
 from __future__ import absolute_import, unicode_literals
 
-from itertools import count
+from collections import deque
 
-from kombu.five import python_2_unicode_compatible
+from kombu.five import monotonic
 
-from .imports import symbol_by_name
-
-__all__ = (
-    'FairCycle', 'priority_cycle', 'round_robin_cycle', 'sorted_cycle',
-)
-
-CYCLE_ALIASES = {
-    'priority': 'kombu.utils.scheduling:priority_cycle',
-    'round_robin': 'kombu.utils.scheduling:round_robin_cycle',
-    'sorted': 'kombu.utils.scheduling:sorted_cycle',
-}
+__all__ = ('TokenBucket',)
 
 
-@python_2_unicode_compatible
-class FairCycle(object):
-    """Cycle between resources.
+class TokenBucket(object):
+    """Token Bucket Algorithm.
 
-    Consume from a set of resources, where each resource gets
-    an equal chance to be consumed from.
+    See Also:
+        https://en.wikipedia.org/wiki/Token_Bucket
 
-    Arguments:
-        fun (Callable): Callback to call.
-        resources (Sequence[Any]): List of resources.
-        predicate (type): Exception predicate.
+        Most of this code was stolen from an entry in the ASPN Python Cookbook:
+        https://code.activestate.com/recipes/511490/
+
+    Warning:
+        Thread Safety: This implementation is not thread safe.
+        Access to a `TokenBucket` instance should occur within the critical
+        section of any multithreaded code.
     """
 
-    def __init__(self, fun, resources, predicate=Exception):
-        self.fun = fun
-        self.resources = resources
-        self.predicate = predicate
-        self.pos = 0
+    #: The rate in tokens/second that the bucket will be refilled.
+    fill_rate = None
 
-    def _next(self):
-        while 1:
-            try:
-                resource = self.resources[self.pos]
-                self.pos += 1
-                return resource
-            except IndexError:
-                self.pos = 0
-                if not self.resources:
-                    raise self.predicate()
+    #: Maximum number of tokens in the bucket.
+    capacity = 1
 
-    def get(self, callback, **kwargs):
-        """Get from next resource."""
-        for tried in count(0):  # for infinity
-            resource = self._next()
-            try:
-                return self.fun(resource, callback, **kwargs)
-            except self.predicate:
-                # reraise when retries exchausted.
-                if tried >= len(self.resources) - 1:
-                    raise
+    #: Timestamp of the last time a token was taken out of the bucket.
+    timestamp = None
 
-    def close(self):
-        """Close cycle."""
-        pass
+    def __init__(self, fill_rate, capacity=1):
+        self.capacity = float(capacity)
+        self._tokens = capacity
+        self.fill_rate = float(fill_rate)
+        self.timestamp = monotonic()
+        self.contents = deque()
 
-    def __repr__(self):
-        """``repr(cycle)``."""
-        return '<FairCycle: {self.pos}/{size} {self.resources}>'.format(
-            self=self, size=len(self.resources))
+    def add(self, item):
+        self.contents.append(item)
 
+    def pop(self):
+        return self.contents.popleft()
 
-class round_robin_cycle(object):
-    """Iterator that cycles between items in round-robin."""
+    def clear_pending(self):
+        self.contents.clear()
 
-    def __init__(self, it=None):
-        self.items = it if it is not None else []
+    def can_consume(self, tokens=1):
+        """Check if one or more tokens can be consumed.
 
-    def update(self, it):
-        """Update items from iterable."""
-        self.items[:] = it
+        Returns:
+            bool: true if the number of tokens can be consumed
+                from the bucket.  If they can be consumed, a call will also
+                consume the requested number of tokens from the bucket.
+                Calls will only consume `tokens` (the number requested)
+                or zero tokens -- it will never consume a partial number
+                of tokens.
+        """
+        if tokens <= self._get_tokens():
+            self._tokens -= tokens
+            return True
+        return False
 
-    def consume(self, n):
-        """Consume n items."""
-        return self.items[:n]
+    def expected_time(self, tokens=1):
+        """Return estimated time of token availability.
 
-    def rotate(self, last_used):
-        """Move most recently used item to end of list."""
-        items = self.items
-        try:
-            items.append(items.pop(items.index(last_used)))
-        except ValueError:
-            pass
-        return last_used
+        Returns:
+            float: the time in seconds.
+        """
+        _tokens = self._get_tokens()
+        tokens = max(tokens, _tokens)
+        return (tokens - _tokens) / self.fill_rate
 
-
-class priority_cycle(round_robin_cycle):
-    """Cycle that repeats items in order."""
-
-    def rotate(self, last_used):
-        """Unused in this implementation."""
-        pass
-
-
-class sorted_cycle(priority_cycle):
-    """Cycle in sorted order."""
-
-    def consume(self, n):
-        """Consume n items."""
-        return sorted(self.items[:n])
-
-
-def cycle_by_name(name):
-    """Get cycle class by name."""
-    return symbol_by_name(name, CYCLE_ALIASES)
+    def _get_tokens(self):
+        if self._tokens < self.capacity:
+            now = monotonic()
+            delta = self.fill_rate * (now - self.timestamp)
+            self._tokens = min(self.capacity, self._tokens + delta)
+            self.timestamp = now
+        return self._tokens

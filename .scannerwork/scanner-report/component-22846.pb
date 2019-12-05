@@ -1,1 +1,1 @@
-¾²Dvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/fields :½²¿²À²Á²
+¾²Ivenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/versions.py 2pyX`h

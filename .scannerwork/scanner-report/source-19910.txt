@@ -14,32 +14,50 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-"""Implementation of platform-specific functionality.
+"""Interfaces for platform-specific functionality.
 
-For each function or class described in `tornado.platform.interface`,
-the appropriate platform-specific implementation exists in this module.
-Most code that needs access to this functionality should do e.g.::
-
-    from tornado.platform.auto import set_close_exec
+This module exists primarily for documentation purposes and as base classes
+for other tornado.platform modules.  Most code should import the appropriate
+implementation from `tornado.platform.auto`.
 """
 
 from __future__ import absolute_import, division, print_function, with_statement
 
-import os
 
-if os.name == 'nt':
-    from .common import Waker
-    from .windows import set_close_exec
-else:
-    from .posix import set_close_exec, Waker
+def set_close_exec(fd):
+    """Sets the close-on-exec bit (``FD_CLOEXEC``)for a file descriptor."""
+    raise NotImplementedError()
 
-try:
-    # monotime monkey-patches the time module to have a monotonic function
-    # in versions of python before 3.3.
-    import monotime
-except ImportError:
-    pass
-try:
-    from time import monotonic as monotonic_time
-except ImportError:
-    monotonic_time = None
+
+class Waker(object):
+    """A socket-like object that can wake another thread from ``select()``.
+
+    The `~tornado.ioloop.IOLoop` will add the Waker's `fileno()` to
+    its ``select`` (or ``epoll`` or ``kqueue``) calls.  When another
+    thread wants to wake up the loop, it calls `wake`.  Once it has woken
+    up, it will call `consume` to do any necessary per-wake cleanup.  When
+    the ``IOLoop`` is closed, it closes its waker too.
+    """
+    def fileno(self):
+        """Returns the read file descriptor for this waker.
+
+        Must be suitable for use with ``select()`` or equivalent on the
+        local platform.
+        """
+        raise NotImplementedError()
+
+    def write_fileno(self):
+        """Returns the write file descriptor for this waker."""
+        raise NotImplementedError()
+
+    def wake(self):
+        """Triggers activity on the waker's file descriptor."""
+        raise NotImplementedError()
+
+    def consume(self):
+        """Called after the listen has woken up to do any necessary cleanup."""
+        raise NotImplementedError()
+
+    def close(self):
+        """Closes the waker's file descriptor(s)."""
+        raise NotImplementedError()

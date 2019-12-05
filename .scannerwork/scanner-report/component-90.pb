@@ -1,1 +1,1 @@
-Zuser/migrations/0001_initial.py 2pyXh
+Zuser/migrations/__init__.py 2pyXh

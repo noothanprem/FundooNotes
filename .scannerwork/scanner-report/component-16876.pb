@@ -1,1 +1,1 @@
-ìƒ4venv/lib/python3.6/site-packages/automat/__init__.py 2pyX	h
+ìƒ:venv/lib/python3.6/site-packages/automat/_introspection.py 2pyX+h

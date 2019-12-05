@@ -1,129 +1,370 @@
-o
-pythonS100SRename method "getPublicKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 266 p
-pythonS100TRename method "getPrivateKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2CC n
-pythonS100RRename method "getPassword" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2JJ t
-pythonS100XRename method "getGenericAnswers" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2QQ p
-pythonS100TRename method "getPrivateKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2__ o
-pythonS100SRename method "getPublicKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2dd p
-pythonS100TRename method "getPrivateKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2nn o
-pythonS100SRename method "getPublicKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2rr s
-pythonS100URename method "serviceStarted" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-èè o
-pythonS100QRename method "getService" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ôô o
-pythonS100QRename method "sendPacket" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-©© p
-pythonS100RRename method "isEncrypted" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-∞∞ s
-pythonS100URename method "loseConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ππ r
-pythonS100TRename method "requestAvatar" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-«« t
-pythonS100VRename method "requestAvatarId" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‘‘ t
-pythonS100VRename method "requestAvatarId" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-„„ j
+P
+pythonS13133Make this IP "198.49.126.131" address configurable. 2II 4R
+pythonS13133Make this IP "198.49.126.131" address configurable. 2
+õõ/ @K
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+ºº 'K
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+ææB LK
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+ÕÕ 'K
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2
+œœ* 4K
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2
+„„, 6K
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2
+ËË LK
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2
+¸¸  *K
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2
+††, 6K
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2
+•• LK
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2
+∂∂* 4K
+pythonS1313,Make this IP "5.4.3.2" address configurable. 2
+ƒƒ* 4K
+pythonS1313,Make this IP "5.4.3.2" address configurable. 2
+«« K
+pythonS1313,Make this IP "5.4.3.2" address configurable. 2
+   4K
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2
+¿	¿	, 6K
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2
+”	”	2 <K
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2
+˙	˙	2 <K
+pythonS1313,Make this IP "8.7.6.5" address configurable. 2
+á
+á
+2 <K
+pythonS1313,Make this IP "8.7.6.5" address configurable. 2
+ã
+ã
+ 3K
+pythonS1313,Make this IP "8.7.6.5" address configurable. 2
+è
+è
+2 <K
+pythonS1313,Make this IP "9.8.7.6" address configurable. 2
+õ
+õ
+  *K
+pythonS1313,Make this IP "9.8.7.6" address configurable. 2
+û
+û
+ FK
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2
+≠
+≠
+  *K
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2
+∑
+∑
+" ,K
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2
+Œ
+Œ
+" ,y
+pythonS100]Rename method "test_providesInterface" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ZZ r
+pythonS100VRename method "test_fromString" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2aa r
+pythonS100VRename method "test_matchesKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2oo s
+pythonS100WRename method "test_matchesHost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2~~ j
 pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÅÅ m
-pythonS100ORename method "tearDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-çç q
-pythonS100SRename method "_checkFailed" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-íí |
-pythonS100^Rename method "test_noneAuthentication" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-õõ ä
-pythonS100lRename method "test_successfulPasswordAuthentication" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ßß -Ü
-pythonS100hRename method "test_failedPasswordAuthentication" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ππ )å
-pythonS100nRename method "test_successfulPrivateKeyAuthentication" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÃÃ /Å
-pythonS100cRename method "test_requestRaisesConchError" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ﬂﬂ $
-pythonS100aRename method "test_verifyValidPrivateKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-˙˙ "ò
-pythonS100zRename method "test_failedPrivateKeyAuthenticationWithoutSignature" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-àà ;ï
-pythonS100wRename method "test_failedPrivateKeyAuthenticationWithSignature" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-îî 8Ö
-pythonS100gRename method "test_ignoreUnknownCredInterfaces" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-≥≥ (Ö
-pythonS100gRename method "test_removePasswordIfUnencrypted" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-∆∆ (è
-pythonS100qRename method "test_unencryptedConnectionWithoutPasswords" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‹‹ 2v
-pythonS100XRename method "test_loginTimeout" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-˘˘ |
-pythonS100^Rename method "test_cancelLoginTimeout" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ãã y
-pythonS100[Rename method "test_tooManyAttempts" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ôô ~
-pythonS100`Rename method "test_failIfUnknownService" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-≠≠ !z
-pythonS100\Rename method "test_tryAuthEdgeCases" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-∏∏ j
+èè w
+pythonS100YRename method "test_matchesHostIP" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ññ r
+pythonS100TRename method "test_toString" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+üü j
 pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-€€ m
-pythonS100ORename method "tearDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‚‚ z
-pythonS100\Rename method "test_USERAUTH_SUCCESS" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÚÚ }
-pythonS100_Rename method "test_keyboardInteractive" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-““  á
-pythonS100iRename method "test_USERAUTH_PK_OK_unknown_method" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‡‡ *Ç
-pythonS100dRename method "test_USERAUTH_FAILURE_sorting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÓÓ %ä
-pythonS100lRename method "test_disconnectIfNoMoreAuthentication" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ää -p
-pythonS100RRename method "test_ebAuth" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-òò s
-pythonS100URename method "serviceStarted" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-«« s
-pythonS100URename method "serviceStopped" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÀÀ o
-pythonS100QRename method "getService" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-œœ j
-pythonS101NRename class "transport" to match the regular expression ^[A-Z_][a-zA-Z0-9]+$. 2##
- i
-pythonS101MRename class "userauth" to match the regular expression ^[A-Z_][a-zA-Z0-9]+$. 2))
- u
-pythonS117WRename this parameter "messageType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-©© $r
-pythonS117TRename this parameter "avatarId" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-«« $~
-pythonS117`Rename this local variable "clearAuthServer" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÕÕ }
-pythonS117_Rename this local variable "halfAuthServer" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-‘‘ ~
-pythonS117`Rename this local variable "clearAuthServer" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÁÁ }
-pythonS117_Rename this local variable "halfAuthServer" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
- Ä
-pythonS117bRename this local variable "timeoutAuthServer" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-˝˝ Ä
-pythonS117bRename this local variable "timeoutAuthServer" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-èè v
-pythonS117XRename this local variable "sigData" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-êê y
-pythonS117[Rename this local variable "authClient" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-°° y
-pythonS117[Rename this local variable "authClient" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-™™ z
-pythonS116\Rename this field "credentialInterfaces" to match the regular expression ^[_a-z][_a-z0-9]*$. 2
-““ z
-pythonS116\Rename this field "credentialInterfaces" to match the regular expression ^[_a-z][_a-z0-9]*$. 2
-·· z
-pythonS116\Rename this field "credentialInterfaces" to match the regular expression ^[_a-z][_a-z0-9]*$. 2
-ÙÙ z
-pythonS1542[Rename function "mockCbFinishedAuth" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÊÊ s
-pythonS1542TRename function "mockTryAuth" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÈÈ u
-pythonS1542VRename function "mockEbBadAuth" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÏÏ p
-pythonS1542QRename function "mockAuth" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-√√ r
-pythonS1542SRename function "secondTest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-…… v
-pythonS1542WRename function "stubSetService" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-˜˜ 
+¿¿ r
+pythonS100TRename method "test_toString" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+»» j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ìì t
+pythonS100VRename method "test_fromString" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+öö u
+pythonS100WRename method "test_matchesHost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+££ t
+pythonS100VRename method "test_matchesKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+™™ r
+pythonS100TRename method "test_toString" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+±± u
+pythonS100WRename method "invalidEntryTest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ƒƒ r
+pythonS100TRename method "notBase64Test" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÃÃ o
+pythonS100QRename method "badKeyTest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+”” {
+pythonS100]Rename method "test_invalidPlainEntry" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+›› |
+pythonS100^Rename method "test_invalidHashedEntry" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÂÂ x
+pythonS100ZRename method "test_plainNotBase64" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÒÒ y
+pythonS100[Rename method "test_hashedNotBase64" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+˘˘ v
+pythonS100XRename method "test_hashedBadKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+êê u
+pythonS100WRename method "test_plainBadKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ôô t
+pythonS100VRename method "pathWithContent" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ßß x
+pythonS100ZRename method "loadSampleHostsFile" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∞∞ z
+pythonS100\Rename method "test_readOnlySavePath" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ºº ã
+pythonS100mRename method "test_defaultInitializerIgnoresExisting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+»» .å
+pythonS100nRename method "test_defaultInitializerClobbersExisting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+—— /Ä
+pythonS100bRename method "test_saveResetsClobberState" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‚‚ #v
+pythonS100XRename method "test_loadFromPath" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÛÛ |
+pythonS100^Rename method "test_iterentriesUnsaved" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+˝˝ {
+pythonS100]Rename method "test_verifyHashedEntry" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+áá z
+pythonS100\Rename method "test_verifyPlainEntry" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+îî }
+pythonS100_Rename method "test_verifyUnparsedEntry" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+°°  
+pythonS100aRename method "test_verifyUnparsedComment" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÆÆ "~
+pythonS100`Rename method "test_verifyUnparsableLine" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∫∫ !ä
+pythonS100lRename method "test_verifyUnparsableEncryptionMarker" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∆∆ -y
+pythonS100[Rename method "test_loadNonExistent" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+”” 
+pythonS100aRename method "test_loadNonExistentParent" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+·· "y
+pythonS100[Rename method "test_savingAddsEntry" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÔÔ Å
+pythonS100cRename method "test_savingAvoidsDuplication" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+áá $Ç
+pythonS100dRename method "test_savingsPreservesExisting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+òò %w
+pythonS100YRename method "test_hasPresentKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∂∂ w
+pythonS100YRename method "test_notPresentKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¿¿ z
+pythonS100\Rename method "test_hasLaterAddedKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ŒŒ Ç
+pythonS100dRename method "test_savedEntryHasKeyMismatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+›› %ä
+pythonS100lRename method "test_savedEntryAfterAddHasKeyMismatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÓÓ -Ñ
+pythonS100fRename method "test_unsavedEntryHasKeyMismatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÄÄ 't
+pythonS100VRename method "test_addHostKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ìì u
+pythonS100WRename method "test_randomSalts" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+™™ x
+pythonS100ZRename method "test_verifyValidKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∂∂ z
+pythonS100\Rename method "test_verifyInvalidKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+≈≈ x
+pythonS100ZRename method "verifyNonPresentKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+”” Å
+pythonS100cRename method "test_verifyNonPresentKey_Yes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ $Ä
+pythonS100bRename method "test_verifyNonPresentKey_No" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÉÉ #
+pythonS100aRename method "test_verifyNonPresentECKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+èè "~
+pythonS100`Rename method "test_verifyHostIPMismatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¨¨ !
+pythonS100aRename method "test_verifyKeyForHostAndIP" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∫∫ "~
+pythonS100`Rename method "test_getHostKeyAlgorithms" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ŒŒ !j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+åå m
+pythonS100ORename method "openFile" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+îî l
+pythonS100NRename method "newFile" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+õõ s
+pythonS100URename method "test_promptYes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+§§ r
+pythonS100TRename method "test_promptNo" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+≥≥ z
+pythonS100\Rename method "test_promptRepeatedly" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¬¬ z
+pythonS100\Rename method "test_promptOpenFailed" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+€€ x
+pythonS100ZRename method "test_warnOpenFailed" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ p
+pythonS100RRename method "patchedOpen" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¨	¨	 j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∑	∑	 u
+pythonS100WRename method "test_verifyOKKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+Ã	Ã	 p
+pythonS100RRename method "replaceHome" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÿ	ÿ	 |
+pythonS100^Rename method "test_noKnownHostsOption" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+Ï	Ï	 |
+pythonS100^Rename method "test_verifyHostButNotIP" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ˇ	ˇ	 x
+pythonS100ZRename method "test_verifyQuestion" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ì
+ì
+ v
+pythonS100XRename method "test_verifyBadKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ß
+ß
+ v
+pythonS100XRename method "test_inKnownHosts" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+≤
+≤
+ y
+pythonS100[Rename method "test_notInKnownHosts" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+æ
+æ
+ Ä
+pythonS100bRename method "test_inKnownHostsKeyChanged" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+…
+…
+ #Ä
+pythonS117dRename this local variable "twistedmatrixDotCom" to match the regular expression ^[_a-z][a-z0-9_]*$. 2tt y
+pythonS117]Rename this local variable "divmodDotCom" to match the regular expression ^[_a-z][a-z0-9_]*$. 2uu }
+pythonS117_Rename this local variable "multiHostEntry" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+•• w
+pythonS117YRename this local variable "hostSalt" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+÷÷ w
+pythonS117YRename this local variable "hostHash" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+◊◊ x
+pythonS117ZRename this local variable "publicKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÿÿ v
+pythonS117XRename this local variable "keyType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ŸŸ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+√√ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÕÕ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÿÿ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ËË v
+pythonS117XRename this local variable "preSave" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÈÈ w
+pythonS117YRename this local variable "postSave" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÏÏ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+˘˘ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÇÇ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+çç x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+öö x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ßß x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¥¥ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+øø x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÃÃ }
+pythonS117_Rename this local variable "knownHostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ŸŸ v
+pythonS117XRename this local variable "thePath" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÁÁ }
+pythonS117_Rename this local variable "knownHostsPath" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ËË }
+pythonS117_Rename this local variable "knownHostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÈÈ }
+pythonS117_Rename this local variable "knownHostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ˆˆ w
+pythonS117YRename this local variable "newEntry" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+˜˜ ~
+pythonS117`Rename this local variable "expectedContent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+˘˘ y
+pythonS117[Rename this local variable "knownHosts" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+éé y
+pythonS117[Rename this local variable "knownHosts" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+†† x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ªª x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+≈≈ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+÷÷ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+‰‰ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ˆˆ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+àà x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+òò s
+pythonS117URename this local variable "aKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ôô w
+pythonS117YRename this local variable "newEntry" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+úú x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ØØ s
+pythonS117URename this local variable "aKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+∞∞ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ªª x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+   w
+pythonS117YRename this local variable "wrongKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÀÀ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ﬁﬁ x
+pythonS117ZRename this local variable "absentKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ﬂﬂ }
+pythonS117_Rename this local variable "knownHostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ˆˆ }
+pythonS117_Rename this local variable "knownHostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ää t
+pythonS117VRename this local variable "ecObj" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ïï x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+úú x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+≤≤ w
+pythonS117YRename this local variable "wrongKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+≥≥ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¡¡ z
+pythonS117\Rename this local variable "expectedKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¬¬ x
+pythonS117ZRename this local variable "hostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+”” Å
+pythonS117cRename this local variable "expectedAlgorithms" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+›› t
+pythonS117VRename this local variable "okYes" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+™™ s
+pythonS117URename this local variable "okNo" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ππ }
+pythonS117_Rename this local variable "knownHostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ø	ø	 r
+pythonS117TRename this parameter "tempHome" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÿ	ÿ	 "v
+pythonS117XRename this local variable "oldHome" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+‚	‚	 }
+pythonS117_Rename this local variable "oldHostsOption" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+Ù	Ù	 }
+pythonS117_Rename this local variable "hostsNonOption" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ı	ı	 }
+pythonS117_Rename this local variable "knownHostsFile" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+é
+é
+ r
+pythonS116TRename this field "userWarnings" to match the regular expression ^[_a-z][_a-z0-9]*$. 2
+â	â	 t
+pythonS116VRename this field "promptDeferred" to match the regular expression ^[_a-z][_a-z0-9]*$. 2
+ä	ä	 p
+pythonS116RRename this field "promptText" to match the regular expression ^[_a-z][_a-z0-9]*$. 2
+ã	ã	 o
+pythonS1542PRename function "raiseIt" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‡‡ o
+pythonS1542PRename function "raiseIt" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÙÙ s
+pythonS1542TRename function "cleanupHome" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+„	„	 

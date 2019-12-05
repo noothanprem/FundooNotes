@@ -1,1 +1,1 @@
-È²Kvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/pagination.py 2pyX¿h
+È²Ivenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/viewsets.py 2pyXøh

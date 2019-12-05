@@ -1,1 +1,1 @@
-ÒQ2venv/lib/python3.6/site-packages/sqlparse/utils.py 2pyX|h
+ÒQ7venv/lib/python3.6/site-packages/channels/exceptions.py 2pyXBh

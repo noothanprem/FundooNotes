@@ -1,64 +1,74 @@
 # -*- coding: utf-8 -*-
-import os
-import sys
-import shutil
+from django.apps import apps
+from django.core.management.base import CommandError, LabelCommand
+from django.utils.encoding import force_text
 
-from django.core.management.base import AppCommand
-from django.core.management.color import color_style
-
-from django_extensions.management.utils import _make_writeable, signalcommand
+from django_extensions.management.utils import signalcommand
 
 
-class Command(AppCommand):
-    help = "Creates a Django jobs command directory structure for the given app name in the current directory."
+class Command(LabelCommand):
+    help = "Outputs the specified model as a form definition to the shell."
 
-    requires_system_checks = False
-    # Can't import settings during this command, because they haven't
-    # necessarily been created.
-    can_import_settings = True
+    def add_arguments(self, parser):
+        parser.add_argument('label', type=str,
+                            help='application name and model name')
+        parser.add_argument(
+            "--fields", "-f", action="append", dest="fields", default=[],
+            help="Describe form with these fields only"
+        )
 
     @signalcommand
-    def handle_app_config(self, app, **options):
-        copy_template('jobs_template', app.path, **options)
+    def handle(self, *args, **options):
+        label = options['label']
+        fields = options['fields']
+
+        return describe_form(label, fields)
 
 
-def copy_template(template_name, copy_to, **options):
-    """Copy the specified template directory to the copy_to location"""
-    import django_extensions
+def describe_form(label, fields):
+    """ Return a string describing a form based on the model """
+    try:
+        app_name, model_name = label.split('.')[-2:]
+    except (IndexError, ValueError):
+        raise CommandError("Need application and model name in the form: appname.model")
+    model = apps.get_model(app_name, model_name)
 
-    style = color_style()
-    ERROR = getattr(style, 'ERROR', lambda x: x)
-    SUCCESS = getattr(style, 'SUCCESS', lambda x: x)
+    opts = model._meta
+    field_list = []
+    for f in opts.fields + opts.many_to_many:
+        if not f.editable:
+            continue
+        if fields and f.name not in fields:
+            continue
+        formfield = f.formfield()
+        if '__dict__' not in dir(formfield):
+            continue
+        attrs = {}
+        valid_fields = ['required', 'initial', 'max_length', 'min_length', 'max_value', 'min_value', 'max_digits', 'decimal_places', 'choices', 'help_text', 'label']
+        for k, v in formfield.__dict__.items():
+            if k in valid_fields and v is not None:
+                # ignore defaults, to minimize verbosity
+                if k == 'required' and v:
+                    continue
+                if k == 'help_text' and not v:
+                    continue
+                if k == 'widget':
+                    attrs[k] = v.__class__
+                elif k in ['help_text', 'label']:
+                    attrs[k] = str(force_text(v).strip())
+                else:
+                    attrs[k] = v
 
-    template_dir = os.path.join(django_extensions.__path__[0], 'conf', template_name)
-    verbosity = options["verbosity"]
+        params = ', '.join(['%s=%r' % (k, v) for k, v in sorted(attrs.items())])
+        field_list.append('    %(field_name)s = forms.%(field_type)s(%(params)s)' % {
+            'field_name': f.name,
+            'field_type': formfield.__class__.__name__,
+            'params': params
+        })
+    return '''
+from django import forms
+from %(app_name)s.models import %(object_name)s
 
-    # walks the template structure and copies it
-    for d, subdirs, files in os.walk(template_dir):
-        relative_dir = d[len(template_dir) + 1:]
-        if relative_dir and not os.path.exists(os.path.join(copy_to, relative_dir)):
-            os.mkdir(os.path.join(copy_to, relative_dir))
-        for i, subdir in enumerate(subdirs):
-            if subdir.startswith('.'):
-                del subdirs[i]
-        for f in files:
-            if f.endswith('.pyc') or f.startswith('.DS_Store'):
-                continue
-            path_old = os.path.join(d, f)
-            path_new = os.path.join(copy_to, relative_dir, f).rstrip(".tmpl")
-            if os.path.exists(path_new):
-                if verbosity > 1:
-                    print(ERROR("%s already exists" % path_new))
-                continue
-            if verbosity > 1:
-                print(SUCCESS("%s" % path_new))
-
-            with open(path_old, 'r') as fp_orig:
-                with open(path_new, 'w') as fp_new:
-                    fp_new.write(fp_orig.read())
-
-            try:
-                shutil.copymode(path_old, path_new)
-                _make_writeable(path_new)
-            except OSError:
-                sys.stderr.write("Notice: Couldn't set permission bits on %s. You're probably using an uncommon filesystem setup. No problem.\n" % path_new)
+class %(object_name)sForm(forms.Form):
+%(field_list)s
+''' % {'app_name': app_name, 'object_name': opts.object_name, 'field_list': '\n'.join(field_list)}

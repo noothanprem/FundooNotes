@@ -1,1 +1,1 @@
-®¹=venv/lib/python3.6/site-packages/social_core/backends/vend.py 2pyX(h
+®¹Cvenv/lib/python3.6/site-packages/social_core/backends/belgiumeid.py 2pyXh

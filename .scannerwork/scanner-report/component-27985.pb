@@ -1,1 +1,1 @@
-бкAvenv/lib64/python3.6/site-packages/reportlab/pdfgen/textobject.py 2pyXуh
+бк3venv/lib64/python3.6/site-packages/reportlab/pdfgen :аквкгкдкекнк

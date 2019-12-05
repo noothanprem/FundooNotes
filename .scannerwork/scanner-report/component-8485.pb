@@ -1,1 +1,1 @@
-¥BDvenv/lib/python3.6/site-packages/django/conf/locale/es_NI/formats.py 2pyXh
+¥BEvenv/lib/python3.6/site-packages/django/conf/locale/es_NI/__init__.py 2pyXh

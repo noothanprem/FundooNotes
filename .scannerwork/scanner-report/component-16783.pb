@@ -1,1 +1,0 @@
-ƒ5venv/lib/python3.6/site-packages/gi/overrides/GLib.py 2pyXóh

@@ -1,1 +1,0 @@
-ÙH6venv/lib/python3.6/site-packages/pbr/tests/testpackage :÷H

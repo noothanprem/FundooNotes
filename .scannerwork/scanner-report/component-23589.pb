@@ -1,1 +1,1 @@
-¥¸Svenv/lib/python3.6/site-packages/social_core/tests/backends/test_five_hundred_px.py 2pyXmh
+¥¸Jvenv/lib/python3.6/site-packages/social_core/tests/backends/test_twitch.py 2pyX"h

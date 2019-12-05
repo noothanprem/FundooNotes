@@ -1,25 +1,40 @@
-m
-pythonS100QRename method "runReactor" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 255 |
-pythonS100`Rename method "test_gApplicationActivate" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2QQ !~
-pythonS100bRename method "test_gtkApplicationActivate" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2^^ #n
-pythonS100RRename method "test_noQuit" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2}} ~
-pythonS100`Rename method "test_cantRegisterAfterRun" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ãã !{
-pythonS100]Rename method "test_cantRegisterTwice" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-†† ~
-pythonS100`Rename method "test_noCompatibilityLayer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ππ !p
-pythonS100RRename method "errReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÃÃ p
-pythonS100RRename method "outReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-œœ r
-pythonS100TRename method "processExited" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-““ |
-pythonS100^Rename method "test_compatibilityLayer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ﬂﬂ y
-pythonS100[Rename method "test_requiresDISPLAY" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
- t
-pythonS117VRename this local variable "pyExe" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-÷÷ s
-pythonS1542TRename function "tryRegister" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ññ 
+l
+pythonS100PRename method "addReader" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2## o
+pythonS100SRename method "removeReader" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2'' l
+pythonS100PRename method "addWriter" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2++ o
+pythonS100SRename method "removeWriter" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2// n
+pythonS100RRename method "_checkWaker" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 299 }
+pythonS100aRename method "test_wakerIsInternalReader" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2?? "Ö
+pythonS100iRename method "test_removeAllSkipsInternalReaders" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2HH *ä
+pythonS100nRename method "test_removeAllReturnsRemovedDescriptors" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2WW /|
+pythonS100`Rename method "test_connectionLostFailed" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2qq !n
+pythonS100PRename method "addReader" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ââ n
+pythonS100PRename method "removeAll" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+êê p
+pythonS100RRename method "doIteration" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+°° {
+pythonS100]Rename method "_checkIterationTimeout" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ØØ q
+pythonS100SRename method "test_noCalls" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∑∑ u
+pythonS100WRename method "test_delayedCall" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¡¡ t
+pythonS100VRename method "test_timePasses" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÕÕ ~
+pythonS100`Rename method "test_multipleDelayedCalls" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+⁄⁄ !z
+pythonS100\Rename method "test_resetDelayedCall" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ËË z
+pythonS100\Rename method "test_delayDelayedCall" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ˆˆ {
+pythonS100]Rename method "test_cancelDelayedCall" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÖÖ í
+pythonS100tRename method "test_connectionFailedDoesntCallLoseConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+öö 5å
+pythonS100nRename method "test_connectionFailedCallsStopListening" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+´´ /v
+pythonS1542WRename function "loseConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+üü u
+pythonS1542VRename function "stopListening" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+≥≥ 

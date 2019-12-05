@@ -2,135 +2,86 @@
 # The Python Imaging Library.
 # $Id$
 #
-# Sun image file handling
+# DCX file handling
+#
+# DCX is a container file format defined by Intel, commonly used
+# for fax applications.  Each DCX file consists of a directory
+# (a list of file offsets) followed by a set of (usually 1-bit)
+# PCX files.
 #
 # History:
-# 1995-09-10 fl   Created
-# 1996-05-28 fl   Fixed 32-bit alignment
-# 1998-12-29 fl   Import ImagePalette module
-# 2001-12-18 fl   Fixed palette loading (from Jean-Claude Rimbault)
+# 1995-09-09 fl   Created
+# 1996-03-20 fl   Properly derived from PcxImageFile.
+# 1998-07-15 fl   Renamed offset attribute to avoid name clash
+# 2002-07-30 fl   Fixed file handling
 #
-# Copyright (c) 1997-2001 by Secret Labs AB
-# Copyright (c) 1995-1996 by Fredrik Lundh
+# Copyright (c) 1997-98 by Secret Labs AB.
+# Copyright (c) 1995-96 by Fredrik Lundh.
 #
 # See the README file for information on usage and redistribution.
 #
 
+from . import Image
+from ._binary import i32le as i32
+from .PcxImagePlugin import PcxImageFile
 
-from . import Image, ImageFile, ImagePalette
-from ._binary import i32be as i32
+__version__ = "0.2"
 
-__version__ = "0.3"
+MAGIC = 0x3ADE68B1  # QUIZ: what's this value, then?
 
 
 def _accept(prefix):
-    return len(prefix) >= 4 and i32(prefix) == 0x59a66a95
+    return len(prefix) >= 4 and i32(prefix) == MAGIC
 
 
 ##
-# Image plugin for Sun raster files.
+# Image plugin for the Intel DCX format.
 
-class SunImageFile(ImageFile.ImageFile):
+class DcxImageFile(PcxImageFile):
 
-    format = "SUN"
-    format_description = "Sun Raster File"
+    format = "DCX"
+    format_description = "Intel DCX"
+    _close_exclusive_fp_after_loading = False
 
     def _open(self):
 
-        # The Sun Raster file header is 32 bytes in length
-        # and has the following format:
+        # Header
+        s = self.fp.read(4)
+        if i32(s) != MAGIC:
+            raise SyntaxError("not a DCX file")
 
-        #     typedef struct _SunRaster
-        #     {
-        #         DWORD MagicNumber;      /* Magic (identification) number */
-        #         DWORD Width;            /* Width of image in pixels */
-        #         DWORD Height;           /* Height of image in pixels */
-        #         DWORD Depth;            /* Number of bits per pixel */
-        #         DWORD Length;           /* Size of image data in bytes */
-        #         DWORD Type;             /* Type of raster file */
-        #         DWORD ColorMapType;     /* Type of color map */
-        #         DWORD ColorMapLength;   /* Size of the color map in bytes */
-        #     } SUNRASTER;
+        # Component directory
+        self._offset = []
+        for i in range(1024):
+            offset = i32(self.fp.read(4))
+            if not offset:
+                break
+            self._offset.append(offset)
 
-        # HEAD
-        s = self.fp.read(32)
-        if i32(s) != 0x59a66a95:
-            raise SyntaxError("not an SUN raster file")
+        self.__fp = self.fp
+        self.frame = None
+        self.seek(0)
 
-        offset = 32
+    @property
+    def n_frames(self):
+        return len(self._offset)
 
-        self.size = i32(s[4:8]), i32(s[8:12])
+    @property
+    def is_animated(self):
+        return len(self._offset) > 1
 
-        depth = i32(s[12:16])
-        data_length = i32(s[16:20])   # unreliable, ignore.
-        file_type = i32(s[20:24])
-        palette_type = i32(s[24:28])  # 0: None, 1: RGB, 2: Raw/arbitrary
-        palette_length = i32(s[28:32])
+    def seek(self, frame):
+        if not self._seek_check(frame):
+            return
+        self.frame = frame
+        self.fp = self.__fp
+        self.fp.seek(self._offset[frame])
+        PcxImageFile._open(self)
 
-        if depth == 1:
-            self.mode, rawmode = "1", "1;I"
-        elif depth == 4:
-            self.mode, rawmode = "L", "L;4"
-        elif depth == 8:
-            self.mode = rawmode = "L"
-        elif depth == 24:
-            if file_type == 3:
-                self.mode, rawmode = "RGB", "RGB"
-            else:
-                self.mode, rawmode = "RGB", "BGR"
-        elif depth == 32:
-            if file_type == 3:
-                self.mode, rawmode = 'RGB', 'RGBX'
-            else:
-                self.mode, rawmode = 'RGB', 'BGRX'
-        else:
-            raise SyntaxError("Unsupported Mode/Bit Depth")
-
-        if palette_length:
-            if palette_length > 1024:
-                raise SyntaxError("Unsupported Color Palette Length")
-
-            if palette_type != 1:
-                raise SyntaxError("Unsupported Palette Type")
-
-            offset = offset + palette_length
-            self.palette = ImagePalette.raw("RGB;L", self.fp.read(palette_length))
-            if self.mode == "L":
-                self.mode = "P"
-                rawmode = rawmode.replace('L', 'P')
-
-        # 16 bit boundaries on stride
-        stride = ((self.size[0] * depth + 15) // 16) * 2
-
-        # file type: Type is the version (or flavor) of the bitmap
-        # file. The following values are typically found in the Type
-        # field:
-        # 0000h Old
-        # 0001h Standard
-        # 0002h Byte-encoded
-        # 0003h RGB format
-        # 0004h TIFF format
-        # 0005h IFF format
-        # FFFFh Experimental
-
-        # Old and standard are the same, except for the length tag.
-        # byte-encoded is run-length-encoded
-        # RGB looks similar to standard, but RGB byte order
-        # TIFF and IFF mean that they were converted from T/IFF
-        # Experimental means that it's something else.
-        # (https://www.fileformat.info/format/sunraster/egff.htm)
-
-        if file_type in (0, 1, 3, 4, 5):
-            self.tile = [("raw", (0, 0)+self.size, offset, (rawmode, stride))]
-        elif file_type == 2:
-            self.tile = [("sun_rle", (0, 0)+self.size, offset, rawmode)]
-        else:
-            raise SyntaxError('Unsupported Sun Raster file type')
-
-#
-# registry
+    def tell(self):
+        return self.frame
 
 
-Image.register_open(SunImageFile.format, SunImageFile, _accept)
+Image.register_open(DcxImageFile.format, DcxImageFile, _accept)
 
-Image.register_extension(SunImageFile.format, ".ras")
+Image.register_extension(DcxImageFile.format, ".dcx")

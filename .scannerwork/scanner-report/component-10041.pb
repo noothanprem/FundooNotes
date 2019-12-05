@@ -1,1 +1,1 @@
-¹N=venv/lib/python3.6/site-packages/autobahn/twisted/resource.py 2pyXºh
+¹N9venv/lib/python3.6/site-packages/autobahn/twisted/wamp.py 2pyXëh

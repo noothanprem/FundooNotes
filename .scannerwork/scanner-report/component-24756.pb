@@ -1,1 +1,1 @@
-´ÁWvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/treebuilders :³ÁµÁ¶Á·Á»Á
+´Ácvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/treebuilders/__init__.py 2pyXYh

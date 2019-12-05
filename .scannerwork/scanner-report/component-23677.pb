@@ -1,1 +1,1 @@
-ý¸?venv/lib/python3.6/site-packages/social_core/backends/bungie.py 2pyXWh
+ý¸@venv/lib/python3.6/site-packages/social_core/backends/shopify.py 2pyXeh

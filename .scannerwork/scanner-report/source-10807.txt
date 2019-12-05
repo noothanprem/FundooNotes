@@ -6,17 +6,16 @@ from .. import Provider as InternetProvider
 class Provider(InternetProvider):
 
     free_email_domains = (
-        'gmail.com', 'hotmail.com', 'yahoo.com',
-        'net.hr', 'zg.t-com.hr', 'inet.hr', 't.ht.hr', 'vip.hr',
-        'globalnet.hr', 'xnet.hr', 'yahoo.hr', 'zagreb.hr',
+        'gmail.com', 'hotmail.com', 'yahoo.com', 'outlook.com',
+        'bih.net.ba', 'tel.net.ba',
     )
 
-    tlds = ('hr', 'com', 'com.hr', 'info', 'org', 'net', 'biz')
+    tlds = ('ba', 'com.ba', 'org.ba', 'net.ba', 'gov.ba', 'edu.ba', 'unsa.ba')
 
     replacements = (
         ('č', 'c'), ('Č', 'C'),
         ('ć', 'c'), ('Ć', 'C'),
         ('đ', 'dj'), ('Đ', 'Dj'),
         ('š', 's'), ('Š', 'S'),
-        ('ž', 'z'), ('Ž', 'Z'),
+        ('ž', 'z'), ('Ž', 'Z')
     )

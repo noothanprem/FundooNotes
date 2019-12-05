@@ -1,1 +1,1 @@
-›„Avenv/lib64/python3.6/site-packages/social_core/backends/twitch.py 2pyXh
+›„@venv/lib64/python3.6/site-packages/social_core/backends/auth0.py 2pyX6h

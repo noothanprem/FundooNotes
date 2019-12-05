@@ -1,2 +1,1 @@
-Ç2venv/lib/python3.6/site-packages/future/moves/http :
-ÅÉäãå
+Ç?venv/lib/python3.6/site-packages/future/moves/http/cookiejar.py 2pyX	h

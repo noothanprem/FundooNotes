@@ -1,133 +1,106 @@
-# -*- test-case-name: twisted.internet.test.test_win32serialport -*-
-
+# -*- test-case-name: twisted.test.test_sendmsg -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-Serial port support for Windows.
-
-Requires PySerial and pywin32.
+sendmsg(2) and recvmsg(2) support for Python.
 """
 
-from __future__ import division, absolute_import
+from __future__ import absolute_import, division
 
-# system imports
-from serial import PARITY_NONE
-from serial import STOPBITS_ONE
-from serial import EIGHTBITS
-from serial.serialutil import to_bytes
-import win32file, win32event
+from collections import namedtuple
+from twisted.python.compat import _PY3
 
-# twisted imports
-from twisted.internet import abstract
+__all__ = ["sendmsg", "recvmsg", "getSocketFamily", "SCM_RIGHTS"]
 
-# sibling imports
-from twisted.internet.serialport import BaseSerialPort
+if not _PY3:
+    from twisted.python._sendmsg import send1msg, recv1msg
+    from twisted.python._sendmsg import getsockfam, SCM_RIGHTS
+    __all__ += ["send1msg", "recv1msg", "getsockfam"]
+else:
+    from socket import SCM_RIGHTS, CMSG_SPACE
 
-
-class SerialPort(BaseSerialPort, abstract.FileDescriptor):
-    """A serial device, acting as a transport, that uses a win32 event."""
-
-    connected = 1
-
-    def __init__(self, protocol, deviceNameOrPortNumber, reactor, 
-        baudrate = 9600, bytesize = EIGHTBITS, parity = PARITY_NONE,
-        stopbits = STOPBITS_ONE, xonxoff = 0, rtscts = 0):
-        self._serial = self._serialFactory(
-            deviceNameOrPortNumber, baudrate=baudrate, bytesize=bytesize,
-            parity=parity, stopbits=stopbits, timeout=None,
-            xonxoff=xonxoff, rtscts=rtscts)
-        self.flushInput()
-        self.flushOutput()
-        self.reactor = reactor
-        self.protocol = protocol
-        self.outQueue = []
-        self.closed = 0
-        self.closedNotifies = 0
-        self.writeInProgress = 0
-
-        self.protocol = protocol
-        self._overlappedRead = win32file.OVERLAPPED()
-        self._overlappedRead.hEvent = win32event.CreateEvent(None, 1, 0, None)
-        self._overlappedWrite = win32file.OVERLAPPED()
-        self._overlappedWrite.hEvent = win32event.CreateEvent(None, 0, 0, None)
-
-        self.reactor.addEvent(self._overlappedRead.hEvent, self, 'serialReadEvent')
-        self.reactor.addEvent(self._overlappedWrite.hEvent, self, 'serialWriteEvent')
-
-        self.protocol.makeConnection(self)
-        self._finishPortSetup()
+RecievedMessage = namedtuple('RecievedMessage', ['data', 'ancillary', 'flags'])
 
 
-    def _finishPortSetup(self):
-        """
-        Finish setting up the serial port.
 
-        This is a separate method to facilitate testing.
-        """
-        flags, comstat = self._clearCommError()
-        rc, self.read_buf = win32file.ReadFile(self._serial._port_handle,
-                                               win32file.AllocateReadBuffer(1),
-                                               self._overlappedRead)
+def sendmsg(socket, data, ancillary=[], flags=0):
+    """
+    Send a message on a socket.
 
+    @param socket: The socket to send the message on.
+    @type socket: L{socket.socket}
 
-    def _clearCommError(self):
-        return win32file.ClearCommError(self._serial._port_handle)
+    @param data: Bytes to write to the socket.
+    @type data: bytes
 
+    @param ancillary: Extra data to send over the socket outside of the normal
+        datagram or stream mechanism.  By default no ancillary data is sent.
+    @type ancillary: C{list} of C{tuple} of C{int}, C{int}, and C{bytes}.
 
-    def serialReadEvent(self):
-        #get that character we set up
-        n = win32file.GetOverlappedResult(self._serial._port_handle, self._overlappedRead, 0)
-        first = to_bytes(self.read_buf[:n])
-        #now we should get everything that is already in the buffer
-        flags, comstat = self._clearCommError()
-        if comstat.cbInQue:
-            win32event.ResetEvent(self._overlappedRead.hEvent)
-            rc, buf = win32file.ReadFile(self._serial._port_handle,
-                                         win32file.AllocateReadBuffer(comstat.cbInQue),
-                                         self._overlappedRead)
-            n = win32file.GetOverlappedResult(self._serial._port_handle, self._overlappedRead, 1)
-            #handle all the received data:
-            self.protocol.dataReceived(first + to_bytes(buf[:n]))
-        else:
-            #handle all the received data:
-            self.protocol.dataReceived(first)
+    @param flags: Flags to affect how the message is sent.  See the C{MSG_}
+        constants in the sendmsg(2) manual page.  By default no flags are set.
+    @type flags: C{int}
 
-        #set up next one
-        win32event.ResetEvent(self._overlappedRead.hEvent)
-        rc, self.read_buf = win32file.ReadFile(self._serial._port_handle,
-                                               win32file.AllocateReadBuffer(1),
-                                               self._overlappedRead)
+    @return: The return value of the underlying syscall, if it succeeds.
+    """
+    if _PY3:
+        return socket.sendmsg([data], ancillary, flags)
+    else:
+        return send1msg(socket.fileno(), data, flags, ancillary)
 
 
-    def write(self, data):
-        if data:
-            if self.writeInProgress:
-                self.outQueue.append(data)
-            else:
-                self.writeInProgress = 1
-                win32file.WriteFile(self._serial._port_handle, data, self._overlappedWrite)
+
+def recvmsg(socket, maxSize=8192, cmsgSize=4096, flags=0):
+    """
+    Receive a message on a socket.
+
+    @param socket: The socket to receive the message on.
+    @type socket: L{socket.socket}
+
+    @param maxSize: The maximum number of bytes to receive from the socket using
+        the datagram or stream mechanism. The default maximum is 8192.
+    @type maxSize: L{int}
+
+    @param cmsgSize: The maximum number of bytes to receive from the socket
+        outside of the normal datagram or stream mechanism. The default maximum
+        is 4096.
+    @type cmsgSize: L{int}
+
+    @param flags: Flags to affect how the message is sent.  See the C{MSG_}
+        constants in the sendmsg(2) manual page. By default no flags are set.
+    @type flags: L{int}
+
+    @return: A named 3-tuple of the bytes received using the datagram/stream
+        mechanism, a L{list} of L{tuple}s giving ancillary received data, and
+        flags as an L{int} describing the data received.
+    """
+    if _PY3:
+        # In Twisted's sendmsg.c, the csmg_space is defined as:
+        #     int cmsg_size = 4096;
+        #     cmsg_space = CMSG_SPACE(cmsg_size);
+        # Since the default in Python 3's socket is 0, we need to define our
+        # own default of 4096. -hawkie
+        data, ancillary, flags = socket.recvmsg(
+            maxSize, CMSG_SPACE(cmsgSize), flags)[0:3]
+    else:
+        data, flags, ancillary = recv1msg(
+            socket.fileno(), flags, maxSize, cmsgSize)
+
+    return RecievedMessage(data=data, ancillary=ancillary, flags=flags)
 
 
-    def serialWriteEvent(self):
-        try:
-            dataToWrite = self.outQueue.pop(0)
-        except IndexError:
-            self.writeInProgress = 0
-            return
-        else:
-            win32file.WriteFile(self._serial._port_handle, dataToWrite, self._overlappedWrite)
 
+def getSocketFamily(socket):
+    """
+    Return the family of the given socket.
 
-    def connectionLost(self, reason):
-        """
-        Called when the serial port disconnects.
+    @param socket: The socket to get the family of.
+    @type socket: L{socket.socket}
 
-        Will call C{connectionLost} on the protocol that is handling the
-        serial data.
-        """
-        self.reactor.removeEvent(self._overlappedRead.hEvent)
-        self.reactor.removeEvent(self._overlappedWrite.hEvent)
-        abstract.FileDescriptor.connectionLost(self, reason)
-        self._serial.close()
-        self.protocol.connectionLost(reason)
+    @rtype: L{int}
+    """
+    if _PY3:
+        return socket.family
+    else:
+        return getsockfam(socket.fileno())

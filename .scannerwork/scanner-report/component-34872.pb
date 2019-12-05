@@ -1,1 +1,1 @@
-∏ê8venv/lib64/python3.6/site-packages/django/conf/locale/et :∂êπê
+∏ê8venv/lib64/python3.6/site-packages/django/conf/locale/et :∑êπê

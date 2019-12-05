@@ -1,124 +1,43 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-"""Implement standard (and unused) TCP protocols.
-
-These protocols are either provided by inetd, or are not provided at all.
+"""
+Copyright information for Twisted.
 """
 
-from __future__ import absolute_import, division
+from __future__ import division, absolute_import
 
-import time
-import struct
+__all__ = ['copyright', 'disclaimer', 'longversion' ,'version']
 
-from zope.interface import implementer
+from twisted import __version__ as version, version as longversion
 
-from twisted.internet import protocol, interfaces
+longversion = str(longversion)
 
+copyright="""\
+Copyright (c) 2001-2019 Twisted Matrix Laboratories.
+See LICENSE for details."""
 
+disclaimer='''
+Twisted, the Framework of Your Internet
+%s
 
-class Echo(protocol.Protocol):
-    """
-    As soon as any data is received, write it back (RFC 862).
-    """
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
 
-    def dataReceived(self, data):
-        self.transport.write(data)
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
 
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-
-class Discard(protocol.Protocol):
-    """
-    Discard any received data (RFC 863).
-    """
-
-    def dataReceived(self, data):
-        # I'm ignoring you, nyah-nyah
-        pass
-
-
-
-@implementer(interfaces.IProducer)
-class Chargen(protocol.Protocol):
-    """
-    Generate repeating noise (RFC 864).
-    """
-    noise = b'@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~ !"#$%&?'
-
-    def connectionMade(self):
-        self.transport.registerProducer(self, 0)
-
-
-    def resumeProducing(self):
-        self.transport.write(self.noise)
-
-
-    def pauseProducing(self):
-        pass
-
-
-    def stopProducing(self):
-        pass
-
-
-
-class QOTD(protocol.Protocol):
-    """
-    Return a quote of the day (RFC 865).
-    """
-
-    def connectionMade(self):
-        self.transport.write(self.getQuote())
-        self.transport.loseConnection()
-
-
-    def getQuote(self):
-        """
-        Return a quote. May be overrriden in subclasses.
-        """
-        return b"An apple a day keeps the doctor away.\r\n"
-
-
-
-class Who(protocol.Protocol):
-    """
-    Return list of active users (RFC 866)
-    """
-
-    def connectionMade(self):
-        self.transport.write(self.getUsers())
-        self.transport.loseConnection()
-
-
-    def getUsers(self):
-        """
-        Return active users. Override in subclasses.
-        """
-        return b"root\r\n"
-
-
-
-class Daytime(protocol.Protocol):
-    """
-    Send back the daytime in ASCII form (RFC 867).
-    """
-
-    def connectionMade(self):
-        self.transport.write(time.asctime(time.gmtime(time.time())) + b'\r\n')
-        self.transport.loseConnection()
-
-
-
-class Time(protocol.Protocol):
-    """
-    Send back the time in machine readable form (RFC 868).
-    """
-
-    def connectionMade(self):
-        # is this correct only for 32-bit machines?
-        result = struct.pack("!i", int(time.time()))
-        self.transport.write(result)
-        self.transport.loseConnection()
-
-
-__all__ = ["Echo", "Discard", "Chargen", "QOTD", "Who", "Daytime", "Time"]
+''' % (copyright,)

@@ -1,1 +1,1 @@
-¼A6venv/lib/python3.6/site-packages/django/conf/locale/cs :»A½A
+¼ABvenv/lib/python3.6/site-packages/django/conf/locale/cs/__init__.py 2pyXh

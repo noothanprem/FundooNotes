@@ -1,1 +1,1 @@
-Ù¸5venv/lib/python3.6/site-packages/social_core/backends :ìØ¸Ú¸Û¸Ü¸Ý¸Þ¸ß¸à¸á¸â¸ã¸ä¸å¸æ¸ç¸è¸é¸ê¸ë¸ì¸í¸î¸ï¸ð¸ñ¸ò¸ó¸ô¸õ¸ö¸÷¸ø¸ù¸ú¸û¸ü¸ý¸þ¸ÿ¸€¹¹‚¹ƒ¹„¹…¹†¹‡¹ˆ¹‰¹Š¹‹¹Œ¹¹Ž¹¹¹‘¹’¹“¹”¹•¹–¹—¹˜¹™¹š¹›¹œ¹¹ž¹Ÿ¹ ¹¡¹¢¹£¹¤¹¥¹¦¹§¹¨¹©¹ª¹«¹¬¹­¹®¹¯¹°¹±¹²¹³¹´¹µ¹¶¹·¹¸¹¹¹º¹»¹¼¹½¹¾¹¿¹À¹Á¹Â¹Ã¹Ä¹Å¹Æ¹Ç¹íºîºïºðºñºòºóºôºõºöº÷ºøºùºúºûºýºþºÿº€»»‚»ƒ»„»…»†»‡»ˆ»‰»Š»‹»Œ»»Ž»»»‘»’»“»”»•»–»—»˜»™»š»›»œ»»ž»Ÿ» »¡»ê¾
+Ù¸@venv/lib/python3.6/site-packages/social_core/backends/untappd.py 2pyXph

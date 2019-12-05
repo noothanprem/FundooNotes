@@ -1,1 +1,1 @@
-ÂR9venv/lib/python3.6/site-packages/bootstrap3/exceptions.py 2pyXh
+ÂR+venv/lib/python3.6/site-packages/bootstrap3 :¿RÁRÃRÄRÅRÒRÓRÔRßRáR

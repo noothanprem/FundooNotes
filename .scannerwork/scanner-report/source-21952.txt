@@ -1,398 +1,348 @@
-# -*- Python -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-Pan-protocol chat client.
+Test cases for twisted.words.xish.utility
 """
 
-from zope.interface import Interface, Attribute
+from __future__ import absolute_import, division
 
-# (Random musings, may not reflect on current state of code:)
-#
-# Accounts have Protocol components (clients)
-# Persons have Conversation components
-# Groups have GroupConversation components
-# Persons and Groups are associated with specific Accounts
-# At run-time, Clients/Accounts are slaved to a User Interface
-#   (Note: User may be a bot, so don't assume all UIs are built on gui toolkits)
+from collections import OrderedDict
 
+from twisted.trial import unittest
 
-class IAccount(Interface):
+from twisted.words.xish import utility
+from twisted.words.xish.domish import Element
+from twisted.words.xish.utility import EventDispatcher
+
+class CallbackTracker:
     """
-    I represent a user's account with a chat service.
-    """
+    Test helper for tracking callbacks.
 
-    client = Attribute('The L{IClient} currently connecting to this account, if any.')
-    gatewayType = Attribute('A C{str} that identifies the protocol used by this account.')
-
-    def __init__(accountName, autoLogin, username, password, host, port):
-        """
-        @type accountName: string
-        @param accountName: A name to refer to the account by locally.
-        @type autoLogin: boolean
-        @type username: string
-        @type password: string
-        @type host: string
-        @type port: integer
-        """
-
-    def isOnline():
-        """
-        Am I online?
-
-        @rtype: boolean
-        """
-
-    def logOn(chatui):
-        """
-        Go on-line.
-
-        @type chatui: Implementor of C{IChatUI}
-
-        @rtype: L{Deferred} with an eventual L{IClient} result.
-        """
-
-    def logOff():
-        """
-        Sign off.
-        """
-
-    def getGroup(groupName):
-        """
-        @rtype: L{Group<IGroup>}
-        """
-
-    def getPerson(personName):
-        """
-        @rtype: L{Person<IPerson>}
-        """
-
-
-
-class IClient(Interface):
-
-    account = Attribute('The L{IAccount} I am a Client for')
-
-    def __init__(account, chatui, logonDeferred):
-        """
-        @type account: L{IAccount}
-        @type chatui: L{IChatUI}
-        @param logonDeferred: Will be called back once I am logged on.
-        @type logonDeferred: L{Deferred<twisted.internet.defer.Deferred>}
-        """
-
-    def joinGroup(groupName):
-        """
-        @param groupName: The name of the group to join.
-        @type groupName: string
-        """
-
-    def leaveGroup(groupName):
-        """
-        @param groupName: The name of the group to leave.
-        @type groupName: string
-        """
-
-    def getGroupConversation(name, hide=0):
-        pass
-
-
-    def getPerson(name):
-        pass
-
-
-
-class IPerson(Interface):
-
-    def __init__(name, account):
-        """
-        Initialize me.
-
-        @param name: My name, as the server knows me.
-        @type name: string
-        @param account: The account I am accessed through.
-        @type account: I{Account}
-        """
-
-
-    def isOnline():
-        """
-        Am I online right now?
-
-        @rtype: boolean
-        """
-
-
-    def getStatus():
-        """
-        What is my on-line status?
-
-        @return: L{locals.StatusEnum}
-        """
-
-
-    def getIdleTime():
-        """
-        @rtype: string (XXX: How about a scalar?)
-        """
-
-
-    def sendMessage(text, metadata=None):
-        """
-        Send a message to this person.
-
-        @type text: string
-        @type metadata: dict
-        """
-
-
-
-class IGroup(Interface):
-    """
-    A group which you may have a conversation with.
-
-    Groups generally have a loosely-defined set of members, who may
-    leave and join at any time.
+    Increases a counter on each call to L{call} and stores the object
+    passed in the call.
     """
 
-    name = Attribute('My C{str} name, as the server knows me.')
-    account = Attribute('The L{Account<IAccount>} I am accessed through.')
-
-    def __init__(name, account):
-        """
-        Initialize me.
-
-        @param name: My name, as the server knows me.
-        @type name: str
-        @param account: The account I am accessed through.
-        @type account: L{Account<IAccount>}
-        """
+    def __init__(self):
+        self.called = 0
+        self.obj = None
 
 
-    def setTopic(text):
-        """
-        Set this Groups topic on the server.
-
-        @type text: string
-        """
-
-
-    def sendGroupMessage(text, metadata=None):
-        """
-        Send a message to this group.
-
-        @type text: str
-
-        @type metadata: dict
-        @param metadata: Valid keys for this dictionary include:
-
-            - C{'style'}: associated with one of:
-                - C{'emote'}: indicates this is an action
-        """
-
-
-    def join():
-        """
-        Join this group.
-        """
-
-
-    def leave():
-        """
-        Depart this group.
-        """
+    def call(self, obj):
+        self.called = self.called + 1
+        self.obj = obj
 
 
 
-class IConversation(Interface):
+class OrderedCallbackTracker:
     """
-    A conversation with a specific person.
+    Test helper for tracking callbacks and their order.
     """
 
-    def __init__(person, chatui):
+    def __init__(self):
+        self.callList = []
+
+
+    def call1(self, object):
+        self.callList.append(self.call1)
+
+
+    def call2(self, object):
+        self.callList.append(self.call2)
+
+
+    def call3(self, object):
+        self.callList.append(self.call3)
+
+
+
+class EventDispatcherTests(unittest.TestCase):
+    """
+    Tests for L{EventDispatcher}.
+    """
+
+    def testStuff(self):
+        d = EventDispatcher()
+        cb1 = CallbackTracker()
+        cb2 = CallbackTracker()
+        cb3 = CallbackTracker()
+
+        d.addObserver("/message/body", cb1.call)
+        d.addObserver("/message", cb1.call)
+        d.addObserver("/presence", cb2.call)
+        d.addObserver("//event/testevent", cb3.call)
+
+        msg = Element(("ns", "message"))
+        msg.addElement("body")
+
+        pres = Element(("ns", "presence"))
+        pres.addElement("presence")
+
+        d.dispatch(msg)
+        self.assertEqual(cb1.called, 2)
+        self.assertEqual(cb1.obj, msg)
+        self.assertEqual(cb2.called, 0)
+
+        d.dispatch(pres)
+        self.assertEqual(cb1.called, 2)
+        self.assertEqual(cb2.called, 1)
+        self.assertEqual(cb2.obj, pres)
+        self.assertEqual(cb3.called, 0)
+
+        d.dispatch(d, "//event/testevent")
+        self.assertEqual(cb3.called, 1)
+        self.assertEqual(cb3.obj, d)
+
+        d.removeObserver("/presence", cb2.call)
+        d.dispatch(pres)
+        self.assertEqual(cb2.called, 1)
+
+
+    def test_addObserverTwice(self):
         """
-        @type person: L{IPerson}
+        Test adding two observers for the same query.
+
+        When the event is dispatched both of the observers need to be called.
+        """
+        d = EventDispatcher()
+        cb1 = CallbackTracker()
+        cb2 = CallbackTracker()
+
+        d.addObserver("//event/testevent", cb1.call)
+        d.addObserver("//event/testevent", cb2.call)
+        d.dispatch(d, "//event/testevent")
+
+        self.assertEqual(cb1.called, 1)
+        self.assertEqual(cb1.obj, d)
+        self.assertEqual(cb2.called, 1)
+        self.assertEqual(cb2.obj, d)
+
+
+    def test_addObserverInDispatch(self):
+        """
+        Test for registration of an observer during dispatch.
+        """
+        d = EventDispatcher()
+        msg = Element(("ns", "message"))
+        cb = CallbackTracker()
+
+        def onMessage(_):
+            d.addObserver("/message", cb.call)
+
+        d.addOnetimeObserver("/message", onMessage)
+
+        d.dispatch(msg)
+        self.assertEqual(cb.called, 0)
+
+        d.dispatch(msg)
+        self.assertEqual(cb.called, 1)
+
+        d.dispatch(msg)
+        self.assertEqual(cb.called, 2)
+
+
+    def test_addOnetimeObserverInDispatch(self):
+        """
+        Test for registration of a onetime observer during dispatch.
+        """
+        d = EventDispatcher()
+        msg = Element(("ns", "message"))
+        cb = CallbackTracker()
+
+        def onMessage(msg):
+            d.addOnetimeObserver("/message", cb.call)
+
+        d.addOnetimeObserver("/message", onMessage)
+
+        d.dispatch(msg)
+        self.assertEqual(cb.called, 0)
+
+        d.dispatch(msg)
+        self.assertEqual(cb.called, 1)
+
+        d.dispatch(msg)
+        self.assertEqual(cb.called, 1)
+
+
+    def testOnetimeDispatch(self):
+        d = EventDispatcher()
+        msg = Element(("ns", "message"))
+        cb = CallbackTracker()
+
+        d.addOnetimeObserver("/message", cb.call)
+        d.dispatch(msg)
+        self.assertEqual(cb.called, 1)
+        d.dispatch(msg)
+        self.assertEqual(cb.called, 1)
+
+
+    def testDispatcherResult(self):
+        d = EventDispatcher()
+        msg = Element(("ns", "message"))
+        pres = Element(("ns", "presence"))
+        cb = CallbackTracker()
+
+        d.addObserver("/presence", cb.call)
+        result = d.dispatch(msg)
+        self.assertEqual(False, result)
+
+        result = d.dispatch(pres)
+        self.assertEqual(True, result)
+
+
+    def testOrderedXPathDispatch(self):
+        d = EventDispatcher()
+        cb = OrderedCallbackTracker()
+        d.addObserver("/message/body", cb.call2)
+        d.addObserver("/message", cb.call3, -1)
+        d.addObserver("/message/body", cb.call1, 1)
+
+        msg = Element(("ns", "message"))
+        msg.addElement("body")
+        d.dispatch(msg)
+        self.assertEqual(cb.callList, [cb.call1, cb.call2, cb.call3],
+                          "Calls out of order: %s" %
+                          repr([c.__name__ for c in cb.callList]))
+
+
+    # Observers are put into CallbackLists that are then put into dictionaries
+    # keyed by the event trigger. Upon removal of the last observer for a
+    # particular event trigger, the (now empty) CallbackList and corresponding
+    # event trigger should be removed from those dictionaries to prevent
+    # slowdown and memory leakage.
+
+    def test_cleanUpRemoveEventObserver(self):
+        """
+        Test observer clean-up after removeObserver for named events.
         """
 
+        d = EventDispatcher()
+        cb = CallbackTracker()
 
-    def show():
+        d.addObserver('//event/test', cb.call)
+        d.dispatch(None, '//event/test')
+        self.assertEqual(1, cb.called)
+        d.removeObserver('//event/test', cb.call)
+        self.assertEqual(0, len(d._eventObservers.pop(0)))
+
+
+    def test_cleanUpRemoveXPathObserver(self):
         """
-        doesn't seem like it belongs in this interface.
-        """
-
-
-    def hide():
-        """
-        nor this neither.
-        """
-
-
-    def sendText(text, metadata):
-        pass
-
-
-    def showMessage(text, metadata):
-        pass
-
-
-    def changedNick(person, newnick):
-        """
-        @param person: XXX Shouldn't this always be Conversation.person?
+        Test observer clean-up after removeObserver for XPath events.
         """
 
+        d = EventDispatcher()
+        cb = CallbackTracker()
+        msg = Element((None, "message"))
+
+        d.addObserver('/message', cb.call)
+        d.dispatch(msg)
+        self.assertEqual(1, cb.called)
+        d.removeObserver('/message', cb.call)
+        self.assertEqual(0, len(d._xpathObservers.pop(0)))
 
 
-class IGroupConversation(Interface):
-
-    def show():
+    def test_cleanUpOnetimeEventObserver(self):
         """
-        doesn't seem like it belongs in this interface.
-        """
-
-
-    def hide():
-        """
-        nor this neither.
-        """
-
-
-    def sendText(text, metadata):
-        pass
-
-
-    def showGroupMessage(sender, text, metadata):
-        pass
-
-
-    def setGroupMembers(members):
-        """
-        Sets the list of members in the group and displays it to the user.
+        Test observer clean-up after onetime named events.
         """
 
+        d = EventDispatcher()
+        cb = CallbackTracker()
 
-    def setTopic(topic, author):
+        d.addOnetimeObserver('//event/test', cb.call)
+        d.dispatch(None, '//event/test')
+        self.assertEqual(1, cb.called)
+        self.assertEqual(0, len(d._eventObservers.pop(0)))
+
+
+    def test_cleanUpOnetimeXPathObserver(self):
         """
-        Displays the topic (from the server) for the group conversation window.
-
-        @type topic: string
-        @type author: string (XXX: Not Person?)
-        """
-
-
-    def memberJoined(member):
-        """
-        Adds the given member to the list of members in the group conversation
-        and displays this to the user,
-
-        @type member: string (XXX: Not Person?)
+        Test observer clean-up after onetime XPath events.
         """
 
+        d = EventDispatcher()
+        cb = CallbackTracker()
+        msg = Element((None, "message"))
 
-    def memberChangedNick(oldnick, newnick):
+        d.addOnetimeObserver('/message', cb.call)
+        d.dispatch(msg)
+        self.assertEqual(1, cb.called)
+        self.assertEqual(0, len(d._xpathObservers.pop(0)))
+
+
+    def test_observerRaisingException(self):
         """
-        Changes the oldnick in the list of members to C{newnick} and displays this
-        change to the user,
+        Test that exceptions in observers do not bubble up to dispatch.
 
-        @type oldnick: string (XXX: Not Person?)
-        @type newnick: string
-        """
-
-
-    def memberLeft(member):
-        """
-        Deletes the given member from the list of members in the group
-        conversation and displays the change to the user.
-
-        @type member: string (XXX: Not Person?)
-        """
-
-
-
-class IChatUI(Interface):
-
-    def registerAccountClient(client):
-        """
-        Notifies user that an account has been signed on to.
-
-        @type client: L{Client<IClient>}
+        The exceptions raised in observers should be logged and other
+        observers should be called as if nothing happened.
         """
 
+        class OrderedCallbackList(utility.CallbackList):
+            def __init__(self):
+                self.callbacks = OrderedDict()
 
-    def unregisterAccountClient(client):
+        class TestError(Exception):
+            pass
+
+        def raiseError(_):
+            raise TestError()
+
+        d = EventDispatcher()
+        cb = CallbackTracker()
+
+        originalCallbackList = utility.CallbackList
+
+        try:
+            utility.CallbackList = OrderedCallbackList
+
+            d.addObserver('//event/test', raiseError)
+            d.addObserver('//event/test', cb.call)
+            try:
+                d.dispatch(None, '//event/test')
+            except TestError:
+                self.fail("TestError raised. Should have been logged instead.")
+
+            self.assertEqual(1, len(self.flushLoggedErrors(TestError)))
+            self.assertEqual(1, cb.called)
+        finally:
+            utility.CallbackList = originalCallbackList
+
+
+
+class XmlPipeTests(unittest.TestCase):
+    """
+    Tests for L{twisted.words.xish.utility.XmlPipe}.
+    """
+
+    def setUp(self):
+        self.pipe = utility.XmlPipe()
+
+
+    def test_sendFromSource(self):
         """
-        Notifies user that an account has been signed off or disconnected.
-
-        @type client: L{Client<IClient>}
+        Send an element from the source and observe it from the sink.
         """
+        def cb(obj):
+            called.append(obj)
+
+        called = []
+        self.pipe.sink.addObserver('/test[@xmlns="testns"]', cb)
+        element = Element(('testns', 'test'))
+        self.pipe.source.send(element)
+        self.assertEqual([element], called)
 
 
-    def getContactsList():
+    def test_sendFromSink(self):
         """
-        @rtype: L{ContactsList}
+        Send an element from the sink and observe it from the source.
         """
+        def cb(obj):
+            called.append(obj)
 
-    # WARNING: You'll want to be polymorphed into something with
-    # intrinsic stoning resistance before continuing.
-
-    def getConversation(person, Class, stayHidden=0):
-        """
-        For the given person object, returns the conversation window
-        or creates and returns a new conversation window if one does not exist.
-
-        @type person: L{Person<IPerson>}
-        @type Class: L{Conversation<IConversation>} class
-        @type stayHidden: boolean
-
-        @rtype: L{Conversation<IConversation>}
-        """
-
-
-    def getGroupConversation(group, Class, stayHidden=0):
-        """
-        For the given group object, returns the group conversation window or
-        creates and returns a new group conversation window if it doesn't exist.
-
-        @type group: L{Group<interfaces.IGroup>}
-        @type Class: L{Conversation<interfaces.IConversation>} class
-        @type stayHidden: boolean
-
-        @rtype: L{GroupConversation<interfaces.IGroupConversation>}
-        """
-
-
-    def getPerson(name, client):
-        """
-        Get a Person for a client.
-
-        Duplicates L{IAccount.getPerson}.
-
-        @type name: string
-        @type client: L{Client<IClient>}
-
-        @rtype: L{Person<IPerson>}
-        """
-
-
-    def getGroup(name, client):
-        """
-        Get a Group for a client.
-
-        Duplicates L{IAccount.getGroup}.
-
-        @type name: string
-        @type client: L{Client<IClient>}
-
-        @rtype: L{Group<IGroup>}
-        """
-
-
-    def contactChangedNick(oldnick, newnick):
-        """
-        For the given person, changes the person's name to newnick, and
-        tells the contact list and any conversation windows with that person
-        to change as well.
-
-        @type oldnick: string
-        @type newnick: string
-        """
+        called = []
+        self.pipe.source.addObserver('/test[@xmlns="testns"]', cb)
+        element = Element(('testns', 'test'))
+        self.pipe.sink.send(element)
+        self.assertEqual([element], called)

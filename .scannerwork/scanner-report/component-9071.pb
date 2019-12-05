@@ -1,1 +1,1 @@
-ïF8venv/lib/python3.6/site-packages/django/test/selenium.py 2pyXth
+ïF,venv/lib/python3.6/site-packages/django/test :îFğFñFòFüFşFÿF€G

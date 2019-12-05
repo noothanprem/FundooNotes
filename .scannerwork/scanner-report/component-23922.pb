@@ -1,1 +1,1 @@
-òºFvenv/lib/python3.6/site-packages/social_core/backends/odnoklassniki.py 2pyX­h
+òº@venv/lib/python3.6/site-packages/social_core/backends/open_id.py 2pyXˆh

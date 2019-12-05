@@ -1,1 +1,1 @@
-‡éAvenv/lib64/python3.6/site-packages/django/conf/locale/__init__.py 2pyX¿h
+‡é5venv/lib64/python3.6/site-packages/django/conf/locale :ﬂé

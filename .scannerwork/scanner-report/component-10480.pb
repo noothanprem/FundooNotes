@@ -1,1 +1,0 @@
-ğQ)venv/lib/python3.6/site-packages/channels : ïQòQóQôQõQöQ÷QRRR£R«R¬R­R®R¯R

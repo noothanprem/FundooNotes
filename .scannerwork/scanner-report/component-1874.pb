@@ -1,1 +1,1 @@
-Ò4venv/lib/python3.6/site-packages/hiredis/__init__.py 2pyXh
+Ò3venv/lib/python3.6/site-packages/hiredis/version.py 2pyXh

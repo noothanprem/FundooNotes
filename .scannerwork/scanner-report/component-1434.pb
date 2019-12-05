@@ -1,1 +1,1 @@
-ö5venv/lib/python3.6/site-packages/future/moves/tkinter :ôõúùûü†°¢£¥µâ
+öEvenv/lib/python3.6/site-packages/future/moves/tkinter/colorchooser.py 2pyXh

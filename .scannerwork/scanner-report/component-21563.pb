@@ -1,1 +1,2 @@
-»¨Cvenv/lib/python3.6/site-packages/twisted/trial/_dist/workertrial.py 2pyXph
+»¨:venv/lib/python3.6/site-packages/twisted/trial/reporter.py 2pyX«
+h

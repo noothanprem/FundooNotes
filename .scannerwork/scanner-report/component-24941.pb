@@ -1,1 +1,1 @@
-íÂFvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/idna :ìÂîÂïÂğÂñÂòÂ÷ÂùÂ
+íÂFvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/idna :ìÂîÂïÂğÂòÂñÂùÂúÂ

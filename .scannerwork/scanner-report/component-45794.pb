@@ -1,1 +1,0 @@
-‚Â.venv/lib64/python3.6/site-packages/decouple.py 2pyXÎh

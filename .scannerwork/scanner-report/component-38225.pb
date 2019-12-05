@@ -1,1 +1,1 @@
-Ѫ=venv/lib64/python3.6/site-packages/PIL/FitsStubImagePlugin.py 2pyXLh
+Ѫ9venv/lib64/python3.6/site-packages/PIL/GimpPaletteFile.py 2pyX?h

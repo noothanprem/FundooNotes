@@ -1,1 +1,1 @@
-ãBvenv/lib/python3.6/site-packages/django/db/backends/oracle/base.py 2pyX h
+ãDvenv/lib/python3.6/site-packages/django/db/backends/oracle/schema.py 2pyX¬h

@@ -10,703 +10,585 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
+from concurrent import futures
+from collections import namedtuple
+import copy
 import logging
-import os
-import socket
+import sys
 import threading
-import heapq
 
-
-from botocore.compat import six
-
-from s3transfer.compat import seekable
-from s3transfer.exceptions import RetriesExceededError
-from s3transfer.futures import IN_MEMORY_DOWNLOAD_TAG
-from s3transfer.utils import S3_RETRYABLE_DOWNLOAD_ERRORS
-from s3transfer.utils import get_callbacks
-from s3transfer.utils import invoke_progress_callbacks
-from s3transfer.utils import calculate_num_parts
-from s3transfer.utils import calculate_range_parameter
+from s3transfer.compat import MAXINT
+from s3transfer.compat import six
+from s3transfer.exceptions import CancelledError, TransferNotDoneError
 from s3transfer.utils import FunctionContainer
-from s3transfer.utils import CountCallbackInvoker
-from s3transfer.utils import StreamReaderProgress
-from s3transfer.utils import DeferredOpenFile
-from s3transfer.tasks import Task
-from s3transfer.tasks import SubmissionTask
+from s3transfer.utils import TaskSemaphore
 
 
 logger = logging.getLogger(__name__)
 
 
-class DownloadOutputManager(object):
-    """Base manager class for handling various types of files for downloads
+class BaseTransferFuture(object):
+    @property
+    def meta(self):
+        """The metadata associated to the TransferFuture"""
+        raise NotImplementedError('meta')
 
-    This class is typically used for the DownloadSubmissionTask class to help
-    determine the following:
+    def done(self):
+        """Determines if a TransferFuture has completed
 
-        * Provides the fileobj to write to downloads to
-        * Get a task to complete once everything downloaded has been written
-
-    The answers/implementations differ for the various types of file outputs
-    that may be accepted. All implementations must subclass and override
-    public methods from this class.
-    """
-    def __init__(self, osutil, transfer_coordinator, io_executor):
-        self._osutil = osutil
-        self._transfer_coordinator = transfer_coordinator
-        self._io_executor = io_executor
-
-    @classmethod
-    def is_compatible(cls, download_target, osutil):
-        """Determines if the target for the download is compatible with manager
-
-        :param download_target: The target for which the upload will write
-            data to.
-
-        :param osutil: The os utility to be used for the transfer
-
-        :returns: True if the manager can handle the type of target specified
-            otherwise returns False.
+        :returns: True if completed. False, otherwise.
         """
-        raise NotImplementedError('must implement is_compatible()')
+        raise NotImplementedError('done()')
 
-    def get_download_task_tag(self):
-        """Get the tag (if any) to associate all GetObjectTasks
+    def result(self):
+        """Waits until TransferFuture is done and returns the result
 
-        :rtype: s3transfer.futures.TaskTag
-        :returns: The tag to associate all GetObjectTasks with
+        If the TransferFuture succeeded, it will return the result. If the
+        TransferFuture failed, it will raise the exception associated to the
+        failure.
         """
-        return None
+        raise NotImplementedError('result()')
 
-    def get_fileobj_for_io_writes(self, transfer_future):
-        """Get file-like object to use for io writes in the io executor
+    def cancel(self):
+        """Cancels the request associated with the TransferFuture"""
+        raise NotImplementedError('cancel()')
 
-        :type transfer_future: s3transfer.futures.TransferFuture
-        :param transfer_future: The future associated with upload request
 
-        returns: A file-like object to write to
+class BaseTransferMeta(object):
+    @property
+    def call_args(self):
+        """The call args used in the transfer request"""
+        raise NotImplementedError('call_args')
+
+    @property
+    def transfer_id(self):
+        """The unique id of the transfer"""
+        raise NotImplementedError('transfer_id')
+
+    @property
+    def user_context(self):
+        """A dictionary that requesters can store data in"""
+        raise NotImplementedError('user_context')
+
+
+class TransferFuture(BaseTransferFuture):
+    def __init__(self, meta=None, coordinator=None):
+        """The future associated to a submitted transfer request
+
+        :type meta: TransferMeta
+        :param meta: The metadata associated to the request. This object
+            is visible to the requester.
+
+        :type coordinator: TransferCoordinator
+        :param coordinator: The coordinator associated to the request. This
+            object is not visible to the requester.
         """
-        raise NotImplementedError('must implement get_fileobj_for_io_writes()')
+        self._meta = meta
+        if meta is None:
+            self._meta = TransferMeta()
 
-    def queue_file_io_task(self, fileobj, data, offset):
-        """Queue IO write for submission to the IO executor.
+        self._coordinator = coordinator
+        if coordinator is None:
+            self._coordinator = TransferCoordinator()
 
-        This method accepts an IO executor and information about the
-        downloaded data, and handles submitting this to the IO executor.
+    @property
+    def meta(self):
+        return self._meta
 
-        This method may defer submission to the IO executor if necessary.
+    def done(self):
+        return self._coordinator.done()
 
+    def result(self):
+        try:
+            # Usually the result() method blocks until the transfer is done,
+            # however if a KeyboardInterrupt is raised we want want to exit
+            # out of this and propogate the exception.
+            return self._coordinator.result()
+        except KeyboardInterrupt as e:
+            self.cancel()
+            raise e
+
+    def cancel(self):
+        self._coordinator.cancel()
+
+    def set_exception(self, exception):
+        """Sets the exception on the future."""
+        if not self.done():
+            raise TransferNotDoneError(
+                'set_exception can only be called once the transfer is '
+                'complete.')
+        self._coordinator.set_exception(exception, override=True)
+
+
+class TransferMeta(BaseTransferMeta):
+    """Holds metadata about the TransferFuture"""
+    def __init__(self, call_args=None, transfer_id=None):
+        self._call_args = call_args
+        self._transfer_id = transfer_id
+        self._size = None
+        self._user_context = {}
+
+    @property
+    def call_args(self):
+        """The call args used in the transfer request"""
+        return self._call_args
+
+    @property
+    def transfer_id(self):
+        """The unique id of the transfer"""
+        return self._transfer_id
+
+    @property
+    def size(self):
+        """The size of the transfer request if known"""
+        return self._size
+
+    @property
+    def user_context(self):
+        """A dictionary that requesters can store data in"""
+        return self._user_context
+
+    def provide_transfer_size(self, size):
+        """A method to provide the size of a transfer request
+
+        By providing this value, the TransferManager will not try to
+        call HeadObject or use the use OS to determine the size of the
+        transfer.
         """
-        self._transfer_coordinator.submit(
-            self._io_executor,
-            self.get_io_write_task(fileobj, data, offset)
-         )
+        self._size = size
 
-    def get_io_write_task(self, fileobj, data, offset):
-        """Get an IO write task for the requested set of data
 
-        This task can be ran immediately or be submitted to the IO executor
-        for it to run.
+class TransferCoordinator(object):
+    """A helper class for managing TransferFuture"""
+    def __init__(self, transfer_id=None):
+        self.transfer_id = transfer_id
+        self._status = 'not-started'
+        self._result = None
+        self._exception = None
+        self._associated_futures = set()
+        self._failure_cleanups = []
+        self._done_callbacks = []
+        self._done_event = threading.Event()
+        self._lock = threading.Lock()
+        self._associated_futures_lock = threading.Lock()
+        self._done_callbacks_lock = threading.Lock()
+        self._failure_cleanups_lock = threading.Lock()
 
-        :type fileobj: file-like object
-        :param fileobj: The file-like object to write to
+    def __repr__(self):
+        return '%s(transfer_id=%s)' % (
+            self.__class__.__name__, self.transfer_id)
 
-        :type data: bytes
-        :param data: The data to write out
+    @property
+    def exception(self):
+        return self._exception
 
-        :type offset: integer
-        :param offset: The offset to write the data to in the file-like object
+    @property
+    def associated_futures(self):
+        """The list of futures associated to the inprogress TransferFuture
 
-        :returns: An IO task to be used to write data to a file-like object
+        Once the transfer finishes this list becomes empty as the transfer
+        is considered done and there should be no running futures left.
         """
-        return IOWriteTask(
-            self._transfer_coordinator,
-            main_kwargs={
-                'fileobj': fileobj,
-                'data': data,
-                'offset': offset,
-            }
+        with self._associated_futures_lock:
+            # We return a copy of the list because we do not want to
+            # processing the returned list while another thread is adding
+            # more futures to the actual list.
+            return copy.copy(self._associated_futures)
+
+    @property
+    def failure_cleanups(self):
+        """The list of callbacks to call when the TransferFuture fails"""
+        return self._failure_cleanups
+
+    @property
+    def status(self):
+        """The status of the TransferFuture
+
+        The currently supported states are:
+            * not-started - Has yet to start. If in this state, a transfer
+              can be canceled immediately and nothing will happen.
+            * queued - SubmissionTask is about to submit tasks
+            * running - Is inprogress. In-progress as of now means that
+              the SubmissionTask that runs the transfer is being executed. So
+              there is no guarantee any transfer requests had been made to
+              S3 if this state is reached.
+            * cancelled - Was cancelled
+            * failed - An exception other than CancelledError was thrown
+            * success - No exceptions were thrown and is done.
+        """
+        return self._status
+
+    def set_result(self, result):
+        """Set a result for the TransferFuture
+
+        Implies that the TransferFuture succeeded. This will always set a
+        result because it is invoked on the final task where there is only
+        ever one final task and it is ran at the very end of a transfer
+        process. So if a result is being set for this final task, the transfer
+        succeeded even if something came a long and canceled the transfer
+        on the final task.
+        """
+        with self._lock:
+            self._exception = None
+            self._result = result
+            self._status = 'success'
+
+    def set_exception(self, exception, override=False):
+        """Set an exception for the TransferFuture
+
+        Implies the TransferFuture failed.
+
+        :param exception: The exception that cause the transfer to fail.
+        :param override: If True, override any existing state.
+        """
+        with self._lock:
+            if not self.done() or override:
+                self._exception = exception
+                self._status = 'failed'
+
+    def result(self):
+        """Waits until TransferFuture is done and returns the result
+
+        If the TransferFuture succeeded, it will return the result. If the
+        TransferFuture failed, it will raise the exception associated to the
+        failure.
+        """
+        # Doing a wait() with no timeout cannot be interrupted in python2 but
+        # can be interrupted in python3 so we just wait with the largest
+        # possible value integer value, which is on the scale of billions of
+        # years...
+        self._done_event.wait(MAXINT)
+
+        # Once done waiting, raise an exception if present or return the
+        # final result.
+        if self._exception:
+            raise self._exception
+        return self._result
+
+    def cancel(self, msg='', exc_type=CancelledError):
+        """Cancels the TransferFuture
+
+        :param msg: The message to attach to the cancellation
+        :param exc_type: The type of exception to set for the cancellation
+        """
+        with self._lock:
+            if not self.done():
+                should_announce_done = False
+                logger.debug('%s cancel(%s) called', self, msg)
+                self._exception = exc_type(msg)
+                if self._status == 'not-started':
+                    should_announce_done = True
+                self._status = 'cancelled'
+                if should_announce_done:
+                    self.announce_done()
+
+    def set_status_to_queued(self):
+        """Sets the TransferFutrue's status to running"""
+        self._transition_to_non_done_state('queued')
+
+    def set_status_to_running(self):
+        """Sets the TransferFuture's status to running"""
+        self._transition_to_non_done_state('running')
+
+    def _transition_to_non_done_state(self, desired_state):
+        with self._lock:
+            if self.done():
+                raise RuntimeError(
+                    'Unable to transition from done state %s to non-done '
+                    'state %s.' % (self.status, desired_state))
+            self._status = desired_state
+
+    def submit(self, executor, task, tag=None):
+        """Submits a task to a provided executor
+
+        :type executor: s3transfer.futures.BoundedExecutor
+        :param executor: The executor to submit the callable to
+
+        :type task: s3transfer.tasks.Task
+        :param task: The task to submit to the executor
+
+        :type tag: s3transfer.futures.TaskTag
+        :param tag: A tag to associate to the submitted task
+
+        :rtype: concurrent.futures.Future
+        :returns: A future representing the submitted task
+        """
+        logger.debug(
+            "Submitting task %s to executor %s for transfer request: %s." % (
+                task, executor, self.transfer_id)
         )
+        future = executor.submit(task, tag=tag)
+        # Add this created future to the list of associated future just
+        # in case it is needed during cleanups.
+        self.add_associated_future(future)
+        future.add_done_callback(
+            FunctionContainer(self.remove_associated_future, future))
+        return future
 
-    def get_final_io_task(self):
-        """Get the final io task to complete the download
+    def done(self):
+        """Determines if a TransferFuture has completed
 
-        This is needed because based on the architecture of the TransferManager
-        the final tasks will be sent to the IO executor, but the executor
-        needs a final task for it to signal that the transfer is done and
-        all done callbacks can be run.
-
-        :rtype: s3transfer.tasks.Task
-        :returns: A final task to completed in the io executor
+        :returns: False if status is equal to 'failed', 'cancelled', or
+            'success'. True, otherwise
         """
-        raise NotImplementedError(
-            'must implement get_final_io_task()')
+        return self.status in ['failed', 'cancelled', 'success']
 
-    def _get_fileobj_from_filename(self, filename):
-        f = DeferredOpenFile(
-            filename, mode='wb', open_function=self._osutil.open)
-        # Make sure the file gets closed and we remove the temporary file
-        # if anything goes wrong during the process.
-        self._transfer_coordinator.add_failure_cleanup(f.close)
-        return f
+    def add_associated_future(self, future):
+        """Adds a future to be associated with the TransferFuture"""
+        with self._associated_futures_lock:
+            self._associated_futures.add(future)
 
+    def remove_associated_future(self, future):
+        """Removes a future's association to the TransferFuture"""
+        with self._associated_futures_lock:
+            self._associated_futures.remove(future)
 
-class DownloadFilenameOutputManager(DownloadOutputManager):
-    def __init__(self, osutil, transfer_coordinator, io_executor):
-        super(DownloadFilenameOutputManager, self).__init__(
-            osutil, transfer_coordinator, io_executor)
-        self._final_filename = None
-        self._temp_filename = None
-        self._temp_fileobj = None
-
-    @classmethod
-    def is_compatible(cls, download_target, osutil):
-        return isinstance(download_target, six.string_types)
-
-    def get_fileobj_for_io_writes(self, transfer_future):
-        fileobj = transfer_future.meta.call_args.fileobj
-        self._final_filename = fileobj
-        self._temp_filename = self._osutil.get_temp_filename(fileobj)
-        self._temp_fileobj = self._get_temp_fileobj()
-        return self._temp_fileobj
-
-    def get_final_io_task(self):
-        # A task to rename the file from the temporary file to its final
-        # location is needed. This should be the last task needed to complete
-        # the download.
-        return IORenameFileTask(
-            transfer_coordinator=self._transfer_coordinator,
-            main_kwargs={
-                'fileobj': self._temp_fileobj,
-                'final_filename': self._final_filename,
-                'osutil': self._osutil
-            },
-            is_final=True
-        )
-
-    def _get_temp_fileobj(self):
-        f = self._get_fileobj_from_filename(self._temp_filename)
-        self._transfer_coordinator.add_failure_cleanup(
-            self._osutil.remove_file, self._temp_filename)
-        return f
-
-
-class DownloadSeekableOutputManager(DownloadOutputManager):
-    @classmethod
-    def is_compatible(cls, download_target, osutil):
-        return seekable(download_target)
-
-    def get_fileobj_for_io_writes(self, transfer_future):
-        # Return the fileobj provided to the future.
-        return transfer_future.meta.call_args.fileobj
-
-    def get_final_io_task(self):
-        # This task will serve the purpose of signaling when all of the io
-        # writes have finished so done callbacks can be called.
-        return CompleteDownloadNOOPTask(
-            transfer_coordinator=self._transfer_coordinator)
-
-
-class DownloadNonSeekableOutputManager(DownloadOutputManager):
-    def __init__(self, osutil, transfer_coordinator, io_executor,
-                 defer_queue=None):
-        super(DownloadNonSeekableOutputManager, self).__init__(
-            osutil, transfer_coordinator, io_executor)
-        if defer_queue is None:
-            defer_queue = DeferQueue()
-        self._defer_queue = defer_queue
-        self._io_submit_lock = threading.Lock()
-
-    @classmethod
-    def is_compatible(cls, download_target, osutil):
-        return hasattr(download_target, 'write')
-
-    def get_download_task_tag(self):
-        return IN_MEMORY_DOWNLOAD_TAG
-
-    def get_fileobj_for_io_writes(self, transfer_future):
-        return transfer_future.meta.call_args.fileobj
-
-    def get_final_io_task(self):
-        return CompleteDownloadNOOPTask(
-            transfer_coordinator=self._transfer_coordinator)
-
-    def queue_file_io_task(self, fileobj, data, offset):
-        with self._io_submit_lock:
-            writes = self._defer_queue.request_writes(offset, data)
-            for write in writes:
-                data = write['data']
-                logger.debug("Queueing IO offset %s for fileobj: %s",
-                             write['offset'], fileobj)
-                super(
-                    DownloadNonSeekableOutputManager, self).queue_file_io_task(
-                        fileobj, data, offset)
-
-    def get_io_write_task(self, fileobj, data, offset):
-        return IOStreamingWriteTask(
-            self._transfer_coordinator,
-            main_kwargs={
-                'fileobj': fileobj,
-                'data': data,
-            }
-        )
-
-
-class DownloadSpecialFilenameOutputManager(DownloadNonSeekableOutputManager):
-    def __init__(self, osutil, transfer_coordinator, io_executor,
-                 defer_queue=None):
-        super(DownloadSpecialFilenameOutputManager, self).__init__(
-            osutil, transfer_coordinator, io_executor, defer_queue)
-        self._fileobj = None
-
-    @classmethod
-    def is_compatible(cls, download_target, osutil):
-        return isinstance(download_target, six.string_types) and \
-               osutil.is_special_file(download_target)
-
-    def get_fileobj_for_io_writes(self, transfer_future):
-        filename = transfer_future.meta.call_args.fileobj
-        self._fileobj = self._get_fileobj_from_filename(filename)
-        return self._fileobj
-
-    def get_final_io_task(self):
-        # Make sure the file gets closed once the transfer is done.
-        return IOCloseTask(
-            transfer_coordinator=self._transfer_coordinator,
-            is_final=True,
-            main_kwargs={'fileobj': self._fileobj})
-
-
-class DownloadSubmissionTask(SubmissionTask):
-    """Task for submitting tasks to execute a download"""
-
-    def _get_download_output_manager_cls(self, transfer_future, osutil):
-        """Retrieves a class for managing output for a download
-
-        :type transfer_future: s3transfer.futures.TransferFuture
-        :param transfer_future: The transfer future for the request
-
-        :type osutil: s3transfer.utils.OSUtils
-        :param osutil: The os utility associated to the transfer
-
-        :rtype: class of DownloadOutputManager
-        :returns: The appropriate class to use for managing a specific type of
-            input for downloads.
-        """
-        download_manager_resolver_chain = [
-            DownloadSpecialFilenameOutputManager,
-            DownloadFilenameOutputManager,
-            DownloadSeekableOutputManager,
-            DownloadNonSeekableOutputManager,
-        ]
-
-        fileobj = transfer_future.meta.call_args.fileobj
-        for download_manager_cls in download_manager_resolver_chain:
-            if download_manager_cls.is_compatible(fileobj, osutil):
-                return download_manager_cls
-        raise RuntimeError(
-            'Output %s of type: %s is not supported.' % (
-                fileobj, type(fileobj)))
-
-    def _submit(self, client, config, osutil, request_executor, io_executor,
-                transfer_future, bandwidth_limiter=None):
-        """
-        :param client: The client associated with the transfer manager
-
-        :type config: s3transfer.manager.TransferConfig
-        :param config: The transfer config associated with the transfer
-            manager
-
-        :type osutil: s3transfer.utils.OSUtil
-        :param osutil: The os utility associated to the transfer manager
-
-        :type request_executor: s3transfer.futures.BoundedExecutor
-        :param request_executor: The request executor associated with the
-            transfer manager
-
-        :type io_executor: s3transfer.futures.BoundedExecutor
-        :param io_executor: The io executor associated with the
-            transfer manager
-
-        :type transfer_future: s3transfer.futures.TransferFuture
-        :param transfer_future: The transfer future associated with the
-            transfer request that tasks are being submitted for
-
-        :type bandwidth_limiter: s3transfer.bandwidth.BandwidthLimiter
-        :param bandwidth_limiter: The bandwidth limiter to use when
-            downloading streams
-        """
-        if transfer_future.meta.size is None:
-            # If a size was not provided figure out the size for the
-            # user.
-            response = client.head_object(
-                Bucket=transfer_future.meta.call_args.bucket,
-                Key=transfer_future.meta.call_args.key,
-                **transfer_future.meta.call_args.extra_args
+    def add_done_callback(self, function, *args, **kwargs):
+        """Add a done callback to be invoked when transfer is done"""
+        with self._done_callbacks_lock:
+            self._done_callbacks.append(
+                FunctionContainer(function, *args, **kwargs)
             )
-            transfer_future.meta.provide_transfer_size(
-                response['ContentLength'])
 
-        download_output_manager = self._get_download_output_manager_cls(
-            transfer_future, osutil)(osutil, self._transfer_coordinator,
-                                     io_executor)
+    def add_failure_cleanup(self, function, *args, **kwargs):
+        """Adds a callback to call upon failure"""
+        with self._failure_cleanups_lock:
+            self._failure_cleanups.append(
+                FunctionContainer(function, *args, **kwargs))
 
-        # If it is greater than threshold do a ranged download, otherwise
-        # do a regular GetObject download.
-        if transfer_future.meta.size < config.multipart_threshold:
-            self._submit_download_request(
-                client, config, osutil, request_executor, io_executor,
-                download_output_manager, transfer_future, bandwidth_limiter)
-        else:
-            self._submit_ranged_download_request(
-                client, config, osutil, request_executor, io_executor,
-                download_output_manager, transfer_future, bandwidth_limiter)
+    def announce_done(self):
+        """Announce that future is done running and run associated callbacks
 
-    def _submit_download_request(self, client, config, osutil,
-                                 request_executor, io_executor,
-                                 download_output_manager, transfer_future,
-                                 bandwidth_limiter):
-        call_args = transfer_future.meta.call_args
+        This will run any failure cleanups if the transfer failed if not
+        they have not been run, allows the result() to be unblocked, and will
+        run any done callbacks associated to the TransferFuture if they have
+        not already been ran.
+        """
+        if self.status != 'success':
+            self._run_failure_cleanups()
+        self._done_event.set()
+        self._run_done_callbacks()
 
-        # Get a handle to the file that will be used for writing downloaded
-        # contents
-        fileobj = download_output_manager.get_fileobj_for_io_writes(
-            transfer_future)
+    def _run_done_callbacks(self):
+        # Run the callbacks and remove the callbacks from the internal
+        # list so they do not get ran again if done is announced more than
+        # once.
+        with self._done_callbacks_lock:
+            self._run_callbacks(self._done_callbacks)
+            self._done_callbacks = []
 
-        # Get the needed callbacks for the task
-        progress_callbacks = get_callbacks(transfer_future, 'progress')
+    def _run_failure_cleanups(self):
+        # Run the cleanup callbacks and remove the callbacks from the internal
+        # list so they do not get ran again if done is announced more than
+        # once.
+        with self._failure_cleanups_lock:
+            self._run_callbacks(self.failure_cleanups)
+            self._failure_cleanups = []
 
-        # Get any associated tags for the get object task.
-        get_object_tag = download_output_manager.get_download_task_tag()
+    def _run_callbacks(self, callbacks):
+        for callback in callbacks:
+            self._run_callback(callback)
 
-        # Get the final io task to run once the download is complete.
-        final_task = download_output_manager.get_final_io_task()
+    def _run_callback(self, callback):
+        try:
+            callback()
+        # We do not want a callback interrupting the process, especially
+        # in the failure cleanups. So log and catch, the excpetion.
+        except Exception:
+            logger.debug("Exception raised in %s." % callback, exc_info=True)
 
-        # Submit the task to download the object.
-        self._transfer_coordinator.submit(
-            request_executor,
-            ImmediatelyWriteIOGetObjectTask(
-                transfer_coordinator=self._transfer_coordinator,
-                main_kwargs={
-                    'client': client,
-                    'bucket': call_args.bucket,
-                    'key': call_args.key,
-                    'fileobj': fileobj,
-                    'extra_args': call_args.extra_args,
-                    'callbacks': progress_callbacks,
-                    'max_attempts': config.num_download_attempts,
-                    'download_output_manager': download_output_manager,
-                    'io_chunksize': config.io_chunksize,
-                    'bandwidth_limiter': bandwidth_limiter
-                },
-                done_callbacks=[final_task]
-            ),
-            tag=get_object_tag
-        )
 
-    def _submit_ranged_download_request(self, client, config, osutil,
-                                        request_executor, io_executor,
-                                        download_output_manager,
-                                        transfer_future,
-                                        bandwidth_limiter):
-        call_args = transfer_future.meta.call_args
+class BoundedExecutor(object):
+    EXECUTOR_CLS = futures.ThreadPoolExecutor
 
-        # Get the needed progress callbacks for the task
-        progress_callbacks = get_callbacks(transfer_future, 'progress')
+    def __init__(self, max_size, max_num_threads, tag_semaphores=None,
+                 executor_cls=None):
+        """An executor implentation that has a maximum queued up tasks
 
-        # Get a handle to the file that will be used for writing downloaded
-        # contents
-        fileobj = download_output_manager.get_fileobj_for_io_writes(
-            transfer_future)
+        The executor will block if the number of tasks that have been
+        submitted and is currently working on is past its maximum.
 
-        # Determine the number of parts
-        part_size = config.multipart_chunksize
-        num_parts = calculate_num_parts(transfer_future.meta.size, part_size)
+        :params max_size: The maximum number of inflight futures. An inflight
+            future means that the task is either queued up or is currently
+            being executed. A size of None or 0 means that the executor will
+            have no bound in terms of the number of inflight futures.
 
-        # Get any associated tags for the get object task.
-        get_object_tag = download_output_manager.get_download_task_tag()
+        :params max_num_threads: The maximum number of threads the executor
+            uses.
 
-        # Callback invoker to submit the final io task once all downloads
-        # are complete.
-        finalize_download_invoker = CountCallbackInvoker(
-            self._get_final_io_task_submission_callback(
-                download_output_manager, io_executor
+        :type tag_semaphores: dict
+        :params tag_semaphores: A dictionary where the key is the name of the
+            tag and the value is the semaphore to use when limiting the
+            number of tasks the executor is processing at a time.
+
+        :type executor_cls: BaseExecutor
+        :param underlying_executor_cls: The executor class that
+            get bounded by this executor. If None is provided, the
+            concurrent.futures.ThreadPoolExecutor class is used.
+        """
+        self._max_num_threads = max_num_threads
+        if executor_cls is None:
+            executor_cls = self.EXECUTOR_CLS
+        self._executor = executor_cls(max_workers=self._max_num_threads)
+        self._semaphore = TaskSemaphore(max_size)
+        self._tag_semaphores = tag_semaphores
+
+    def submit(self, task, tag=None, block=True):
+        """Submit a task to complete
+
+        :type task: s3transfer.tasks.Task
+        :param task: The task to run __call__ on
+
+
+        :type tag: s3transfer.futures.TaskTag
+        :param tag: An optional tag to associate to the task. This
+            is used to override which semaphore to use.
+
+        :type block: boolean
+        :param block: True if to wait till it is possible to submit a task.
+            False, if not to wait and raise an error if not able to submit
+            a task.
+
+        :returns: The future assocaited to the submitted task
+        """
+        semaphore = self._semaphore
+        # If a tag was provided, use the semaphore associated to that
+        # tag.
+        if tag:
+            semaphore = self._tag_semaphores[tag]
+
+        # Call acquire on the semaphore.
+        acquire_token = semaphore.acquire(task.transfer_id, block)
+        # Create a callback to invoke when task is done in order to call
+        # release on the semaphore.
+        release_callback = FunctionContainer(
+            semaphore.release, task.transfer_id, acquire_token)
+        # Submit the task to the underlying executor.
+        future = ExecutorFuture(self._executor.submit(task))
+        # Add the Semaphore.release() callback to the future such that
+        # it is invoked once the future completes.
+        future.add_done_callback(release_callback)
+        return future
+
+    def shutdown(self, wait=True):
+        self._executor.shutdown(wait)
+
+
+class ExecutorFuture(object):
+    def __init__(self, future):
+        """A future returned from the executor
+
+        Currently, it is just a wrapper around a concurrent.futures.Future.
+        However, this can eventually grow to implement the needed functionality
+        of concurrent.futures.Future if we move off of the library and not
+        affect the rest of the codebase.
+
+        :type future: concurrent.futures.Future
+        :param future: The underlying future
+        """
+        self._future = future
+
+    def result(self):
+        return self._future.result()
+
+    def add_done_callback(self, fn):
+        """Adds a callback to be completed once future is done
+
+        :parm fn: A callable that takes no arguments. Note that is different
+            than concurrent.futures.Future.add_done_callback that requires
+            a single argument for the future.
+        """
+        # The done callback for concurrent.futures.Future will always pass a
+        # the future in as the only argument. So we need to create the
+        # proper signature wrapper that will invoke the callback provided.
+        def done_callback(future_passed_to_callback):
+            return fn()
+        self._future.add_done_callback(done_callback)
+
+    def done(self):
+        return self._future.done()
+
+
+class BaseExecutor(object):
+    """Base Executor class implementation needed to work with s3transfer"""
+    def __init__(self, max_workers=None):
+        pass
+
+    def submit(self, fn, *args, **kwargs):
+        raise NotImplementedError('submit()')
+
+    def shutdown(self, wait=True):
+        raise NotImplementedError('shutdown()')
+
+
+class NonThreadedExecutor(BaseExecutor):
+    """A drop-in replacement non-threaded version of ThreadPoolExecutor"""
+    def submit(self, fn, *args, **kwargs):
+        future = NonThreadedExecutorFuture()
+        try:
+            result = fn(*args, **kwargs)
+            future.set_result(result)
+        except Exception:
+            e, tb = sys.exc_info()[1:]
+            logger.debug(
+                'Setting exception for %s to %s with traceback %s',
+                future, e, tb
             )
-        )
-        for i in range(num_parts):
-            # Calculate the range parameter
-            range_parameter = calculate_range_parameter(
-                part_size, i, num_parts)
+            future.set_exception_info(e, tb)
+        return future
 
-            # Inject the Range parameter to the parameters to be passed in
-            # as extra args
-            extra_args = {'Range': range_parameter}
-            extra_args.update(call_args.extra_args)
-            finalize_download_invoker.increment()
-            # Submit the ranged downloads
-            self._transfer_coordinator.submit(
-                request_executor,
-                GetObjectTask(
-                    transfer_coordinator=self._transfer_coordinator,
-                    main_kwargs={
-                        'client': client,
-                        'bucket': call_args.bucket,
-                        'key': call_args.key,
-                        'fileobj': fileobj,
-                        'extra_args': extra_args,
-                        'callbacks': progress_callbacks,
-                        'max_attempts': config.num_download_attempts,
-                        'start_index': i * part_size,
-                        'download_output_manager': download_output_manager,
-                        'io_chunksize': config.io_chunksize,
-                        'bandwidth_limiter': bandwidth_limiter
-                    },
-                    done_callbacks=[finalize_download_invoker.decrement]
-                ),
-                tag=get_object_tag
-            )
-        finalize_download_invoker.finalize()
-
-    def _get_final_io_task_submission_callback(self, download_manager,
-                                               io_executor):
-        final_task = download_manager.get_final_io_task()
-        return FunctionContainer(
-            self._transfer_coordinator.submit, io_executor, final_task)
-
-    def _calculate_range_param(self, part_size, part_index, num_parts):
-        # Used to calculate the Range parameter
-        start_range = part_index * part_size
-        if part_index == num_parts - 1:
-            end_range = ''
-        else:
-            end_range = start_range + part_size - 1
-        range_param = 'bytes=%s-%s' % (start_range, end_range)
-        return range_param
-
-
-class GetObjectTask(Task):
-    def _main(self, client, bucket, key, fileobj, extra_args, callbacks,
-              max_attempts, download_output_manager, io_chunksize,
-              start_index=0, bandwidth_limiter=None):
-        """Downloads an object and places content into io queue
-
-        :param client: The client to use when calling GetObject
-        :param bucket: The bucket to download from
-        :param key: The key to download from
-        :param fileobj: The file handle to write content to
-        :param exta_args: Any extra arguements to include in GetObject request
-        :param callbacks: List of progress callbacks to invoke on download
-        :param max_attempts: The number of retries to do when downloading
-        :param download_output_manager: The download output manager associated
-            with the current download.
-        :param io_chunksize: The size of each io chunk to read from the
-            download stream and queue in the io queue.
-        :param start_index: The location in the file to start writing the
-            content of the key to.
-        :param bandwidth_limiter: The bandwidth limiter to use when throttling
-            the downloading of data in streams.
-        """
-        last_exception = None
-        for i in range(max_attempts):
-            try:
-                response = client.get_object(
-                    Bucket=bucket, Key=key, **extra_args)
-                streaming_body = StreamReaderProgress(
-                    response['Body'], callbacks)
-                if bandwidth_limiter:
-                    streaming_body = \
-                        bandwidth_limiter.get_bandwith_limited_stream(
-                            streaming_body, self._transfer_coordinator)
-
-                current_index = start_index
-                chunks = DownloadChunkIterator(streaming_body, io_chunksize)
-                for chunk in chunks:
-                    # If the transfer is done because of a cancellation
-                    # or error somewhere else, stop trying to submit more
-                    # data to be written and break out of the download.
-                    if not self._transfer_coordinator.done():
-                        self._handle_io(
-                            download_output_manager, fileobj, chunk,
-                            current_index
-                        )
-                        current_index += len(chunk)
-                    else:
-                        return
-                return
-            except S3_RETRYABLE_DOWNLOAD_ERRORS as e:
-                logger.debug("Retrying exception caught (%s), "
-                             "retrying request, (attempt %s / %s)", e, i,
-                             max_attempts, exc_info=True)
-                last_exception = e
-                # Also invoke the progress callbacks to indicate that we
-                # are trying to download the stream again and all progress
-                # for this GetObject has been lost.
-                invoke_progress_callbacks(
-                    callbacks, start_index - current_index)
-                continue
-        raise RetriesExceededError(last_exception)
-
-    def _handle_io(self, download_output_manager, fileobj, chunk, index):
-        download_output_manager.queue_file_io_task(fileobj, chunk, index)
-
-
-class ImmediatelyWriteIOGetObjectTask(GetObjectTask):
-    """GetObjectTask that immediately writes to the provided file object
-
-    This is useful for downloads where it is known only one thread is
-    downloading the object so there is no reason to go through the
-    overhead of using an IO queue and executor.
-    """
-    def _handle_io(self, download_output_manager, fileobj, chunk, index):
-        task = download_output_manager.get_io_write_task(fileobj, chunk, index)
-        task()
-
-
-class IOWriteTask(Task):
-    def _main(self, fileobj, data, offset):
-        """Pulls off an io queue to write contents to a file
-
-        :param fileobj: The file handle to write content to
-        :param data: The data to write
-        :param offset: The offset to write the data to.
-        """
-        fileobj.seek(offset)
-        fileobj.write(data)
-
-
-class IOStreamingWriteTask(Task):
-    """Task for writing data to a non-seekable stream."""
-
-    def _main(self, fileobj, data):
-        """Write data to a fileobj.
-
-        Data will be written directly to the fileboj without
-        any prior seeking.
-
-        :param fileobj: The fileobj to write content to
-        :param data: The data to write
-
-        """
-        fileobj.write(data)
-
-
-class IORenameFileTask(Task):
-    """A task to rename a temporary file to its final filename
-
-    :param fileobj: The file handle that content was written to.
-    :param final_filename: The final name of the file to rename to
-        upon completion of writing the contents.
-    :param osutil: OS utility
-    """
-    def _main(self, fileobj, final_filename, osutil):
-        fileobj.close()
-        osutil.rename_file(fileobj.name, final_filename)
-
-
-class IOCloseTask(Task):
-    """A task to close out a file once the download is complete.
-
-    :param fileobj: The fileobj to close.
-    """
-    def _main(self, fileobj):
-        fileobj.close()
-
-
-class CompleteDownloadNOOPTask(Task):
-    """A NOOP task to serve as an indicator that the download is complete
-
-    Note that the default for is_final is set to True because this should
-    always be the last task.
-    """
-    def __init__(self, transfer_coordinator, main_kwargs=None,
-                 pending_main_kwargs=None, done_callbacks=None,
-                 is_final=True):
-        super(CompleteDownloadNOOPTask, self).__init__(
-            transfer_coordinator=transfer_coordinator,
-            main_kwargs=main_kwargs,
-            pending_main_kwargs=pending_main_kwargs,
-            done_callbacks=done_callbacks,
-            is_final=is_final
-        )
-
-    def _main(self):
+    def shutdown(self, wait=True):
         pass
 
 
-class DownloadChunkIterator(object):
-    def __init__(self, body, chunksize):
-        """Iterator to chunk out a downloaded S3 stream
+class NonThreadedExecutorFuture(object):
+    """The Future returned from NonThreadedExecutor
 
-        :param body: A readable file-like object
-        :param chunksize: The amount to read each time
-        """
-        self._body = body
-        self._chunksize = chunksize
-        self._num_reads = 0
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        chunk = self._body.read(self._chunksize)
-        self._num_reads += 1
-        if chunk:
-            return chunk
-        elif self._num_reads == 1:
-            # Even though the response may have not had any
-            # content, we still want to account for an empty object's
-            # existance so return the empty chunk for that initial
-            # read.
-            return chunk
-        raise StopIteration()
-
-    next = __next__
-
-
-class DeferQueue(object):
-    """IO queue that defers write requests until they are queued sequentially.
-
-    This class is used to track IO data for a *single* fileobj.
-
-    You can send data to this queue, and it will defer any IO write requests
-    until it has the next contiguous block available (starting at 0).
-
+    Note that this future is **not** thread-safe as it is being used
+    from the context of a non-threaded environment.
     """
     def __init__(self):
-        self._writes = []
-        self._pending_offsets = set()
-        self._next_offset = 0
+        self._result = None
+        self._exception = None
+        self._traceback = None
+        self._done = False
+        self._done_callbacks = []
 
-    def request_writes(self, offset, data):
-        """Request any available writes given new incoming data.
+    def set_result(self, result):
+        self._result = result
+        self._set_done()
 
-        You call this method by providing new data along with the
-        offset associated with the data.  If that new data unlocks
-        any contiguous writes that can now be submitted, this
-        method will return all applicable writes.
+    def set_exception_info(self, exception, traceback):
+        self._exception = exception
+        self._traceback = traceback
+        self._set_done()
 
-        This is done with 1 method call so you don't have to
-        make two method calls (put(), get()) which acquires a lock
-        each method call.
+    def result(self, timeout=None):
+        if self._exception:
+            six.reraise(
+                type(self._exception), self._exception, self._traceback)
+        return self._result
 
-        """
-        if offset < self._next_offset:
-            # This is a request for a write that we've already
-            # seen.  This can happen in the event of a retry
-            # where if we retry at at offset N/2, we'll requeue
-            # offsets 0-N/2 again.
-            return []
-        writes = []
-        if offset in self._pending_offsets:
-            # We've already queued this offset so this request is
-            # a duplicate.  In this case we should ignore
-            # this request and prefer what's already queued.
-            return []
-        heapq.heappush(self._writes, (offset, data))
-        self._pending_offsets.add(offset)
-        while self._writes and self._writes[0][0] == self._next_offset:
-            next_write = heapq.heappop(self._writes)
-            writes.append({'offset': next_write[0], 'data': next_write[1]})
-            self._pending_offsets.remove(next_write[0])
-            self._next_offset += len(next_write[1])
-        return writes
+    def _set_done(self):
+        self._done = True
+        for done_callback in self._done_callbacks:
+            self._invoke_done_callback(done_callback)
+        self._done_callbacks = []
+
+    def _invoke_done_callback(self, done_callback):
+        return done_callback(self)
+
+    def done(self):
+        return self._done
+
+    def add_done_callback(self, fn):
+        if self._done:
+            self._invoke_done_callback(fn)
+        else:
+            self._done_callbacks.append(fn)
+
+
+TaskTag = namedtuple('TaskTag', ['name'])
+
+IN_MEMORY_UPLOAD_TAG = TaskTag('in_memory_upload')
+IN_MEMORY_DOWNLOAD_TAG = TaskTag('in_memory_download')

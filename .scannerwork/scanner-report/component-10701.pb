@@ -1,1 +1,1 @@
-ÍSFvenv/lib/python3.6/site-packages/faker/providers/ssn/ru_RU/__init__.py 2pyXh
+ÍSFvenv/lib/python3.6/site-packages/faker/providers/ssn/pt_BR/__init__.py 2pyX/h

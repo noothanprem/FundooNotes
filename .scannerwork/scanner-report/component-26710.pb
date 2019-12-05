@@ -1,1 +1,1 @@
-ÖÐ1venv/lib64/python3.6/site-packages/celery/contrib :ÕÐ×ÐÙÐÚÐÛÐÜÐ
+ÖÐ<venv/lib64/python3.6/site-packages/celery/contrib/migrate.py 2pyX¡h

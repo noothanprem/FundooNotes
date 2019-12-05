@@ -1,1 +1,1 @@
-ª–_venv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/mbcharsetprober.py 2pyXWh
+ª–Zvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/gb2312freq.py 2pyXÙh

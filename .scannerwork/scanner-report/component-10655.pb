@@ -1,1 +1,0 @@
-ŸS:venv/lib/python3.6/site-packages/faker/providers/ssn/zh_CN :S

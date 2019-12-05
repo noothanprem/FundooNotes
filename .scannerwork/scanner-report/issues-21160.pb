@@ -1,49 +1,69 @@
-r
-pythonS100VRename method "resolveHostName" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2dd t
-pythonS100VRename method "resolveHostName" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ùù t
-pythonS100VRename method "resolutionBegan" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-›› t
-pythonS100VRename method "addressResolved" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÊÊ w
-pythonS100YRename method "resolutionComplete" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÚÚ r
-pythonS100TRename method "getHostByName" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ää u
-pythonS117YRename this parameter "getThreadPool" to match the regular expression ^[_a-z][a-z0-9_]*$. 2MM  -z
-pythonS117^Rename this parameter "resolutionReceiver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2dd 0p
-pythonS117TRename this parameter "hostName" to match the regular expression ^[_a-z][a-z0-9_]*$. 2dd2 :r
-pythonS117VRename this parameter "portNumber" to match the regular expression ^[_a-z][a-z0-9_]*$. 2dd< Ft
-pythonS117XRename this parameter "addressTypes" to match the regular expression ^[_a-z][a-z0-9_]*$. 2ee $z
-pythonS117^Rename this parameter "transportSemantics" to match the regular expression ^[_a-z][a-z0-9_]*$. 2ee+ =z
-pythonS117^Rename this local variable "addressFamily" to match the regular expression ^[_a-z][a-z0-9_]*$. 2vv w
-pythonS117[Rename this local variable "socketType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2xx w
-pythonS117YRename this local variable "addrType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÖÖ x
-pythonS117ZRename this parameter "simpleResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ññ %|
-pythonS117^Rename this parameter "resolutionReceiver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ùù 0r
-pythonS117TRename this parameter "hostName" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ùù2 :t
-pythonS117VRename this parameter "portNumber" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ùù< Fv
-pythonS117XRename this parameter "addressTypes" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ûû $|
-pythonS117^Rename this parameter "transportSemantics" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ûû+ =x
-pythonS117ZRename this local variable "onAddress" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ΩΩ v
-pythonS117XRename this parameter "nameResolver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÅÅ #r
-pythonS116VRename this field "_getThreadPool" to match the regular expression ^[_a-z][_a-z0-9]*$. 2__ u
-pythonS116WRename this field "_simpleResolver" to match the regular expression ^[_a-z][_a-z0-9]*$. 2
-öö s
-pythonS116URename this field "_nameResolver" to match the regular expression ^[_a-z][_a-z0-9]*$. 2
-áá v
-pythonS1542WRename function "deliverResults" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÉÉ w
-pythonS1542XRename function "addressReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ææ u
-pythonS1542VRename function "errorReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¡¡ 
+o
+pythonS100SRename method "startWriting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2MM s
+pythonS100WRename method "registerProducer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2WW u
+pythonS100YRename method "unregisterProducer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2tt r
+pythonS100TRename method "_getLogPrefix" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÜÜ n
+pythonS100PRename method "logPrefix" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ìì s
+pythonS100URename method "connectionLost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¿¿ r
+pythonS100TRename method "writeSomeData" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+”” k
+pythonS100MRename method "doRead" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+·· l
+pythonS100NRename method "doWrite" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÎÎ x
+pythonS100ZRename method "_postLoseConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+§§ z
+pythonS100\Rename method "_closeWriteConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¨¨ x
+pythonS100ZRename method "writeConnectionLost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∞∞ w
+pythonS100YRename method "readConnectionLost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¥¥ v
+pythonS100XRename method "_isSendBufferFull" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ππ x
+pythonS100ZRename method "_maybePauseProducer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+«« r
+pythonS100TRename method "writeSequence" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÁÁ s
+pythonS100URename method "loseConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÉÉ x
+pythonS100ZRename method "loseWriteConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+úú p
+pythonS100RRename method "stopReading" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+†† p
+pythonS100RRename method "stopWriting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+®® q
+pythonS100SRename method "startReading" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∞∞ q
+pythonS100SRename method "startWriting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+µµ r
+pythonS100TRename method "stopConsuming" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+≈≈ t
+pythonS100VRename method "resumeProducing" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+—— s
+pythonS100URename method "pauseProducing" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+’’ r
+pythonS100TRename method "stopProducing" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÿÿ m
+pythonS1066/Merge this if statement with the enclosing one. 2
+ŒŒ :
+®•
+ÃÃ 
+	enclosingl
+pythonS117PRename this parameter "bObj" to match the regular expression ^[_a-z][a-z0-9_]*$. 2 n
+pythonS117RRename this parameter "bArray" to match the regular expression ^[_a-z][a-z0-9_]*$. 2# )l
+pythonS117PRename this parameter "bObj" to match the regular expression ^[_a-z][a-z0-9_]*$. 2 n
+pythonS117RRename this parameter "bArray" to match the regular expression ^[_a-z][a-z0-9_]*$. 2# ){
+pythonS117]Rename this parameter "applicationObject" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÜÜ -s
+pythonS117URename this parameter "_connDone" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÉÉ &r
+pythonS116VRename this field "producerPaused" to match the regular expression ^[_a-z][_a-z0-9]*$. 2JJ u
+pythonS116YRename this field "streamingProducer" to match the regular expression ^[_a-z][_a-z0-9]*$. 2KK s
+pythonS1542TRename function "isIPAddress" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÊÊ u
+pythonS1542VRename function "isIPv6Address" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ìì 

@@ -1,2 +1,1 @@
-ú(venv/lib/python3.6/site-packages/tzlocal :
-ùûüƒ„
+ú6venv/lib/python3.6/site-packages/tzlocal/windows_tz.py 2pyX¸h

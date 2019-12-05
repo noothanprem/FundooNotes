@@ -1,347 +1,386 @@
-#copyright ReportLab Europe Limited. 2000-2016
+#copyright ReportLab Inc. 2000-2016
 #see license.txt for license details
 __version__='3.3.0'
-__all__= (
-        'BarcodeI2of5',
-        'BarcodeCode128',
-        'BarcodeStandard93',
-        'BarcodeExtended93',
-        'BarcodeStandard39',
-        'BarcodeExtended39',
-        'BarcodeMSI',
-        'BarcodeCodabar',
-        'BarcodeCode11',
-        'BarcodeFIM',
-        'BarcodePOSTNET',
-        'BarcodeUSPS_4State',
-        )
+__all__ = ('USPS_4State',)
 
-from reportlab.lib.validators import isInt, isNumber, isColor, isString, isColorOrNone, OneOf, isBoolean, EitherOr, isNumberOrNone
-from reportlab.lib.attrmap import AttrMap, AttrMapValue
 from reportlab.lib.colors import black
-from reportlab.lib.utils import rl_exec
-from reportlab.graphics.shapes import Line, Rect, Group, NotImplementedError, String
-from reportlab.graphics.charts.areas import PlotArea
+from reportlab.graphics.barcode.common import Barcode
+from reportlab.lib.utils import asNative
 
-'''
-#snippet
-
-#first make your Drawing
-from reportlab.graphics.shapes import Drawing
-d= Drawing(100,50)
-
-#create and set up the widget
-from reportlab.graphics.barcode.widgets import BarcodeStandard93
-bc = BarcodeStandard93()
-bc.value = 'RGB-123456'
-
-#add to the drawing and save
-d.add(bc)
-#   d.save(formats=['gif','pict'],fnRoot='bc_sample')
-'''
-
-class _BarcodeWidget(PlotArea):
-    _attrMap = AttrMap(BASE=PlotArea,
-        barStrokeColor = AttrMapValue(isColorOrNone, desc='Color of bar borders.'),
-        barFillColor = AttrMapValue(isColorOrNone, desc='Color of bar interior areas.'),
-        barStrokeWidth = AttrMapValue(isNumber, desc='Width of bar borders.'),
-        value = AttrMapValue(EitherOr((isString,isNumber)), desc='Value.'),
-        textColor = AttrMapValue(isColorOrNone, desc='Color of human readable text.'),
-        valid = AttrMapValue(isBoolean),
-        validated = AttrMapValue(isString,desc="validated form of input"),
-        encoded = AttrMapValue(None,desc="encoded form of input"),
-        decomposed = AttrMapValue(isString,desc="decomposed form of input"),
-        canv = AttrMapValue(None,desc="temporarily used for internal methods"),
-        gap = AttrMapValue(isNumberOrNone, desc='Width of inter character gaps.'),
+class USPS_4State(Barcode):
+    ''' USPS 4-State OneView (TM) barcode. All info from USPS-B-3200A
+    '''
+    _widthSize = 1
+    _heightSize = 1
+    _fontSize = 11
+    _humanReadable = 0
+    tops = dict(
+        F = (0.067,0.115),
+        T = (0.021,0.040),
+        A = (0.067,0.115),
+        D = (0.021,0.040),
+        )
+    bottoms = dict(
+        F = (-0.067,-0.115),
+        D = (-0.067,-0.115), 
+        T = (-0.021,-0.040),
+        A = (-0.021,-0.040),
+        )
+    dimensions = dict(
+        width = (0.015, 0.025),
+        pitch = (0.0416,0.050),
+        hcz = (0.125,0.125),
+        vcz = (0.040,0.040),
         )
 
-    textColor = barFillColor = black
-    barStrokeColor = None
-    barStrokeWidth = 0
-    _BCC = None
-    def __init__(self,_value='',**kw):
-        PlotArea.__init__(self)
-        del self.__dict__['width']
-        del self.__dict__['height']
-        self.x = self.y = 0
-        kw.setdefault('value',_value)
-        self._BCC.__init__(self,**kw)
+    def __init__(self,value='01234567094987654321',routing='',**kwd):
+        self._init()
+        value = str(value) if isinstance(value,int) else asNative(value)
+        self._tracking = value
+        self._routing = routing
+        self._setKeywords(**kwd)
 
-    def rect(self,x,y,w,h,**kw):
-        self._Gadd(Rect(self.x+x,self.y+y,w,h,
-                    strokeColor=self.barStrokeColor,strokeWidth=self.barStrokeWidth, fillColor=self.barFillColor))
+    def _init(self):
+        self._bvalue = None
+        self._codewords = None
+        self._characters = None
+        self._barcodes = None
+
+    def scale(kind,D,s):
+        V = D[kind]
+        return 72*(V[0]*(1-s)+s*V[1])
+    scale = staticmethod(scale)
+
+    def tracking(self,tracking):
+        self._init()
+        self._tracking = tracking
+    tracking = property(lambda self: self._tracking,tracking)
+
+    def routing(self,routing):
+        self._init()
+        self._routing = routing
+    routing = property(lambda self: self._routing,routing)
+
+    def widthSize(self,value):
+        self._sized = None
+        self._widthSize = value
+    widthSize = property(lambda self: self._widthSize,widthSize)
+
+    def heightSize(self,value):
+        self._sized = None
+        self._heightSize = value
+    heightSize = property(lambda self: self._heightSize,heightSize)
+
+    def fontSize(self,value):
+        self._sized = None
+        self._fontSize = value
+    fontSize = property(lambda self: self._fontSize,fontSize)
+
+    def humanReadable(self,value):
+        self._sized = None
+        self._humanReadable = value
+    humanReadable = property(lambda self: self._humanReadable,humanReadable)
+
+    def binary(self):
+        '''convert the 4 state string values to binary
+        >>> print hex(USPS_4State('01234567094987654321','').binary)
+        0x1122103B5C2004B1L
+        >>> print hex(USPS_4State('01234567094987654321','01234').binary)
+        0xD138A87BAB5CF3804B1L
+        >>> print hex(USPS_4State('01234567094987654321','012345678').binary)
+        0x202BDC097711204D21804B1L
+        >>> print hex(USPS_4State('01234567094987654321','01234567891').binary)
+        0x16907B2A24ABC16A2E5C004B1L
+        '''
+        value = self._bvalue
+        if not value:
+            routing = self.routing
+            n = len(routing)
+            try:
+                if n==0:
+                    value = 0
+                elif n==5:
+                    value = int(routing)+1
+                elif n==9:
+                    value = int(routing)+100001
+                elif n==11:
+                    value = int(routing)+1000100001
+                else:
+                    raise ValueError
+            except:
+                raise ValueError('Problem converting %s, routing code must be 0, 5, 9 or 11 digits' % routing)
+
+            tracking = self.tracking
+            svalue = tracking[0:2]
+            try:
+                value *= 10
+                value += int(svalue[0])
+                value *= 5
+                value += int(svalue[1])
+            except:
+                raise ValueError('Problem converting %s, barcode identifier must be 2 digits' % svalue)
+
+            i = 2
+            for name,nd in (('special services',3), ('customer identifier',6), ('sequence number',9)):
+                j = i
+                i += nd
+                svalue = tracking[j:i]
+                try:
+                    if len(svalue)!=nd: raise ValueError
+                    for j in range(nd):
+                        value *= 10
+                        value += int(svalue[j])
+                except:
+                    raise ValueError('Problem converting %s, %s must be %d digits' % (svalue,name,nd))
+            self._bvalue = value
+        return value
+    binary = property(binary)
+
+    def codewords(self):
+        '''convert binary value into codewords
+        >>> print USPS_4State('01234567094987654321','01234567891').codewords)
+        (673, 787, 607, 1022, 861, 19, 816, 1294, 35, 602)
+        '''
+        if not self._codewords:
+            value = self.binary
+            A, J = divmod(value,636)
+            A, I = divmod(A,1365)
+            A, H = divmod(A,1365)
+            A, G = divmod(A,1365)
+            A, F = divmod(A,1365)
+            A, E = divmod(A,1365)
+            A, D = divmod(A,1365)
+            A, C = divmod(A,1365)
+            A, B = divmod(A,1365)
+            assert 0<=A<=658, 'improper value %s passed to _2codewords A-->%s' % (hex(int(value)),A)
+            self._fcs = _crc11(value)
+            if self._fcs&1024: A += 659
+            J *= 2
+            self._codewords = tuple(map(int,(A,B,C,D,E,F,G,H,I,J)))
+        return self._codewords
+    codewords = property(codewords)
+
+
+    def table1(self):
+        self.__class__.table1 = _initNof13Table(5,1287)
+        return self.__class__.table1
+    table1 = property(table1)
+
+    def table2(self):
+        self.__class__.table2 = _initNof13Table(2,78)
+        return self.__class__.table2
+    table2 = property(table2)
+
+    def characters(self):
+        ''' convert own codewords to characters
+        >>> print ' '.join(hex(c)[2:] for c in USPS_4State('01234567094987654321','01234567891').characters)
+        dcb 85c 8e4 b06 6dd 1740 17c6 1200 123f 1b2b
+        '''
+        if not self._characters:
+            codewords = self.codewords
+            fcs = self._fcs
+            C = []
+            aC = C.append
+            table1 = self.table1
+            table2 = self.table2
+            for i in range(10):
+                cw = codewords[i]
+                if cw<=1286:
+                    c = table1[cw]
+                else:
+                    c = table2[cw-1287]
+                if (fcs>>i)&1:
+                    c = ~c & 0x1fff
+                aC(c)
+            self._characters = tuple(C)
+        return self._characters
+    characters = property(characters)
+
+    def barcodes(self):
+        '''Get 4 state bar codes for current routing and tracking
+        >>> print USPS_4State('01234567094987654321','01234567891').barcodes
+        AADTFFDFTDADTAADAATFDTDDAAADDTDTTDAFADADDDTFFFDDTTTADFAAADFTDAADA
+        '''
+        if not self._barcodes:
+            C = self.characters
+            B = []
+            aB = B.append
+            bits2bars = self._bits2bars
+            for dc,db,ac,ab in self.table4:
+                aB(bits2bars[((C[dc]>>db)&1)+2*((C[ac]>>ab)&1)])
+            self._barcodes = ''.join(B)
+        return self._barcodes
+    barcodes = property(barcodes)
+
+    table4 = ((7, 2, 4, 3), (1, 10, 0, 0), (9, 12, 2, 8), (5, 5, 6, 11),
+                (8, 9, 3, 1), (0, 1, 5, 12), (2, 5, 1, 8), (4, 4, 9, 11),
+                (6, 3, 8, 10), (3, 9, 7, 6), (5, 11, 1, 4), (8, 5, 2, 12),
+                (9, 10, 0, 2), (7, 1, 6, 7), (3, 6, 4, 9), (0, 3, 8, 6),
+                (6, 4, 2, 7), (1, 1, 9, 9), (7, 10, 5, 2), (4, 0, 3, 8),
+                (6, 2, 0, 4), (8, 11, 1, 0), (9, 8, 3, 12), (2, 6, 7, 7),
+                (5, 1, 4, 10), (1, 12, 6, 9), (7, 3, 8, 0), (5, 8, 9, 7),
+                (4, 6, 2, 10), (3, 4, 0, 5), (8, 4, 5, 7), (7, 11, 1, 9),
+                (6, 0, 9, 6), (0, 6, 4, 8), (2, 1, 3, 2), (5, 9, 8, 12),
+                (4, 11, 6, 1), (9, 5, 7, 4), (3, 3, 1, 2), (0, 7, 2, 0),
+                (1, 3, 4, 1), (6, 10, 3, 5), (8, 7, 9, 4), (2, 11, 5, 6),
+                (0, 8, 7, 12), (4, 2, 8, 1), (5, 10, 3, 0), (9, 3, 0, 9),
+                (6, 5, 2, 4), (7, 8, 1, 7), (5, 0, 4, 5), (2, 3, 0, 10),
+                (6, 12, 9, 2), (3, 11, 1, 6), (8, 8, 7, 9), (5, 4, 0, 11),
+                (1, 5, 2, 2), (9, 1, 4, 12), (8, 3, 6, 6), (7, 0, 3, 7),
+                (4, 7, 7, 5), (0, 12, 1, 11), (2, 9, 9, 0), (6, 8, 5, 3),
+                (3, 10, 8, 2))
+
+    _bits2bars = 'T','D','A','F'
+    horizontalClearZone = property(lambda self: self.scale('hcz',self.dimensions,self.widthScale))
+    verticalClearZone = property(lambda self: self.scale('vcz',self.dimensions,self.heightScale))
+    pitch = property(lambda self: self.scale('pitch',self.dimensions,self.widthScale))
+    barWidth = property(lambda self: self.scale('width',self.dimensions,self.widthScale))
+    barHeight = property(lambda self: self.scale('F',self.tops,self.heightScale) - self.scale('F',self.bottoms,self.heightScale))
+    widthScale = property(lambda self: min(1,max(0,self.widthSize)))
+    heightScale = property(lambda self: min(1,max(0,self.heightSize)))
+
+    def width(self):
+        self.computeSize()
+        return self._width
+    width = property(width)
+
+    def height(self):
+        self.computeSize()
+        return self._height
+    height = property(height)
+
+    def computeSize(self):
+        if not getattr(self,'_sized',None):
+            ws = self.widthScale
+            hs = self.heightScale
+            barHeight = self.barHeight
+            barWidth = self.barWidth
+            pitch = self.pitch
+            hcz = self.horizontalClearZone
+            vcz = self.verticalClearZone
+            self._width = 2*hcz + barWidth + 64*pitch
+            self._height = 2*vcz+barHeight
+            if self.humanReadable:
+                self._height += self.fontSize*1.2+vcz
+            self._sized = True
+
+    def wrap(self,aW,aH):
+        self.computeSize()
+        return self.width, self.height
+
+    def _getBarVInfo(self,y0=0):
+        vInfo = {}
+        hs = self.heightScale
+        for b in ('T','D','A','F'):
+            y = self.scale(b,self.bottoms,hs)+y0
+            vInfo[b] = y,self.scale(b,self.tops,hs)+y0 - y
+        return vInfo
 
     def draw(self):
-        if not self._BCC: raise NotImplementedError("Abstract class %s cannot be drawn" % self.__class__.__name__)
-        self.canv = self
-        G = Group()
-        self._Gadd = G.add
-        self._Gadd(Rect(self.x,self.y,self.width,self.height,fillColor=None,strokeColor=None,strokeWidth=0.0001))
-        self._BCC.draw(self)
-        del self.canv, self._Gadd
-        return G
+        self.computeSize()
+        hcz = self.horizontalClearZone
+        vcz = self.verticalClearZone
+        bw = self.barWidth
+        x = hcz
+        y0 = vcz+self.barHeight*0.5
+        dw = self.pitch
+        vInfo = self._getBarVInfo(y0)
+        for b in self.barcodes:
+            yb, hb = vInfo[b]
+            self.rect(x,yb,bw,hb)
+            x += dw
+        self.drawHumanReadable()
+
+    def value(self):
+        tracking = self.tracking
+        routing = self.routing
+        routing = routing and (routing,) or ()
+        return ' '.join((tracking[0:2],tracking[2:5],tracking[5:11],tracking[11:])+routing)
+    value = property(value,lambda self,value: self.__dict__.__setitem__('tracking',value))
+
+    def drawHumanReadable(self):
+        if self.humanReadable:
+            hcz = self.horizontalClearZone
+            vcz = self.verticalClearZone
+            fontName = self.fontName
+            fontSize = self.fontSize
+            y = self.barHeight+2*vcz+0.2*fontSize
+            self.annotate(hcz,y,self.value,fontName,fontSize)
 
     def annotate(self,x,y,text,fontName,fontSize,anchor='middle'):
-        self._Gadd(String(self.x+x,self.y+y,text,fontName=fontName,fontSize=fontSize,
-                            textAnchor=anchor,fillColor=self.textColor))
+        Barcode.annotate(self,x,y,text,fontName,fontSize,anchor='start')
 
-def _BCW(doc,codeName,attrMap,mod,value,**kwds):
-    """factory for Barcode Widgets"""
-    _pre_init = kwds.pop('_pre_init','')
-    _methods = kwds.pop('_methods','')
-    name = 'Barcode'+codeName
-    ns = vars().copy()
-    code = 'from %s import %s' % (mod,codeName)
-    rl_exec(code,ns)
-    ns['_BarcodeWidget'] = _BarcodeWidget
-    code = '''class %(name)s(_BarcodeWidget,%(codeName)s):
-\t_BCC = %(codeName)s
-\tcodeName = %(codeName)r
-\tdef __init__(self,**kw):%(_pre_init)s
-\t\t_BarcodeWidget.__init__(self,%(value)r,**kw)%(_methods)s''' % ns
-    rl_exec(code,ns)
-    Klass = ns[name]
-    if attrMap: Klass._attrMap = attrMap
-    if doc: Klass.__doc__ = doc
-    for k, v in kwds.items():
-        setattr(Klass,k,v)
-    return Klass
+def _crc11(value):
+    '''
+    >>> print ' '.join(hex(_crc11(USPS_4State('01234567094987654321',x).binary)) for x in ('','01234','012345678','01234567891'))
+    0x51 0x65 0x606 0x751
+    '''
+    bytes = hex(int(value))[2:-1]
+    bytes = '0'*(26-len(bytes))+bytes
+    gp = 0x0F35
+    fcs = 0x07FF
+    data = int(bytes[:2],16)<<5
+    for b in range(2,8):
+        if (fcs ^ data)&0x400:
+            fcs = (fcs<<1)^gp
+        else:
+            fcs = fcs<<1
+        fcs &= 0x7ff
+        data <<= 1
 
-BarcodeI2of5 = _BCW(
-    """Interleaved 2 of 5 is used in distribution and warehouse industries.
+    for x in range(2,2*13,2):
+        data = int(bytes[x:x+2],16)<<3
+        for b in range(8):
+            if (fcs ^ data)&0x400:
+                fcs = (fcs<<1)^gp
+            else:
+                fcs = fcs<<1
+            fcs &= 0x7ff
+            data <<= 1
+    return fcs
 
-    It encodes an even-numbered sequence of numeric digits. There is an optional
-    module 10 check digit; if including this, the total length must be odd so that
-    it becomes even after including the check digit.  Otherwise the length must be
-    even. Since the check digit is optional, our library does not check it.
-    """,
-    "I2of5",
-    AttrMap(BASE=_BarcodeWidget,
-        barWidth = AttrMapValue(isNumber,'''(float, default .0075):
-            X-Dimension, or width of the smallest element
-            Minumum is .0075 inch (7.5 mils).'''),
-        ratio = AttrMapValue(isNumber,'''(float, default 2.2):
-            The ratio of wide elements to narrow elements.
-            Must be between 2.0 and 3.0 (or 2.2 and 3.0 if the
-            barWidth is greater than 20 mils (.02 inch))'''),
-        gap = AttrMapValue(isNumberOrNone,'''(float or None, default None):
-            width of intercharacter gap. None means "use barWidth".'''),
-        barHeight = AttrMapValue(isNumber,'''(float, see default below):
-            Height of the symbol.  Default is the height of the two
-            bearer bars (if they exist) plus the greater of .25 inch
-            or .15 times the symbol's length.'''),
-        checksum = AttrMapValue(isBoolean,'''(bool, default 1):
-            Whether to compute and include the check digit'''),
-        bearers = AttrMapValue(isNumber,'''(float, in units of barWidth. default 3.0):
-            Height of bearer bars (horizontal bars along the top and
-            bottom of the barcode). Default is 3 x-dimensions.
-            Set to zero for no bearer bars. (Bearer bars help detect
-            misscans, so it is suggested to leave them on).'''),
-        quiet = AttrMapValue(isBoolean,'''(bool, default 1):
-            Whether to include quiet zones in the symbol.'''),
+def _ru13(i):
+    '''reverse unsigned 13 bit number
+    >>> print _ru13(7936), _ru13(31), _ru13(47), _ru13(7808)
+    31 7936 7808 47
+    '''
+    r = 0
+    for x in range(13):
+        r <<= 1
+        r |= i & 1
+        i >>= 1
+    return r
 
-        lquiet = AttrMapValue(isNumber,'''(float, see default below):
-            Quiet zone size to left of code, if quiet is true.
-            Default is the greater of .25 inch, or .15 times the symbol's
-            length.'''),
+def _initNof13Table(N,lenT):
+    '''create and return table of 13 bit values with N bits on
+    >>> T = _initNof13Table(5,1287)
+    >>> print ' '.join('T[%d]=%d' % (i, T[i]) for i in (0,1,2,3,4,1271,1272,1284,1285,1286))
+    T[0]=31 T[1]=7936 T[2]=47 T[3]=7808 T[4]=55 T[1271]=6275 T[1272]=6211 T[1284]=856 T[1285]=744 T[1286]=496
+    '''
+    T = lenT*[None]
+    l = 0
+    u = lenT-1
+    for c in range(8192):
+        bc = 0
+        for b in range(13):
+            bc += (c&(1<<b))!=0
+        if bc!=N: continue
+        r = _ru13(c)
+        if r<c: continue    #we already looked at this pair
+        if r==c:
+            T[u] = c
+            u -= 1
+        else:
+            T[l] = c
+            l += 1
+            T[l] = r
+            l += 1
+    assert l==(u+1), 'u+1(%d)!=l(%d) for %d of 13 table' % (u+1,l,N) 
+    return T
 
-        rquiet = AttrMapValue(isNumber,'''(float, defaults as above):
-            Quiet zone size to right left of code, if quiet is true.'''),
-        fontName = AttrMapValue(isString, desc='human readable font'),
-        fontSize = AttrMapValue(isNumber, desc='human readable font size'),
-        humanReadable = AttrMapValue(isBoolean, desc='if human readable'),
-        stop = AttrMapValue(isBoolean, desc='if we use start/stop symbols (default 1)'),
-        ),
-    'reportlab.graphics.barcode.common',
-    1234,
-    _tests = [
-        '12',
-        '1234',
-        '123456',
-        '12345678',
-        '1234567890'
-        ],
-    )
+def _test():
+    import doctest
+    return doctest.testmod()
 
-BarcodeCode128 = _BCW("""Code 128 encodes any number of characters in the ASCII character set.""",
-                "Code128",
-                AttrMap(BASE=BarcodeI2of5,UNWANTED=('bearers','checksum','ratio','checksum','stop')),
-                'reportlab.graphics.barcode.code128',
-                "AB-12345678",
-                _tests = ['ReportLab Rocks!', 'PFWZF'],
-                )
-
-BarcodeCode128Auto = _BCW(
-                'Modified Code128 to use auto encoding',
-                'Code128Auto',
-                AttrMap(BASE=BarcodeCode128),
-                'reportlab.graphics.barcode.code128',
-                'XY149740345GB'
-                )
-
-BarcodeStandard93=_BCW("""This is a compressed form of Code 39""",
-                        "Standard93",
-                        AttrMap(BASE=BarcodeCode128,
-                                stop = AttrMapValue(isBoolean, desc='if we use start/stop symbols (default 1)'),
-                                ),
-                        'reportlab.graphics.barcode.code93',
-                        "CODE 93",
-                        )
-
-BarcodeExtended93=_BCW("""This is a compressed form of Code 39, allowing the full ASCII charset""",
-                        "Extended93",
-                        AttrMap(BASE=BarcodeCode128,
-                                stop = AttrMapValue(isBoolean, desc='if we use start/stop symbols (default 1)'),
-                                ),
-                        'reportlab.graphics.barcode.code93',
-                        "L@@K! Code 93 ;-)",
-                        )
-
-BarcodeStandard39=_BCW("""Code39 is widely used in non-retail, especially US defence and health.
-                        Allowed characters are 0-9, A-Z (caps only), space, and -.$/+%*.""",
-                        "Standard39",
-                        AttrMap(BASE=BarcodeI2of5),
-                        'reportlab.graphics.barcode.code39',
-                        "A012345B%R",
-                        )
-
-BarcodeExtended39=_BCW("""Extended 39 encodes the full ASCII character set by encoding
-                        characters as pairs of Code 39 characters; $, /, % and + are used as
-                        shift characters.""",
-                        "Extended39",
-                        AttrMap(BASE=BarcodeI2of5),
-                        'reportlab.graphics.barcode.code39',
-                        "A012345B}",
-                        )
-
-BarcodeMSI=_BCW("""MSI is used for inventory control in retail applications.
-
-                There are several methods for calculating check digits so we
-                do not implement one.
-                """,
-                "MSI",
-                AttrMap(BASE=BarcodeI2of5),
-                'reportlab.graphics.barcode.common',
-                1234,
-                )
-
-BarcodeCodabar=_BCW("""Used in blood banks, photo labs and FedEx labels.
-                    Encodes 0-9, -$:/.+, and four start/stop characters A-D.""",
-                    "Codabar",
-                    AttrMap(BASE=BarcodeI2of5),
-                    'reportlab.graphics.barcode.common',
-                    "A012345B",
-                    )
-
-BarcodeCode11=_BCW("""Used mostly for labelling telecommunications equipment.
-                    It encodes numeric digits.""",
-                    'Code11',
-                    AttrMap(BASE=BarcodeI2of5,
-                        checksum = AttrMapValue(isInt,'''(integer, default 2):
-                            Whether to compute and include the check digit(s).
-                            (0 none, 1 1-digit, 2 2-digit, -1 auto, default -1):
-                            How many checksum digits to include. -1 ("auto") means
-                            1 if the number of digits is 10 or less, else 2.'''),
-                            ),
-                    'reportlab.graphics.barcode.common',
-                    "01234545634563",
-                    )
-
-BarcodeFIM=_BCW("""
-                FIM was developed as part of the POSTNET barcoding system.
-                FIM (Face Identification Marking) is used by the cancelling machines
-                to sort mail according to whether or not they have bar code
-                and their postage requirements. There are four types of FIM
-                called FIM A, FIM B, FIM C, and FIM D.
-
-                The four FIM types have the following meanings:
-                    FIM A- Postage required pre-barcoded
-                    FIM B - Postage pre-paid, no bar code exists
-                    FIM C- Postage prepaid prebarcoded
-                    FIM D- Postage required, no bar code exists""",
-                "FIM",
-                AttrMap(BASE=_BarcodeWidget,
-                    barWidth = AttrMapValue(isNumber,'''(float, default 1/32in): the bar width.'''),
-                    spaceWidth = AttrMapValue(isNumber,'''(float or None, default 1/16in):
-                        width of intercharacter gap. None means "use barWidth".'''),
-                    barHeight = AttrMapValue(isNumber,'''(float, default 5/8in): The bar height.'''),
-                    quiet = AttrMapValue(isBoolean,'''(bool, default 0):
-                        Whether to include quiet zones in the symbol.'''),
-                    lquiet = AttrMapValue(isNumber,'''(float, default: 15/32in):
-                        Quiet zone size to left of code, if quiet is true.'''),
-                    rquiet = AttrMapValue(isNumber,'''(float, default 1/4in):
-                        Quiet zone size to right left of code, if quiet is true.'''),
-                    fontName = AttrMapValue(isString, desc='human readable font'),
-                    fontSize = AttrMapValue(isNumber, desc='human readable font size'),
-                    humanReadable = AttrMapValue(isBoolean, desc='if human readable'),
-                    ),
-                'reportlab.graphics.barcode.usps',
-                "A",
-                )
-
-BarcodePOSTNET=_BCW('',
-                    "POSTNET",
-                    AttrMap(BASE=_BarcodeWidget,
-                            barWidth = AttrMapValue(isNumber,'''(float, default 0.018*in): the bar width.'''),
-                            spaceWidth = AttrMapValue(isNumber,'''(float or None, default 0.0275in): width of intercharacter gap.'''),
-                            shortHeight = AttrMapValue(isNumber,'''(float, default 0.05in): The short bar height.'''),
-                            barHeight = AttrMapValue(isNumber,'''(float, default 0.125in): The full bar height.'''),
-                            fontName = AttrMapValue(isString, desc='human readable font'),
-                            fontSize = AttrMapValue(isNumber, desc='human readable font size'),
-                            humanReadable = AttrMapValue(isBoolean, desc='if human readable'),
-                            ),
-                    'reportlab.graphics.barcode.usps',
-                    "78247-1043",
-                    )
-
-BarcodeUSPS_4State=_BCW('',
-                        "USPS_4State",
-                        AttrMap(BASE=_BarcodeWidget,
-                            widthSize = AttrMapValue(isNumber,'''(float, default 1): the bar width size adjustment between 0 and 1.'''),
-                            heightSize = AttrMapValue(isNumber,'''(float, default 1): the bar height size adjustment between 0 and 1.'''),
-                            fontName = AttrMapValue(isString, desc='human readable font'),
-                            fontSize = AttrMapValue(isNumber, desc='human readable font size'),
-                            tracking = AttrMapValue(isString, desc='tracking data'),
-                            routing = AttrMapValue(isString, desc='routing data'),
-                            humanReadable = AttrMapValue(isBoolean, desc='if human readable'),
-                            ),
-                        'reportlab.graphics.barcode.usps4s',
-                        '01234567094987654321',
-                        _pre_init="\n\t\tkw.setdefault('routing','01234567891')\n",
-                        _methods = "\n\tdef annotate(self,x,y,text,fontName,fontSize,anchor='middle'):\n\t\t_BarcodeWidget.annotate(self,x,y,text,fontName,fontSize,anchor='start')\n"
-                        )
-BarcodeECC200DataMatrix = _BCW(
-    'ECC200DataMatrix',
-    'ECC200DataMatrix',
-    AttrMap(BASE=_BarcodeWidget,
-        x=AttrMapValue(isNumber, desc='X position of the lower-left corner of the barcode.'),
-        y=AttrMapValue(isNumber, desc='Y position of the lower-left corner of the barcode.'),
-        barWidth=AttrMapValue(isNumber, desc='Size of data modules.'),
-        barFillColor=AttrMapValue(isColorOrNone, desc='Color of data modules.'),
-        value=AttrMapValue(EitherOr((isString,isNumber)), desc='Value.'),
-        height=AttrMapValue(None, desc='ignored'),
-        width=AttrMapValue(None, desc='ignored'),
-        strokeColor=AttrMapValue(None, desc='ignored'),
-        strokeWidth=AttrMapValue(None, desc='ignored'),
-        fillColor=AttrMapValue(None, desc='ignored'),
-        background=AttrMapValue(None, desc='ignored'),
-        debug=AttrMapValue(None, desc='ignored'),
-        gap=AttrMapValue(None, desc='ignored'),
-        row_modules=AttrMapValue(None, desc='???'),
-        col_modules=AttrMapValue(None, desc='???'),
-        row_regions=AttrMapValue(None, desc='???'),
-        col_regions=AttrMapValue(None, desc='???'),
-        cw_data=AttrMapValue(None, desc='???'),
-        cw_ecc=AttrMapValue(None, desc='???'),
-        row_usable_modules = AttrMapValue(None, desc='???'),
-        col_usable_modules = AttrMapValue(None, desc='???'),
-        valid = AttrMapValue(None, desc='???'),
-        validated = AttrMapValue(None, desc='???'),
-        decomposed = AttrMapValue(None, desc='???'),
-    ),
-    'reportlab.graphics.barcode.ecc200datamatrix',
-    'JGB 0204H20B012722900021AC35B2100001003241014241014TPS01  WJ067073605GB185 MOUNT PLEASANT MAIL CENTER         EC1A1BB9ZGBREC1A1BB  EC1A1BB  STEST FILE       FOR SPEC                                       '
-    )
-
-if __name__=='__main__':
-    raise ValueError('widgets.py has no script function')
+if __name__ == "__main__":
+    _test()

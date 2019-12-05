@@ -1,1 +1,1 @@
-¹0Dvenv/lib/python3.6/site-packages/django/contrib/gis/gdal/geomtype.py 2pyX`h
+¹0?venv/lib/python3.6/site-packages/django/contrib/gis/gdal/srs.py 2pyXÐh

@@ -1,1 +1,1 @@
-íÄUvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_internal/vcs/subversion.py 2pyXÉh
+íÄGvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_internal/vcs :ëÄìÄîÄïÄöÄ

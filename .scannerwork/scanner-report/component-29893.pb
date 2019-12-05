@@ -1,1 +1,1 @@
-≈È>venv/lib64/python3.6/site-packages/django/db/models/manager.py 2pyX h
+≈ÈMvenv/lib64/python3.6/site-packages/django/db/migrations/operations/special.py 2pyXÃh

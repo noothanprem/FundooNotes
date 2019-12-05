@@ -1,1 +1,1 @@
-›»?venv/lib/python3.6/site-packages/social_core/backends/fitbit.py 2pyXDh
+›»Bvenv/lib/python3.6/site-packages/social_core/backends/classlink.py 2pyX-h

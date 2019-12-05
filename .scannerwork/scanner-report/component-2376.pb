@@ -1,1 +1,2 @@
-È=venv/lib/python3.6/site-packages/zope/interface/exceptions.py 2pyXDh
+È=venv/lib/python3.6/site-packages/zope/interface/interfaces.py 2pyXƒ
+h

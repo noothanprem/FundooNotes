@@ -1,1 +1,1 @@
-á¶2venv/lib/python3.6/site-packages/social_core/tests :æ¶ç¶é¶ê¶ë¶¼¸Ç¸Ô¸Õ¸
+á¶2venv/lib/python3.6/site-packages/social_core/tests :æ¶ç¶é¶ê¶ë¶½¸È¸Õ¸Ö¸

@@ -1,2 +1,1 @@
-¥3@venv/lib/python3.6/site-packages/django/contrib/messages/storage :
-¤3¦3§3¨3¯3
+¥3Kvenv/lib/python3.6/site-packages/django/contrib/messages/storage/session.py 2pyX1h

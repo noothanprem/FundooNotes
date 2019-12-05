@@ -1,1 +1,1 @@
-¯ˆ=venv/lib/python3.6/site-packages/kombu/transport/zookeeper.py 2pyXËh
+¯ˆ8venv/lib/python3.6/site-packages/kombu/transport/base.py 2pyX‚h

@@ -2,49 +2,151 @@
 # See LICENSE for details.
 
 """
-Tests for L{SSHTransportAddrress} in ssh/address.py
+Tests for L{twisted.conch.tap}.
 """
 
-from __future__ import division, absolute_import
+try:
+    import cryptography
+except ImportError:
+    cryptography = None
 
-from twisted.trial import unittest
-from twisted.internet.address import IPv4Address
-from twisted.internet.test.test_address import AddressTestCaseMixin
+try:
+    import pyasn1
+except ImportError:
+    pyasn1 = None
 
-from twisted.conch.ssh.address import SSHTransportAddress
+try:
+    from twisted.conch import unix
+except ImportError:
+    unix = None
+
+if cryptography and pyasn1 and unix:
+    from twisted.conch import tap
+    from twisted.conch.openssh_compat.factory import OpenSSHFactory
+
+from twisted.application.internet import StreamServerEndpointService
+from twisted.cred import error
+from twisted.cred.credentials import ISSHPrivateKey
+from twisted.cred.credentials import IUsernamePassword, UsernamePassword
+
+from twisted.trial.unittest import TestCase
 
 
 
-class SSHTransportAddressTests(unittest.TestCase, AddressTestCaseMixin):
+class MakeServiceTests(TestCase):
     """
-    L{twisted.conch.ssh.address.SSHTransportAddress} is what Conch transports
-    use to represent the other side of the SSH connection.  This tests the
-    basic functionality of that class (string representation, comparison, &c).
+    Tests for L{tap.makeService}.
     """
 
+    if not cryptography:
+        skip = "can't run without cryptography"
 
-    def _stringRepresentation(self, stringFunction):
+    if not pyasn1:
+        skip = "Cannot run without PyASN1"
+
+    if not unix:
+        skip = "can't run on non-posix computers"
+
+    usernamePassword = (b'iamuser', b'thisispassword')
+
+    def setUp(self):
         """
-        The string representation of C{SSHTransportAddress} should be
-        "SSHTransportAddress(<stringFunction on address>)".
+        Create a file with two users.
         """
-        addr = self.buildAddress()
-        stringValue = stringFunction(addr)
-        addressValue = stringFunction(addr.address)
-        self.assertEqual(stringValue,
-                         "SSHTransportAddress(%s)" % addressValue)
+        self.filename = self.mktemp()
+        with open(self.filename, 'wb+') as f:
+            f.write(b':'.join(self.usernamePassword))
+        self.options = tap.Options()
 
 
-    def buildAddress(self):
+    def test_basic(self):
         """
-        Create an arbitrary new C{SSHTransportAddress}.  A new instance is
-        created for each call, but always for the same address.
+        L{tap.makeService} returns a L{StreamServerEndpointService} instance
+        running on TCP port 22, and the linked protocol factory is an instance
+        of L{OpenSSHFactory}.
         """
-        return SSHTransportAddress(IPv4Address("TCP", "127.0.0.1", 22))
+        config = tap.Options()
+        service = tap.makeService(config)
+        self.assertIsInstance(service, StreamServerEndpointService)
+        self.assertEqual(service.endpoint._port, 22)
+        self.assertIsInstance(service.factory, OpenSSHFactory)
 
 
-    def buildDifferentAddress(self):
+    def test_defaultAuths(self):
         """
-        Like C{buildAddress}, but with a different fixed address.
+        Make sure that if the C{--auth} command-line option is not passed,
+        the default checkers are (for backwards compatibility): SSH and UNIX
         """
-        return SSHTransportAddress(IPv4Address("TCP", "127.0.0.2", 22))
+        numCheckers = 2
+
+        self.assertIn(ISSHPrivateKey, self.options['credInterfaces'],
+            "SSH should be one of the default checkers")
+        self.assertIn(IUsernamePassword, self.options['credInterfaces'],
+            "UNIX should be one of the default checkers")
+        self.assertEqual(numCheckers, len(self.options['credCheckers']),
+            "There should be %d checkers by default" % (numCheckers,))
+
+
+    def test_authAdded(self):
+        """
+        The C{--auth} command-line option will add a checker to the list of
+        checkers, and it should be the only auth checker
+        """
+        self.options.parseOptions(['--auth', 'file:' + self.filename])
+        self.assertEqual(len(self.options['credCheckers']), 1)
+
+
+    def test_multipleAuthAdded(self):
+        """
+        Multiple C{--auth} command-line options will add all checkers specified
+        to the list ofcheckers, and there should only be the specified auth
+        checkers (no default checkers).
+        """
+        self.options.parseOptions(['--auth', 'file:' + self.filename,
+                                   '--auth', 'memory:testuser:testpassword'])
+        self.assertEqual(len(self.options['credCheckers']), 2)
+
+
+    def test_authFailure(self):
+        """
+        The checker created by the C{--auth} command-line option returns a
+        L{Deferred} that fails with L{UnauthorizedLogin} when
+        presented with credentials that are unknown to that checker.
+        """
+        self.options.parseOptions(['--auth', 'file:' + self.filename])
+        checker = self.options['credCheckers'][-1]
+        invalid = UsernamePassword(self.usernamePassword[0], 'fake')
+        # Wrong password should raise error
+        return self.assertFailure(
+            checker.requestAvatarId(invalid), error.UnauthorizedLogin)
+
+
+    def test_authSuccess(self):
+        """
+        The checker created by the C{--auth} command-line option returns a
+        L{Deferred} that returns the avatar id when presented with credentials
+        that are known to that checker.
+        """
+        self.options.parseOptions(['--auth', 'file:' + self.filename])
+        checker = self.options['credCheckers'][-1]
+        correct = UsernamePassword(*self.usernamePassword)
+        d = checker.requestAvatarId(correct)
+
+        def checkSuccess(username):
+            self.assertEqual(username, correct.username)
+
+        return d.addCallback(checkSuccess)
+
+
+    def test_checkers(self):
+        """
+        The L{OpenSSHFactory} built by L{tap.makeService} has a portal with
+        L{ISSHPrivateKey} and L{IUsernamePassword} interfaces registered as
+        checkers.
+        """
+        config = tap.Options()
+        service = tap.makeService(config)
+        portal = service.factory.portal
+        self.assertEqual(
+            set(portal.checkers.keys()),
+            set([ISSHPrivateKey, IUsernamePassword]))

@@ -1,135 +1,116 @@
+# -*- coding: utf-8 -*-
+"""
+    billiard._win
+    ~~~~~~~~~~~~~
+
+    Windows utilities to terminate process groups.
+
+"""
 from __future__ import absolute_import
 
-import sys
-import traceback
+import os
 
-__all__ = ['ExceptionInfo', 'Traceback']
+# psutil is painfully slow in win32. So to avoid adding big
+# dependencies like pywin32 a ctypes based solution is preferred
 
-DEFAULT_MAX_FRAMES = sys.getrecursionlimit() // 8
+# Code based on the winappdbg project http://winappdbg.sourceforge.net/
+# (BSD License)
+from ctypes import (
+    byref, sizeof, windll,
+    Structure, WinError, POINTER,
+    c_size_t, c_char, c_void_p,
+)
+from ctypes.wintypes import DWORD, LONG
 
-
-class _Code(object):
-
-    def __init__(self, code):
-        self.co_filename = code.co_filename
-        self.co_name = code.co_name
-        self.co_argcount = code.co_argcount
-        self.co_cellvars = ()
-        self.co_firstlineno = code.co_firstlineno
-        self.co_flags = code.co_flags
-        self.co_freevars = ()
-        self.co_code = b''
-        self.co_lnotab = b''
-        self.co_names = code.co_names
-        self.co_nlocals = code.co_nlocals
-        self.co_stacksize = code.co_stacksize
-        self.co_varnames = ()
+ERROR_NO_MORE_FILES = 18
+INVALID_HANDLE_VALUE = c_void_p(-1).value
 
 
-class _Frame(object):
-    Code = _Code
-
-    def __init__(self, frame):
-        self.f_builtins = {}
-        self.f_globals = {
-            "__file__": frame.f_globals.get("__file__", "__main__"),
-            "__name__": frame.f_globals.get("__name__"),
-            "__loader__": None,
-        }
-        self.f_locals = fl = {}
-        try:
-            fl["__traceback_hide__"] = frame.f_locals["__traceback_hide__"]
-        except KeyError:
-            pass
-        self.f_back = None
-        self.f_trace = None
-        self.f_exc_traceback = None
-        self.f_exc_type = None
-        self.f_exc_value = None
-        self.f_code = self.Code(frame.f_code)
-        self.f_lineno = frame.f_lineno
-        self.f_lasti = frame.f_lasti
-        # don't want to hit https://bugs.python.org/issue21967
-        self.f_restricted = False
+class PROCESSENTRY32(Structure):
+    _fields_ = [
+        ('dwSize', DWORD),
+        ('cntUsage', DWORD),
+        ('th32ProcessID', DWORD),
+        ('th32DefaultHeapID', c_size_t),
+        ('th32ModuleID', DWORD),
+        ('cntThreads', DWORD),
+        ('th32ParentProcessID', DWORD),
+        ('pcPriClassBase', LONG),
+        ('dwFlags', DWORD),
+        ('szExeFile', c_char * 260),
+    ]
+LPPROCESSENTRY32 = POINTER(PROCESSENTRY32)
 
 
-class _Object(object):
-
-    def __init__(self, **kw):
-        [setattr(self, k, v) for k, v in kw.items()]
-
-
-class _Truncated(object):
-
-    def __init__(self):
-        self.tb_lineno = -1
-        self.tb_frame = _Object(
-            f_globals={"__file__": "",
-                       "__name__": "",
-                       "__loader__": None},
-            f_fileno=None,
-            f_code=_Object(co_filename="...",
-                           co_name="[rest of traceback truncated]"),
-        )
-        self.tb_next = None
-        self.tb_lasti = 0
+def CreateToolhelp32Snapshot(dwFlags=2, th32ProcessID=0):
+    hSnapshot = windll.kernel32.CreateToolhelp32Snapshot(dwFlags,
+                                                         th32ProcessID)
+    if hSnapshot == INVALID_HANDLE_VALUE:
+        raise WinError()
+    return hSnapshot
 
 
-class Traceback(object):
-    Frame = _Frame
-
-    def __init__(self, tb, max_frames=DEFAULT_MAX_FRAMES, depth=0):
-        self.tb_frame = self.Frame(tb.tb_frame)
-        self.tb_lineno = tb.tb_lineno
-        self.tb_lasti = tb.tb_lasti
-        self.tb_next = None
-        if tb.tb_next is not None:
-            if depth <= max_frames:
-                self.tb_next = Traceback(tb.tb_next, max_frames, depth + 1)
-            else:
-                self.tb_next = _Truncated()
+def Process32First(hSnapshot, pe=None):
+    return _Process32n(windll.kernel32.Process32First, hSnapshot, pe)
 
 
-class ExceptionInfo(object):
-    """Exception wrapping an exception and its traceback.
+def Process32Next(hSnapshot, pe=None):
+    return _Process32n(windll.kernel32.Process32Next, hSnapshot, pe)
 
-    :param exc_info: The exception info tuple as returned by
-        :func:`sys.exc_info`.
 
+def _Process32n(fun, hSnapshot, pe=None):
+    if pe is None:
+        pe = PROCESSENTRY32()
+    pe.dwSize = sizeof(PROCESSENTRY32)
+    success = fun(hSnapshot, byref(pe))
+    if not success:
+        if windll.kernel32.GetLastError() == ERROR_NO_MORE_FILES:
+            return
+        raise WinError()
+    return pe
+
+
+def get_all_processes_pids():
+    """Return a dictionary with all processes pids as keys and their
+       parents as value. Ignore processes with no parents.
     """
+    h = CreateToolhelp32Snapshot()
+    parents = {}
+    pe = Process32First(h)
+    while pe:
+        if pe.th32ParentProcessID:
+            parents[pe.th32ProcessID] = pe.th32ParentProcessID
+        pe = Process32Next(h, pe)
 
-    #: Exception type.
-    type = None
+    return parents
 
-    #: Exception instance.
-    exception = None
 
-    #: Pickleable traceback instance for use with :mod:`traceback`
-    tb = None
+def get_processtree_pids(pid, include_parent=True):
+    """Return a list with all the pids of a process tree"""
+    parents = get_all_processes_pids()
+    all_pids = list(parents.keys())
+    pids = {pid}
+    while 1:
+        pids_new = pids.copy()
 
-    #: String representation of the traceback.
-    traceback = None
+        for _pid in all_pids:
+            if parents[_pid] in pids:
+                pids_new.add(_pid)
 
-    #: Set to true if this is an internal error.
-    internal = False
+        if pids_new == pids:
+            break
 
-    def __init__(self, exc_info=None, internal=False):
-        self.type, self.exception, tb = exc_info or sys.exc_info()
-        try:
-            self.tb = Traceback(tb)
-            self.traceback = ''.join(
-                traceback.format_exception(self.type, self.exception, tb),
-            )
-            self.internal = internal
-        finally:
-            del(tb)
+        pids = pids_new.copy()
 
-    def __str__(self):
-        return self.traceback
+    if not include_parent:
+        pids.remove(pid)
 
-    def __repr__(self):
-        return "<%s: %r>" % (self.__class__.__name__, self.exception, )
+    return list(pids)
 
-    @property
-    def exc_info(self):
-        return self.type, self.exception, self.tb
+
+def kill_processtree(pid, signum):
+    """Kill a process and all its descendants"""
+    family_pids = get_processtree_pids(pid)
+
+    for _pid in family_pids:
+        os.kill(_pid, signum)

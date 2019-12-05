@@ -1,136 +1,36 @@
 # -*- coding: utf-8 -*-
+import time
+import logging
+from hashlib import md5
 
-from django.db import models
-from django.utils.timezone import now
-from django.utils.translation import ugettext_lazy as _
-
-from django_extensions.db.fields import AutoSlugField, CreationDateTimeField, ModificationDateTimeField
-
-
-class TimeStampedModel(models.Model):
-    """
-    TimeStampedModel
-
-    An abstract base class model that provides self-managed "created" and
-    "modified" fields.
-    """
-
-    created = CreationDateTimeField(_('created'))
-    modified = ModificationDateTimeField(_('modified'))
-
-    def save(self, **kwargs):
-        self.update_modified = kwargs.pop('update_modified', getattr(self, 'update_modified', True))
-        super(TimeStampedModel, self).save(**kwargs)
-
-    class Meta:
-        get_latest_by = 'modified'
-        ordering = ('-modified', '-created',)
-        abstract = True
+# also see: https://djangosnippets.org/snippets/2242/
 
 
-class TitleDescriptionModel(models.Model):
-    """
-    TitleDescriptionModel
+class RateLimiterFilter(logging.Filter):
+    def filter(self, record):
+        from django.conf import settings
+        from django.core.cache import cache
 
-    An abstract base class model that provides title and description fields.
-    """
+        # Rate is specified as 1 messages logged per N seconds. (aka cache timeout)
+        rate = getattr(settings, 'RATE_LIMITER_FILTER_RATE', 10)
+        prefix = getattr(settings, 'RATE_LIMITER_FILTER_PREFIX', 'ratelimiterfilter')
 
-    title = models.CharField(_('title'), max_length=255)
-    description = models.TextField(_('description'), blank=True, null=True)
+        subject = record.getMessage()
+        cache_key = "%s:%s" % (prefix, md5(subject).hexdigest())
+        cache_count_key = "%s:count" % cache_key
 
-    class Meta:
-        abstract = True
+        result = cache.get_many([cache_key, cache_count_key])
+        value = result.get(cache_key)
+        cntr = result.get(cache_count_key)
 
+        if not cntr:
+            cntr = 1
+            cache.set(cache_count_key, cntr, rate + 60)
 
-class TitleSlugDescriptionModel(TitleDescriptionModel):
-    """
-    TitleSlugDescriptionModel
+        if value:
+            cache.incr(cache_count_key)
+            return False
 
-    An abstract base class model that provides title and description fields
-    and a self-managed "slug" field that populates from the title.
-
-    .. note ::
-        If you want to use custom "slugify" function, you could
-        define ``slugify_function`` which then will be used
-        in :py:class:`AutoSlugField` to slugify ``populate_from`` field.
-
-        See :py:class:`AutoSlugField` for more details.
-    """
-
-    slug = AutoSlugField(_('slug'), populate_from='title')
-
-    class Meta:
-        abstract = True
-
-
-class ActivatorQuerySet(models.query.QuerySet):
-    """
-    ActivatorQuerySet
-
-    Query set that returns statused results
-    """
-
-    def active(self):
-        """ Return active query set """
-        return self.filter(status=ActivatorModel.ACTIVE_STATUS)
-
-    def inactive(self):
-        """ Return inactive query set """
-        return self.filter(status=ActivatorModel.INACTIVE_STATUS)
-
-
-class ActivatorModelManager(models.Manager):
-    """
-    ActivatorModelManager
-
-    Manager to return instances of ActivatorModel: SomeModel.objects.active() / .inactive()
-    """
-
-    def get_queryset(self):
-        """ Use ActivatorQuerySet for all results """
-        return ActivatorQuerySet(model=self.model, using=self._db)
-
-    def active(self):
-        """
-        Return active instances of ActivatorModel:
-
-        SomeModel.objects.active(), proxy to ActivatorQuerySet.active
-        """
-        return self.get_queryset().active()
-
-    def inactive(self):
-        """
-        Return inactive instances of ActivatorModel:
-
-        SomeModel.objects.inactive(), proxy to ActivatorQuerySet.inactive
-        """
-        return self.get_queryset().inactive()
-
-
-class ActivatorModel(models.Model):
-    """
-    ActivatorModel
-
-    An abstract base class model that provides activate and deactivate fields.
-    """
-
-    INACTIVE_STATUS = 0
-    ACTIVE_STATUS = 1
-
-    STATUS_CHOICES = (
-        (INACTIVE_STATUS, _('Inactive')),
-        (ACTIVE_STATUS, _('Active')),
-    )
-    status = models.IntegerField(_('status'), choices=STATUS_CHOICES, default=ACTIVE_STATUS)
-    activate_date = models.DateTimeField(blank=True, null=True, help_text=_('keep empty for an immediate activation'))
-    deactivate_date = models.DateTimeField(blank=True, null=True, help_text=_('keep empty for indefinite activation'))
-    objects = ActivatorModelManager()
-
-    class Meta:
-        ordering = ('status', '-activate_date',)
-        abstract = True
-
-    def save(self, *args, **kwargs):
-        if not self.activate_date:
-            self.activate_date = now()
-        super(ActivatorModel, self).save(*args, **kwargs)
+        record.msg = "[%sx] %s" % (cntr, record.msg)
+        cache.set(cache_key, time.time(), rate)
+        return True

@@ -1,1 +1,1 @@
-”‰9venv/lib64/python3.6/site-packages/social_django/admin.py 2pyX?h
+”‰:venv/lib64/python3.6/site-packages/social_django/config.py 2pyXh

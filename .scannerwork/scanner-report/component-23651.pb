@@ -1,1 +1,1 @@
-ã¸>venv/lib/python3.6/site-packages/social_core/backends/podio.py 2pyX'h
+ã¸Bvenv/lib/python3.6/site-packages/social_core/backends/microsoft.py 2pyXWh

@@ -1,1 +1,1 @@
-ñ‚3venv/lib/python3.6/site-packages/gi/_ossighelper.py 2pyXþh
+ñ‚/venv/lib/python3.6/site-packages/gi/__init__.py 2pyXµh

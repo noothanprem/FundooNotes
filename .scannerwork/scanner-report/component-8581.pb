@@ -1,1 +1,1 @@
-…CBvenv/lib/python3.6/site-packages/django/conf/locale/id/__init__.py 2pyXh
+…C6venv/lib/python3.6/site-packages/django/conf/locale/id :„C‡C

@@ -1,1 +1,1 @@
-®„Cvenv/lib64/python3.6/site-packages/social_core/backends/withings.py 2pyXh
+®„Dvenv/lib64/python3.6/site-packages/social_core/backends/launchpad.py 2pyXh

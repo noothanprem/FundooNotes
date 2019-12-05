@@ -1,55 +1,141 @@
-# -*- test-case-name: twisted.conch.test.test_mixin -*-
+# -*- test-case-name: twisted.conch.test.test_manhole -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-Experimental optimization
-
-This module provides a single mixin class which allows protocols to
-collapse numerous small writes into a single larger one.
+insults/SSH integration support.
 
 @author: Jp Calderone
 """
 
-from twisted.internet import reactor
+from zope.interface import implementer
 
-class BufferingMixin:
+from twisted.conch import avatar, interfaces as iconch, error as econch
+from twisted.conch.ssh import factory, session
+from twisted.python import components
+
+from twisted.conch.insults import insults
+
+
+class _Glue:
     """
-    Mixin which adds write buffering.
+    A feeble class for making one attribute look like another.
+
+    This should be replaced with a real class at some point, probably.
+    Try not to write new code that uses it.
     """
-    _delayedWriteCall = None
-    data = None
-
-    DELAY = 0.0
-
-    def schedule(self):
-        return reactor.callLater(self.DELAY, self.flush)
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
 
 
-    def reschedule(self, token):
-        token.reset(self.DELAY)
+    def __getattr__(self, name):
+        raise AttributeError(self.name, "has no attribute", name)
 
 
-    def write(self, data):
-        """
-        Buffer some bytes to be written soon.
 
-        Every call to this function delays the real write by C{self.DELAY}
-        seconds.  When the delay expires, all collected bytes are written
-        to the underlying transport using L{ITransport.writeSequence}.
-        """
-        if self._delayedWriteCall is None:
-            self.data = []
-            self._delayedWriteCall = self.schedule()
-        else:
-            self.reschedule(self._delayedWriteCall)
-        self.data.append(data)
+class TerminalSessionTransport:
+    def __init__(self, proto, chainedProtocol, avatar, width, height):
+        self.proto = proto
+        self.avatar = avatar
+        self.chainedProtocol = chainedProtocol
+
+        protoSession = self.proto.session
+
+        self.proto.makeConnection(
+            _Glue(write=self.chainedProtocol.dataReceived,
+                  loseConnection=lambda: avatar.conn.sendClose(protoSession),
+                  name="SSH Proto Transport"))
+
+        def loseConnection():
+            self.proto.loseConnection()
+
+        self.chainedProtocol.makeConnection(
+            _Glue(write=self.proto.write,
+                  loseConnection=loseConnection,
+                  name="Chained Proto Transport"))
+
+        # XXX TODO
+        # chainedProtocol is supposed to be an ITerminalTransport,
+        # maybe.  That means perhaps its terminalProtocol attribute is
+        # an ITerminalProtocol, it could be.  So calling terminalSize
+        # on that should do the right thing But it'd be nice to clean
+        # this bit up.
+        self.chainedProtocol.terminalProtocol.terminalSize(width, height)
 
 
-    def flush(self):
-        """
-        Flush the buffer immediately.
-        """
-        self._delayedWriteCall = None
-        self.transport.writeSequence(self.data)
-        self.data = None
+
+@implementer(iconch.ISession)
+class TerminalSession(components.Adapter):
+    transportFactory = TerminalSessionTransport
+    chainedProtocolFactory = insults.ServerProtocol
+
+    def getPty(self, term, windowSize, attrs):
+        self.height, self.width = windowSize[:2]
+
+
+    def openShell(self, proto):
+        self.transportFactory(
+            proto, self.chainedProtocolFactory(),
+            iconch.IConchUser(self.original),
+            self.width, self.height)
+
+
+    def execCommand(self, proto, cmd):
+        raise econch.ConchError("Cannot execute commands")
+
+
+    def closed(self):
+        pass
+
+
+
+class TerminalUser(avatar.ConchUser, components.Adapter):
+    def __init__(self, original, avatarId):
+        components.Adapter.__init__(self, original)
+        avatar.ConchUser.__init__(self)
+        self.channelLookup[b'session'] = session.SSHSession
+
+
+
+class TerminalRealm:
+    userFactory = TerminalUser
+    sessionFactory = TerminalSession
+
+    transportFactory = TerminalSessionTransport
+    chainedProtocolFactory = insults.ServerProtocol
+
+    def _getAvatar(self, avatarId):
+        comp = components.Componentized()
+        user = self.userFactory(comp, avatarId)
+        sess = self.sessionFactory(comp)
+
+        sess.transportFactory = self.transportFactory
+        sess.chainedProtocolFactory = self.chainedProtocolFactory
+
+        comp.setComponent(iconch.IConchUser, user)
+        comp.setComponent(iconch.ISession, sess)
+
+        return user
+
+
+    def __init__(self, transportFactory=None):
+        if transportFactory is not None:
+            self.transportFactory = transportFactory
+
+
+    def requestAvatar(self, avatarId, mind, *interfaces):
+        for i in interfaces:
+            if i is iconch.IConchUser:
+                return (iconch.IConchUser,
+                        self._getAvatar(avatarId),
+                        lambda: None)
+        raise NotImplementedError()
+
+
+
+class ConchFactory(factory.SSHFactory):
+    publicKeys = {}
+    privateKeys = {}
+
+    def __init__(self, portal):
+        self.portal = portal

@@ -1,1 +1,1 @@
-בי7venv/lib64/python3.6/site-packages/django/db/models/sql :איגידיהיויזימי
+ביCvenv/lib64/python3.6/site-packages/django/db/models/sql/compiler.py 2pyXלh

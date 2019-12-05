@@ -1,1 +1,1 @@
-£@Mvenv/lib/python3.6/site-packages/django/core/management/commands/inspectdb.py 2pyX­h
+£@Kvenv/lib/python3.6/site-packages/django/core/management/commands/migrate.py 2pyXîh

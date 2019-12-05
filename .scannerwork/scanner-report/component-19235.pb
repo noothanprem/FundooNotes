@@ -1,1 +1,1 @@
-£–^venv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/langgreekmodel.py 2pyXâh
+£–Uvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/escsm.py 2pyXóh

@@ -1,1 +1,1 @@
-½yKvenv/lib/python3.6/site-packages/awscli/customizations/s3/transferconfig.py 2pyXxh
+½yEvenv/lib/python3.6/site-packages/awscli/customizations/s3/__init__.py 2pyXh

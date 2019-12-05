@@ -1,1 +1,1 @@
-¸Cvenv/lib/python3.6/site-packages/pymysql/constants/SERVER_STATUS.py 2pyXh
+¸<venv/lib/python3.6/site-packages/pymysql/constants/CLIENT.py 2pyX h

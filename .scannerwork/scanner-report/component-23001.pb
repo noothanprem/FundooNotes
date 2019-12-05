@@ -1,1 +1,1 @@
-Ù³>venv/lib/python3.6/site-packages/rest_framework/serializers.py 2pyXÕh
+Ù³Fvenv/lib/python3.6/site-packages/rest_framework/utils/field_mapping.py 2pyX®h

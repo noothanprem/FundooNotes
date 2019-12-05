@@ -1,1 +1,1 @@
-¿M8venv/lib/python3.6/site-packages/autobahn/xbr/_seller.py 2pyX§h
+¿M5venv/lib/python3.6/site-packages/autobahn/__init__.py 2pyX h

@@ -1,1 +1,1 @@
-’„Cvenv/lib64/python3.6/site-packages/social_core/backends/appsfuel.py 2pyX+h
+’„Dvenv/lib64/python3.6/site-packages/social_core/backends/changetip.py 2pyXh

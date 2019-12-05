@@ -1,241 +1,629 @@
 # -*- coding: utf-8 -*-
 """
-    werkzeug.testapp
-    ~~~~~~~~~~~~~~~~
+    werkzeug.debug.tbtools
+    ~~~~~~~~~~~~~~~~~~~~~~
 
-    Provide a small test application that can be used to test a WSGI server
-    and check it for WSGI compliance.
+    This module provides various traceback related utility functions.
 
     :copyright: 2007 Pallets
     :license: BSD-3-Clause
 """
-import base64
+import codecs
+import inspect
+import json
 import os
+import re
 import sys
-from textwrap import wrap
+import sysconfig
+import traceback
+from tokenize import TokenError
 
-from . import __version__ as _werkzeug_version
-from .utils import escape
-from .wrappers import BaseRequest as Request
-from .wrappers import BaseResponse as Response
-
-logo = Response(
-    base64.b64decode(
-        """
-R0lGODlhoACgAOMIAAEDACwpAEpCAGdgAJaKAM28AOnVAP3rAP/////////
-//////////////////////yH5BAEKAAgALAAAAACgAKAAAAT+EMlJq704680R+F0ojmRpnuj0rWnrv
-nB8rbRs33gu0bzu/0AObxgsGn3D5HHJbCUFyqZ0ukkSDlAidctNFg7gbI9LZlrBaHGtzAae0eloe25
-7w9EDOX2fst/xenyCIn5/gFqDiVVDV4aGeYiKkhSFjnCQY5OTlZaXgZp8nJ2ekaB0SQOjqphrpnOiq
-ncEn65UsLGytLVmQ6m4sQazpbtLqL/HwpnER8bHyLrLOc3Oz8PRONPU1crXN9na263dMt/g4SzjMeX
-m5yDpLqgG7OzJ4u8lT/P69ej3JPn69kHzN2OIAHkB9RUYSFCFQYQJFTIkCDBiwoXWGnowaLEjRm7+G
-p9A7Hhx4rUkAUaSLJlxHMqVMD/aSycSZkyTplCqtGnRAM5NQ1Ly5OmzZc6gO4d6DGAUKA+hSocWYAo
-SlM6oUWX2O/o0KdaVU5vuSQLAa0ADwQgMEMB2AIECZhVSnTno6spgbtXmHcBUrQACcc2FrTrWS8wAf
-78cMFBgwIBgbN+qvTt3ayikRBk7BoyGAGABAdYyfdzRQGV3l4coxrqQ84GpUBmrdR3xNIDUPAKDBSA
-ADIGDhhqTZIWaDcrVX8EsbNzbkvCOxG8bN5w8ly9H8jyTJHC6DFndQydbguh2e/ctZJFXRxMAqqPVA
-tQH5E64SPr1f0zz7sQYjAHg0In+JQ11+N2B0XXBeeYZgBZFx4tqBToiTCPv0YBgQv8JqA6BEf6RhXx
-w1ENhRBnWV8ctEX4Ul2zc3aVGcQNC2KElyTDYyYUWvShdjDyMOGMuFjqnII45aogPhz/CodUHFwaDx
-lTgsaOjNyhGWJQd+lFoAGk8ObghI0kawg+EV5blH3dr+digkYuAGSaQZFHFz2P/cTaLmhF52QeSb45
-Jwxd+uSVGHlqOZpOeJpCFZ5J+rkAkFjQ0N1tah7JJSZUFNsrkeJUJMIBi8jyaEKIhKPomnC91Uo+NB
-yyaJ5umnnpInIFh4t6ZSpGaAVmizqjpByDegYl8tPE0phCYrhcMWSv+uAqHfgH88ak5UXZmlKLVJhd
-dj78s1Fxnzo6yUCrV6rrDOkluG+QzCAUTbCwf9SrmMLzK6p+OPHx7DF+bsfMRq7Ec61Av9i6GLw23r
-idnZ+/OO0a99pbIrJkproCQMA17OPG6suq3cca5ruDfXCCDoS7BEdvmJn5otdqscn+uogRHHXs8cbh
-EIfYaDY1AkrC0cqwcZpnM6ludx72x0p7Fo/hZAcpJDjax0UdHavMKAbiKltMWCF3xxh9k25N/Viud8
-ba78iCvUkt+V6BpwMlErmcgc502x+u1nSxJSJP9Mi52awD1V4yB/QHONsnU3L+A/zR4VL/indx/y64
-gqcj+qgTeweM86f0Qy1QVbvmWH1D9h+alqg254QD8HJXHvjQaGOqEqC22M54PcftZVKVSQG9jhkv7C
-JyTyDoAJfPdu8v7DRZAxsP/ky9MJ3OL36DJfCFPASC3/aXlfLOOON9vGZZHydGf8LnxYJuuVIbl83y
-Az5n/RPz07E+9+zw2A2ahz4HxHo9Kt79HTMx1Q7ma7zAzHgHqYH0SoZWyTuOLMiHwSfZDAQTn0ajk9
-YQqodnUYjByQZhZak9Wu4gYQsMyEpIOAOQKze8CmEF45KuAHTvIDOfHJNipwoHMuGHBnJElUoDmAyX
-c2Qm/R8Ah/iILCCJOEokGowdhDYc/yoL+vpRGwyVSCWFYZNljkhEirGXsalWcAgOdeAdoXcktF2udb
-qbUhjWyMQxYO01o6KYKOr6iK3fE4MaS+DsvBsGOBaMb0Y6IxADaJhFICaOLmiWTlDAnY1KzDG4ambL
-cWBA8mUzjJsN2KjSaSXGqMCVXYpYkj33mcIApyhQf6YqgeNAmNvuC0t4CsDbSshZJkCS1eNisKqlyG
-cF8G2JeiDX6tO6Mv0SmjCa3MFb0bJaGPMU0X7c8XcpvMaOQmCajwSeY9G0WqbBmKv34DsMIEztU6Y2
-KiDlFdt6jnCSqx7Dmt6XnqSKaFFHNO5+FmODxMCWBEaco77lNDGXBM0ECYB/+s7nKFdwSF5hgXumQe
-EZ7amRg39RHy3zIjyRCykQh8Zo2iviRKyTDn/zx6EefptJj2Cw+Ep2FSc01U5ry4KLPYsTyWnVGnvb
-UpyGlhjBUljyjHhWpf8OFaXwhp9O4T1gU9UeyPPa8A2l0p1kNqPXEVRm1AOs1oAGZU596t6SOR2mcB
-Oco1srWtkaVrMUzIErrKri85keKqRQYX9VX0/eAUK1hrSu6HMEX3Qh2sCh0q0D2CtnUqS4hj62sE/z
-aDs2Sg7MBS6xnQeooc2R2tC9YrKpEi9pLXfYXp20tDCpSP8rKlrD4axprb9u1Df5hSbz9QU0cRpfgn
-kiIzwKucd0wsEHlLpe5yHXuc6FrNelOl7pY2+11kTWx7VpRu97dXA3DO1vbkhcb4zyvERYajQgAADs
-="""
-    ),
-    mimetype="image/png",
-)
+from .._compat import PY2
+from .._compat import range_type
+from .._compat import reraise
+from .._compat import string_types
+from .._compat import text_type
+from .._compat import to_native
+from .._compat import to_unicode
+from ..filesystem import get_filesystem_encoding
+from ..utils import cached_property
+from ..utils import escape
+from .console import Console
 
 
-TEMPLATE = u"""\
+_coding_re = re.compile(br"coding[:=]\s*([-\w.]+)")
+_line_re = re.compile(br"^(.*?)$", re.MULTILINE)
+_funcdef_re = re.compile(r"^(\s*def\s)|(.*(?<!\w)lambda(:|\s))|^(\s*@)")
+UTF8_COOKIE = b"\xef\xbb\xbf"
+
+system_exceptions = (SystemExit, KeyboardInterrupt)
+try:
+    system_exceptions += (GeneratorExit,)
+except NameError:
+    pass
+
+
+HEADER = u"""\
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
   "http://www.w3.org/TR/html4/loose.dtd">
-<title>WSGI Information</title>
-<style type="text/css">
-  @import url(https://fonts.googleapis.com/css?family=Ubuntu);
+<html>
+  <head>
+    <title>%(title)s // Werkzeug Debugger</title>
+    <link rel="stylesheet" href="?__debugger__=yes&amp;cmd=resource&amp;f=style.css"
+        type="text/css">
+    <!-- We need to make sure this has a favicon so that the debugger does
+         not by accident trigger a request to /favicon.ico which might
+         change the application state. -->
+    <link rel="shortcut icon"
+        href="?__debugger__=yes&amp;cmd=resource&amp;f=console.png">
+    <script src="?__debugger__=yes&amp;cmd=resource&amp;f=jquery.js"></script>
+    <script src="?__debugger__=yes&amp;cmd=resource&amp;f=debugger.js"></script>
+    <script type="text/javascript">
+      var TRACEBACK = %(traceback_id)d,
+          CONSOLE_MODE = %(console)s,
+          EVALEX = %(evalex)s,
+          EVALEX_TRUSTED = %(evalex_trusted)s,
+          SECRET = "%(secret)s";
+    </script>
+  </head>
+  <body style="background-color: #fff">
+    <div class="debugger">
+"""
+FOOTER = u"""\
+      <div class="footer">
+        Brought to you by <strong class="arthur">DON'T PANIC</strong>, your
+        friendly Werkzeug powered traceback interpreter.
+      </div>
+    </div>
 
-  body       { font-family: 'Lucida Grande', 'Lucida Sans Unicode', 'Geneva',
-               'Verdana', sans-serif; background-color: white; color: #000;
-               font-size: 15px; text-align: center; }
-  #logo      { float: right; padding: 0 0 10px 10px; }
-  div.box    { text-align: left; width: 45em; margin: auto; padding: 50px 0;
-               background-color: white; }
-  h1, h2     { font-family: 'Ubuntu', 'Lucida Grande', 'Lucida Sans Unicode',
-               'Geneva', 'Verdana', sans-serif; font-weight: normal; }
-  h1         { margin: 0 0 30px 0; }
-  h2         { font-size: 1.4em; margin: 1em 0 0.5em 0; }
-  table      { width: 100%%; border-collapse: collapse; border: 1px solid #AFC5C9 }
-  table th   { background-color: #AFC1C4; color: white; font-size: 0.72em;
-               font-weight: normal; width: 18em; vertical-align: top;
-               padding: 0.5em 0 0.1em 0.5em; }
-  table td   { border: 1px solid #AFC5C9; padding: 0.1em 0 0.1em 0.5em; }
-  code       { font-family: 'Consolas', 'Monaco', 'Bitstream Vera Sans Mono',
-               monospace; font-size: 0.7em; }
-  ul li      { line-height: 1.5em; }
-  ul.path    { font-size: 0.7em; margin: 0 -30px; padding: 8px 30px;
-               list-style: none; background: #E8EFF0; }
-  ul.path li { line-height: 1.6em; }
-  li.virtual { color: #999; text-decoration: underline; }
-  li.exp     { background: white; }
-</style>
-<div class="box">
-  <img src="?resource=logo" id="logo" alt="[The Werkzeug Logo]" />
-  <h1>WSGI Information</h1>
-  <p>
-    This page displays all available information about the WSGI server and
-    the underlying Python interpreter.
-  <h2 id="python-interpreter">Python Interpreter</h2>
-  <table>
-    <tr>
-      <th>Python Version
-      <td>%(python_version)s
-    <tr>
-      <th>Platform
-      <td>%(platform)s [%(os)s]
-    <tr>
-      <th>API Version
-      <td>%(api_version)s
-    <tr>
-      <th>Byteorder
-      <td>%(byteorder)s
-    <tr>
-      <th>Werkzeug Version
-      <td>%(werkzeug_version)s
-  </table>
-  <h2 id="wsgi-environment">WSGI Environment</h2>
-  <table>%(wsgi_env)s</table>
-  <h2 id="installed-eggs">Installed Eggs</h2>
-  <p>
-    The following python packages were installed on the system as
-    Python eggs:
-  <ul>%(python_eggs)s</ul>
-  <h2 id="sys-path">System Path</h2>
-  <p>
-    The following paths are the current contents of the load path.  The
-    following entries are looked up for Python packages.  Note that not
-    all items in this path are folders.  Gray and underlined items are
-    entries pointing to invalid resources or used by custom import hooks
-    such as the zip importer.
-  <p>
-    Items with a bright background were expanded for display from a relative
-    path.  If you encounter such paths in the output you might want to check
-    your setup as relative paths are usually problematic in multithreaded
-    environments.
-  <ul class="path">%(sys_path)s</ul>
+    <div class="pin-prompt">
+      <div class="inner">
+        <h3>Console Locked</h3>
+        <p>
+          The console is locked and needs to be unlocked by entering the PIN.
+          You can find the PIN printed out on the standard output of your
+          shell that runs the server.
+        <form>
+          <p>PIN:
+            <input type=text name=pin size=14>
+            <input type=submit name=btn value="Confirm Pin">
+        </form>
+      </div>
+    </div>
+  </body>
+</html>
+"""
+
+PAGE_HTML = (
+    HEADER
+    + u"""\
+<h1>%(exception_type)s</h1>
+<div class="detail">
+  <p class="errormsg">%(exception)s</p>
+</div>
+<h2 class="traceback">Traceback <em>(most recent call last)</em></h2>
+%(summary)s
+<div class="plain">
+  <form action="/?__debugger__=yes&amp;cmd=paste" method="post">
+    <p>
+      <input type="hidden" name="language" value="pytb">
+      This is the Copy/Paste friendly version of the traceback.  <span
+      class="pastemessage">You can also paste this traceback into
+      a <a href="https://gist.github.com/">gist</a>:
+      <input type="submit" value="create paste"></span>
+    </p>
+    <textarea cols="50" rows="10" name="code" readonly>%(plaintext)s</textarea>
+  </form>
+</div>
+<div class="explanation">
+  The debugger caught an exception in your WSGI application.  You can now
+  look at the traceback which led to the error.  <span class="nojavascript">
+  If you enable JavaScript you can also use additional features such as code
+  execution (if the evalex feature is enabled), automatic pasting of the
+  exceptions and much more.</span>
+</div>
+"""
+    + FOOTER
+    + """
+<!--
+
+%(plaintext_cs)s
+
+-->
+"""
+)
+
+CONSOLE_HTML = (
+    HEADER
+    + u"""\
+<h1>Interactive Console</h1>
+<div class="explanation">
+In this console you can execute Python expressions in the context of the
+application.  The initial namespace was created by the debugger automatically.
+</div>
+<div class="console"><div class="inner">The Console requires JavaScript.</div></div>
+"""
+    + FOOTER
+)
+
+SUMMARY_HTML = u"""\
+<div class="%(classes)s">
+  %(title)s
+  <ul>%(frames)s</ul>
+  %(description)s
 </div>
 """
 
+FRAME_HTML = u"""\
+<div class="frame" id="frame-%(id)d">
+  <h4>File <cite class="filename">"%(filename)s"</cite>,
+      line <em class="line">%(lineno)s</em>,
+      in <code class="function">%(function_name)s</code></h4>
+  <div class="source %(library)s">%(lines)s</div>
+</div>
+"""
 
-def iter_sys_path():
-    if os.name == "posix":
-
-        def strip(x):
-            prefix = os.path.expanduser("~")
-            if x.startswith(prefix):
-                x = "~" + x[len(prefix) :]
-            return x
-
-    else:
-
-        def strip(x):
-            return x
-
-    cwd = os.path.abspath(os.getcwd())
-    for item in sys.path:
-        path = os.path.join(cwd, item or os.path.curdir)
-        yield strip(os.path.normpath(path)), not os.path.isdir(path), path != item
+SOURCE_LINE_HTML = u"""\
+<tr class="%(classes)s">
+  <td class=lineno>%(lineno)s</td>
+  <td>%(code)s</td>
+</tr>
+"""
 
 
-def render_testapp(req):
-    try:
-        import pkg_resources
-    except ImportError:
-        eggs = ()
-    else:
-        eggs = sorted(pkg_resources.working_set, key=lambda x: x.project_name.lower())
-    python_eggs = []
-    for egg in eggs:
-        try:
-            version = egg.version
-        except (ValueError, AttributeError):
-            version = "unknown"
-        python_eggs.append(
-            "<li>%s <small>[%s]</small>" % (escape(egg.project_name), escape(version))
-        )
-
-    wsgi_env = []
-    sorted_environ = sorted(req.environ.items(), key=lambda x: repr(x[0]).lower())
-    for key, value in sorted_environ:
-        wsgi_env.append(
-            "<tr><th>%s<td><code>%s</code>"
-            % (escape(str(key)), " ".join(wrap(escape(repr(value)))))
-        )
-
-    sys_path = []
-    for item, virtual, expanded in iter_sys_path():
-        class_ = []
-        if virtual:
-            class_.append("virtual")
-        if expanded:
-            class_.append("exp")
-        sys_path.append(
-            "<li%s>%s"
-            % (' class="%s"' % " ".join(class_) if class_ else "", escape(item))
-        )
-
-    return (
-        TEMPLATE
-        % {
-            "python_version": "<br>".join(escape(sys.version).splitlines()),
-            "platform": escape(sys.platform),
-            "os": escape(os.name),
-            "api_version": sys.api_version,
-            "byteorder": sys.byteorder,
-            "werkzeug_version": _werkzeug_version,
-            "python_eggs": "\n".join(python_eggs),
-            "wsgi_env": "\n".join(wsgi_env),
-            "sys_path": "\n".join(sys_path),
-        }
-    ).encode("utf-8")
+def render_console_html(secret, evalex_trusted=True):
+    return CONSOLE_HTML % {
+        "evalex": "true",
+        "evalex_trusted": "true" if evalex_trusted else "false",
+        "console": "true",
+        "title": "Console",
+        "secret": secret,
+        "traceback_id": -1,
+    }
 
 
-def test_app(environ, start_response):
-    """Simple test application that dumps the environment.  You can use
-    it to check if Werkzeug is working properly:
-
-    .. sourcecode:: pycon
-
-        >>> from werkzeug.serving import run_simple
-        >>> from werkzeug.testapp import test_app
-        >>> run_simple('localhost', 3000, test_app)
-         * Running on http://localhost:3000/
-
-    The application displays important information from the WSGI environment,
-    the Python interpreter and the installed libraries.
+def get_current_traceback(
+    ignore_system_exceptions=False, show_hidden_frames=False, skip=0
+):
+    """Get the current exception info as `Traceback` object.  Per default
+    calling this method will reraise system exceptions such as generator exit,
+    system exit or others.  This behavior can be disabled by passing `False`
+    to the function as first parameter.
     """
-    req = Request(environ, populate_request=False)
-    if req.args.get("resource") == "logo":
-        response = logo
-    else:
-        response = Response(render_testapp(req), mimetype="text/html")
-    return response(environ, start_response)
+    exc_type, exc_value, tb = sys.exc_info()
+    if ignore_system_exceptions and exc_type in system_exceptions:
+        reraise(exc_type, exc_value, tb)
+    for _ in range_type(skip):
+        if tb.tb_next is None:
+            break
+        tb = tb.tb_next
+    tb = Traceback(exc_type, exc_value, tb)
+    if not show_hidden_frames:
+        tb.filter_hidden_frames()
+    return tb
 
 
-if __name__ == "__main__":
-    from .serving import run_simple
+class Line(object):
+    """Helper for the source renderer."""
 
-    run_simple("localhost", 5000, test_app, use_reloader=True)
+    __slots__ = ("lineno", "code", "in_frame", "current")
+
+    def __init__(self, lineno, code):
+        self.lineno = lineno
+        self.code = code
+        self.in_frame = False
+        self.current = False
+
+    @property
+    def classes(self):
+        rv = ["line"]
+        if self.in_frame:
+            rv.append("in-frame")
+        if self.current:
+            rv.append("current")
+        return rv
+
+    def render(self):
+        return SOURCE_LINE_HTML % {
+            "classes": u" ".join(self.classes),
+            "lineno": self.lineno,
+            "code": escape(self.code),
+        }
+
+
+class Traceback(object):
+    """Wraps a traceback."""
+
+    def __init__(self, exc_type, exc_value, tb):
+        self.exc_type = exc_type
+        self.exc_value = exc_value
+        self.tb = tb
+
+        exception_type = exc_type.__name__
+        if exc_type.__module__ not in {"builtins", "__builtin__", "exceptions"}:
+            exception_type = exc_type.__module__ + "." + exception_type
+        self.exception_type = exception_type
+
+        self.groups = []
+        memo = set()
+        while True:
+            self.groups.append(Group(exc_type, exc_value, tb))
+            memo.add(id(exc_value))
+            if PY2:
+                break
+            exc_value = exc_value.__cause__ or exc_value.__context__
+            if exc_value is None or id(exc_value) in memo:
+                break
+            exc_type = type(exc_value)
+            tb = exc_value.__traceback__
+        self.groups.reverse()
+        self.frames = [frame for group in self.groups for frame in group.frames]
+
+    def filter_hidden_frames(self):
+        """Remove the frames according to the paste spec."""
+        for group in self.groups:
+            group.filter_hidden_frames()
+
+        self.frames[:] = [frame for group in self.groups for frame in group.frames]
+
+    @property
+    def is_syntax_error(self):
+        """Is it a syntax error?"""
+        return isinstance(self.exc_value, SyntaxError)
+
+    @property
+    def exception(self):
+        """String representation of the final exception."""
+        return self.groups[-1].exception
+
+    def log(self, logfile=None):
+        """Log the ASCII traceback into a file object."""
+        if logfile is None:
+            logfile = sys.stderr
+        tb = self.plaintext.rstrip() + u"\n"
+        logfile.write(to_native(tb, "utf-8", "replace"))
+
+    def paste(self):
+        """Create a paste and return the paste id."""
+        data = json.dumps(
+            {
+                "description": "Werkzeug Internal Server Error",
+                "public": False,
+                "files": {"traceback.txt": {"content": self.plaintext}},
+            }
+        ).encode("utf-8")
+        try:
+            from urllib2 import urlopen
+        except ImportError:
+            from urllib.request import urlopen
+        rv = urlopen("https://api.github.com/gists", data=data)
+        resp = json.loads(rv.read().decode("utf-8"))
+        rv.close()
+        return {"url": resp["html_url"], "id": resp["id"]}
+
+    def render_summary(self, include_title=True):
+        """Render the traceback for the interactive console."""
+        title = ""
+        classes = ["traceback"]
+        if not self.frames:
+            classes.append("noframe-traceback")
+            frames = []
+        else:
+            library_frames = sum(frame.is_library for frame in self.frames)
+            mark_lib = 0 < library_frames < len(self.frames)
+            frames = [group.render(mark_lib=mark_lib) for group in self.groups]
+
+        if include_title:
+            if self.is_syntax_error:
+                title = u"Syntax Error"
+            else:
+                title = u"Traceback <em>(most recent call last)</em>:"
+
+        if self.is_syntax_error:
+            description_wrapper = u"<pre class=syntaxerror>%s</pre>"
+        else:
+            description_wrapper = u"<blockquote>%s</blockquote>"
+
+        return SUMMARY_HTML % {
+            "classes": u" ".join(classes),
+            "title": u"<h3>%s</h3>" % title if title else u"",
+            "frames": u"\n".join(frames),
+            "description": description_wrapper % escape(self.exception),
+        }
+
+    def render_full(self, evalex=False, secret=None, evalex_trusted=True):
+        """Render the Full HTML page with the traceback info."""
+        exc = escape(self.exception)
+        return PAGE_HTML % {
+            "evalex": "true" if evalex else "false",
+            "evalex_trusted": "true" if evalex_trusted else "false",
+            "console": "false",
+            "title": exc,
+            "exception": exc,
+            "exception_type": escape(self.exception_type),
+            "summary": self.render_summary(include_title=False),
+            "plaintext": escape(self.plaintext),
+            "plaintext_cs": re.sub("-{2,}", "-", self.plaintext),
+            "traceback_id": self.id,
+            "secret": secret,
+        }
+
+    @cached_property
+    def plaintext(self):
+        return u"\n".join([group.render_text() for group in self.groups])
+
+    @property
+    def id(self):
+        return id(self)
+
+
+class Group(object):
+    """A group of frames for an exception in a traceback. On Python 3,
+    if the exception has a ``__cause__`` or ``__context__``, there are
+    multiple exception groups.
+    """
+
+    def __init__(self, exc_type, exc_value, tb):
+        self.exc_type = exc_type
+        self.exc_value = exc_value
+        self.info = None
+        if not PY2:
+            if exc_value.__cause__ is not None:
+                self.info = (
+                    u"The above exception was the direct cause of the"
+                    u" following exception"
+                )
+            elif exc_value.__context__ is not None:
+                self.info = (
+                    u"During handling of the above exception, another"
+                    u" exception occurred"
+                )
+
+        self.frames = []
+        while tb is not None:
+            self.frames.append(Frame(exc_type, exc_value, tb))
+            tb = tb.tb_next
+
+    def filter_hidden_frames(self):
+        new_frames = []
+        hidden = False
+
+        for frame in self.frames:
+            hide = frame.hide
+            if hide in ("before", "before_and_this"):
+                new_frames = []
+                hidden = False
+                if hide == "before_and_this":
+                    continue
+            elif hide in ("reset", "reset_and_this"):
+                hidden = False
+                if hide == "reset_and_this":
+                    continue
+            elif hide in ("after", "after_and_this"):
+                hidden = True
+                if hide == "after_and_this":
+                    continue
+            elif hide or hidden:
+                continue
+            new_frames.append(frame)
+
+        # if we only have one frame and that frame is from the codeop
+        # module, remove it.
+        if len(new_frames) == 1 and self.frames[0].module == "codeop":
+            del self.frames[:]
+
+        # if the last frame is missing something went terrible wrong :(
+        elif self.frames[-1] in new_frames:
+            self.frames[:] = new_frames
+
+    @property
+    def exception(self):
+        """String representation of the exception."""
+        buf = traceback.format_exception_only(self.exc_type, self.exc_value)
+        rv = "".join(buf).strip()
+        return to_unicode(rv, "utf-8", "replace")
+
+    def render(self, mark_lib=True):
+        out = []
+        if self.info is not None:
+            out.append(u'<li><div class="exc-divider">%s:</div>' % self.info)
+        for frame in self.frames:
+            out.append(
+                u"<li%s>%s"
+                % (
+                    u' title="%s"' % escape(frame.info) if frame.info else u"",
+                    frame.render(mark_lib=mark_lib),
+                )
+            )
+        return u"\n".join(out)
+
+    def render_text(self):
+        out = []
+        if self.info is not None:
+            out.append(u"\n%s:\n" % self.info)
+        out.append(u"Traceback (most recent call last):")
+        for frame in self.frames:
+            out.append(frame.render_text())
+        out.append(self.exception)
+        return u"\n".join(out)
+
+
+class Frame(object):
+    """A single frame in a traceback."""
+
+    def __init__(self, exc_type, exc_value, tb):
+        self.lineno = tb.tb_lineno
+        self.function_name = tb.tb_frame.f_code.co_name
+        self.locals = tb.tb_frame.f_locals
+        self.globals = tb.tb_frame.f_globals
+
+        fn = inspect.getsourcefile(tb) or inspect.getfile(tb)
+        if fn[-4:] in (".pyo", ".pyc"):
+            fn = fn[:-1]
+        # if it's a file on the file system resolve the real filename.
+        if os.path.isfile(fn):
+            fn = os.path.realpath(fn)
+        self.filename = to_unicode(fn, get_filesystem_encoding())
+        self.module = self.globals.get("__name__")
+        self.loader = self.globals.get("__loader__")
+        self.code = tb.tb_frame.f_code
+
+        # support for paste's traceback extensions
+        self.hide = self.locals.get("__traceback_hide__", False)
+        info = self.locals.get("__traceback_info__")
+        if info is not None:
+            info = to_unicode(info, "utf-8", "replace")
+        self.info = info
+
+    def render(self, mark_lib=True):
+        """Render a single frame in a traceback."""
+        return FRAME_HTML % {
+            "id": self.id,
+            "filename": escape(self.filename),
+            "lineno": self.lineno,
+            "function_name": escape(self.function_name),
+            "lines": self.render_line_context(),
+            "library": "library" if mark_lib and self.is_library else "",
+        }
+
+    @cached_property
+    def is_library(self):
+        return any(
+            self.filename.startswith(path) for path in sysconfig.get_paths().values()
+        )
+
+    def render_text(self):
+        return u'  File "%s", line %s, in %s\n    %s' % (
+            self.filename,
+            self.lineno,
+            self.function_name,
+            self.current_line.strip(),
+        )
+
+    def render_line_context(self):
+        before, current, after = self.get_context_lines()
+        rv = []
+
+        def render_line(line, cls):
+            line = line.expandtabs().rstrip()
+            stripped_line = line.strip()
+            prefix = len(line) - len(stripped_line)
+            rv.append(
+                '<pre class="line %s"><span class="ws">%s</span>%s</pre>'
+                % (cls, " " * prefix, escape(stripped_line) or " ")
+            )
+
+        for line in before:
+            render_line(line, "before")
+        render_line(current, "current")
+        for line in after:
+            render_line(line, "after")
+
+        return "\n".join(rv)
+
+    def get_annotated_lines(self):
+        """Helper function that returns lines with extra information."""
+        lines = [Line(idx + 1, x) for idx, x in enumerate(self.sourcelines)]
+
+        # find function definition and mark lines
+        if hasattr(self.code, "co_firstlineno"):
+            lineno = self.code.co_firstlineno - 1
+            while lineno > 0:
+                if _funcdef_re.match(lines[lineno].code):
+                    break
+                lineno -= 1
+            try:
+                offset = len(inspect.getblock([x.code + "\n" for x in lines[lineno:]]))
+            except TokenError:
+                offset = 0
+            for line in lines[lineno : lineno + offset]:
+                line.in_frame = True
+
+        # mark current line
+        try:
+            lines[self.lineno - 1].current = True
+        except IndexError:
+            pass
+
+        return lines
+
+    def eval(self, code, mode="single"):
+        """Evaluate code in the context of the frame."""
+        if isinstance(code, string_types):
+            if PY2 and isinstance(code, text_type):  # noqa
+                code = UTF8_COOKIE + code.encode("utf-8")
+            code = compile(code, "<interactive>", mode)
+        return eval(code, self.globals, self.locals)
+
+    @cached_property
+    def sourcelines(self):
+        """The sourcecode of the file as list of unicode strings."""
+        # get sourcecode from loader or file
+        source = None
+        if self.loader is not None:
+            try:
+                if hasattr(self.loader, "get_source"):
+                    source = self.loader.get_source(self.module)
+                elif hasattr(self.loader, "get_source_by_code"):
+                    source = self.loader.get_source_by_code(self.code)
+            except Exception:
+                # we munch the exception so that we don't cause troubles
+                # if the loader is broken.
+                pass
+
+        if source is None:
+            try:
+                f = open(to_native(self.filename, get_filesystem_encoding()), mode="rb")
+            except IOError:
+                return []
+            try:
+                source = f.read()
+            finally:
+                f.close()
+
+        # already unicode?  return right away
+        if isinstance(source, text_type):
+            return source.splitlines()
+
+        # yes. it should be ascii, but we don't want to reject too many
+        # characters in the debugger if something breaks
+        charset = "utf-8"
+        if source.startswith(UTF8_COOKIE):
+            source = source[3:]
+        else:
+            for idx, match in enumerate(_line_re.finditer(source)):
+                match = _coding_re.search(match.group())
+                if match is not None:
+                    charset = match.group(1)
+                    break
+                if idx > 1:
+                    break
+
+        # on broken cookies we fall back to utf-8 too
+        charset = to_native(charset)
+        try:
+            codecs.lookup(charset)
+        except LookupError:
+            charset = "utf-8"
+
+        return source.decode(charset, "replace").splitlines()
+
+    def get_context_lines(self, context=5):
+        before = self.sourcelines[self.lineno - context - 1 : self.lineno - 1]
+        past = self.sourcelines[self.lineno : self.lineno + context]
+        return (before, self.current_line, past)
+
+    @property
+    def current_line(self):
+        try:
+            return self.sourcelines[self.lineno - 1]
+        except IndexError:
+            return u""
+
+    @cached_property
+    def console(self):
+        return Console(self.globals, self.locals)
+
+    @property
+    def id(self):
+        return id(self)

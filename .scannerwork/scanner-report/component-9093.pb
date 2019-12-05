@@ -1,1 +1,1 @@
-…G8venv/lib/python3.6/site-packages/django/urls/__init__.py 2pyXh
+…G9venv/lib/python3.6/site-packages/django/urls/resolvers.py 2pyX¢h

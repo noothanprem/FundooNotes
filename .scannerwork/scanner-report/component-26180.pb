@@ -1,1 +1,1 @@
-дл@venv/lib64/python3.6/site-packages/oauth2_provider/views/base.py 2pyXНh
+длGvenv/lib64/python3.6/site-packages/oauth2_provider/views/application.py 2pyXWh

@@ -1,1 +1,1 @@
-äÂ3venv/lib64/python3.6/site-packages/awscli/compat.py 2pyXÚh
+äÂ5venv/lib64/python3.6/site-packages/awscli/__init__.py 2pyX0h

@@ -1,1 +1,1 @@
-æŽ8venv/lib/python3.6/site-packages/botocore/docs/waiter.py 2pyX€h
+æŽ8venv/lib/python3.6/site-packages/botocore/docs/method.py 2pyX›h

@@ -1,1 +1,1 @@
-ǹ>venv/lib/python3.6/site-packages/social_core/backends/kakao.py 2pyX4h
+ǹ>venv/lib/python3.6/site-packages/social_core/backends/asana.py 2pyX+h

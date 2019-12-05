@@ -1,71 +1,103 @@
-import decimal
-from decimal import Decimal
-from unittest import TestCase
-from simplejson.compat import StringIO, reload_module
+"""Drop-in replacement for collections.OrderedDict by Raymond Hettinger
 
-import simplejson as json
+http://code.activestate.com/recipes/576693/
 
-class TestDecimal(TestCase):
-    NUMS = "1.0", "10.00", "1.1", "1234567890.1234567890", "500"
-    def dumps(self, obj, **kw):
-        sio = StringIO()
-        json.dump(obj, sio, **kw)
-        res = json.dumps(obj, **kw)
-        self.assertEqual(res, sio.getvalue())
-        return res
+"""
+from UserDict import DictMixin
 
-    def loads(self, s, **kw):
-        sio = StringIO(s)
-        res = json.loads(s, **kw)
-        self.assertEqual(res, json.load(sio, **kw))
-        return res
+class OrderedDict(dict, DictMixin):
 
-    def test_decimal_encode(self):
-        for d in map(Decimal, self.NUMS):
-            self.assertEqual(self.dumps(d, use_decimal=True), str(d))
+    def __init__(self, *args, **kwds):
+        if len(args) > 1:
+            raise TypeError('expected at most 1 arguments, got %d' % len(args))
+        try:
+            self.__end
+        except AttributeError:
+            self.clear()
+        self.update(*args, **kwds)
 
-    def test_decimal_decode(self):
-        for s in self.NUMS:
-            self.assertEqual(self.loads(s, parse_float=Decimal), Decimal(s))
+    def clear(self):
+        self.__end = end = []
+        end += [None, end, end]         # sentinel node for doubly linked list
+        self.__map = {}                 # key --> [key, prev, next]
+        dict.clear(self)
 
-    def test_stringify_key(self):
-        for d in map(Decimal, self.NUMS):
-            v = {d: d}
-            self.assertEqual(
-                self.loads(
-                    self.dumps(v, use_decimal=True), parse_float=Decimal),
-                {str(d): d})
+    def __setitem__(self, key, value):
+        if key not in self:
+            end = self.__end
+            curr = end[1]
+            curr[2] = end[1] = self.__map[key] = [key, curr, end]
+        dict.__setitem__(self, key, value)
 
-    def test_decimal_roundtrip(self):
-        for d in map(Decimal, self.NUMS):
-            # The type might not be the same (int and Decimal) but they
-            # should still compare equal.
-            for v in [d, [d], {'': d}]:
-                self.assertEqual(
-                    self.loads(
-                        self.dumps(v, use_decimal=True), parse_float=Decimal),
-                    v)
+    def __delitem__(self, key):
+        dict.__delitem__(self, key)
+        key, prev, next = self.__map.pop(key)
+        prev[2] = next
+        next[1] = prev
 
-    def test_decimal_defaults(self):
-        d = Decimal('1.1')
-        # use_decimal=True is the default
-        self.assertRaises(TypeError, json.dumps, d, use_decimal=False)
-        self.assertEqual('1.1', json.dumps(d))
-        self.assertEqual('1.1', json.dumps(d, use_decimal=True))
-        self.assertRaises(TypeError, json.dump, d, StringIO(),
-                          use_decimal=False)
-        sio = StringIO()
-        json.dump(d, sio)
-        self.assertEqual('1.1', sio.getvalue())
-        sio = StringIO()
-        json.dump(d, sio, use_decimal=True)
-        self.assertEqual('1.1', sio.getvalue())
+    def __iter__(self):
+        end = self.__end
+        curr = end[2]
+        while curr is not end:
+            yield curr[0]
+            curr = curr[2]
 
-    def test_decimal_reload(self):
-        # Simulate a subinterpreter that reloads the Python modules but not
-        # the C code https://github.com/simplejson/simplejson/issues/34
-        global Decimal
-        Decimal = reload_module(decimal).Decimal
-        import simplejson.encoder
-        simplejson.encoder.Decimal = Decimal
-        self.test_decimal_roundtrip()
+    def __reversed__(self):
+        end = self.__end
+        curr = end[1]
+        while curr is not end:
+            yield curr[0]
+            curr = curr[1]
+
+    def popitem(self, last=True):
+        if not self:
+            raise KeyError('dictionary is empty')
+        key = reversed(self).next() if last else iter(self).next()
+        value = self.pop(key)
+        return key, value
+
+    def __reduce__(self):
+        items = [[k, self[k]] for k in self]
+        tmp = self.__map, self.__end
+        del self.__map, self.__end
+        inst_dict = vars(self).copy()
+        self.__map, self.__end = tmp
+        if inst_dict:
+            return (self.__class__, (items,), inst_dict)
+        return self.__class__, (items,)
+
+    def keys(self):
+        return list(self)
+
+    setdefault = DictMixin.setdefault
+    update = DictMixin.update
+    pop = DictMixin.pop
+    values = DictMixin.values
+    items = DictMixin.items
+    iterkeys = DictMixin.iterkeys
+    itervalues = DictMixin.itervalues
+    iteritems = DictMixin.iteritems
+
+    def __repr__(self):
+        if not self:
+            return '%s()' % (self.__class__.__name__,)
+        return '%s(%r)' % (self.__class__.__name__, self.items())
+
+    def copy(self):
+        return self.__class__(self)
+
+    @classmethod
+    def fromkeys(cls, iterable, value=None):
+        d = cls()
+        for key in iterable:
+            d[key] = value
+        return d
+
+    def __eq__(self, other):
+        if isinstance(other, OrderedDict):
+            return len(self)==len(other) and \
+                   all(p==q for p, q in  zip(self.items(), other.items()))
+        return dict.__eq__(self, other)
+
+    def __ne__(self, other):
+        return not self == other

@@ -1,1 +1,1 @@
-å\venv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/webencodings/__init__.py 2pyX×h
+åPvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/webencodings :äæçèë

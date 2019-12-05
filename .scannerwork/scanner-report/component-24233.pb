@@ -1,1 +1,1 @@
-©½Svenv/lib/python3.6/site-packages/django_extensions/management/notebook_extension.py 2pyXh
+©½Uvenv/lib/python3.6/site-packages/django_extensions/management/commands/create_jobs.py 2pyXAh

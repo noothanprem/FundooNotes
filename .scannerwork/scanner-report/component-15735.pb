@@ -1,1 +1,1 @@
-÷z:venv/lib/python3.6/site-packages/pymacaroons/exceptions.py 2pyXh
+÷z,venv/lib/python3.6/site-packages/pymacaroons :öz˜{™{©{ª{«{

@@ -1,320 +1,269 @@
-# -*- test-case-name: twisted.conch.test.test_channel -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-The parent class for all the SSH Channels.  Currently implemented channels
-are session, direct-tcp, and forwarded-tcp.
+This module contains the implementation of the TCP forwarding, which allows
+clients and servers to forward arbitrary TCP data across the connection.
 
 Maintainer: Paul Swartz
 """
 
 from __future__ import division, absolute_import
 
-from zope.interface import implementer
+import struct
 
+from twisted.internet import protocol, reactor
+from twisted.internet.endpoints import HostnameEndpoint, connectProtocol
 from twisted.python import log
-from twisted.python.compat import nativeString, intToBytes
-from twisted.internet import interfaces
+from twisted.python.compat import _PY3, unicode
+
+from twisted.conch.ssh import common, channel
+
+class SSHListenForwardingFactory(protocol.Factory):
+    def __init__(self, connection, hostport, klass):
+        self.conn = connection
+        self.hostport = hostport # tuple
+        self.klass = klass
+
+    def buildProtocol(self, addr):
+        channel = self.klass(conn = self.conn)
+        client = SSHForwardingClient(channel)
+        channel.client = client
+        addrTuple = (addr.host, addr.port)
+        channelOpenData = packOpen_direct_tcpip(self.hostport, addrTuple)
+        self.conn.openChannel(channel, channelOpenData)
+        return client
+
+class SSHListenForwardingChannel(channel.SSHChannel):
+
+    def channelOpen(self, specificData):
+        log.msg('opened forwarding channel %s' % self.id)
+        if len(self.client.buf)>1:
+            b = self.client.buf[1:]
+            self.write(b)
+        self.client.buf = b''
+
+    def openFailed(self, reason):
+        self.closed()
+
+    def dataReceived(self, data):
+        self.client.transport.write(data)
+
+    def eofReceived(self):
+        self.client.transport.loseConnection()
+
+    def closed(self):
+        if hasattr(self, 'client'):
+            log.msg('closing local forwarding channel %s' % self.id)
+            self.client.transport.loseConnection()
+            del self.client
+
+class SSHListenClientForwardingChannel(SSHListenForwardingChannel):
+
+    name = b'direct-tcpip'
+
+class SSHListenServerForwardingChannel(SSHListenForwardingChannel):
+
+    name = b'forwarded-tcpip'
 
 
 
-@implementer(interfaces.ITransport)
-class SSHChannel(log.Logger):
+class SSHConnectForwardingChannel(channel.SSHChannel):
     """
-    A class that represents a multiplexed channel over an SSH connection.
-    The channel has a local window which is the maximum amount of data it will
-    receive, and a remote which is the maximum amount of data the remote side
-    will accept.  There is also a maximum packet size for any individual data
-    packet going each way.
+    Channel used for handling server side forwarding request.
+    It acts as a client for the remote forwarding destination.
 
-    @ivar name: the name of the channel.
-    @type name: L{bytes}
-    @ivar localWindowSize: the maximum size of the local window in bytes.
-    @type localWindowSize: L{int}
-    @ivar localWindowLeft: how many bytes are left in the local window.
-    @type localWindowLeft: L{int}
-    @ivar localMaxPacket: the maximum size of packet we will accept in bytes.
-    @type localMaxPacket: L{int}
-    @ivar remoteWindowLeft: how many bytes are left in the remote window.
-    @type remoteWindowLeft: L{int}
-    @ivar remoteMaxPacket: the maximum size of a packet the remote side will
-        accept in bytes.
-    @type remoteMaxPacket: L{int}
-    @ivar conn: the connection this channel is multiplexed through.
-    @type conn: L{SSHConnection}
-    @ivar data: any data to send to the other side when the channel is
-        requested.
-    @type data: L{bytes}
-    @ivar avatar: an avatar for the logged-in user (if a server channel)
-    @ivar localClosed: True if we aren't accepting more data.
-    @type localClosed: L{bool}
-    @ivar remoteClosed: True if the other side isn't accepting more data.
-    @type remoteClosed: L{bool}
+    @ivar hostport: C{(host, port)} requested by client as forwarding
+        destination.
+    @type hostport: L{tuple} or a C{sequence}
+
+    @ivar client: Protocol connected to the forwarding destination.
+    @type client: L{protocol.Protocol}
+
+    @ivar clientBuf: Data received while forwarding channel is not yet
+        connected.
+    @type clientBuf: L{bytes}
+
+    @var  _reactor: Reactor used for TCP connections.
+    @type _reactor: A reactor.
+
+    @ivar _channelOpenDeferred: Deferred used in testing to check the
+        result of C{channelOpen}.
+    @type _channelOpenDeferred: L{twisted.internet.defer.Deferred}
     """
+    _reactor = reactor
 
-    name = None # only needed for client channels
-
-    def __init__(self, localWindow = 0, localMaxPacket = 0,
-                       remoteWindow = 0, remoteMaxPacket = 0,
-                       conn = None, data=None, avatar = None):
-        self.localWindowSize = localWindow or 131072
-        self.localWindowLeft = self.localWindowSize
-        self.localMaxPacket = localMaxPacket or 32768
-        self.remoteWindowLeft = remoteWindow
-        self.remoteMaxPacket = remoteMaxPacket
-        self.areWriting = 1
-        self.conn = conn
-        self.data = data
-        self.avatar = avatar
-        self.specificData = b''
-        self.buf = b''
-        self.extBuf = []
-        self.closing = 0
-        self.localClosed = 0
-        self.remoteClosed = 0
-        self.id = None # gets set later by SSHConnection
-
-
-    def __str__(self):
-        return nativeString(self.__bytes__())
-
-
-    def __bytes__(self):
-        """
-        Return a byte string representation of the channel
-        """
-        name = self.name
-        if not name:
-            name = b'None'
-
-        return (b'<SSHChannel ' + name +
-                b' (lw ' + intToBytes(self.localWindowLeft) +
-                b' rw ' + intToBytes(self.remoteWindowLeft) +
-                b')>')
-
-
-    def logPrefix(self):
-        id = (self.id is not None and str(self.id)) or "unknown"
-        name = self.name
-        if name:
-            name = nativeString(name)
-        return "SSHChannel %s (%s) on %s" % (name, id,
-                self.conn.logPrefix())
+    def __init__(self, hostport, *args, **kw):
+        channel.SSHChannel.__init__(self, *args, **kw)
+        self.hostport = hostport
+        self.client = None
+        self.clientBuf = b''
 
 
     def channelOpen(self, specificData):
         """
-        Called when the channel is opened.  specificData is any data that the
-        other side sent us when opening the channel.
-
-        @type specificData: L{bytes}
+        See: L{channel.SSHChannel}
         """
-        log.msg('channel open')
+        log.msg("connecting to %s:%i" % self.hostport)
+        ep = HostnameEndpoint(
+            self._reactor, self.hostport[0], self.hostport[1])
+        d = connectProtocol(ep, SSHForwardingClient(self))
+        d.addCallbacks(self._setClient, self._close)
+        self._channelOpenDeferred = d
 
-
-    def openFailed(self, reason):
+    def _setClient(self, client):
         """
-        Called when the open failed for some reason.
-        reason.desc is a string descrption, reason.code the SSH error code.
+        Called when the connection was established to the forwarding
+        destination.
 
-        @type reason: L{error.ConchError}
+        @param client: Client protocol connected to the forwarding destination.
+        @type  client: L{protocol.Protocol}
         """
-        log.msg('other side refused open\nreason: %s'% reason)
+        self.client = client
+        log.msg("connected to %s:%i" % self.hostport)
+        if self.clientBuf:
+            self.client.transport.write(self.clientBuf)
+            self.clientBuf = None
+        if self.client.buf[1:]:
+            self.write(self.client.buf[1:])
+        self.client.buf = b''
 
 
-    def addWindowBytes(self, data):
+    def _close(self, reason):
         """
-        Called when bytes are added to the remote window.  By default it clears
-        the data buffers.
+        Called when failed to connect to the forwarding destination.
 
-        @type data:    L{bytes}
+        @param reason: Reason why connection failed.
+        @type  reason: L{twisted.python.failure.Failure}
         """
-        self.remoteWindowLeft = self.remoteWindowLeft+data
-        if not self.areWriting and not self.closing:
-            self.areWriting = True
-            self.startWriting()
-        if self.buf:
-            b = self.buf
-            self.buf = b''
-            self.write(b)
-        if self.extBuf:
-            b = self.extBuf
-            self.extBuf = []
-            for (type, data) in b:
-                self.writeExtended(type, data)
-
-
-    def requestReceived(self, requestType, data):
-        """
-        Called when a request is sent to this channel.  By default it delegates
-        to self.request_<requestType>.
-        If this function returns true, the request succeeded, otherwise it
-        failed.
-
-        @type requestType:  L{bytes}
-        @type data:         L{bytes}
-        @rtype:             L{bool}
-        """
-        foo = nativeString(requestType.replace(b'-', b'_'))
-        f = getattr(self, 'request_%s'%foo, None)
-        if f:
-            return f(data)
-        log.msg('unhandled request for %s'%requestType)
-        return 0
+        log.msg("failed to connect: %s" % reason)
+        self.loseConnection()
 
 
     def dataReceived(self, data):
         """
-        Called when we receive data.
-
-        @type data: L{bytes}
+        See: L{channel.SSHChannel}
         """
-        log.msg('got data %s'%repr(data))
-
-
-    def extReceived(self, dataType, data):
-        """
-        Called when we receive extended data (usually standard error).
-
-        @type dataType: L{int}
-        @type data:     L{str}
-        """
-        log.msg('got extended data %s %s'%(dataType, repr(data)))
-
-
-    def eofReceived(self):
-        """
-        Called when the other side will send no more data.
-        """
-        log.msg('remote eof')
-
-
-    def closeReceived(self):
-        """
-        Called when the other side has closed the channel.
-        """
-        log.msg('remote close')
-        self.loseConnection()
+        if self.client:
+            self.client.transport.write(data)
+        else:
+            self.clientBuf += data
 
 
     def closed(self):
         """
-        Called when the channel is closed.  This means that both our side and
-        the remote side have closed the channel.
+        See: L{channel.SSHChannel}
         """
-        log.msg('closed')
+        if self.client:
+            log.msg('closed remote forwarding channel %s' % self.id)
+            if self.client.channel:
+                self.loseConnection()
+            self.client.transport.loseConnection()
+            del self.client
 
 
-    def write(self, data):
-        """
-        Write some data to the channel.  If there is not enough remote window
-        available, buffer until it is.  Otherwise, split the data into
-        packets of length remoteMaxPacket and send them.
 
-        @type data: L{bytes}
-        """
+def openConnectForwardingClient(remoteWindow, remoteMaxPacket, data, avatar):
+    remoteHP, origHP = unpackOpen_direct_tcpip(data)
+    return SSHConnectForwardingChannel(remoteHP, 
+                                       remoteWindow=remoteWindow,
+                                       remoteMaxPacket=remoteMaxPacket,
+                                       avatar=avatar)
+
+class SSHForwardingClient(protocol.Protocol):
+
+    def __init__(self, channel):
+        self.channel = channel
+        self.buf = b'\000'
+
+    def dataReceived(self, data):
         if self.buf:
             self.buf += data
-            return
-        top = len(data)
-        if top > self.remoteWindowLeft:
-            data, self.buf = (data[:self.remoteWindowLeft],
-                data[self.remoteWindowLeft:])
-            self.areWriting = 0
-            self.stopWriting()
-            top = self.remoteWindowLeft
-        rmp = self.remoteMaxPacket
-        write = self.conn.sendData
-        r = range(0, top, rmp)
-        for offset in r:
-            write(self, data[offset: offset+rmp])
-        self.remoteWindowLeft -= top
-        if self.closing and not self.buf:
-            self.loseConnection() # try again
+        else:
+            self.channel.write(data)
+
+    def connectionLost(self, reason):
+        if self.channel:
+            self.channel.loseConnection()
+            self.channel = None
 
 
-    def writeExtended(self, dataType, data):
-        """
-        Send extended data to this channel.  If there is not enough remote
-        window available, buffer until there is.  Otherwise, split the data
-        into packets of length remoteMaxPacket and send them.
+def packOpen_direct_tcpip(destination, source):
+    """
+    Pack the data suitable for sending in a CHANNEL_OPEN packet.
 
-        @type dataType: L{int}
-        @type data:     L{bytes}
-        """
-        if self.extBuf:
-            if self.extBuf[-1][0] == dataType:
-                self.extBuf[-1][1] += data
-            else:
-                self.extBuf.append([dataType, data])
-            return
-        if len(data) > self.remoteWindowLeft:
-            data, self.extBuf = (data[:self.remoteWindowLeft],
-                                [[dataType, data[self.remoteWindowLeft:]]])
-            self.areWriting = 0
-            self.stopWriting()
-        while len(data) > self.remoteMaxPacket:
-            self.conn.sendExtendedData(self, dataType,
-                                             data[:self.remoteMaxPacket])
-            data = data[self.remoteMaxPacket:]
-            self.remoteWindowLeft -= self.remoteMaxPacket
-        if data:
-            self.conn.sendExtendedData(self, dataType, data)
-            self.remoteWindowLeft -= len(data)
-        if self.closing:
-            self.loseConnection() # try again
+    @type destination: L{tuple}
+    @param destination: A tuple of the (host, port) of the destination host.
 
+    @type source: L{tuple}
+    @param source: A tuple of the (host, port) of the source host.
+    """
+    (connHost, connPort) = destination
+    (origHost, origPort) = source
+    if isinstance(connHost, unicode):
+        connHost = connHost.encode("utf-8")
+    if isinstance(origHost, unicode):
+        origHost = origHost.encode("utf-8")
+    conn = common.NS(connHost) + struct.pack('>L', connPort)
+    orig = common.NS(origHost) + struct.pack('>L', origPort)
+    return conn + orig
 
-    def writeSequence(self, data):
-        """
-        Part of the Transport interface.  Write a list of strings to the
-        channel.
+packOpen_forwarded_tcpip = packOpen_direct_tcpip
 
-        @type data: C{list} of L{str}
-        """
-        self.write(b''.join(data))
+def unpackOpen_direct_tcpip(data):
+    """Unpack the data to a usable format.
+    """
+    connHost, rest = common.getNS(data)
+    if _PY3 and isinstance(connHost, bytes):
+        connHost = connHost.decode("utf-8")
+    connPort = int(struct.unpack('>L', rest[:4])[0])
+    origHost, rest = common.getNS(rest[4:])
+    if _PY3 and isinstance(origHost, bytes):
+        origHost = origHost.decode("utf-8")
+    origPort = int(struct.unpack('>L', rest[:4])[0])
+    return (connHost, connPort), (origHost, origPort)
+
+unpackOpen_forwarded_tcpip = unpackOpen_direct_tcpip
 
 
-    def loseConnection(self):
-        """
-        Close the channel if there is no buferred data.  Otherwise, note the
-        request and return.
-        """
-        self.closing = 1
-        if not self.buf and not self.extBuf:
-            self.conn.sendClose(self)
+
+def packGlobal_tcpip_forward(peer):
+    """
+    Pack the data for tcpip forwarding.
+
+    @param peer: A tuple of the (host, port) .
+    @type peer: L{tuple}
+    """
+    (host, port) = peer
+    return common.NS(host) + struct.pack('>L', port)
 
 
-    def getPeer(self):
-        """
-        See: L{ITransport.getPeer}
 
-        @return: The remote address of this connection.
-        @rtype: L{SSHTransportAddress}.
-        """
-        return self.conn.transport.getPeer()
+def unpackGlobal_tcpip_forward(data):
+    host, rest = common.getNS(data)
+    if _PY3 and isinstance(host, bytes):
+        host = host.decode("utf-8")
+    port = int(struct.unpack('>L', rest[:4])[0])
+    return host, port
 
+"""This is how the data -> eof -> close stuff /should/ work.
 
-    def getHost(self):
-        """
-        See: L{ITransport.getHost}
-
-        @return: An address describing this side of the connection.
-        @rtype: L{SSHTransportAddress}.
-        """
-        return self.conn.transport.getHost()
-
-
-    def stopWriting(self):
-        """
-        Called when the remote buffer is full, as a hint to stop writing.
-        This can be ignored, but it can be helpful.
-        """
-
-
-    def startWriting(self):
-        """
-        Called when the remote buffer has more room, as a hint to continue
-        writing.
-        """
+debug3: channel 1: waiting for connection
+debug1: channel 1: connected
+debug1: channel 1: read<=0 rfd 7 len 0
+debug1: channel 1: read failed
+debug1: channel 1: close_read
+debug1: channel 1: input open -> drain
+debug1: channel 1: ibuf empty
+debug1: channel 1: send eof
+debug1: channel 1: input drain -> closed
+debug1: channel 1: rcvd eof
+debug1: channel 1: output open -> drain
+debug1: channel 1: obuf empty
+debug1: channel 1: close_write
+debug1: channel 1: output drain -> closed
+debug1: channel 1: rcvd close
+debug3: channel 1: will not send data after close
+debug1: channel 1: send close
+debug1: channel 1: is dead
+"""

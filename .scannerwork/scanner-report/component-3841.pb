@@ -1,1 +1,1 @@
->venv/lib/python3.6/site-packages/django/db/migrations/utils.py 2pyXh
+>venv/lib/python3.6/site-packages/django/db/migrations/state.py 2pyXåh

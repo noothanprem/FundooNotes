@@ -1,1 +1,1 @@
-гаVvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/treewalkers :фахаиайакана
+гаVvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/treewalkers :еафахаиайама

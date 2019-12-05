@@ -1,1 +1,1 @@
-Î¼dvenv/lib/python3.6/site-packages/django_extensions/management/commands/delete_squashed_migrations.py 2pyXµh
+Î¼Fvenv/lib/python3.6/site-packages/django_extensions/management/commands :ŠÍ¼Ï¼Ð¼Ñ¼Ò¼Ó¼Ô¼Õ¼Ö¼×¼Ø¼Ù¼Ú¼Û¼Ü¼Ý¼Þ¼ß¼à¼á¼â¼ã¼ä¼å¼æ¼ç¼è¼é¼ê¼ë¼ì¼í¼î¼ï¼ð¼ ½¡½¢½£½¤½¥½¦½§½¨½©½ª½

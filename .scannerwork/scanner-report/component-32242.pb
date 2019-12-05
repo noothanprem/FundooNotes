@@ -1,1 +1,1 @@
-тыEvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/prototypes :рысыуыфыхыцыюы
+тыEvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/prototypes :сыуыфыхыцычыЂь

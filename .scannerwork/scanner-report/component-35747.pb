@@ -1,1 +1,1 @@
-£óQvenv/lib64/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/AuthCraWelcome.py 2pyXh
+£ó=venv/lib64/python3.6/site-packages/autobahn/wamp/cryptobox.py 2pyXêh

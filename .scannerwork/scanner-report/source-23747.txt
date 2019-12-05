@@ -1,29 +1,33 @@
+"""
+ArcGIS OAuth2 backend
+"""
 from .oauth import BaseOAuth2
 
 
-class WunderlistOAuth2(BaseOAuth2):
-    """Wunderlist OAuth2 authentication backend"""
-    name = 'wunderlist'
-    AUTHORIZATION_URL = 'https://www.wunderlist.com/oauth/authorize'
-    ACCESS_TOKEN_URL = 'https://www.wunderlist.com/oauth/access_token'
+class ArcGISOAuth2(BaseOAuth2):
+    name = 'arcgis'
+    ID_KEY = 'username'
+    AUTHORIZATION_URL = 'https://www.arcgis.com/sharing/rest/oauth2/authorize'
+    ACCESS_TOKEN_URL = 'https://www.arcgis.com/sharing/rest/oauth2/token'
     ACCESS_TOKEN_METHOD = 'POST'
-    REDIRECT_STATE = False
+    EXTRA_DATA = [
+        ('expires_in', 'expires_in')
+    ]
 
     def get_user_details(self, response):
-        """Return user details from Wunderlist account"""
-        fullname, first_name, last_name = self.get_user_names(
-            response.get('name')
-        )
-        return {'username': str(response.get('id')),
+        """Return user details from ArcGIS account"""
+        return {'username': response.get('username'),
                 'email': response.get('email'),
-                'fullname': fullname,
-                'first_name': first_name,
-                'last_name': last_name}
+                'fullname': response.get('fullName'),
+                'first_name': response.get('firstName'),
+                'last_name': response.get('lastName')}
 
     def user_data(self, access_token, *args, **kwargs):
         """Loads user data from service"""
-        headers = {
-            'X-Access-Token': access_token,
-            'X-Client-ID': self.setting('KEY')}
         return self.get_json(
-            'https://a.wunderlist.com/api/v1/user', headers=headers)
+            'https://www.arcgis.com/sharing/rest/community/self',
+            params={
+                'token': access_token,
+                'f': 'json'
+            }
+        )

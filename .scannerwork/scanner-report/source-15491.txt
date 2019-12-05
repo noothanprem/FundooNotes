@@ -11,21 +11,52 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 
-from awscli.customizations.eks.update_kubeconfig import UpdateKubeconfigCommand
-from awscli.customizations.eks.get_token import GetTokenCommand
+import yaml
+from botocore.compat import OrderedDict
 
 
-def initialize(cli):
-    """
-    The entry point for EKS high level commands.
-    """
-    cli.register('building-command-table.eks', inject_commands)
+class SafeOrderedLoader(yaml.SafeLoader):
+    """ Safely load a yaml file into an OrderedDict."""
 
 
-def inject_commands(command_table, session, **kwargs):
+class SafeOrderedDumper(yaml.SafeDumper):
+    """ Safely dump an OrderedDict as yaml."""
+
+
+def _ordered_constructor(loader, node):
+        loader.flatten_mapping(node)
+        return OrderedDict(loader.construct_pairs(node))
+
+
+SafeOrderedLoader.add_constructor(
+                    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+                    _ordered_constructor)
+
+
+def _ordered_representer(dumper, data):
+        return dumper.represent_mapping(
+            yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+            data.items())
+
+
+SafeOrderedDumper.add_representer(OrderedDict, _ordered_representer)
+
+
+def ordered_yaml_load(stream):
+    """ Load an OrderedDict object from a yaml stream."""
+    return yaml.load(stream, SafeOrderedLoader)
+
+
+def ordered_yaml_dump(to_dump, stream=None):
     """
-    Called when the EKS command table is being built.
-    Used to inject new high level commands into the command list.
+    Dump an OrderedDict object to yaml.
+
+    :param to_dump: The OrderedDict to dump
+    :type to_dump: OrderedDict
+
+    :param stream: The file to dump to
+    If not given or if None, only return the value
+    :type stream: file
     """
-    command_table['update-kubeconfig'] = UpdateKubeconfigCommand(session)
-    command_table['get-token'] = GetTokenCommand(session)
+    return yaml.dump(to_dump, stream,
+                     SafeOrderedDumper, default_flow_style=False)

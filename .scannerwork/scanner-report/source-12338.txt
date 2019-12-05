@@ -1,133 +1,136 @@
 #
-# The Python Imaging Library
+# The Python Imaging Library.
 # $Id$
 #
-# bitmap distribution font (bdf) file parser
+# Sun image file handling
 #
-# history:
-# 1996-05-16 fl   created (as bdf2pil)
-# 1997-08-25 fl   converted to FontFile driver
-# 2001-05-25 fl   removed bogus __init__ call
-# 2002-11-20 fl   robustification (from Kevin Cazabon, Dmitry Vasiliev)
-# 2003-04-22 fl   more robustification (from Graham Dumpleton)
+# History:
+# 1995-09-10 fl   Created
+# 1996-05-28 fl   Fixed 32-bit alignment
+# 1998-12-29 fl   Import ImagePalette module
+# 2001-12-18 fl   Fixed palette loading (from Jean-Claude Rimbault)
 #
-# Copyright (c) 1997-2003 by Secret Labs AB.
-# Copyright (c) 1997-2003 by Fredrik Lundh.
+# Copyright (c) 1997-2001 by Secret Labs AB
+# Copyright (c) 1995-1996 by Fredrik Lundh
 #
 # See the README file for information on usage and redistribution.
 #
 
-from __future__ import print_function
 
-from . import Image, FontFile
+from . import Image, ImageFile, ImagePalette
+from ._binary import i32be as i32
 
-
-# --------------------------------------------------------------------
-# parse X Bitmap Distribution Format (BDF)
-# --------------------------------------------------------------------
-
-bdf_slant = {
-    "R": "Roman",
-    "I": "Italic",
-    "O": "Oblique",
-    "RI": "Reverse Italic",
-    "RO": "Reverse Oblique",
-    "OT": "Other"
-}
-
-bdf_spacing = {
-    "P": "Proportional",
-    "M": "Monospaced",
-    "C": "Cell"
-}
+__version__ = "0.3"
 
 
-def bdf_char(f):
-    # skip to STARTCHAR
-    while True:
-        s = f.readline()
-        if not s:
-            return None
-        if s[:9] == b"STARTCHAR":
-            break
-    id = s[9:].strip().decode('ascii')
-
-    # load symbol properties
-    props = {}
-    while True:
-        s = f.readline()
-        if not s or s[:6] == b"BITMAP":
-            break
-        i = s.find(b" ")
-        props[s[:i].decode('ascii')] = s[i+1:-1].decode('ascii')
-
-    # load bitmap
-    bitmap = []
-    while True:
-        s = f.readline()
-        if not s or s[:7] == b"ENDCHAR":
-            break
-        bitmap.append(s[:-1])
-    bitmap = b"".join(bitmap)
-
-    [x, y, l, d] = [int(p) for p in props["BBX"].split()]
-    [dx, dy] = [int(p) for p in props["DWIDTH"].split()]
-
-    bbox = (dx, dy), (l, -d-y, x+l, -d), (0, 0, x, y)
-
-    try:
-        im = Image.frombytes("1", (x, y), bitmap, "hex", "1")
-    except ValueError:
-        # deal with zero-width characters
-        im = Image.new("1", (x, y))
-
-    return id, int(props["ENCODING"]), bbox, im
+def _accept(prefix):
+    return len(prefix) >= 4 and i32(prefix) == 0x59a66a95
 
 
 ##
-# Font file plugin for the X11 BDF format.
+# Image plugin for Sun raster files.
 
-class BdfFontFile(FontFile.FontFile):
+class SunImageFile(ImageFile.ImageFile):
 
-    def __init__(self, fp):
+    format = "SUN"
+    format_description = "Sun Raster File"
 
-        FontFile.FontFile.__init__(self)
+    def _open(self):
 
-        s = fp.readline()
-        if s[:13] != b"STARTFONT 2.1":
-            raise SyntaxError("not a valid BDF file")
+        # The Sun Raster file header is 32 bytes in length
+        # and has the following format:
 
-        props = {}
-        comments = []
+        #     typedef struct _SunRaster
+        #     {
+        #         DWORD MagicNumber;      /* Magic (identification) number */
+        #         DWORD Width;            /* Width of image in pixels */
+        #         DWORD Height;           /* Height of image in pixels */
+        #         DWORD Depth;            /* Number of bits per pixel */
+        #         DWORD Length;           /* Size of image data in bytes */
+        #         DWORD Type;             /* Type of raster file */
+        #         DWORD ColorMapType;     /* Type of color map */
+        #         DWORD ColorMapLength;   /* Size of the color map in bytes */
+        #     } SUNRASTER;
 
-        while True:
-            s = fp.readline()
-            if not s or s[:13] == b"ENDPROPERTIES":
-                break
-            i = s.find(b" ")
-            props[s[:i].decode('ascii')] = s[i+1:-1].decode('ascii')
-            if s[:i] in [b"COMMENT", b"COPYRIGHT"]:
-                if s.find(b"LogicalFontDescription") < 0:
-                    comments.append(s[i+1:-1].decode('ascii'))
+        # HEAD
+        s = self.fp.read(32)
+        if i32(s) != 0x59a66a95:
+            raise SyntaxError("not an SUN raster file")
 
-        # font = props["FONT"].split("-")
+        offset = 32
 
-        # font[4] = bdf_slant[font[4].upper()]
-        # font[11] = bdf_spacing[font[11].upper()]
+        self.size = i32(s[4:8]), i32(s[8:12])
 
-        # ascent = int(props["FONT_ASCENT"])
-        # descent = int(props["FONT_DESCENT"])
+        depth = i32(s[12:16])
+        data_length = i32(s[16:20])   # unreliable, ignore.
+        file_type = i32(s[20:24])
+        palette_type = i32(s[24:28])  # 0: None, 1: RGB, 2: Raw/arbitrary
+        palette_length = i32(s[28:32])
 
-        # fontname = ";".join(font[1:])
+        if depth == 1:
+            self.mode, rawmode = "1", "1;I"
+        elif depth == 4:
+            self.mode, rawmode = "L", "L;4"
+        elif depth == 8:
+            self.mode = rawmode = "L"
+        elif depth == 24:
+            if file_type == 3:
+                self.mode, rawmode = "RGB", "RGB"
+            else:
+                self.mode, rawmode = "RGB", "BGR"
+        elif depth == 32:
+            if file_type == 3:
+                self.mode, rawmode = 'RGB', 'RGBX'
+            else:
+                self.mode, rawmode = 'RGB', 'BGRX'
+        else:
+            raise SyntaxError("Unsupported Mode/Bit Depth")
 
-        # print("#", fontname)
-        # for i in comments:
-        #       print("#", i)
+        if palette_length:
+            if palette_length > 1024:
+                raise SyntaxError("Unsupported Color Palette Length")
 
-        while True:
-            c = bdf_char(fp)
-            if not c:
-                break
-            id, ch, (xy, dst, src), im = c
-            if 0 <= ch < len(self.glyph):
-                self.glyph[ch] = xy, dst, src, im
+            if palette_type != 1:
+                raise SyntaxError("Unsupported Palette Type")
+
+            offset = offset + palette_length
+            self.palette = ImagePalette.raw("RGB;L", self.fp.read(palette_length))
+            if self.mode == "L":
+                self.mode = "P"
+                rawmode = rawmode.replace('L', 'P')
+
+        # 16 bit boundaries on stride
+        stride = ((self.size[0] * depth + 15) // 16) * 2
+
+        # file type: Type is the version (or flavor) of the bitmap
+        # file. The following values are typically found in the Type
+        # field:
+        # 0000h Old
+        # 0001h Standard
+        # 0002h Byte-encoded
+        # 0003h RGB format
+        # 0004h TIFF format
+        # 0005h IFF format
+        # FFFFh Experimental
+
+        # Old and standard are the same, except for the length tag.
+        # byte-encoded is run-length-encoded
+        # RGB looks similar to standard, but RGB byte order
+        # TIFF and IFF mean that they were converted from T/IFF
+        # Experimental means that it's something else.
+        # (https://www.fileformat.info/format/sunraster/egff.htm)
+
+        if file_type in (0, 1, 3, 4, 5):
+            self.tile = [("raw", (0, 0)+self.size, offset, (rawmode, stride))]
+        elif file_type == 2:
+            self.tile = [("sun_rle", (0, 0)+self.size, offset, rawmode)]
+        else:
+            raise SyntaxError('Unsupported Sun Raster file type')
+
+#
+# registry
+
+
+Image.register_open(SunImageFile.format, SunImageFile, _accept)
+
+Image.register_extension(SunImageFile.format, ".ras")

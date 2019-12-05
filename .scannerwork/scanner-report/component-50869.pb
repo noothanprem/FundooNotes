@@ -1,1 +1,1 @@
-µçZvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/structures.py 2pyXhh
+µçUvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/hooks.py 2pyX#h

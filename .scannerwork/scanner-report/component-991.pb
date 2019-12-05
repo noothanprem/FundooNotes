@@ -1,1 +1,1 @@
-ß;venv/lib/python3.6/site-packages/coreapi/codecs/jsondata.py 2pyXh
+ß/venv/lib/python3.6/site-packages/coreapi/codecs :Þáâãäåïð

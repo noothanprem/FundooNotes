@@ -1,1 +1,1 @@
-³8Pvenv/lib/python3.6/site-packages/django/contrib/admin/templatetags/admin_list.py 2pyXæh
+³8Bvenv/lib/python3.6/site-packages/django/contrib/admin/templatetags :²8´8µ8¶8·8¸8Á8

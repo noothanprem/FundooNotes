@@ -1,121 +1,218 @@
+# -*- test-case-name: twisted.trial.test.test_tests -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-Tests for interrupting tests with Control-C.
+Definitions of test cases with various interesting error-related behaviors, to
+be used by test modules to exercise different features of trial's test runner.
+
+See the L{twisted.trial.test.test_tests} module docstring for details about how
+this code is arranged.
 """
 
-from __future__ import absolute_import, division
+from __future__ import division, absolute_import
 
-from twisted.python.compat import NativeStringIO
-
-from twisted.trial import unittest
-from twisted.trial import reporter, runner
+from twisted.trial import unittest, util
+from twisted.internet import reactor, protocol, defer
 
 
-class TrialTest(unittest.SynchronousTestCase):
+class FoolishError(Exception):
+    pass
+
+
+
+class FailureInSetUpMixin(object):
     def setUp(self):
-        self.output = NativeStringIO()
-        self.reporter = reporter.TestResult()
-        self.loader = runner.TestLoader()
+        raise FoolishError("I am a broken setUp method")
+
+    def test_noop(self):
+        pass
 
 
-class InterruptInTestTests(TrialTest):
-    class InterruptedTest(unittest.TestCase):
-        def test_02_raiseInterrupt(self):
-            raise KeyboardInterrupt
 
-        def test_01_doNothing(self):
-            pass
-
-        def test_03_doNothing(self):
-            InterruptInTestTests.test_03_doNothing_run = True
-
-    def setUp(self):
-        super(InterruptInTestTests, self).setUp()
-        self.suite = self.loader.loadClass(InterruptInTestTests.InterruptedTest)
-        InterruptInTestTests.test_03_doNothing_run = None
-
-    def test_setUpOK(self):
-        self.assertEqual(3, self.suite.countTestCases())
-        self.assertEqual(0, self.reporter.testsRun)
-        self.assertFalse(self.reporter.shouldStop)
-
-    def test_interruptInTest(self):
-        runner.TrialSuite([self.suite]).run(self.reporter)
-        self.assertTrue(self.reporter.shouldStop)
-        self.assertEqual(2, self.reporter.testsRun)
-        self.assertFalse(InterruptInTestTests.test_03_doNothing_run,
-                    "test_03_doNothing ran.")
+class SynchronousTestFailureInSetUp(
+    FailureInSetUpMixin, unittest.SynchronousTestCase):
+    pass
 
 
-class InterruptInSetUpTests(TrialTest):
-    testsRun = 0
 
-    class InterruptedTest(unittest.TestCase):
-        def setUp(self):
-            if InterruptInSetUpTests.testsRun > 0:
-                raise KeyboardInterrupt
-
-        def test_01(self):
-            InterruptInSetUpTests.testsRun += 1
-
-        def test_02(self):
-            InterruptInSetUpTests.testsRun += 1
-            InterruptInSetUpTests.test_02_run = True
-
-    def setUp(self):
-        super(InterruptInSetUpTests, self).setUp()
-        self.suite = self.loader.loadClass(
-            InterruptInSetUpTests.InterruptedTest)
-        InterruptInSetUpTests.test_02_run = False
-        InterruptInSetUpTests.testsRun = 0
-
-    def test_setUpOK(self):
-        self.assertEqual(0, InterruptInSetUpTests.testsRun)
-        self.assertEqual(2, self.suite.countTestCases())
-        self.assertEqual(0, self.reporter.testsRun)
-        self.assertFalse(self.reporter.shouldStop)
-
-    def test_interruptInSetUp(self):
-        runner.TrialSuite([self.suite]).run(self.reporter)
-        self.assertTrue(self.reporter.shouldStop)
-        self.assertEqual(2, self.reporter.testsRun)
-        self.assertFalse(InterruptInSetUpTests.test_02_run,
-                    "test_02 ran")
+class AsynchronousTestFailureInSetUp(
+    FailureInSetUpMixin, unittest.TestCase):
+    pass
 
 
-class InterruptInTearDownTests(TrialTest):
-    testsRun = 0
 
-    class InterruptedTest(unittest.TestCase):
-        def tearDown(self):
-            if InterruptInTearDownTests.testsRun > 0:
-                raise KeyboardInterrupt
+class FailureInTearDownMixin(object):
+    def tearDown(self):
+        raise FoolishError("I am a broken tearDown method")
 
-        def test_01(self):
-            InterruptInTearDownTests.testsRun += 1
+    def test_noop(self):
+        pass
 
-        def test_02(self):
-            InterruptInTearDownTests.testsRun += 1
-            InterruptInTearDownTests.test_02_run = True
 
-    def setUp(self):
-        super(InterruptInTearDownTests, self).setUp()
-        self.suite = self.loader.loadClass(
-            InterruptInTearDownTests.InterruptedTest)
-        InterruptInTearDownTests.testsRun = 0
-        InterruptInTearDownTests.test_02_run = False
 
-    def test_setUpOK(self):
-        self.assertEqual(0, InterruptInTearDownTests.testsRun)
-        self.assertEqual(2, self.suite.countTestCases())
-        self.assertEqual(0, self.reporter.testsRun)
-        self.assertFalse(self.reporter.shouldStop)
+class SynchronousTestFailureInTearDown(
+    FailureInTearDownMixin, unittest.SynchronousTestCase):
+    pass
 
-    def test_interruptInTearDown(self):
-        runner.TrialSuite([self.suite]).run(self.reporter)
-        self.assertEqual(1, self.reporter.testsRun)
-        self.assertTrue(self.reporter.shouldStop)
-        self.assertFalse(InterruptInTearDownTests.test_02_run,
-                    "test_02 ran")
+
+
+class AsynchronousTestFailureInTearDown(
+    FailureInTearDownMixin, unittest.TestCase):
+    pass
+
+
+
+class FailureButTearDownRunsMixin(object):
+    """
+    A test fails, but its L{tearDown} still runs.
+    """
+    tornDown = False
+
+    def tearDown(self):
+        self.tornDown = True
+
+
+    def test_fails(self):
+        """
+        A test that fails.
+        """
+        raise FoolishError("I am a broken test")
+
+
+
+class SynchronousTestFailureButTearDownRuns(
+        FailureButTearDownRunsMixin, unittest.SynchronousTestCase):
+    pass
+
+
+
+class AsynchronousTestFailureButTearDownRuns(
+        FailureButTearDownRunsMixin, unittest.TestCase):
+    pass
+
+
+
+class TestRegularFail(unittest.SynchronousTestCase):
+
+    def test_fail(self):
+        self.fail("I fail")
+
+
+    def test_subfail(self):
+        self.subroutine()
+
+
+    def subroutine(self):
+        self.fail("I fail inside")
+
+
+
+class TestAsynchronousFail(unittest.TestCase):
+    """
+    Test failures for L{unittest.TestCase} based classes.
+    """
+
+    def test_fail(self):
+        """
+        A test which fails in the callback of the returned L{defer.Deferred}.
+        """
+        d = defer.Deferred()
+        d.addCallback(self._later)
+        reactor.callLater(0, d.callback, None)
+        return d
+
+
+    def _later(self, res):
+        self.fail("I fail later")
+
+
+    def test_exception(self):
+        """
+        A test which raises an exception synchronously.
+        """
+        raise Exception("I fail")
+
+
+
+class ErrorTest(unittest.SynchronousTestCase):
+    """
+    A test case which has a L{test_foo} which will raise an error.
+
+    @ivar ran: boolean indicating whether L{test_foo} has been run.
+    """
+    ran = False
+
+    def test_foo(self):
+        """
+        Set C{self.ran} to True and raise a C{ZeroDivisionError}
+        """
+        self.ran = True
+        1/0
+
+
+
+class TestSkipTestCase(unittest.SynchronousTestCase):
+    pass
+
+TestSkipTestCase.skip = "skipping this test"
+
+
+class DelayedCall(unittest.TestCase):
+    hiddenExceptionMsg = "something blew up"
+
+    def go(self):
+        raise RuntimeError(self.hiddenExceptionMsg)
+
+    def testHiddenException(self):
+        """
+        What happens if an error is raised in a DelayedCall and an error is
+        also raised in the test?
+
+        L{test_reporter.ErrorReportingTests.testHiddenException} checks that
+        both errors get reported.
+
+        Note that this behaviour is deprecated. A B{real} test would return a
+        Deferred that got triggered by the callLater. This would guarantee the
+        delayed call error gets reported.
+        """
+        reactor.callLater(0, self.go)
+        reactor.iterate(0.01)
+        self.fail("Deliberate failure to mask the hidden exception")
+    testHiddenException.suppress = [util.suppress(
+        message=r'reactor\.iterate cannot be used.*',
+        category=DeprecationWarning)]
+
+
+class ReactorCleanupTests(unittest.TestCase):
+    def test_leftoverPendingCalls(self):
+        def _():
+            print('foo!')
+        reactor.callLater(10000.0, _)
+
+class SocketOpenTest(unittest.TestCase):
+    def test_socketsLeftOpen(self):
+        f = protocol.Factory()
+        f.protocol = protocol.Protocol
+        reactor.listenTCP(0, f)
+
+class TimingOutDeferred(unittest.TestCase):
+    def test_alpha(self):
+        pass
+
+    def test_deferredThatNeverFires(self):
+        self.methodCalled = True
+        d = defer.Deferred()
+        return d
+
+    def test_omega(self):
+        pass
+
+
+def unexpectedException(self):
+    """i will raise an unexpected exception...
+    ... *CAUSE THAT'S THE KINDA GUY I AM*
+
+    >>> 1/0
+    """
+

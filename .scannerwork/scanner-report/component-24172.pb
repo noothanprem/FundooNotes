@@ -1,1 +1,1 @@
-ì¼Tvenv/lib/python3.6/site-packages/django_extensions/management/commands/dumpscript.py 2pyXøh
+ì¼Yvenv/lib/python3.6/site-packages/django_extensions/management/commands/admin_generator.py 2pyXáh

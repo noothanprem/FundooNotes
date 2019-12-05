@@ -1,1 +1,1 @@
-כרYvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/oracle/introspection.py 2pyX+h
+כרJvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/utils.py 2pyXh

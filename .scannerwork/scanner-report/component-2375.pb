@@ -1,2 +1,1 @@
-Ç=venv/lib/python3.6/site-packages/zope/interface/interfaces.py 2pyXƒ
-h
+Ç;venv/lib/python3.6/site-packages/zope/interface/document.py 2pyXyh

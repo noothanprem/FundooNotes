@@ -1,29 +1,47 @@
 """
-Zotero OAuth1 backends, docs at:
-    https://python-social-auth.readthedocs.io/en/latest/backends/zotero.html
+Spotify backend, docs at:
+    https://developer.spotify.com/spotify-web-api/
+    https://developer.spotify.com/spotify-web-api/authorization-guide/
 """
-from .oauth import BaseOAuth1
+import base64
+
+from .oauth import BaseOAuth2
 
 
-class ZoteroOAuth(BaseOAuth1):
+class SpotifyOAuth2(BaseOAuth2):
+    """Spotify OAuth2 authentication backend"""
+    name = 'spotify'
+    ID_KEY = 'id'
+    AUTHORIZATION_URL = 'https://accounts.spotify.com/authorize'
+    ACCESS_TOKEN_URL = 'https://accounts.spotify.com/api/token'
+    ACCESS_TOKEN_METHOD = 'POST'
+    SCOPE_SEPARATOR = ' '
+    REDIRECT_STATE = False
+    EXTRA_DATA = [
+        ('refresh_token', 'refresh_token'),
+    ]
 
-    """Zotero OAuth authorization mechanism"""
-    name = 'zotero'
-    AUTHORIZATION_URL = 'https://www.zotero.org/oauth/authorize'
-    REQUEST_TOKEN_URL = 'https://www.zotero.org/oauth/request'
-    ACCESS_TOKEN_URL = 'https://www.zotero.org/oauth/access'
-
-    def get_user_id(self, details, response):
-        """
-        Return user unique id provided by service. For Ubuntu One
-        the nickname should be original.
-        """
-        return details['userID']
+    def auth_headers(self):
+        auth_str = '{0}:{1}'.format(*self.get_key_and_secret())
+        b64_auth_str = base64.urlsafe_b64encode(auth_str.encode()).decode()
+        return {
+            'Authorization': 'Basic {0}'.format(b64_auth_str)
+        }
 
     def get_user_details(self, response):
-        """Return user details from Zotero API account"""
-        access_token = response.get('access_token', {})
-        return {
-            'username': access_token.get('username', ''),
-            'userID': access_token.get('userID', '')
-        }
+        """Return user details from Spotify account"""
+        fullname, first_name, last_name = self.get_user_names(
+            response.get('display_name')
+        )
+        return {'username': response.get('id'),
+                'email': response.get('email'),
+                'fullname': fullname,
+                'first_name': first_name,
+                'last_name': last_name}
+
+    def user_data(self, access_token, *args, **kwargs):
+        """Loads user data from service"""
+        return self.get_json(
+            'https://api.spotify.com/v1/me',
+            headers={'Authorization': 'Bearer {0}'.format(access_token)}
+        )

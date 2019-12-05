@@ -1,1 +1,1 @@
-Ã?Evenv/lib/python3.6/site-packages/django/contrib/contenttypes/admin.py 2pyX‚h
+Ã?Evenv/lib/python3.6/site-packages/django/contrib/contenttypes/views.py 2pyXYh

@@ -3,166 +3,146 @@
 # This file is part of gunicorn released under the MIT license.
 # See the NOTICE for more information.
 
-import asyncio
-import datetime
-import functools
-import logging
-import os
+from functools import partial
+import errno
+import sys
 
 try:
-    import ssl
+    import eventlet
 except ImportError:
-    ssl = None
+    raise RuntimeError("You need eventlet installed to use this worker.")
 
-import gunicorn.workers.base as base
-
-from aiohttp.wsgi import WSGIServerHttpProtocol as OldWSGIServerHttpProtocol
-
-
-class WSGIServerHttpProtocol(OldWSGIServerHttpProtocol):
-    def log_access(self, request, environ, response, time):
-        self.logger.access(response, request, environ, datetime.timedelta(0, 0, time))
+# validate the eventlet version
+if eventlet.version_info < (0, 9, 7):
+    raise RuntimeError("You need eventlet >= 0.9.7")
 
 
-class AiohttpWorker(base.Worker):
+from eventlet import hubs, greenthread
+from eventlet.greenio import GreenSocket
+from eventlet.hubs import trampoline
+from eventlet.wsgi import ALREADY_HANDLED as EVENTLET_ALREADY_HANDLED
+import greenlet
 
-    def __init__(self, *args, **kw):  # pragma: no cover
-        super().__init__(*args, **kw)
-        cfg = self.cfg
-        if cfg.is_ssl:
-            self.ssl_context = self._create_ssl_context(cfg)
+from gunicorn.http.wsgi import sendfile as o_sendfile
+from gunicorn.workers.base_async import AsyncWorker
+
+def _eventlet_sendfile(fdout, fdin, offset, nbytes):
+    while True:
+        try:
+            return o_sendfile(fdout, fdin, offset, nbytes)
+        except OSError as e:
+            if e.args[0] == errno.EAGAIN:
+                trampoline(fdout, write=True)
+            else:
+                raise
+
+
+def _eventlet_serve(sock, handle, concurrency):
+    """
+    Serve requests forever.
+
+    This code is nearly identical to ``eventlet.convenience.serve`` except
+    that it attempts to join the pool at the end, which allows for gunicorn
+    graceful shutdowns.
+    """
+    pool = eventlet.greenpool.GreenPool(concurrency)
+    server_gt = eventlet.greenthread.getcurrent()
+
+    while True:
+        try:
+            conn, addr = sock.accept()
+            gt = pool.spawn(handle, conn, addr)
+            gt.link(_eventlet_stop, server_gt, conn)
+            conn, addr, gt = None, None, None
+        except eventlet.StopServe:
+            sock.close()
+            pool.waitall()
+            return
+
+
+def _eventlet_stop(client, server, conn):
+    """
+    Stop a greenlet handling a request and close its connection.
+
+    This code is lifted from eventlet so as not to depend on undocumented
+    functions in the library.
+    """
+    try:
+        try:
+            client.wait()
+        finally:
+            conn.close()
+    except greenlet.GreenletExit:
+        pass
+    except Exception:
+        greenthread.kill(server, *sys.exc_info())
+
+
+def patch_sendfile():
+    from gunicorn.http import wsgi
+
+    if o_sendfile is not None:
+        setattr(wsgi, "sendfile", _eventlet_sendfile)
+
+
+class EventletWorker(AsyncWorker):
+
+    def patch(self):
+        hubs.use_hub()
+        eventlet.monkey_patch(os=False)
+        patch_sendfile()
+
+    def is_already_handled(self, respiter):
+        if respiter == EVENTLET_ALREADY_HANDLED:
+            raise StopIteration()
         else:
-            self.ssl_context = None
-        self.servers = []
-        self.connections = {}
+            return super(EventletWorker, self).is_already_handled(respiter)
 
     def init_process(self):
-        # create new event_loop after fork
-        asyncio.get_event_loop().close()
+        super(EventletWorker, self).init_process()
+        self.patch()
 
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
+    def handle_quit(self, sig, frame):
+        eventlet.spawn(super(EventletWorker, self).handle_quit, sig, frame)
 
-        super().init_process()
+    def handle_usr1(self, sig, frame):
+        eventlet.spawn(super(EventletWorker, self).handle_usr1, sig, frame)
+
+    def timeout_ctx(self):
+        return eventlet.Timeout(self.cfg.keepalive or None, False)
+
+    def handle(self, listener, client, addr):
+        if self.cfg.is_ssl:
+            client = eventlet.wrap_ssl(client, server_side=True,
+                                       **self.cfg.ssl_options)
+
+        super(EventletWorker, self).handle(listener, client, addr)
 
     def run(self):
-        self._runner = asyncio.ensure_future(self._run(), loop=self.loop)
-
-        try:
-            self.loop.run_until_complete(self._runner)
-        finally:
-            self.loop.close()
-
-    def wrap_protocol(self, proto):
-        proto.connection_made = _wrp(
-            proto, proto.connection_made, self.connections)
-        proto.connection_lost = _wrp(
-            proto, proto.connection_lost, self.connections, False)
-        return proto
-
-    def factory(self, wsgi, addr):
-        # are we in debug level
-        is_debug = self.log.loglevel == logging.DEBUG
-
-        proto = WSGIServerHttpProtocol(
-            wsgi, readpayload=True,
-            loop=self.loop,
-            log=self.log,
-            debug=is_debug,
-            keep_alive=self.cfg.keepalive,
-            access_log=self.log.access_log,
-            access_log_format=self.cfg.access_log_format)
-        return self.wrap_protocol(proto)
-
-    def get_factory(self, sock, addr):
-        return functools.partial(self.factory, self.wsgi, addr)
-
-    @asyncio.coroutine
-    def close(self):
-        try:
-            if hasattr(self.wsgi, 'close'):
-                yield from self.wsgi.close()
-        except:
-            self.log.exception('Process shutdown exception')
-
-    @asyncio.coroutine
-    def _run(self):
+        acceptors = []
         for sock in self.sockets:
-            factory = self.get_factory(sock.sock, sock.cfg_addr)
-            self.servers.append(
-                (yield from self._create_server(factory, sock)))
+            gsock = GreenSocket(sock)
+            gsock.setblocking(1)
+            hfun = partial(self.handle, gsock)
+            acceptor = eventlet.spawn(_eventlet_serve, gsock, hfun,
+                                      self.worker_connections)
 
-        # If our parent changed then we shut down.
-        pid = os.getpid()
+            acceptors.append(acceptor)
+            eventlet.sleep(0.0)
+
+        while self.alive:
+            self.notify()
+            eventlet.sleep(1.0)
+
+        self.notify()
         try:
-            while self.alive or self.connections:
-                self.notify()
-
-                if (self.alive and
-                        pid == os.getpid() and self.ppid != os.getppid()):
-                    self.log.info("Parent changed, shutting down: %s", self)
-                    self.alive = False
-
-                # stop accepting requests
-                if not self.alive:
-                    if self.servers:
-                        self.log.info(
-                            "Stopping server: %s, connections: %s",
-                            pid, len(self.connections))
-                        for server in self.servers:
-                            server.close()
-                        self.servers.clear()
-
-                    # prepare connections for closing
-                    for conn in self.connections.values():
-                        if hasattr(conn, 'closing'):
-                            conn.closing()
-
-                yield from asyncio.sleep(1.0, loop=self.loop)
-        except KeyboardInterrupt:
-            pass
-
-        if self.servers:
-            for server in self.servers:
-                server.close()
-
-        yield from self.close()
-
-    @asyncio.coroutine
-    def _create_server(self, factory, sock):
-        return self.loop.create_server(factory, sock=sock.sock,
-                                       ssl=self.ssl_context)
-
-    @staticmethod
-    def _create_ssl_context(cfg):
-        """ Creates SSLContext instance for usage in asyncio.create_server.
-
-        See ssl.SSLSocket.__init__ for more details.
-        """
-        ctx = ssl.SSLContext(cfg.ssl_version)
-        ctx.load_cert_chain(cfg.certfile, cfg.keyfile)
-        ctx.verify_mode = cfg.cert_reqs
-        if cfg.ca_certs:
-            ctx.load_verify_locations(cfg.ca_certs)
-        if cfg.ciphers:
-            ctx.set_ciphers(cfg.ciphers)
-        return ctx
-
-
-class _wrp:
-
-    def __init__(self, proto, meth, tracking, add=True):
-        self._proto = proto
-        self._id = id(proto)
-        self._meth = meth
-        self._tracking = tracking
-        self._add = add
-
-    def __call__(self, *args):
-        if self._add:
-            self._tracking[self._id] = self._proto
-        elif self._id in self._tracking:
-            del self._tracking[self._id]
-
-        conn = self._meth(*args)
-        return conn
+            with eventlet.Timeout(self.cfg.graceful_timeout) as t:
+                for a in acceptors:
+                    a.kill(eventlet.StopServe())
+                for a in acceptors:
+                    a.wait()
+        except eventlet.Timeout as te:
+            if te != t:
+                raise
+            for a in acceptors:
+                a.kill()

@@ -1,1 +1,1 @@
-Ñ19venv/lib/python3.6/site-packages/django/contrib/admindocs :É1ê1ë1°3¢3£3
+Ñ1Avenv/lib/python3.6/site-packages/django/contrib/admindocs/urls.py 2pyX3h

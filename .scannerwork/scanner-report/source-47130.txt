@@ -2,235 +2,120 @@
 # See LICENSE for details.
 
 """
-Tests for L{twisted.python.runtime}.
+Tests for L{twisted.python._inotify}.
 """
 
-from __future__ import division, absolute_import
+from twisted.trial.unittest import TestCase
+from twisted.python.filepath import FilePath
+from twisted.python.runtime import platform
 
-import sys
+if platform.supportsINotify():
+    from ctypes import c_int, c_uint32, c_char_p
+    from twisted.python import _inotify
+    from twisted.python._inotify import (
+        INotifyError, initializeModule, init, add)
+else:
+    _inotify = None
 
-from twisted.python.reflect import namedModule
-from twisted.trial.util import suppress as SUPRESS
-from twisted.trial.unittest import SynchronousTestCase
-
-from twisted.python.runtime import Platform, shortPythonVersion
 
 
-class PythonVersionTests(SynchronousTestCase):
+class INotifyTests(TestCase):
     """
-    Tests the shortPythonVersion method.
+    Tests for L{twisted.python._inotify}.
     """
+    if _inotify is None:
+        skip = "This platform doesn't support INotify."
 
-    def test_shortPythonVersion(self):
+    def test_missingInit(self):
         """
-        Verify if the Python version is returned correctly.
+        If the I{libc} object passed to L{initializeModule} has no
+        C{inotify_init} attribute, L{ImportError} is raised.
         """
-        ver = shortPythonVersion().split('.')
-        for i in range(3):
-            self.assertEqual(int(ver[i]), sys.version_info[i])
+        class libc:
+            def inotify_add_watch(self):
+                pass
+            def inotify_rm_watch(self):
+                pass
+        self.assertRaises(ImportError, initializeModule, libc())
 
 
-
-class PlatformTests(SynchronousTestCase):
-    """
-    Tests for the default L{Platform} initializer.
-    """
-
-    isWinNTDeprecationMessage = ('twisted.python.runtime.Platform.isWinNT was '
-        'deprecated in Twisted 13.0. Use Platform.isWindows instead.')
-
-
-    def test_isKnown(self):
+    def test_missingAdd(self):
         """
-        L{Platform.isKnown} returns a boolean indicating whether this is one of
-        the L{runtime.knownPlatforms}.
+        If the I{libc} object passed to L{initializeModule} has no
+        C{inotify_add_watch} attribute, L{ImportError} is raised.
         """
-        platform = Platform()
-        self.assertTrue(platform.isKnown())
+        class libc:
+            def inotify_init(self):
+                pass
+            def inotify_rm_watch(self):
+                pass
+        self.assertRaises(ImportError, initializeModule, libc())
 
 
-    def test_isVistaConsistency(self):
+    def test_missingRemove(self):
         """
-        Verify consistency of L{Platform.isVista}: it can only be C{True} if
-        L{Platform.isWinNT} and L{Platform.isWindows} are C{True}.
+        If the I{libc} object passed to L{initializeModule} has no
+        C{inotify_rm_watch} attribute, L{ImportError} is raised.
         """
-        platform = Platform()
-        if platform.isVista():
-            self.assertTrue(platform.isWinNT())
-            self.assertTrue(platform.isWindows())
-            self.assertFalse(platform.isMacOSX())
+        class libc:
+            def inotify_init(self):
+                pass
+            def inotify_add_watch(self):
+                pass
+        self.assertRaises(ImportError, initializeModule, libc())
 
 
-    def test_isMacOSXConsistency(self):
+    def test_setTypes(self):
         """
-        L{Platform.isMacOSX} can only return C{True} if L{Platform.getType}
-        returns C{'posix'}.
+        If the I{libc} object passed to L{initializeModule} has all of the
+        necessary attributes, it sets the C{argtypes} and C{restype} attributes
+        of the three ctypes methods used from libc.
         """
-        platform = Platform()
-        if platform.isMacOSX():
-            self.assertEqual(platform.getType(), 'posix')
+        class libc:
+            def inotify_init(self):
+                pass
+            inotify_init = staticmethod(inotify_init)
 
+            def inotify_rm_watch(self):
+                pass
+            inotify_rm_watch = staticmethod(inotify_rm_watch)
 
-    def test_isLinuxConsistency(self):
-        """
-        L{Platform.isLinux} can only return C{True} if L{Platform.getType}
-        returns C{'posix'} and L{sys.platform} starts with C{"linux"}.
-        """
-        platform = Platform()
-        if platform.isLinux():
-            self.assertTrue(sys.platform.startswith("linux"))
+            def inotify_add_watch(self):
+                pass
+            inotify_add_watch = staticmethod(inotify_add_watch)
 
+        c = libc()
+        initializeModule(c)
+        self.assertEqual(c.inotify_init.argtypes, [])
+        self.assertEqual(c.inotify_init.restype, c_int)
 
-    def test_isWinNT(self):
-        """
-        L{Platform.isWinNT} can return only C{False} or C{True} and can not
-        return C{True} if L{Platform.getType} is not C{"win32"}.
-        """
-        platform = Platform()
-        isWinNT = platform.isWinNT()
-        self.assertIn(isWinNT, (False, True))
-        if platform.getType() != "win32":
-            self.assertFalse(isWinNT)
+        self.assertEqual(c.inotify_rm_watch.argtypes, [c_int, c_int])
+        self.assertEqual(c.inotify_rm_watch.restype, c_int)
 
-    test_isWinNT.suppress = [SUPRESS(category=DeprecationWarning,
-         message=isWinNTDeprecationMessage)]
-
-
-    def test_isWinNTDeprecated(self):
-        """
-        L{Platform.isWinNT} is deprecated in favor of L{platform.isWindows}.
-        """
-        platform = Platform()
-        platform.isWinNT()
-        warnings = self.flushWarnings([self.test_isWinNTDeprecated])
-        self.assertEqual(len(warnings), 1)
         self.assertEqual(
-            warnings[0]['message'], self.isWinNTDeprecationMessage)
+            c.inotify_add_watch.argtypes, [c_int, c_char_p, c_uint32])
+        self.assertEqual(c.inotify_add_watch.restype, c_int)
 
 
-    def test_supportsThreads(self):
+    def test_failedInit(self):
         """
-        L{Platform.supportsThreads} returns C{True} if threads can be created in
-        this runtime, C{False} otherwise.
+        If C{inotify_init} returns a negative number, L{init} raises
+        L{INotifyError}.
         """
-        # It's difficult to test both cases of this without faking the threading
-        # module.  Perhaps an adequate test is to just test the behavior with
-        # the current runtime, whatever that happens to be.
-        try:
-            namedModule('threading')
-        except ImportError:
-            self.assertFalse(Platform().supportsThreads())
-        else:
-            self.assertTrue(Platform().supportsThreads())
+        class libc:
+            def inotify_init(self):
+                return -1
+        self.patch(_inotify, 'libc', libc())
+        self.assertRaises(INotifyError, init)
 
 
-
-class ForeignPlatformTests(SynchronousTestCase):
-    """
-    Tests for L{Platform} based overridden initializer values.
-    """
-
-    def test_getType(self):
+    def test_failedAddWatch(self):
         """
-        If an operating system name is supplied to L{Platform}'s initializer,
-        L{Platform.getType} returns the platform type which corresponds to that
-        name.
+        If C{inotify_add_watch} returns a negative number, L{add}
+        raises L{INotifyError}.
         """
-        self.assertEqual(Platform('nt').getType(), 'win32')
-        self.assertEqual(Platform('ce').getType(), 'win32')
-        self.assertEqual(Platform('posix').getType(), 'posix')
-        self.assertEqual(Platform('java').getType(), 'java')
-
-
-    def test_isMacOSX(self):
-        """
-        If a system platform name is supplied to L{Platform}'s initializer, it
-        is used to determine the result of L{Platform.isMacOSX}, which returns
-        C{True} for C{"darwin"}, C{False} otherwise.
-        """
-        self.assertTrue(Platform(None, 'darwin').isMacOSX())
-        self.assertFalse(Platform(None, 'linux2').isMacOSX())
-        self.assertFalse(Platform(None, 'win32').isMacOSX())
-
-
-    def test_isLinux(self):
-        """
-        If a system platform name is supplied to L{Platform}'s initializer, it
-        is used to determine the result of L{Platform.isLinux}, which returns
-        C{True} for values beginning with C{"linux"}, C{False} otherwise.
-        """
-        self.assertFalse(Platform(None, 'darwin').isLinux())
-        self.assertTrue(Platform(None, 'linux').isLinux())
-        self.assertTrue(Platform(None, 'linux2').isLinux())
-        self.assertTrue(Platform(None, 'linux3').isLinux())
-        self.assertFalse(Platform(None, 'win32').isLinux())
-
-
-
-class DockerPlatformTests(SynchronousTestCase):
-    """
-    Tests for L{twisted.python.runtime.Platform.isDocker}.
-    """
-
-    def test_noChecksOnLinux(self):
-        """
-        If the platform is not Linux, C{isDocker()} always returns L{False}.
-        """
-        platform = Platform(None, 'win32')
-        self.assertFalse(platform.isDocker())
-
-
-    def test_noCGroups(self):
-        """
-        If the platform is Linux, and the cgroups file in C{/proc} does not
-        exist, C{isDocker()} returns L{False}
-        """
-        platform = Platform(None, 'linux')
-        self.assertFalse(platform.isDocker(_initCGroupLocation="fakepath"))
-
-
-    def test_cgroupsSuggestsDocker(self):
-        """
-        If the platform is Linux, and the cgroups file (faked out here) exists,
-        and one of the paths starts with C{/docker/}, C{isDocker()} returns
-        C{True}.
-        """
-        cgroupsFile = self.mktemp()
-        with open(cgroupsFile, 'wb') as f:
-            # real cgroups file from inside a Debian 7 docker container
-            f.write(b"""10:debug:/
-9:net_prio:/
-8:perf_event:/docker/104155a6453cb67590027e397dc90fc25a06a7508403c797bc89ea43adf8d35f
-7:net_cls:/
-6:freezer:/docker/104155a6453cb67590027e397dc90fc25a06a7508403c797bc89ea43adf8d35f
-5:devices:/docker/104155a6453cb67590027e397dc90fc25a06a7508403c797bc89ea43adf8d35f
-4:blkio:/docker/104155a6453cb67590027e397dc90fc25a06a7508403c797bc89ea43adf8d35f
-3:cpuacct:/docker/104155a6453cb67590027e397dc90fc25a06a7508403c797bc89ea43adf8d35f
-2:cpu:/docker/104155a6453cb67590027e397dc90fc25a06a7508403c797bc89ea43adf8d35f
-1:cpuset:/docker/104155a6453cb67590027e397dc90fc25a06a7508403c797bc89ea43adf8d35f""")
-
-        platform = Platform(None, 'linux')
-        self.assertTrue(platform.isDocker(_initCGroupLocation=cgroupsFile))
-
-
-    def test_cgroupsSuggestsRealSystem(self):
-        """
-        If the platform is Linux, and the cgroups file (faked out here) exists,
-        and none of the paths starts with C{/docker/}, C{isDocker()} returns
-        C{False}.
-        """
-        cgroupsFile = self.mktemp()
-        with open(cgroupsFile, 'wb') as f:
-            # real cgroups file from a Fedora 17 system
-            f.write(b"""9:perf_event:/
-8:blkio:/
-7:net_cls:/
-6:freezer:/
-5:devices:/
-4:memory:/
-3:cpuacct,cpu:/
-2:cpuset:/
-1:name=systemd:/system""")
-
-        platform = Platform(None, 'linux')
-        self.assertFalse(platform.isDocker(_initCGroupLocation=cgroupsFile))
+        class libc:
+            def inotify_add_watch(self, fd, path, mask):
+                return -1
+        self.patch(_inotify, 'libc', libc())
+        self.assertRaises(INotifyError, add, 3, FilePath('/foo'), 0)

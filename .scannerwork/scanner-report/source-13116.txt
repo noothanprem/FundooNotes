@@ -3,105 +3,60 @@
 # Copyright (c) 2013 by Christian Heimes <christian@python.org>
 # Licensed to PSF under a Contributor Agreement.
 # See https://www.python.org/psf/license for licensing details.
-"""Defused xml.dom.expatbuilder
+"""Defuse XML bomb denial of service vulnerabilities
 """
 from __future__ import print_function, absolute_import
 
-from xml.dom.expatbuilder import ExpatBuilder as _ExpatBuilder
-from xml.dom.expatbuilder import Namespaces as _Namespaces
-
-from .common import DTDForbidden, EntitiesForbidden, ExternalReferenceForbidden
-
-__origin__ = "xml.dom.expatbuilder"
-
-
-class DefusedExpatBuilder(_ExpatBuilder):
-    """Defused document builder"""
-
-    def __init__(
-        self, options=None, forbid_dtd=False, forbid_entities=True, forbid_external=True
-    ):
-        _ExpatBuilder.__init__(self, options)
-        self.forbid_dtd = forbid_dtd
-        self.forbid_entities = forbid_entities
-        self.forbid_external = forbid_external
-
-    def defused_start_doctype_decl(self, name, sysid, pubid, has_internal_subset):
-        raise DTDForbidden(name, sysid, pubid)
-
-    def defused_entity_decl(
-        self, name, is_parameter_entity, value, base, sysid, pubid, notation_name
-    ):
-        raise EntitiesForbidden(name, value, base, sysid, pubid, notation_name)
-
-    def defused_unparsed_entity_decl(self, name, base, sysid, pubid, notation_name):
-        # expat 1.2
-        raise EntitiesForbidden(name, None, base, sysid, pubid, notation_name)  # pragma: no cover
-
-    def defused_external_entity_ref_handler(self, context, base, sysid, pubid):
-        raise ExternalReferenceForbidden(context, base, sysid, pubid)
-
-    def install(self, parser):
-        _ExpatBuilder.install(self, parser)
-
-        if self.forbid_dtd:
-            parser.StartDoctypeDeclHandler = self.defused_start_doctype_decl
-        if self.forbid_entities:
-            # if self._options.entities:
-            parser.EntityDeclHandler = self.defused_entity_decl
-            parser.UnparsedEntityDeclHandler = self.defused_unparsed_entity_decl
-        if self.forbid_external:
-            parser.ExternalEntityRefHandler = self.defused_external_entity_ref_handler
+from .common import (
+    DefusedXmlException,
+    DTDForbidden,
+    EntitiesForbidden,
+    ExternalReferenceForbidden,
+    NotSupportedError,
+    _apply_defusing,
+)
 
 
-class DefusedExpatBuilderNS(_Namespaces, DefusedExpatBuilder):
-    """Defused document builder that supports namespaces."""
+def defuse_stdlib():
+    """Monkey patch and defuse all stdlib packages
 
-    def install(self, parser):
-        DefusedExpatBuilder.install(self, parser)
-        if self._options.namespace_declarations:
-            parser.StartNamespaceDeclHandler = self.start_namespace_decl_handler
-
-    def reset(self):
-        DefusedExpatBuilder.reset(self)
-        self._initNamespaces()
-
-
-def parse(file, namespaces=True, forbid_dtd=False, forbid_entities=True, forbid_external=True):
-    """Parse a document, returning the resulting Document node.
-
-    'file' may be either a file name or an open file object.
+    :warning: The monkey patch is an EXPERIMETNAL feature.
     """
-    if namespaces:
-        build_builder = DefusedExpatBuilderNS
-    else:
-        build_builder = DefusedExpatBuilder
-    builder = build_builder(
-        forbid_dtd=forbid_dtd, forbid_entities=forbid_entities, forbid_external=forbid_external
-    )
+    defused = {}
 
-    if isinstance(file, str):
-        fp = open(file, "rb")
-        try:
-            result = builder.parseFile(fp)
-        finally:
-            fp.close()
-    else:
-        result = builder.parseFile(file)
-    return result
+    from . import cElementTree
+    from . import ElementTree
+    from . import minidom
+    from . import pulldom
+    from . import sax
+    from . import expatbuilder
+    from . import expatreader
+    from . import xmlrpc
+
+    xmlrpc.monkey_patch()
+    defused[xmlrpc] = None
+
+    for defused_mod in [
+        cElementTree,
+        ElementTree,
+        minidom,
+        pulldom,
+        sax,
+        expatbuilder,
+        expatreader,
+    ]:
+        stdlib_mod = _apply_defusing(defused_mod)
+        defused[defused_mod] = stdlib_mod
+
+    return defused
 
 
-def parseString(
-    string, namespaces=True, forbid_dtd=False, forbid_entities=True, forbid_external=True
-):
-    """Parse a document from a string, returning the resulting
-    Document node.
-    """
-    if namespaces:
-        build_builder = DefusedExpatBuilderNS
-    else:
-        build_builder = DefusedExpatBuilder
-    builder = build_builder(
-        forbid_dtd=forbid_dtd, forbid_entities=forbid_entities, forbid_external=forbid_external
-    )
-    return builder.parseString(string)
+__version__ = "0.6.0"
+
+__all__ = [
+    "DefusedXmlException",
+    "DTDForbidden",
+    "EntitiesForbidden",
+    "ExternalReferenceForbidden",
+    "NotSupportedError",
+]

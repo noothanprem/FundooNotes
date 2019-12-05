@@ -1,1 +1,1 @@
-ƕ.venv/lib64/python3.6/site-packages/corsheaders :ŕǕȕЕѕҕ
+ƕ:venv/lib64/python3.6/site-packages/corsheaders/__init__.py 2pyXh

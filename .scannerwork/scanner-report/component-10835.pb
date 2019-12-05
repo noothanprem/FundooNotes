@@ -1,1 +1,2 @@
-ÓTKvenv/lib/python3.6/site-packages/faker/providers/internet/en_AU/__init__.py 2pyXh
+ÓTKvenv/lib/python3.6/site-packages/faker/providers/internet/pt_PT/__init__.py 2pyX
+h

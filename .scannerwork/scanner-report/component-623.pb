@@ -1,1 +1,1 @@
-ï=venv/lib/python3.6/site-packages/celery/bin/celeryd_detach.py 2pyXŒh
+ï3venv/lib/python3.6/site-packages/celery/bin/call.py 2pyXTh

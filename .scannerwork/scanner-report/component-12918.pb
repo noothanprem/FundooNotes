@@ -1,1 +1,1 @@
-ödFvenv/lib/python3.6/site-packages/macaroonbakery/httpbakery/__init__.py 2pyX8h
+öd:venv/lib/python3.6/site-packages/macaroonbakery/httpbakery :õd÷dødùdÿdeŠe

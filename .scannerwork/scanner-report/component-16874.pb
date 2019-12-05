@@ -1,1 +1,0 @@
-êƒ:venv/lib/python3.6/site-packages/automat/_introspection.py 2pyX+h

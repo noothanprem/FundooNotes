@@ -1,362 +1,267 @@
-# -*- test-case-name: twisted.conch.test.test_session -*-
+# -*- test-case-name: twisted.conch.test.test_transport -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-This module contains the implementation of SSHSession, which (by default)
-allows access to a shell and a python interpreter over SSH.
-
-Maintainer: Paul Swartz
+SSH key exchange handling.
 """
 
-from __future__ import division, absolute_import
+from __future__ import absolute_import, division
 
-import struct
-import signal
-import sys
-import os
+from hashlib import sha1, sha256, sha384, sha512
 
-from zope.interface import implementer
+from zope.interface import Attribute, implementer, Interface
 
-from twisted.internet import interfaces, protocol
-from twisted.python import log
-from twisted.python.compat import _bytesChr as chr, networkString
-from twisted.conch.interfaces import ISession
-from twisted.conch.ssh import common, channel, connection
+from twisted.conch import error
+from twisted.python.compat import long
 
 
-class SSHSession(channel.SSHChannel):
-
-    name = b'session'
-    def __init__(self, *args, **kw):
-        channel.SSHChannel.__init__(self, *args, **kw)
-        self.buf = b''
-        self.client = None
-        self.session = None
-
-    def request_subsystem(self, data):
-        subsystem, ignored= common.getNS(data)
-        log.msg('asking for subsystem "%s"' % subsystem)
-        client = self.avatar.lookupSubsystem(subsystem, data)
-        if client:
-            pp = SSHSessionProcessProtocol(self)
-            proto = wrapProcessProtocol(pp)
-            client.makeConnection(proto)
-            pp.makeConnection(wrapProtocol(client))
-            self.client = pp
-            return 1
-        else:
-            log.msg('failed to get subsystem')
-            return 0
-
-    def request_shell(self, data):
-        log.msg('getting shell')
-        if not self.session:
-            self.session = ISession(self.avatar)
-        try:
-            pp = SSHSessionProcessProtocol(self)
-            self.session.openShell(pp)
-        except:
-            log.deferr()
-            return 0
-        else:
-            self.client = pp
-            return 1
-
-    def request_exec(self, data):
-        if not self.session:
-            self.session = ISession(self.avatar)
-        f,data = common.getNS(data)
-        log.msg('executing command "%s"' % f)
-        try:
-            pp = SSHSessionProcessProtocol(self)
-            self.session.execCommand(pp, f)
-        except:
-            log.deferr()
-            return 0
-        else:
-            self.client = pp
-            return 1
-
-    def request_pty_req(self, data):
-        if not self.session:
-            self.session = ISession(self.avatar)
-        term, windowSize, modes = parseRequest_pty_req(data)
-        log.msg('pty request: %r %r' % (term, windowSize))
-        try:
-            self.session.getPty(term, windowSize, modes)
-        except:
-            log.err()
-            return 0
-        else:
-            return 1
-
-    def request_window_change(self, data):
-        if not self.session:
-            self.session = ISession(self.avatar)
-        winSize = parseRequest_window_change(data)
-        try:
-            self.session.windowChanged(winSize)
-        except:
-            log.msg('error changing window size')
-            log.err()
-            return 0
-        else:
-            return 1
-
-    def dataReceived(self, data):
-        if not self.client:
-            #self.conn.sendClose(self)
-            self.buf += data
-            return
-        self.client.transport.write(data)
-
-    def extReceived(self, dataType, data):
-        if dataType == connection.EXTENDED_DATA_STDERR:
-            if self.client and hasattr(self.client.transport, 'writeErr'):
-                self.client.transport.writeErr(data)
-        else:
-            log.msg('weird extended data: %s'%dataType)
-
-    def eofReceived(self):
-        if self.session:
-            self.session.eofReceived()
-        elif self.client:
-            self.conn.sendClose(self)
-
-    def closed(self):
-        if self.session:
-            self.session.closed()
-        elif self.client:
-            self.client.transport.loseConnection()
-
-    #def closeReceived(self):
-    #    self.loseConnection() # don't know what to do with this
-
-    def loseConnection(self):
-        if self.client:
-            self.client.transport.loseConnection()
-        channel.SSHChannel.loseConnection(self)
-
-class _ProtocolWrapper(protocol.ProcessProtocol):
+class _IKexAlgorithm(Interface):
     """
-    This class wraps a L{Protocol} instance in a L{ProcessProtocol} instance.
-    """
-    def __init__(self, proto):
-        self.proto = proto
-
-    def connectionMade(self): self.proto.connectionMade()
-
-    def outReceived(self, data): self.proto.dataReceived(data)
-
-    def processEnded(self, reason): self.proto.connectionLost(reason)
-
-class _DummyTransport:
-
-    def __init__(self, proto):
-        self.proto = proto
-
-    def dataReceived(self, data):
-        self.proto.transport.write(data)
-
-    def write(self, data):
-        self.proto.dataReceived(data)
-
-    def writeSequence(self, seq):
-        self.write(b''.join(seq))
-
-    def loseConnection(self):
-        self.proto.connectionLost(protocol.connectionDone)
-
-def wrapProcessProtocol(inst):
-    if isinstance(inst, protocol.Protocol):
-        return _ProtocolWrapper(inst)
-    else:
-        return inst
-
-def wrapProtocol(proto):
-    return _DummyTransport(proto)
-
-
-
-# SUPPORTED_SIGNALS is a list of signals that every session channel is supposed
-# to accept.  See RFC 4254
-SUPPORTED_SIGNALS = ["ABRT", "ALRM", "FPE", "HUP", "ILL", "INT", "KILL",
-                     "PIPE", "QUIT", "SEGV", "TERM", "USR1", "USR2"]
-
-
-
-@implementer(interfaces.ITransport)
-class SSHSessionProcessProtocol(protocol.ProcessProtocol):
-    """I am both an L{IProcessProtocol} and an L{ITransport}.
-
-    I am a transport to the remote endpoint and a process protocol to the
-    local subsystem.
+    An L{_IKexAlgorithm} describes a key exchange algorithm.
     """
 
-    # once initialized, a dictionary mapping signal values to strings
-    # that follow RFC 4254.
-    _signalValuesToNames = None
+    preference = Attribute(
+        "An L{int} giving the preference of the algorithm when negotiating "
+        "key exchange. Algorithms with lower precedence values are more "
+        "preferred.")
 
-    def __init__(self, session):
-        self.session = session
-        self.lostOutOrErrFlag = False
-
-    def connectionMade(self):
-        if self.session.buf:
-            self.transport.write(self.session.buf)
-            self.session.buf = None
-
-    def outReceived(self, data):
-        self.session.write(data)
-
-    def errReceived(self, err):
-        self.session.writeExtended(connection.EXTENDED_DATA_STDERR, err)
-
-    def outConnectionLost(self):
-        """
-        EOF should only be sent when both STDOUT and STDERR have been closed.
-        """
-        if self.lostOutOrErrFlag:
-            self.session.conn.sendEOF(self.session)
-        else:
-            self.lostOutOrErrFlag = True
-
-    def errConnectionLost(self):
-        """
-        See outConnectionLost().
-        """
-        self.outConnectionLost()
-
-    def connectionLost(self, reason = None):
-        self.session.loseConnection()
-
-
-    def _getSignalName(self, signum):
-        """
-        Get a signal name given a signal number.
-        """
-        if self._signalValuesToNames is None:
-            self._signalValuesToNames = {}
-            # make sure that the POSIX ones are the defaults
-            for signame in SUPPORTED_SIGNALS:
-                signame = 'SIG' + signame
-                sigvalue = getattr(signal, signame, None)
-                if sigvalue is not None:
-                    self._signalValuesToNames[sigvalue] = signame
-            for k, v in signal.__dict__.items():
-                # Check for platform specific signals, ignoring Python specific
-                # SIG_DFL and SIG_IGN
-                if k.startswith('SIG') and not k.startswith('SIG_'):
-                    if v not in self._signalValuesToNames:
-                        self._signalValuesToNames[v] = k + '@' + sys.platform
-        return self._signalValuesToNames[signum]
-
-
-    def processEnded(self, reason=None):
-        """
-        When we are told the process ended, try to notify the other side about
-        how the process ended using the exit-signal or exit-status requests.
-        Also, close the channel.
-        """
-        if reason is not None:
-            err = reason.value
-            if err.signal is not None:
-                signame = self._getSignalName(err.signal)
-                if (getattr(os, 'WCOREDUMP', None) is not None and
-                    os.WCOREDUMP(err.status)):
-                    log.msg('exitSignal: %s (core dumped)' % (signame,))
-                    coreDumped = 1
-                else:
-                    log.msg('exitSignal: %s' % (signame,))
-                    coreDumped = 0
-                self.session.conn.sendRequest(
-                    self.session, b'exit-signal',
-                    common.NS(networkString(signame[3:])) + chr(coreDumped) +
-                    common.NS(b'') + common.NS(b''))
-            elif err.exitCode is not None:
-                log.msg('exitCode: %r' % (err.exitCode,))
-                self.session.conn.sendRequest(self.session, b'exit-status',
-                        struct.pack('>L', err.exitCode))
-        self.session.loseConnection()
-
-
-    def getHost(self):
-        """
-        Return the host from my session's transport.
-        """
-        return self.session.conn.transport.getHost()
-
-
-    def getPeer(self):
-        """
-        Return the peer from my session's transport.
-        """
-        return self.session.conn.transport.getPeer()
-
-
-    def write(self, data):
-        self.session.write(data)
-
-
-    def writeSequence(self, seq):
-        self.session.write(b''.join(seq))
-
-
-    def loseConnection(self):
-        self.session.loseConnection()
+    hashProcessor = Attribute(
+        "A callable hash algorithm constructor (e.g. C{hashlib.sha256}) "
+        "suitable for use with this key exchange algorithm.")
 
 
 
-class SSHSessionClient(protocol.Protocol):
-
-    def dataReceived(self, data):
-        if self.transport:
-            self.transport.write(data)
-
-# methods factored out to make live easier on server writers
-def parseRequest_pty_req(data):
-    """Parse the data from a pty-req request into usable data.
-
-    @returns: a tuple of (terminal type, (rows, cols, xpixel, ypixel), modes)
+class _IFixedGroupKexAlgorithm(_IKexAlgorithm):
     """
-    term, rest = common.getNS(data)
-    cols, rows, xpixel, ypixel = struct.unpack('>4L', rest[: 16])
-    modes, ignored= common.getNS(rest[16:])
-    winSize = (rows, cols, xpixel, ypixel)
-    modes = [(ord(modes[i:i+1]), struct.unpack('>L', modes[i+1: i+5])[0])
-             for i in range(0, len(modes)-1, 5)]
-    return term, winSize, modes
-
-def packRequest_pty_req(term, geometry, modes):
+    An L{_IFixedGroupKexAlgorithm} describes a key exchange algorithm with a
+    fixed prime / generator group.
     """
-    Pack a pty-req request so that it is suitable for sending.
 
-    NOTE: modes must be packed before being sent here.
+    prime = Attribute(
+        "A L{long} giving the prime number used in Diffie-Hellman key "
+        "exchange, or L{None} if not applicable.")
 
-    @type geometry: L{tuple}
-    @param geometry: A tuple of (rows, columns, xpixel, ypixel)
+    generator = Attribute(
+        "A L{long} giving the generator number used in Diffie-Hellman key "
+        "exchange, or L{None} if not applicable. (This is not related to "
+        "Python generator functions.)")
+
+
+
+class _IEllipticCurveExchangeKexAlgorithm(_IKexAlgorithm):
     """
-    (rows, cols, xpixel, ypixel) = geometry
-    termPacked = common.NS(term)
-    winSizePacked = struct.pack('>4L', cols, rows, xpixel, ypixel)
-    modesPacked = common.NS(modes) # depend on the client packing modes
-    return termPacked + winSizePacked + modesPacked
-
-def parseRequest_window_change(data):
-    """Parse the data from a window-change request into usuable data.
-
-    @returns: a tuple of (rows, cols, xpixel, ypixel)
+    An L{_IEllipticCurveExchangeKexAlgorithm} describes a key exchange algorithm
+    that uses an elliptic curve exchange between the client and server.
     """
-    cols, rows, xpixel, ypixel = struct.unpack('>4L', data)
-    return rows, cols, xpixel, ypixel
 
-def packRequest_window_change(geometry):
-    """
-    Pack a window-change request so that it is suitable for sending.
 
-    @type geometry: L{tuple}
-    @param geometry: A tuple of (rows, columns, xpixel, ypixel)
+
+class _IGroupExchangeKexAlgorithm(_IKexAlgorithm):
     """
-    (rows, cols, xpixel, ypixel) = geometry
-    return struct.pack('>4L', cols, rows, xpixel, ypixel)
+    An L{_IGroupExchangeKexAlgorithm} describes a key exchange algorithm
+    that uses group exchange between the client and server.
+
+    A prime / generator group should be chosen at run time based on the
+    requested size. See RFC 4419.
+    """
+
+
+
+@implementer(_IEllipticCurveExchangeKexAlgorithm)
+class _ECDH256(object):
+    """
+    Elliptic Curve Key Exchange with SHA-256 as HASH. Defined in
+    RFC 5656.
+    """
+    preference = 1
+    hashProcessor = sha256
+
+
+
+@implementer(_IEllipticCurveExchangeKexAlgorithm)
+class _ECDH384(object):
+    """
+    Elliptic Curve Key Exchange with SHA-384 as HASH. Defined in
+    RFC 5656.
+    """
+    preference = 2
+    hashProcessor = sha384
+
+
+
+@implementer(_IEllipticCurveExchangeKexAlgorithm)
+class _ECDH512(object):
+    """
+    Elliptic Curve Key Exchange with SHA-512 as HASH. Defined in
+    RFC 5656.
+    """
+    preference = 3
+    hashProcessor = sha512
+
+
+
+@implementer(_IGroupExchangeKexAlgorithm)
+class _DHGroupExchangeSHA256(object):
+    """
+    Diffie-Hellman Group and Key Exchange with SHA-256 as HASH. Defined in
+    RFC 4419, 4.2.
+    """
+
+    preference = 4
+    hashProcessor = sha256
+
+
+
+@implementer(_IGroupExchangeKexAlgorithm)
+class _DHGroupExchangeSHA1(object):
+    """
+    Diffie-Hellman Group and Key Exchange with SHA-1 as HASH. Defined in
+    RFC 4419, 4.1.
+    """
+
+    preference = 5
+    hashProcessor = sha1
+
+
+
+@implementer(_IFixedGroupKexAlgorithm)
+class _DHGroup14SHA1(object):
+    """
+    Diffie-Hellman key exchange with SHA-1 as HASH and Oakley Group 14
+    (2048-bit MODP Group). Defined in RFC 4253, 8.2.
+    """
+
+    preference = 7
+    hashProcessor = sha1
+    # Diffie-Hellman primes from Oakley Group 14 (RFC 3526, 3).
+    prime = long('32317006071311007300338913926423828248817941241140239112842'
+        '00975140074170663435422261968941736356934711790173790970419175460587'
+        '32091950288537589861856221532121754125149017745202702357960782362488'
+        '84246189477587641105928646099411723245426622522193230540919037680524'
+        '23551912567971587011700105805587765103886184728025797605490356973256'
+        '15261670813393617995413364765591603683178967290731783845896806396719'
+        '00977202194168647225871031411336429319536193471636533209717077448227'
+        '98858856536920864529663607725026895550592836275112117409697299806841'
+        '05543595848665832916421362182310789909994486524682624169720359118525'
+        '07045361090559')
+    generator = 2
+
+
+
+# Which ECDH hash function to use is dependent on the size.
+_kexAlgorithms = {
+    b"diffie-hellman-group-exchange-sha256": _DHGroupExchangeSHA256(),
+    b"diffie-hellman-group-exchange-sha1": _DHGroupExchangeSHA1(),
+    b"diffie-hellman-group14-sha1": _DHGroup14SHA1(),
+    b"ecdh-sha2-nistp256": _ECDH256(),
+    b"ecdh-sha2-nistp384": _ECDH384(),
+    b"ecdh-sha2-nistp521": _ECDH512(),
+    }
+
+
+
+def getKex(kexAlgorithm):
+    """
+    Get a description of a named key exchange algorithm.
+
+    @param kexAlgorithm: The key exchange algorithm name.
+    @type kexAlgorithm: L{bytes}
+
+    @return: A description of the key exchange algorithm named by
+        C{kexAlgorithm}.
+    @rtype: L{_IKexAlgorithm}
+
+    @raises ConchError: if the key exchange algorithm is not found.
+    """
+    if kexAlgorithm not in _kexAlgorithms:
+        raise error.ConchError(
+            "Unsupported key exchange algorithm: %s" % (kexAlgorithm,))
+    return _kexAlgorithms[kexAlgorithm]
+
+
+
+def isEllipticCurve(kexAlgorithm):
+    """
+    Returns C{True} if C{kexAlgorithm} is an elliptic curve.
+
+    @param kexAlgorithm: The key exchange algorithm name.
+    @type kexAlgorithm: C{str}
+
+    @return: C{True} if C{kexAlgorithm} is an elliptic curve,
+        otherwise C{False}.
+    @rtype: C{bool}
+    """
+    return _IEllipticCurveExchangeKexAlgorithm.providedBy(getKex(kexAlgorithm))
+
+
+
+def isFixedGroup(kexAlgorithm):
+    """
+    Returns C{True} if C{kexAlgorithm} has a fixed prime / generator group.
+
+    @param kexAlgorithm: The key exchange algorithm name.
+    @type kexAlgorithm: L{bytes}
+
+    @return: C{True} if C{kexAlgorithm} has a fixed prime / generator group,
+        otherwise C{False}.
+    @rtype: L{bool}
+    """
+    return _IFixedGroupKexAlgorithm.providedBy(getKex(kexAlgorithm))
+
+
+
+def getHashProcessor(kexAlgorithm):
+    """
+    Get the hash algorithm callable to use in key exchange.
+
+    @param kexAlgorithm: The key exchange algorithm name.
+    @type kexAlgorithm: L{bytes}
+
+    @return: A callable hash algorithm constructor (e.g. C{hashlib.sha256}).
+    @rtype: C{callable}
+    """
+    kex = getKex(kexAlgorithm)
+    return kex.hashProcessor
+
+
+
+def getDHGeneratorAndPrime(kexAlgorithm):
+    """
+    Get the generator and the prime to use in key exchange.
+
+    @param kexAlgorithm: The key exchange algorithm name.
+    @type kexAlgorithm: L{bytes}
+
+    @return: A L{tuple} containing L{long} generator and L{long} prime.
+    @rtype: L{tuple}
+    """
+    kex = getKex(kexAlgorithm)
+    return kex.generator, kex.prime
+
+
+
+def getSupportedKeyExchanges():
+    """
+    Get a list of supported key exchange algorithm names in order of
+    preference.
+
+    @return: A C{list} of supported key exchange algorithm names.
+    @rtype: C{list} of L{bytes}
+    """
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from twisted.conch.ssh.keys import _curveTable
+
+    backend = default_backend()
+    kexAlgorithms = _kexAlgorithms.copy()
+    for keyAlgorithm in list(kexAlgorithms):
+        if keyAlgorithm.startswith(b"ecdh"):
+            keyAlgorithmDsa = keyAlgorithm.replace(b"ecdh", b"ecdsa")
+            supported = backend.elliptic_curve_exchange_algorithm_supported(
+                ec.ECDH(), _curveTable[keyAlgorithmDsa])
+            if not supported:
+                kexAlgorithms.pop(keyAlgorithm)
+    return sorted(
+        kexAlgorithms,
+        key = lambda kexAlgorithm: kexAlgorithms[kexAlgorithm].preference)

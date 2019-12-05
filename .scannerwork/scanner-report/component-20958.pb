@@ -1,1 +1,1 @@
-ޣ7venv/lib/python3.6/site-packages/twisted/cred/portal.py 2pyX}h
+ޣ6venv/lib/python3.6/site-packages/twisted/cred/error.py 2pyX.h

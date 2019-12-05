@@ -1,1515 +1,1137 @@
-import collections
-import functools
-import re
-import warnings
-from itertools import chain
+"""
+Accessors for related objects.
 
-from django.core.exceptions import EmptyResultSet, FieldError
-from django.db.models.constants import LOOKUP_SEP
-from django.db.models.expressions import OrderBy, Random, RawSQL, Ref, Subquery
-from django.db.models.query_utils import QueryWrapper, select_related_descend
-from django.db.models.sql.constants import (
-    CURSOR, GET_ITERATOR_CHUNK_SIZE, MULTI, NO_RESULTS, ORDER_DIR, SINGLE,
-)
-from django.db.models.sql.query import Query, get_order_dir
-from django.db.transaction import TransactionManagementError
-from django.db.utils import DatabaseError, NotSupportedError
-from django.utils.deprecation import (
-    RemovedInDjango30Warning, RemovedInDjango31Warning,
-)
-from django.utils.hashable import make_hashable
-from django.utils.inspect import func_supports_parameter
+When a field defines a relation between two models, each model class provides
+an attribute to access related instances of the other model class (unless the
+reverse accessor has been disabled with related_name='+').
 
-FORCE = object()
+Accessors are implemented as descriptors in order to customize access and
+assignment. This module defines the descriptor classes.
+
+Forward accessors follow foreign keys. Reverse accessors trace them back. For
+example, with the following models::
+
+    class Parent(Model):
+        pass
+
+    class Child(Model):
+        parent = ForeignKey(Parent, related_name='children')
+
+ ``child.parent`` is a forward many-to-one relation. ``parent.children`` is a
+reverse many-to-one relation.
+
+There are three types of relations (many-to-one, one-to-one, and many-to-many)
+and two directions (forward and reverse) for a total of six combinations.
+
+1. Related instance on the forward side of a many-to-one relation:
+   ``ForwardManyToOneDescriptor``.
+
+   Uniqueness of foreign key values is irrelevant to accessing the related
+   instance, making the many-to-one and one-to-one cases identical as far as
+   the descriptor is concerned. The constraint is checked upstream (unicity
+   validation in forms) or downstream (unique indexes in the database).
+
+2. Related instance on the forward side of a one-to-one
+   relation: ``ForwardOneToOneDescriptor``.
+
+   It avoids querying the database when accessing the parent link field in
+   a multi-table inheritance scenario.
+
+3. Related instance on the reverse side of a one-to-one relation:
+   ``ReverseOneToOneDescriptor``.
+
+   One-to-one relations are asymmetrical, despite the apparent symmetry of the
+   name, because they're implemented in the database with a foreign key from
+   one table to another. As a consequence ``ReverseOneToOneDescriptor`` is
+   slightly different from ``ForwardManyToOneDescriptor``.
+
+4. Related objects manager for related instances on the reverse side of a
+   many-to-one relation: ``ReverseManyToOneDescriptor``.
+
+   Unlike the previous two classes, this one provides access to a collection
+   of objects. It returns a manager rather than an instance.
+
+5. Related objects manager for related instances on the forward or reverse
+   sides of a many-to-many relation: ``ManyToManyDescriptor``.
+
+   Many-to-many relations are symmetrical. The syntax of Django models
+   requires declaring them on one side but that's an implementation detail.
+   They could be declared on the other side without any change in behavior.
+   Therefore the forward and reverse descriptors can be the same.
+
+   If you're looking for ``ForwardManyToManyDescriptor`` or
+   ``ReverseManyToManyDescriptor``, use ``ManyToManyDescriptor`` instead.
+"""
+
+from django.core.exceptions import FieldError
+from django.db import connections, router, transaction
+from django.db.models import Q, signals
+from django.db.models.query import QuerySet
+from django.utils.functional import cached_property
 
 
-class SQLCompiler:
-    def __init__(self, query, connection, using):
-        self.query = query
-        self.connection = connection
-        self.using = using
-        self.quote_cache = {'*': '*'}
-        # The select, klass_info, and annotations are needed by QuerySet.iterator()
-        # these are set as a side-effect of executing the query. Note that we calculate
-        # separately a list of extra select columns needed for grammatical correctness
-        # of the query, but these columns are not included in self.select.
-        self.select = None
-        self.annotation_col_map = None
-        self.klass_info = None
-        self.ordering_parts = re.compile(r'(.*)\s(ASC|DESC)(.*)')
-        self._meta_ordering = None
+class ForwardManyToOneDescriptor:
+    """
+    Accessor to the related object on the forward side of a many-to-one or
+    one-to-one (via ForwardOneToOneDescriptor subclass) relation.
 
-    def setup_query(self):
-        if all(self.query.alias_refcount[a] == 0 for a in self.query.alias_map):
-            self.query.get_initial_alias()
-        self.select, self.klass_info, self.annotation_col_map = self.get_select()
-        self.col_count = len(self.select)
+    In the example::
 
-    def pre_sql_setup(self):
-        """
-        Do any necessary class setup immediately prior to producing SQL. This
-        is for things that can't necessarily be done in __init__ because we
-        might not have all the pieces in place at that time.
-        """
-        self.setup_query()
-        order_by = self.get_order_by()
-        self.where, self.having = self.query.where.split_having()
-        extra_select = self.get_extra_select(order_by, self.select)
-        self.has_extra_select = bool(extra_select)
-        group_by = self.get_group_by(self.select + extra_select, order_by)
-        return extra_select, order_by, group_by
+        class Child(Model):
+            parent = ForeignKey(Parent, related_name='children')
 
-    def get_group_by(self, select, order_by):
-        """
-        Return a list of 2-tuples of form (sql, params).
+    ``Child.parent`` is a ``ForwardManyToOneDescriptor`` instance.
+    """
 
-        The logic of what exactly the GROUP BY clause contains is hard
-        to describe in other words than "if it passes the test suite,
-        then it is correct".
-        """
-        # Some examples:
-        #     SomeModel.objects.annotate(Count('somecol'))
-        #     GROUP BY: all fields of the model
-        #
-        #    SomeModel.objects.values('name').annotate(Count('somecol'))
-        #    GROUP BY: name
-        #
-        #    SomeModel.objects.annotate(Count('somecol')).values('name')
-        #    GROUP BY: all cols of the model
-        #
-        #    SomeModel.objects.values('name', 'pk').annotate(Count('somecol')).values('pk')
-        #    GROUP BY: name, pk
-        #
-        #    SomeModel.objects.values('name').annotate(Count('somecol')).values('pk')
-        #    GROUP BY: name, pk
-        #
-        # In fact, the self.query.group_by is the minimal set to GROUP BY. It
-        # can't be ever restricted to a smaller set, but additional columns in
-        # HAVING, ORDER BY, and SELECT clauses are added to it. Unfortunately
-        # the end result is that it is impossible to force the query to have
-        # a chosen GROUP BY clause - you can almost do this by using the form:
-        #     .values(*wanted_cols).annotate(AnAggregate())
-        # but any later annotations, extra selects, values calls that
-        # refer some column outside of the wanted_cols, order_by, or even
-        # filter calls can alter the GROUP BY clause.
+    def __init__(self, field_with_rel):
+        self.field = field_with_rel
 
-        # The query.group_by is either None (no GROUP BY at all), True
-        # (group by select fields), or a list of expressions to be added
-        # to the group by.
-        if self.query.group_by is None:
-            return []
-        expressions = []
-        if self.query.group_by is not True:
-            # If the group by is set to a list (by .values() call most likely),
-            # then we need to add everything in it to the GROUP BY clause.
-            # Backwards compatibility hack for setting query.group_by. Remove
-            # when  we have public API way of forcing the GROUP BY clause.
-            # Converts string references to expressions.
-            for expr in self.query.group_by:
-                if not hasattr(expr, 'as_sql'):
-                    expressions.append(self.query.resolve_ref(expr))
-                else:
-                    expressions.append(expr)
-        # Note that even if the group_by is set, it is only the minimal
-        # set to group by. So, we need to add cols in select, order_by, and
-        # having into the select in any case.
-        for expr, _, _ in select:
-            cols = expr.get_group_by_cols()
-            for col in cols:
-                expressions.append(col)
-        for expr, (sql, params, is_ref) in order_by:
-            # Skip References to the select clause, as all expressions in the
-            # select clause are already part of the group by.
-            if not expr.contains_aggregate and not is_ref:
-                expressions.extend(expr.get_source_expressions())
-        having_group_by = self.having.get_group_by_cols() if self.having else ()
-        for expr in having_group_by:
-            expressions.append(expr)
-        result = []
-        seen = set()
-        expressions = self.collapse_group_by(expressions, having_group_by)
-
-        for expr in expressions:
-            sql, params = self.compile(expr)
-            if isinstance(expr, Subquery) and not sql.startswith('('):
-                # Subquery expression from HAVING clause may not contain
-                # wrapping () because they could be removed when a subquery is
-                # the "rhs" in an expression (see Subquery._prepare()).
-                sql = '(%s)' % sql
-            params_hash = make_hashable(params)
-            if (sql, params_hash) not in seen:
-                result.append((sql, params))
-                seen.add((sql, params_hash))
-        return result
-
-    def collapse_group_by(self, expressions, having):
-        # If the DB can group by primary key, then group by the primary key of
-        # query's main model. Note that for PostgreSQL the GROUP BY clause must
-        # include the primary key of every table, but for MySQL it is enough to
-        # have the main table's primary key.
-        if self.connection.features.allows_group_by_pk:
-            # Determine if the main model's primary key is in the query.
-            pk = None
-            for expr in expressions:
-                # Is this a reference to query's base table primary key? If the
-                # expression isn't a Col-like, then skip the expression.
-                if (getattr(expr, 'target', None) == self.query.model._meta.pk and
-                        getattr(expr, 'alias', None) == self.query.base_table):
-                    pk = expr
-                    break
-            # If the main model's primary key is in the query, group by that
-            # field, HAVING expressions, and expressions associated with tables
-            # that don't have a primary key included in the grouped columns.
-            if pk:
-                pk_aliases = {
-                    expr.alias for expr in expressions
-                    if hasattr(expr, 'target') and expr.target.primary_key
-                }
-                expressions = [pk] + [
-                    expr for expr in expressions
-                    if expr in having or (
-                        getattr(expr, 'alias', None) is not None and expr.alias not in pk_aliases
-                    )
-                ]
-        elif self.connection.features.allows_group_by_selected_pks:
-            # Filter out all expressions associated with a table's primary key
-            # present in the grouped columns. This is done by identifying all
-            # tables that have their primary key included in the grouped
-            # columns and removing non-primary key columns referring to them.
-            # Unmanaged models are excluded because they could be representing
-            # database views on which the optimization might not be allowed.
-            pks = {
-                expr for expr in expressions
-                if hasattr(expr, 'target') and expr.target.primary_key and expr.target.model._meta.managed
+    @cached_property
+    def RelatedObjectDoesNotExist(self):
+        # The exception can't be created at initialization time since the
+        # related model might not be resolved yet; `self.field.model` might
+        # still be a string model reference.
+        return type(
+            'RelatedObjectDoesNotExist',
+            (self.field.remote_field.model.DoesNotExist, AttributeError), {
+                '__module__': self.field.model.__module__,
+                '__qualname__': '%s.%s.RelatedObjectDoesNotExist' % (
+                    self.field.model.__qualname__,
+                    self.field.name,
+                ),
             }
-            aliases = {expr.alias for expr in pks}
-            expressions = [
-                expr for expr in expressions if expr in pks or getattr(expr, 'alias', None) not in aliases
-            ]
-        return expressions
+        )
 
-    def get_select(self):
-        """
-        Return three values:
-        - a list of 3-tuples of (expression, (sql, params), alias)
-        - a klass_info structure,
-        - a dictionary of annotations
+    def is_cached(self, instance):
+        return self.field.is_cached(instance)
 
-        The (sql, params) is what the expression will produce, and alias is the
-        "AS alias" for the column (possibly None).
+    def get_queryset(self, **hints):
+        return self.field.remote_field.model._base_manager.db_manager(hints=hints).all()
 
-        The klass_info structure contains the following information:
-        - The base model of the query.
-        - Which columns for that model are present in the query (by
-          position of the select clause).
-        - related_klass_infos: [f, klass_info] to descent into
+    def get_prefetch_queryset(self, instances, queryset=None):
+        if queryset is None:
+            queryset = self.get_queryset()
+        queryset._add_hints(instance=instances[0])
 
-        The annotations is a dictionary of {'attname': column position} values.
-        """
-        select = []
-        klass_info = None
-        annotations = {}
-        select_idx = 0
-        for alias, (sql, params) in self.query.extra_select.items():
-            annotations[alias] = select_idx
-            select.append((RawSQL(sql, params), alias))
-            select_idx += 1
-        assert not (self.query.select and self.query.default_cols)
-        if self.query.default_cols:
-            cols = self.get_default_columns()
+        rel_obj_attr = self.field.get_foreign_related_value
+        instance_attr = self.field.get_local_related_value
+        instances_dict = {instance_attr(inst): inst for inst in instances}
+        related_field = self.field.foreign_related_fields[0]
+        remote_field = self.field.remote_field
+
+        # FIXME: This will need to be revisited when we introduce support for
+        # composite fields. In the meantime we take this practical approach to
+        # solve a regression on 1.6 when the reverse manager in hidden
+        # (related_name ends with a '+'). Refs #21410.
+        # The check for len(...) == 1 is a special case that allows the query
+        # to be join-less and smaller. Refs #21760.
+        if remote_field.is_hidden() or len(self.field.foreign_related_fields) == 1:
+            query = {'%s__in' % related_field.name: {instance_attr(inst)[0] for inst in instances}}
         else:
-            # self.query.select is a special case. These columns never go to
-            # any model.
-            cols = self.query.select
-        if cols:
-            select_list = []
-            for col in cols:
-                select_list.append(select_idx)
-                select.append((col, None))
-                select_idx += 1
-            klass_info = {
-                'model': self.query.model,
-                'select_fields': select_list,
-            }
-        for alias, annotation in self.query.annotation_select.items():
-            annotations[alias] = select_idx
-            select.append((annotation, alias))
-            select_idx += 1
+            query = {'%s__in' % self.field.related_query_name(): instances}
+        queryset = queryset.filter(**query)
 
-        if self.query.select_related:
-            related_klass_infos = self.get_related_selections(select)
-            klass_info['related_klass_infos'] = related_klass_infos
+        # Since we're going to assign directly in the cache,
+        # we must manage the reverse relation cache manually.
+        if not remote_field.multiple:
+            for rel_obj in queryset:
+                instance = instances_dict[rel_obj_attr(rel_obj)]
+                remote_field.set_cached_value(rel_obj, instance)
+        return queryset, rel_obj_attr, instance_attr, True, self.field.get_cache_name(), False
 
-            def get_select_from_parent(klass_info):
-                for ki in klass_info['related_klass_infos']:
-                    if ki['from_parent']:
-                        ki['select_fields'] = (klass_info['select_fields'] +
-                                               ki['select_fields'])
-                    get_select_from_parent(ki)
-            get_select_from_parent(klass_info)
+    def get_object(self, instance):
+        qs = self.get_queryset(instance=instance)
+        # Assuming the database enforces foreign keys, this won't fail.
+        return qs.get(self.field.get_reverse_related_filter(instance))
 
-        ret = []
-        for col, alias in select:
-            try:
-                sql, params = self.compile(col, select_format=True)
-            except EmptyResultSet:
-                # Select a predicate that's always False.
-                sql, params = '0', ()
-            ret.append((col, (sql, params), alias))
-        return ret, klass_info, annotations
-
-    def get_order_by(self):
+    def __get__(self, instance, cls=None):
         """
-        Return a list of 2-tuples of form (expr, (sql, params, is_ref)) for the
-        ORDER BY clause.
+        Get the related instance through the forward relation.
 
-        The order_by clause can alter the select clause (for example it
-        can add aliases to clauses that do not yet have one, or it can
-        add totally new select clauses).
+        With the example above, when getting ``child.parent``:
+
+        - ``self`` is the descriptor managing the ``parent`` attribute
+        - ``instance`` is the ``child`` instance
+        - ``cls`` is the ``Child`` class (we don't need it)
         """
-        if self.query.extra_order_by:
-            ordering = self.query.extra_order_by
-        elif not self.query.default_ordering:
-            ordering = self.query.order_by
-        elif self.query.order_by:
-            ordering = self.query.order_by
-        elif self.query.get_meta().ordering:
-            ordering = self.query.get_meta().ordering
-            self._meta_ordering = ordering
-        else:
-            ordering = []
-        if self.query.standard_ordering:
-            asc, desc = ORDER_DIR['ASC']
-        else:
-            asc, desc = ORDER_DIR['DESC']
+        if instance is None:
+            return self
 
-        order_by = []
-        for field in ordering:
-            if hasattr(field, 'resolve_expression'):
-                if not isinstance(field, OrderBy):
-                    field = field.asc()
-                if not self.query.standard_ordering:
-                    field.reverse_ordering()
-                order_by.append((field, False))
-                continue
-            if field == '?':  # random
-                order_by.append((OrderBy(Random()), False))
-                continue
-
-            col, order = get_order_dir(field, asc)
-            descending = order == 'DESC'
-
-            if col in self.query.annotation_select:
-                # Reference to expression in SELECT clause
-                order_by.append((
-                    OrderBy(Ref(col, self.query.annotation_select[col]), descending=descending),
-                    True))
-                continue
-            if col in self.query.annotations:
-                # References to an expression which is masked out of the SELECT clause
-                order_by.append((
-                    OrderBy(self.query.annotations[col], descending=descending),
-                    False))
-                continue
-
-            if '.' in field:
-                # This came in through an extra(order_by=...) addition. Pass it
-                # on verbatim.
-                table, col = col.split('.', 1)
-                order_by.append((
-                    OrderBy(
-                        RawSQL('%s.%s' % (self.quote_name_unless_alias(table), col), []),
-                        descending=descending
-                    ), False))
-                continue
-
-            if not self.query._extra or col not in self.query._extra:
-                # 'col' is of the form 'field' or 'field1__field2' or
-                # '-field1__field2__field', etc.
-                order_by.extend(self.find_ordering_name(
-                    field, self.query.get_meta(), default_order=asc))
+        # The related instance is loaded from the database and then cached
+        # by the field on the model instance state. It can also be pre-cached
+        # by the reverse accessor (ReverseOneToOneDescriptor).
+        try:
+            rel_obj = self.field.get_cached_value(instance)
+        except KeyError:
+            has_value = None not in self.field.get_local_related_value(instance)
+            ancestor_link = instance._meta.get_ancestor_link(self.field.model) if has_value else None
+            if ancestor_link and ancestor_link.is_cached(instance):
+                # An ancestor link will exist if this field is defined on a
+                # multi-table inheritance parent of the instance's class.
+                ancestor = ancestor_link.get_cached_value(instance)
+                # The value might be cached on an ancestor if the instance
+                # originated from walking down the inheritance chain.
+                rel_obj = self.field.get_cached_value(ancestor, default=None)
             else:
-                if col not in self.query.extra_select:
-                    order_by.append((
-                        OrderBy(RawSQL(*self.query.extra[col]), descending=descending),
-                        False))
-                else:
-                    order_by.append((
-                        OrderBy(Ref(col, RawSQL(*self.query.extra[col])), descending=descending),
-                        True))
-        result = []
-        seen = set()
+                rel_obj = None
+            if rel_obj is None and has_value:
+                rel_obj = self.get_object(instance)
+                remote_field = self.field.remote_field
+                # If this is a one-to-one relation, set the reverse accessor
+                # cache on the related object to the current instance to avoid
+                # an extra SQL query if it's accessed later on.
+                if not remote_field.multiple:
+                    remote_field.set_cached_value(rel_obj, instance)
+            self.field.set_cached_value(instance, rel_obj)
 
-        for expr, is_ref in order_by:
-            resolved = expr.resolve_expression(self.query, allow_joins=True, reuse=None)
-            if self.query.combinator:
-                src = resolved.get_source_expressions()[0]
-                # Relabel order by columns to raw numbers if this is a combined
-                # query; necessary since the columns can't be referenced by the
-                # fully qualified name and the simple column names may collide.
-                for idx, (sel_expr, _, col_alias) in enumerate(self.select):
-                    if is_ref and col_alias == src.refs:
-                        src = src.source
-                    elif col_alias:
-                        continue
-                    if src == sel_expr:
-                        resolved.set_source_expressions([RawSQL('%d' % (idx + 1), ())])
-                        break
-                else:
-                    raise DatabaseError('ORDER BY term does not match any column in the result set.')
-            sql, params = self.compile(resolved)
-            # Don't add the same column twice, but the order direction is
-            # not taken into account so we strip it. When this entire method
-            # is refactored into expressions, then we can check each part as we
-            # generate it.
-            without_ordering = self.ordering_parts.search(sql).group(1)
-            params_hash = make_hashable(params)
-            if (without_ordering, params_hash) in seen:
-                continue
-            seen.add((without_ordering, params_hash))
-            result.append((resolved, (sql, params, is_ref)))
-        return result
-
-    def get_extra_select(self, order_by, select):
-        extra_select = []
-        if self.query.distinct and not self.query.distinct_fields:
-            select_sql = [t[1] for t in select]
-            for expr, (sql, params, is_ref) in order_by:
-                without_ordering = self.ordering_parts.search(sql).group(1)
-                if not is_ref and (without_ordering, params) not in select_sql:
-                    extra_select.append((expr, (without_ordering, params), None))
-        return extra_select
-
-    def quote_name_unless_alias(self, name):
-        """
-        A wrapper around connection.ops.quote_name that doesn't quote aliases
-        for table names. This avoids problems with some SQL dialects that treat
-        quoted strings specially (e.g. PostgreSQL).
-        """
-        if name in self.quote_cache:
-            return self.quote_cache[name]
-        if ((name in self.query.alias_map and name not in self.query.table_map) or
-                name in self.query.extra_select or (
-                    name in self.query.external_aliases and name not in self.query.table_map)):
-            self.quote_cache[name] = name
-            return name
-        r = self.connection.ops.quote_name(name)
-        self.quote_cache[name] = r
-        return r
-
-    def compile(self, node, select_format=False):
-        vendor_impl = getattr(node, 'as_' + self.connection.vendor, None)
-        if vendor_impl:
-            sql, params = vendor_impl(self, self.connection)
+        if rel_obj is None and not self.field.null:
+            raise self.RelatedObjectDoesNotExist(
+                "%s has no %s." % (self.field.model.__name__, self.field.name)
+            )
         else:
-            sql, params = node.as_sql(self, self.connection)
-        if select_format is FORCE or (select_format and not self.query.subquery):
-            return node.output_field.select_format(self, sql, params)
-        return sql, params
+            return rel_obj
 
-    def get_combinator_sql(self, combinator, all):
-        features = self.connection.features
-        compilers = [
-            query.get_compiler(self.using, self.connection)
-            for query in self.query.combined_queries if not query.is_empty()
-        ]
-        if not features.supports_slicing_ordering_in_compound:
-            for query, compiler in zip(self.query.combined_queries, compilers):
-                if query.low_mark or query.high_mark:
-                    raise DatabaseError('LIMIT/OFFSET not allowed in subqueries of compound statements.')
-                if compiler.get_order_by():
-                    raise DatabaseError('ORDER BY not allowed in subqueries of compound statements.')
-        parts = ()
-        for compiler in compilers:
+    def __set__(self, instance, value):
+        """
+        Set the related instance through the forward relation.
+
+        With the example above, when setting ``child.parent = parent``:
+
+        - ``self`` is the descriptor managing the ``parent`` attribute
+        - ``instance`` is the ``child`` instance
+        - ``value`` is the ``parent`` instance on the right of the equal sign
+        """
+        # An object must be an instance of the related class.
+        if value is not None and not isinstance(value, self.field.remote_field.model._meta.concrete_model):
+            raise ValueError(
+                'Cannot assign "%r": "%s.%s" must be a "%s" instance.' % (
+                    value,
+                    instance._meta.object_name,
+                    self.field.name,
+                    self.field.remote_field.model._meta.object_name,
+                )
+            )
+        elif value is not None:
+            if instance._state.db is None:
+                instance._state.db = router.db_for_write(instance.__class__, instance=value)
+            if value._state.db is None:
+                value._state.db = router.db_for_write(value.__class__, instance=instance)
+            if not router.allow_relation(value, instance):
+                raise ValueError('Cannot assign "%r": the current database router prevents this relation.' % value)
+
+        remote_field = self.field.remote_field
+        # If we're setting the value of a OneToOneField to None, we need to clear
+        # out the cache on any old related object. Otherwise, deleting the
+        # previously-related object will also cause this object to be deleted,
+        # which is wrong.
+        if value is None:
+            # Look up the previously-related object, which may still be available
+            # since we've not yet cleared out the related field.
+            # Use the cache directly, instead of the accessor; if we haven't
+            # populated the cache, then we don't care - we're only accessing
+            # the object to invalidate the accessor cache, so there's no
+            # need to populate the cache just to expire it again.
+            related = self.field.get_cached_value(instance, default=None)
+
+            # If we've got an old related object, we need to clear out its
+            # cache. This cache also might not exist if the related object
+            # hasn't been accessed yet.
+            if related is not None:
+                remote_field.set_cached_value(related, None)
+
+            for lh_field, rh_field in self.field.related_fields:
+                setattr(instance, lh_field.attname, None)
+
+        # Set the values of the related field.
+        else:
+            for lh_field, rh_field in self.field.related_fields:
+                setattr(instance, lh_field.attname, getattr(value, rh_field.attname))
+
+        # Set the related instance cache used by __get__ to avoid an SQL query
+        # when accessing the attribute we just set.
+        self.field.set_cached_value(instance, value)
+
+        # If this is a one-to-one relation, set the reverse accessor cache on
+        # the related object to the current instance to avoid an extra SQL
+        # query if it's accessed later on.
+        if value is not None and not remote_field.multiple:
+            remote_field.set_cached_value(value, instance)
+
+    def __reduce__(self):
+        """
+        Pickling should return the instance attached by self.field on the
+        model, not a new copy of that descriptor. Use getattr() to retrieve
+        the instance directly from the model.
+        """
+        return getattr, (self.field.model, self.field.name)
+
+
+class ForwardOneToOneDescriptor(ForwardManyToOneDescriptor):
+    """
+    Accessor to the related object on the forward side of a one-to-one relation.
+
+    In the example::
+
+        class Restaurant(Model):
+            place = OneToOneField(Place, related_name='restaurant')
+
+    ``Restaurant.place`` is a ``ForwardOneToOneDescriptor`` instance.
+    """
+
+    def get_object(self, instance):
+        if self.field.remote_field.parent_link:
+            deferred = instance.get_deferred_fields()
+            # Because it's a parent link, all the data is available in the
+            # instance, so populate the parent model with this data.
+            rel_model = self.field.remote_field.model
+            fields = [field.attname for field in rel_model._meta.concrete_fields]
+
+            # If any of the related model's fields are deferred, fallback to
+            # fetching all fields from the related model. This avoids a query
+            # on the related model for every deferred field.
+            if not any(field in fields for field in deferred):
+                kwargs = {field: getattr(instance, field) for field in fields}
+                obj = rel_model(**kwargs)
+                obj._state.adding = instance._state.adding
+                obj._state.db = instance._state.db
+                return obj
+        return super().get_object(instance)
+
+    def __set__(self, instance, value):
+        super().__set__(instance, value)
+        # If the primary key is a link to a parent model and a parent instance
+        # is being set, update the value of the inherited pk(s).
+        if self.field.primary_key and self.field.remote_field.parent_link:
+            opts = instance._meta
+            # Inherited primary key fields from this object's base classes.
+            inherited_pk_fields = [
+                field for field in opts.concrete_fields
+                if field.primary_key and field.remote_field
+            ]
+            for field in inherited_pk_fields:
+                rel_model_pk_name = field.remote_field.model._meta.pk.attname
+                raw_value = getattr(value, rel_model_pk_name) if value is not None else None
+                setattr(instance, rel_model_pk_name, raw_value)
+
+
+class ReverseOneToOneDescriptor:
+    """
+    Accessor to the related object on the reverse side of a one-to-one
+    relation.
+
+    In the example::
+
+        class Restaurant(Model):
+            place = OneToOneField(Place, related_name='restaurant')
+
+    ``Place.restaurant`` is a ``ReverseOneToOneDescriptor`` instance.
+    """
+
+    def __init__(self, related):
+        # Following the example above, `related` is an instance of OneToOneRel
+        # which represents the reverse restaurant field (place.restaurant).
+        self.related = related
+
+    @cached_property
+    def RelatedObjectDoesNotExist(self):
+        # The exception isn't created at initialization time for the sake of
+        # consistency with `ForwardManyToOneDescriptor`.
+        return type(
+            'RelatedObjectDoesNotExist',
+            (self.related.related_model.DoesNotExist, AttributeError), {
+                '__module__': self.related.model.__module__,
+                '__qualname__': '%s.%s.RelatedObjectDoesNotExist' % (
+                    self.related.model.__qualname__,
+                    self.related.name,
+                )
+            },
+        )
+
+    def is_cached(self, instance):
+        return self.related.is_cached(instance)
+
+    def get_queryset(self, **hints):
+        return self.related.related_model._base_manager.db_manager(hints=hints).all()
+
+    def get_prefetch_queryset(self, instances, queryset=None):
+        if queryset is None:
+            queryset = self.get_queryset()
+        queryset._add_hints(instance=instances[0])
+
+        rel_obj_attr = self.related.field.get_local_related_value
+        instance_attr = self.related.field.get_foreign_related_value
+        instances_dict = {instance_attr(inst): inst for inst in instances}
+        query = {'%s__in' % self.related.field.name: instances}
+        queryset = queryset.filter(**query)
+
+        # Since we're going to assign directly in the cache,
+        # we must manage the reverse relation cache manually.
+        for rel_obj in queryset:
+            instance = instances_dict[rel_obj_attr(rel_obj)]
+            self.related.field.set_cached_value(rel_obj, instance)
+        return queryset, rel_obj_attr, instance_attr, True, self.related.get_cache_name(), False
+
+    def __get__(self, instance, cls=None):
+        """
+        Get the related instance through the reverse relation.
+
+        With the example above, when getting ``place.restaurant``:
+
+        - ``self`` is the descriptor managing the ``restaurant`` attribute
+        - ``instance`` is the ``place`` instance
+        - ``cls`` is the ``Place`` class (unused)
+
+        Keep in mind that ``Restaurant`` holds the foreign key to ``Place``.
+        """
+        if instance is None:
+            return self
+
+        # The related instance is loaded from the database and then cached
+        # by the field on the model instance state. It can also be pre-cached
+        # by the forward accessor (ForwardManyToOneDescriptor).
+        try:
+            rel_obj = self.related.get_cached_value(instance)
+        except KeyError:
+            related_pk = instance.pk
+            if related_pk is None:
+                rel_obj = None
+            else:
+                filter_args = self.related.field.get_forward_related_filter(instance)
+                try:
+                    rel_obj = self.get_queryset(instance=instance).get(**filter_args)
+                except self.related.related_model.DoesNotExist:
+                    rel_obj = None
+                else:
+                    # Set the forward accessor cache on the related object to
+                    # the current instance to avoid an extra SQL query if it's
+                    # accessed later on.
+                    self.related.field.set_cached_value(rel_obj, instance)
+            self.related.set_cached_value(instance, rel_obj)
+
+        if rel_obj is None:
+            raise self.RelatedObjectDoesNotExist(
+                "%s has no %s." % (
+                    instance.__class__.__name__,
+                    self.related.get_accessor_name()
+                )
+            )
+        else:
+            return rel_obj
+
+    def __set__(self, instance, value):
+        """
+        Set the related instance through the reverse relation.
+
+        With the example above, when setting ``place.restaurant = restaurant``:
+
+        - ``self`` is the descriptor managing the ``restaurant`` attribute
+        - ``instance`` is the ``place`` instance
+        - ``value`` is the ``restaurant`` instance on the right of the equal sign
+
+        Keep in mind that ``Restaurant`` holds the foreign key to ``Place``.
+        """
+        # The similarity of the code below to the code in
+        # ForwardManyToOneDescriptor is annoying, but there's a bunch
+        # of small differences that would make a common base class convoluted.
+
+        if value is None:
+            # Update the cached related instance (if any) & clear the cache.
+            # Following the example above, this would be the cached
+            # ``restaurant`` instance (if any).
+            rel_obj = self.related.get_cached_value(instance, default=None)
+            if rel_obj is not None:
+                # Remove the ``restaurant`` instance from the ``place``
+                # instance cache.
+                self.related.delete_cached_value(instance)
+                # Set the ``place`` field on the ``restaurant``
+                # instance to None.
+                setattr(rel_obj, self.related.field.name, None)
+        elif not isinstance(value, self.related.related_model):
+            # An object must be an instance of the related class.
+            raise ValueError(
+                'Cannot assign "%r": "%s.%s" must be a "%s" instance.' % (
+                    value,
+                    instance._meta.object_name,
+                    self.related.get_accessor_name(),
+                    self.related.related_model._meta.object_name,
+                )
+            )
+        else:
+            if instance._state.db is None:
+                instance._state.db = router.db_for_write(instance.__class__, instance=value)
+            if value._state.db is None:
+                value._state.db = router.db_for_write(value.__class__, instance=instance)
+            if not router.allow_relation(value, instance):
+                raise ValueError('Cannot assign "%r": the current database router prevents this relation.' % value)
+
+            related_pk = tuple(getattr(instance, field.attname) for field in self.related.field.foreign_related_fields)
+            # Set the value of the related field to the value of the related object's related field
+            for index, field in enumerate(self.related.field.local_related_fields):
+                setattr(value, field.attname, related_pk[index])
+
+            # Set the related instance cache used by __get__ to avoid an SQL query
+            # when accessing the attribute we just set.
+            self.related.set_cached_value(instance, value)
+
+            # Set the forward accessor cache on the related object to the current
+            # instance to avoid an extra SQL query if it's accessed later on.
+            self.related.field.set_cached_value(value, instance)
+
+    def __reduce__(self):
+        # Same purpose as ForwardManyToOneDescriptor.__reduce__().
+        return getattr, (self.related.model, self.related.name)
+
+
+class ReverseManyToOneDescriptor:
+    """
+    Accessor to the related objects manager on the reverse side of a
+    many-to-one relation.
+
+    In the example::
+
+        class Child(Model):
+            parent = ForeignKey(Parent, related_name='children')
+
+    ``Parent.children`` is a ``ReverseManyToOneDescriptor`` instance.
+
+    Most of the implementation is delegated to a dynamically defined manager
+    class built by ``create_forward_many_to_many_manager()`` defined below.
+    """
+
+    def __init__(self, rel):
+        self.rel = rel
+        self.field = rel.field
+
+    @cached_property
+    def related_manager_cls(self):
+        related_model = self.rel.related_model
+
+        return create_reverse_many_to_one_manager(
+            related_model._default_manager.__class__,
+            self.rel,
+        )
+
+    def __get__(self, instance, cls=None):
+        """
+        Get the related objects through the reverse relation.
+
+        With the example above, when getting ``parent.children``:
+
+        - ``self`` is the descriptor managing the ``children`` attribute
+        - ``instance`` is the ``parent`` instance
+        - ``cls`` is the ``Parent`` class (unused)
+        """
+        if instance is None:
+            return self
+
+        return self.related_manager_cls(instance)
+
+    def _get_set_deprecation_msg_params(self):
+        return (
+            'reverse side of a related set',
+            self.rel.get_accessor_name(),
+        )
+
+    def __set__(self, instance, value):
+        raise TypeError(
+            'Direct assignment to the %s is prohibited. Use %s.set() instead.'
+            % self._get_set_deprecation_msg_params(),
+        )
+
+
+def create_reverse_many_to_one_manager(superclass, rel):
+    """
+    Create a manager for the reverse side of a many-to-one relation.
+
+    This manager subclasses another manager, generally the default manager of
+    the related model, and adds behaviors specific to many-to-one relations.
+    """
+
+    class RelatedManager(superclass):
+        def __init__(self, instance):
+            super().__init__()
+
+            self.instance = instance
+            self.model = rel.related_model
+            self.field = rel.field
+
+            self.core_filters = {self.field.name: instance}
+
+        def __call__(self, *, manager):
+            manager = getattr(self.model, manager)
+            manager_class = create_reverse_many_to_one_manager(manager.__class__, rel)
+            return manager_class(self.instance)
+        do_not_call_in_templates = True
+
+        def _apply_rel_filters(self, queryset):
+            """
+            Filter the queryset for the instance this manager is bound to.
+            """
+            db = self._db or router.db_for_read(self.model, instance=self.instance)
+            empty_strings_as_null = connections[db].features.interprets_empty_strings_as_nulls
+            queryset._add_hints(instance=self.instance)
+            if self._db:
+                queryset = queryset.using(self._db)
+            queryset = queryset.filter(**self.core_filters)
+            for field in self.field.foreign_related_fields:
+                val = getattr(self.instance, field.attname)
+                if val is None or (val == '' and empty_strings_as_null):
+                    return queryset.none()
+            if self.field.many_to_one:
+                # Guard against field-like objects such as GenericRelation
+                # that abuse create_reverse_many_to_one_manager() with reverse
+                # one-to-many relationships instead and break known related
+                # objects assignment.
+                try:
+                    target_field = self.field.target_field
+                except FieldError:
+                    # The relationship has multiple target fields. Use a tuple
+                    # for related object id.
+                    rel_obj_id = tuple([
+                        getattr(self.instance, target_field.attname)
+                        for target_field in self.field.get_path_info()[-1].target_fields
+                    ])
+                else:
+                    rel_obj_id = getattr(self.instance, target_field.attname)
+                queryset._known_related_objects = {self.field: {rel_obj_id: self.instance}}
+            return queryset
+
+        def _remove_prefetched_objects(self):
             try:
-                # If the columns list is limited, then all combined queries
-                # must have the same columns list. Set the selects defined on
-                # the query on all combined queries, if not already set.
-                if not compiler.query.values_select and self.query.values_select:
-                    compiler.query.set_values((
-                        *self.query.extra_select,
-                        *self.query.values_select,
-                        *self.query.annotation_select,
+                self.instance._prefetched_objects_cache.pop(self.field.remote_field.get_cache_name())
+            except (AttributeError, KeyError):
+                pass  # nothing to clear from cache
+
+        def get_queryset(self):
+            try:
+                return self.instance._prefetched_objects_cache[self.field.remote_field.get_cache_name()]
+            except (AttributeError, KeyError):
+                queryset = super().get_queryset()
+                return self._apply_rel_filters(queryset)
+
+        def get_prefetch_queryset(self, instances, queryset=None):
+            if queryset is None:
+                queryset = super().get_queryset()
+
+            queryset._add_hints(instance=instances[0])
+            queryset = queryset.using(queryset._db or self._db)
+
+            rel_obj_attr = self.field.get_local_related_value
+            instance_attr = self.field.get_foreign_related_value
+            instances_dict = {instance_attr(inst): inst for inst in instances}
+            query = {'%s__in' % self.field.name: instances}
+            queryset = queryset.filter(**query)
+
+            # Since we just bypassed this class' get_queryset(), we must manage
+            # the reverse relation manually.
+            for rel_obj in queryset:
+                instance = instances_dict[rel_obj_attr(rel_obj)]
+                setattr(rel_obj, self.field.name, instance)
+            cache_name = self.field.remote_field.get_cache_name()
+            return queryset, rel_obj_attr, instance_attr, False, cache_name, False
+
+        def add(self, *objs, bulk=True):
+            self._remove_prefetched_objects()
+            objs = list(objs)
+            db = router.db_for_write(self.model, instance=self.instance)
+
+            def check_and_update_obj(obj):
+                if not isinstance(obj, self.model):
+                    raise TypeError("'%s' instance expected, got %r" % (
+                        self.model._meta.object_name, obj,
                     ))
-                part_sql, part_args = compiler.as_sql()
-                if compiler.query.combinator:
-                    # Wrap in a subquery if wrapping in parentheses isn't
-                    # supported.
-                    if not features.supports_parentheses_in_compound:
-                        part_sql = 'SELECT * FROM ({})'.format(part_sql)
-                    # Add parentheses when combining with compound query if not
-                    # already added for all compound queries.
-                    elif not features.supports_slicing_ordering_in_compound:
-                        part_sql = '({})'.format(part_sql)
-                parts += ((part_sql, part_args),)
-            except EmptyResultSet:
-                # Omit the empty queryset with UNION and with DIFFERENCE if the
-                # first queryset is nonempty.
-                if combinator == 'union' or (combinator == 'difference' and parts):
-                    continue
-                raise
-        if not parts:
-            raise EmptyResultSet
-        combinator_sql = self.connection.ops.set_operators[combinator]
-        if all and combinator == 'union':
-            combinator_sql += ' ALL'
-        braces = '({})' if features.supports_slicing_ordering_in_compound else '{}'
-        sql_parts, args_parts = zip(*((braces.format(sql), args) for sql, args in parts))
-        result = [' {} '.format(combinator_sql).join(sql_parts)]
-        params = []
-        for part in args_parts:
-            params.extend(part)
-        return result, params
+                setattr(obj, self.field.name, self.instance)
 
-    def as_sql(self, with_limits=True, with_col_aliases=False):
-        """
-        Create the SQL for this query. Return the SQL string and list of
-        parameters.
-
-        If 'with_limits' is False, any limit/offset information is not included
-        in the query.
-        """
-        refcounts_before = self.query.alias_refcount.copy()
-        try:
-            extra_select, order_by, group_by = self.pre_sql_setup()
-            for_update_part = None
-            # Is a LIMIT/OFFSET clause needed?
-            with_limit_offset = with_limits and (self.query.high_mark is not None or self.query.low_mark)
-            combinator = self.query.combinator
-            features = self.connection.features
-            if combinator:
-                if not getattr(features, 'supports_select_{}'.format(combinator)):
-                    raise NotSupportedError('{} is not supported on this database backend.'.format(combinator))
-                result, params = self.get_combinator_sql(combinator, self.query.combinator_all)
+            if bulk:
+                pks = []
+                for obj in objs:
+                    check_and_update_obj(obj)
+                    if obj._state.adding or obj._state.db != db:
+                        raise ValueError(
+                            "%r instance isn't saved. Use bulk=False or save "
+                            "the object first." % obj
+                        )
+                    pks.append(obj.pk)
+                self.model._base_manager.using(db).filter(pk__in=pks).update(**{
+                    self.field.name: self.instance,
+                })
             else:
-                distinct_fields, distinct_params = self.get_distinct()
-                # This must come after 'select', 'ordering', and 'distinct'
-                # (see docstring of get_from_clause() for details).
-                from_, f_params = self.get_from_clause()
-                where, w_params = self.compile(self.where) if self.where is not None else ("", [])
-                having, h_params = self.compile(self.having) if self.having is not None else ("", [])
-                result = ['SELECT']
-                params = []
+                with transaction.atomic(using=db, savepoint=False):
+                    for obj in objs:
+                        check_and_update_obj(obj)
+                        obj.save()
+        add.alters_data = True
 
-                if self.query.distinct:
-                    distinct_result, distinct_params = self.connection.ops.distinct_sql(
-                        distinct_fields,
-                        distinct_params,
-                    )
-                    result += distinct_result
-                    params += distinct_params
+        def create(self, **kwargs):
+            kwargs[self.field.name] = self.instance
+            db = router.db_for_write(self.model, instance=self.instance)
+            return super(RelatedManager, self.db_manager(db)).create(**kwargs)
+        create.alters_data = True
 
-                out_cols = []
-                col_idx = 1
-                for _, (s_sql, s_params), alias in self.select + extra_select:
-                    if alias:
-                        s_sql = '%s AS %s' % (s_sql, self.connection.ops.quote_name(alias))
-                    elif with_col_aliases:
-                        s_sql = '%s AS %s' % (s_sql, 'Col%d' % col_idx)
-                        col_idx += 1
-                    params.extend(s_params)
-                    out_cols.append(s_sql)
+        def get_or_create(self, **kwargs):
+            kwargs[self.field.name] = self.instance
+            db = router.db_for_write(self.model, instance=self.instance)
+            return super(RelatedManager, self.db_manager(db)).get_or_create(**kwargs)
+        get_or_create.alters_data = True
 
-                result += [', '.join(out_cols), 'FROM', *from_]
-                params.extend(f_params)
+        def update_or_create(self, **kwargs):
+            kwargs[self.field.name] = self.instance
+            db = router.db_for_write(self.model, instance=self.instance)
+            return super(RelatedManager, self.db_manager(db)).update_or_create(**kwargs)
+        update_or_create.alters_data = True
 
-                if self.query.select_for_update and self.connection.features.has_select_for_update:
-                    if self.connection.get_autocommit():
-                        raise TransactionManagementError('select_for_update cannot be used outside of a transaction.')
-
-                    if with_limit_offset and not self.connection.features.supports_select_for_update_with_limit:
-                        raise NotSupportedError(
-                            'LIMIT/OFFSET is not supported with '
-                            'select_for_update on this database backend.'
-                        )
-                    nowait = self.query.select_for_update_nowait
-                    skip_locked = self.query.select_for_update_skip_locked
-                    of = self.query.select_for_update_of
-                    # If it's a NOWAIT/SKIP LOCKED/OF query but the backend
-                    # doesn't support it, raise NotSupportedError to prevent a
-                    # possible deadlock.
-                    if nowait and not self.connection.features.has_select_for_update_nowait:
-                        raise NotSupportedError('NOWAIT is not supported on this database backend.')
-                    elif skip_locked and not self.connection.features.has_select_for_update_skip_locked:
-                        raise NotSupportedError('SKIP LOCKED is not supported on this database backend.')
-                    elif of and not self.connection.features.has_select_for_update_of:
-                        raise NotSupportedError('FOR UPDATE OF is not supported on this database backend.')
-                    for_update_part = self.connection.ops.for_update_sql(
-                        nowait=nowait,
-                        skip_locked=skip_locked,
-                        of=self.get_select_for_update_of_arguments(),
-                    )
-
-                if for_update_part and self.connection.features.for_update_after_from:
-                    result.append(for_update_part)
-
-                if where:
-                    result.append('WHERE %s' % where)
-                    params.extend(w_params)
-
-                grouping = []
-                for g_sql, g_params in group_by:
-                    grouping.append(g_sql)
-                    params.extend(g_params)
-                if grouping:
-                    if distinct_fields:
-                        raise NotImplementedError('annotate() + distinct(fields) is not implemented.')
-                    order_by = order_by or self.connection.ops.force_no_ordering()
-                    result.append('GROUP BY %s' % ', '.join(grouping))
-                    if self._meta_ordering:
-                        # When the deprecation ends, replace with:
-                        # order_by = None
-                        warnings.warn(
-                            "%s QuerySet won't use Meta.ordering in Django 3.1. "
-                            "Add .order_by(%s) to retain the current query." % (
-                                self.query.model.__name__,
-                                ', '.join(repr(f) for f in self._meta_ordering),
-                            ),
-                            RemovedInDjango31Warning,
-                            stacklevel=4,
-                        )
-                if having:
-                    result.append('HAVING %s' % having)
-                    params.extend(h_params)
-
-            if self.query.explain_query:
-                result.insert(0, self.connection.ops.explain_query_prefix(
-                    self.query.explain_format,
-                    **self.query.explain_options
-                ))
-
-            if order_by:
-                ordering = []
-                for _, (o_sql, o_params, _) in order_by:
-                    ordering.append(o_sql)
-                    params.extend(o_params)
-                result.append('ORDER BY %s' % ', '.join(ordering))
-
-            if with_limit_offset:
-                result.append(self.connection.ops.limit_offset_sql(self.query.low_mark, self.query.high_mark))
-
-            if for_update_part and not self.connection.features.for_update_after_from:
-                result.append(for_update_part)
-
-            if self.query.subquery and extra_select:
-                # If the query is used as a subquery, the extra selects would
-                # result in more columns than the left-hand side expression is
-                # expecting. This can happen when a subquery uses a combination
-                # of order_by() and distinct(), forcing the ordering expressions
-                # to be selected as well. Wrap the query in another subquery
-                # to exclude extraneous selects.
-                sub_selects = []
-                sub_params = []
-                for index, (select, _, alias) in enumerate(self.select, start=1):
-                    if not alias and with_col_aliases:
-                        alias = 'col%d' % index
-                    if alias:
-                        sub_selects.append("%s.%s" % (
-                            self.connection.ops.quote_name('subquery'),
-                            self.connection.ops.quote_name(alias),
-                        ))
+        # remove() and clear() are only provided if the ForeignKey can have a value of null.
+        if rel.field.null:
+            def remove(self, *objs, bulk=True):
+                if not objs:
+                    return
+                val = self.field.get_foreign_related_value(self.instance)
+                old_ids = set()
+                for obj in objs:
+                    # Is obj actually part of this descriptor set?
+                    if self.field.get_local_related_value(obj) == val:
+                        old_ids.add(obj.pk)
                     else:
-                        select_clone = select.relabeled_clone({select.alias: 'subquery'})
-                        subselect, subparams = select_clone.as_sql(self, self.connection)
-                        sub_selects.append(subselect)
-                        sub_params.extend(subparams)
-                return 'SELECT %s FROM (%s) subquery' % (
-                    ', '.join(sub_selects),
-                    ' '.join(result),
-                ), tuple(sub_params + params)
-
-            return ' '.join(result), tuple(params)
-        finally:
-            # Finally do cleanup - get rid of the joins we created above.
-            self.query.reset_refcounts(refcounts_before)
-
-    def get_default_columns(self, start_alias=None, opts=None, from_parent=None):
-        """
-        Compute the default columns for selecting every field in the base
-        model. Will sometimes be called to pull in related models (e.g. via
-        select_related), in which case "opts" and "start_alias" will be given
-        to provide a starting point for the traversal.
-
-        Return a list of strings, quoted appropriately for use in SQL
-        directly, as well as a set of aliases used in the select statement (if
-        'as_pairs' is True, return a list of (alias, col_name) pairs instead
-        of strings as the first component and None as the second component).
-        """
-        result = []
-        if opts is None:
-            opts = self.query.get_meta()
-        only_load = self.deferred_to_columns()
-        start_alias = start_alias or self.query.get_initial_alias()
-        # The 'seen_models' is used to optimize checking the needed parent
-        # alias for a given field. This also includes None -> start_alias to
-        # be used by local fields.
-        seen_models = {None: start_alias}
-
-        for field in opts.concrete_fields:
-            model = field.model._meta.concrete_model
-            # A proxy model will have a different model and concrete_model. We
-            # will assign None if the field belongs to this model.
-            if model == opts.model:
-                model = None
-            if from_parent and model is not None and issubclass(
-                    from_parent._meta.concrete_model, model._meta.concrete_model):
-                # Avoid loading data for already loaded parents.
-                # We end up here in the case select_related() resolution
-                # proceeds from parent model to child model. In that case the
-                # parent model data is already present in the SELECT clause,
-                # and we want to avoid reloading the same data again.
-                continue
-            if field.model in only_load and field.attname not in only_load[field.model]:
-                continue
-            alias = self.query.join_parent_model(opts, model, start_alias,
-                                                 seen_models)
-            column = field.get_col(alias)
-            result.append(column)
-        return result
-
-    def get_distinct(self):
-        """
-        Return a quoted list of fields to use in DISTINCT ON part of the query.
-
-        This method can alter the tables in the query, and thus it must be
-        called before get_from_clause().
-        """
-        result = []
-        params = []
-        opts = self.query.get_meta()
-
-        for name in self.query.distinct_fields:
-            parts = name.split(LOOKUP_SEP)
-            _, targets, alias, joins, path, _, transform_function = self._setup_joins(parts, opts, None)
-            targets, alias, _ = self.query.trim_joins(targets, joins, path)
-            for target in targets:
-                if name in self.query.annotation_select:
-                    result.append(name)
-                else:
-                    r, p = self.compile(transform_function(target, alias))
-                    result.append(r)
-                    params.append(p)
-        return result, params
-
-    def find_ordering_name(self, name, opts, alias=None, default_order='ASC',
-                           already_seen=None):
-        """
-        Return the table alias (the name might be ambiguous, the alias will
-        not be) and column name for ordering by the given 'name' parameter.
-        The 'name' is of the form 'field1__field2__...__fieldN'.
-        """
-        name, order = get_order_dir(name, default_order)
-        descending = order == 'DESC'
-        pieces = name.split(LOOKUP_SEP)
-        field, targets, alias, joins, path, opts, transform_function = self._setup_joins(pieces, opts, alias)
-
-        # If we get to this point and the field is a relation to another model,
-        # append the default ordering for that model unless the attribute name
-        # of the field is specified.
-        if field.is_relation and opts.ordering and getattr(field, 'attname', None) != name:
-            # Firstly, avoid infinite loops.
-            already_seen = already_seen or set()
-            join_tuple = tuple(getattr(self.query.alias_map[j], 'join_cols', None) for j in joins)
-            if join_tuple in already_seen:
-                raise FieldError('Infinite loop caused by ordering.')
-            already_seen.add(join_tuple)
-
-            results = []
-            for item in opts.ordering:
-                results.extend(self.find_ordering_name(item, opts, alias,
-                                                       order, already_seen))
-            return results
-        targets, alias, _ = self.query.trim_joins(targets, joins, path)
-        return [(OrderBy(transform_function(t, alias), descending=descending), False) for t in targets]
-
-    def _setup_joins(self, pieces, opts, alias):
-        """
-        Helper method for get_order_by() and get_distinct().
-
-        get_ordering() and get_distinct() must produce same target columns on
-        same input, as the prefixes of get_ordering() and get_distinct() must
-        match. Executing SQL where this is not true is an error.
-        """
-        alias = alias or self.query.get_initial_alias()
-        field, targets, opts, joins, path, transform_function = self.query.setup_joins(pieces, opts, alias)
-        alias = joins[-1]
-        return field, targets, alias, joins, path, opts, transform_function
-
-    def get_from_clause(self):
-        """
-        Return a list of strings that are joined together to go after the
-        "FROM" part of the query, as well as a list any extra parameters that
-        need to be included. Subclasses, can override this to create a
-        from-clause via a "select".
-
-        This should only be called after any SQL construction methods that
-        might change the tables that are needed. This means the select columns,
-        ordering, and distinct must be done first.
-        """
-        result = []
-        params = []
-        for alias in tuple(self.query.alias_map):
-            if not self.query.alias_refcount[alias]:
-                continue
-            try:
-                from_clause = self.query.alias_map[alias]
-            except KeyError:
-                # Extra tables can end up in self.tables, but not in the
-                # alias_map if they aren't in a join. That's OK. We skip them.
-                continue
-            clause_sql, clause_params = self.compile(from_clause)
-            result.append(clause_sql)
-            params.extend(clause_params)
-        for t in self.query.extra_tables:
-            alias, _ = self.query.table_alias(t)
-            # Only add the alias if it's not already present (the table_alias()
-            # call increments the refcount, so an alias refcount of one means
-            # this is the only reference).
-            if alias not in self.query.alias_map or self.query.alias_refcount[alias] == 1:
-                result.append(', %s' % self.quote_name_unless_alias(alias))
-        return result, params
-
-    def get_related_selections(self, select, opts=None, root_alias=None, cur_depth=1,
-                               requested=None, restricted=None):
-        """
-        Fill in the information needed for a select_related query. The current
-        depth is measured as the number of connections away from the root model
-        (for example, cur_depth=1 means we are looking at models with direct
-        connections to the root model).
-        """
-        def _get_field_choices():
-            direct_choices = (f.name for f in opts.fields if f.is_relation)
-            reverse_choices = (
-                f.field.related_query_name()
-                for f in opts.related_objects if f.field.unique
-            )
-            return chain(direct_choices, reverse_choices, self.query._filtered_relations)
-
-        related_klass_infos = []
-        if not restricted and cur_depth > self.query.max_depth:
-            # We've recursed far enough; bail out.
-            return related_klass_infos
-
-        if not opts:
-            opts = self.query.get_meta()
-            root_alias = self.query.get_initial_alias()
-        only_load = self.query.get_loaded_field_names()
-
-        # Setup for the case when only particular related fields should be
-        # included in the related selection.
-        fields_found = set()
-        if requested is None:
-            restricted = isinstance(self.query.select_related, dict)
-            if restricted:
-                requested = self.query.select_related
-
-        def get_related_klass_infos(klass_info, related_klass_infos):
-            klass_info['related_klass_infos'] = related_klass_infos
-
-        for f in opts.fields:
-            field_model = f.model._meta.concrete_model
-            fields_found.add(f.name)
-
-            if restricted:
-                next = requested.get(f.name, {})
-                if not f.is_relation:
-                    # If a non-related field is used like a relation,
-                    # or if a single non-relational field is given.
-                    if next or f.name in requested:
-                        raise FieldError(
-                            "Non-relational field given in select_related: '%s'. "
-                            "Choices are: %s" % (
-                                f.name,
-                                ", ".join(_get_field_choices()) or '(none)',
-                            )
+                        raise self.field.remote_field.model.DoesNotExist(
+                            "%r is not related to %r." % (obj, self.instance)
                         )
-            else:
-                next = False
+                self._clear(self.filter(pk__in=old_ids), bulk)
+            remove.alters_data = True
 
-            if not select_related_descend(f, restricted, requested,
-                                          only_load.get(field_model)):
-                continue
-            klass_info = {
-                'model': f.remote_field.model,
-                'field': f,
-                'reverse': False,
-                'local_setter': f.set_cached_value,
-                'remote_setter': f.remote_field.set_cached_value if f.unique else lambda x, y: None,
-                'from_parent': False,
-            }
-            related_klass_infos.append(klass_info)
-            select_fields = []
-            _, _, _, joins, _, _ = self.query.setup_joins(
-                [f.name], opts, root_alias)
-            alias = joins[-1]
-            columns = self.get_default_columns(start_alias=alias, opts=f.remote_field.model._meta)
-            for col in columns:
-                select_fields.append(len(select))
-                select.append((col, None))
-            klass_info['select_fields'] = select_fields
-            next_klass_infos = self.get_related_selections(
-                select, f.remote_field.model._meta, alias, cur_depth + 1, next, restricted)
-            get_related_klass_infos(klass_info, next_klass_infos)
+            def clear(self, *, bulk=True):
+                self._clear(self, bulk)
+            clear.alters_data = True
 
-        if restricted:
-            related_fields = [
-                (o.field, o.related_model)
-                for o in opts.related_objects
-                if o.field.unique and not o.many_to_many
-            ]
-            for f, model in related_fields:
-                if not select_related_descend(f, restricted, requested,
-                                              only_load.get(model), reverse=True):
-                    continue
-
-                related_field_name = f.related_query_name()
-                fields_found.add(related_field_name)
-
-                join_info = self.query.setup_joins([related_field_name], opts, root_alias)
-                alias = join_info.joins[-1]
-                from_parent = issubclass(model, opts.model) and model is not opts.model
-                klass_info = {
-                    'model': model,
-                    'field': f,
-                    'reverse': True,
-                    'local_setter': f.remote_field.set_cached_value,
-                    'remote_setter': f.set_cached_value,
-                    'from_parent': from_parent,
-                }
-                related_klass_infos.append(klass_info)
-                select_fields = []
-                columns = self.get_default_columns(
-                    start_alias=alias, opts=model._meta, from_parent=opts.model)
-                for col in columns:
-                    select_fields.append(len(select))
-                    select.append((col, None))
-                klass_info['select_fields'] = select_fields
-                next = requested.get(f.related_query_name(), {})
-                next_klass_infos = self.get_related_selections(
-                    select, model._meta, alias, cur_depth + 1,
-                    next, restricted)
-                get_related_klass_infos(klass_info, next_klass_infos)
-            for name in list(requested):
-                # Filtered relations work only on the topmost level.
-                if cur_depth > 1:
-                    break
-                if name in self.query._filtered_relations:
-                    fields_found.add(name)
-                    f, _, join_opts, joins, _, _ = self.query.setup_joins([name], opts, root_alias)
-                    model = join_opts.model
-                    alias = joins[-1]
-                    from_parent = issubclass(model, opts.model) and model is not opts.model
-
-                    def local_setter(obj, from_obj):
-                        f.remote_field.set_cached_value(from_obj, obj)
-
-                    def remote_setter(obj, from_obj):
-                        setattr(from_obj, name, obj)
-                    klass_info = {
-                        'model': model,
-                        'field': f,
-                        'reverse': True,
-                        'local_setter': local_setter,
-                        'remote_setter': remote_setter,
-                        'from_parent': from_parent,
-                    }
-                    related_klass_infos.append(klass_info)
-                    select_fields = []
-                    columns = self.get_default_columns(
-                        start_alias=alias, opts=model._meta,
-                        from_parent=opts.model,
-                    )
-                    for col in columns:
-                        select_fields.append(len(select))
-                        select.append((col, None))
-                    klass_info['select_fields'] = select_fields
-                    next_requested = requested.get(name, {})
-                    next_klass_infos = self.get_related_selections(
-                        select, opts=model._meta, root_alias=alias,
-                        cur_depth=cur_depth + 1, requested=next_requested,
-                        restricted=restricted,
-                    )
-                    get_related_klass_infos(klass_info, next_klass_infos)
-            fields_not_found = set(requested).difference(fields_found)
-            if fields_not_found:
-                invalid_fields = ("'%s'" % s for s in fields_not_found)
-                raise FieldError(
-                    'Invalid field name(s) given in select_related: %s. '
-                    'Choices are: %s' % (
-                        ', '.join(invalid_fields),
-                        ', '.join(_get_field_choices()) or '(none)',
-                    )
-                )
-        return related_klass_infos
-
-    def get_select_for_update_of_arguments(self):
-        """
-        Return a quoted list of arguments for the SELECT FOR UPDATE OF part of
-        the query.
-        """
-        def _get_field_choices():
-            """Yield all allowed field paths in breadth-first search order."""
-            queue = collections.deque([(None, self.klass_info)])
-            while queue:
-                parent_path, klass_info = queue.popleft()
-                if parent_path is None:
-                    path = []
-                    yield 'self'
+            def _clear(self, queryset, bulk):
+                self._remove_prefetched_objects()
+                db = router.db_for_write(self.model, instance=self.instance)
+                queryset = queryset.using(db)
+                if bulk:
+                    # `QuerySet.update()` is intrinsically atomic.
+                    queryset.update(**{self.field.name: None})
                 else:
-                    field = klass_info['field']
-                    if klass_info['reverse']:
-                        field = field.remote_field
-                    path = parent_path + [field.name]
-                    yield LOOKUP_SEP.join(path)
-                queue.extend(
-                    (path, klass_info)
-                    for klass_info in klass_info.get('related_klass_infos', [])
-                )
-        result = []
-        invalid_names = []
-        for name in self.query.select_for_update_of:
-            parts = [] if name == 'self' else name.split(LOOKUP_SEP)
-            klass_info = self.klass_info
-            for part in parts:
-                for related_klass_info in klass_info.get('related_klass_infos', []):
-                    field = related_klass_info['field']
-                    if related_klass_info['reverse']:
-                        field = field.remote_field
-                    if field.name == part:
-                        klass_info = related_klass_info
-                        break
-                else:
-                    klass_info = None
-                    break
-            if klass_info is None:
-                invalid_names.append(name)
-                continue
-            select_index = klass_info['select_fields'][0]
-            col = self.select[select_index][0]
-            if self.connection.features.select_for_update_of_column:
-                result.append(self.compile(col)[0])
+                    with transaction.atomic(using=db, savepoint=False):
+                        for obj in queryset:
+                            setattr(obj, self.field.name, None)
+                            obj.save(update_fields=[self.field.name])
+            _clear.alters_data = True
+
+        def set(self, objs, *, bulk=True, clear=False):
+            # Force evaluation of `objs` in case it's a queryset whose value
+            # could be affected by `manager.clear()`. Refs #19816.
+            objs = tuple(objs)
+
+            if self.field.null:
+                db = router.db_for_write(self.model, instance=self.instance)
+                with transaction.atomic(using=db, savepoint=False):
+                    if clear:
+                        self.clear(bulk=bulk)
+                        self.add(*objs, bulk=bulk)
+                    else:
+                        old_objs = set(self.using(db).all())
+                        new_objs = []
+                        for obj in objs:
+                            if obj in old_objs:
+                                old_objs.remove(obj)
+                            else:
+                                new_objs.append(obj)
+
+                        self.remove(*old_objs, bulk=bulk)
+                        self.add(*new_objs, bulk=bulk)
             else:
-                result.append(self.quote_name_unless_alias(col.alias))
-        if invalid_names:
-            raise FieldError(
-                'Invalid field name(s) given in select_for_update(of=(...)): %s. '
-                'Only relational fields followed in the query are allowed. '
-                'Choices are: %s.' % (
-                    ', '.join(invalid_names),
-                    ', '.join(_get_field_choices()),
-                )
+                self.add(*objs, bulk=bulk)
+        set.alters_data = True
+
+    return RelatedManager
+
+
+class ManyToManyDescriptor(ReverseManyToOneDescriptor):
+    """
+    Accessor to the related objects manager on the forward and reverse sides of
+    a many-to-many relation.
+
+    In the example::
+
+        class Pizza(Model):
+            toppings = ManyToManyField(Topping, related_name='pizzas')
+
+    ``Pizza.toppings`` and ``Topping.pizzas`` are ``ManyToManyDescriptor``
+    instances.
+
+    Most of the implementation is delegated to a dynamically defined manager
+    class built by ``create_forward_many_to_many_manager()`` defined below.
+    """
+
+    def __init__(self, rel, reverse=False):
+        super().__init__(rel)
+
+        self.reverse = reverse
+
+    @property
+    def through(self):
+        # through is provided so that you have easy access to the through
+        # model (Book.authors.through) for inlines, etc. This is done as
+        # a property to ensure that the fully resolved value is returned.
+        return self.rel.through
+
+    @cached_property
+    def related_manager_cls(self):
+        related_model = self.rel.related_model if self.reverse else self.rel.model
+
+        return create_forward_many_to_many_manager(
+            related_model._default_manager.__class__,
+            self.rel,
+            reverse=self.reverse,
+        )
+
+    def _get_set_deprecation_msg_params(self):
+        return (
+            '%s side of a many-to-many set' % ('reverse' if self.reverse else 'forward'),
+            self.rel.get_accessor_name() if self.reverse else self.field.name,
+        )
+
+
+def create_forward_many_to_many_manager(superclass, rel, reverse):
+    """
+    Create a manager for the either side of a many-to-many relation.
+
+    This manager subclasses another manager, generally the default manager of
+    the related model, and adds behaviors specific to many-to-many relations.
+    """
+
+    class ManyRelatedManager(superclass):
+        def __init__(self, instance=None):
+            super().__init__()
+
+            self.instance = instance
+
+            if not reverse:
+                self.model = rel.model
+                self.query_field_name = rel.field.related_query_name()
+                self.prefetch_cache_name = rel.field.name
+                self.source_field_name = rel.field.m2m_field_name()
+                self.target_field_name = rel.field.m2m_reverse_field_name()
+                self.symmetrical = rel.symmetrical
+            else:
+                self.model = rel.related_model
+                self.query_field_name = rel.field.name
+                self.prefetch_cache_name = rel.field.related_query_name()
+                self.source_field_name = rel.field.m2m_reverse_field_name()
+                self.target_field_name = rel.field.m2m_field_name()
+                self.symmetrical = False
+
+            self.through = rel.through
+            self.reverse = reverse
+
+            self.source_field = self.through._meta.get_field(self.source_field_name)
+            self.target_field = self.through._meta.get_field(self.target_field_name)
+
+            self.core_filters = {}
+            self.pk_field_names = {}
+            for lh_field, rh_field in self.source_field.related_fields:
+                core_filter_key = '%s__%s' % (self.query_field_name, rh_field.name)
+                self.core_filters[core_filter_key] = getattr(instance, rh_field.attname)
+                self.pk_field_names[lh_field.name] = rh_field.name
+
+            self.related_val = self.source_field.get_foreign_related_value(instance)
+            if None in self.related_val:
+                raise ValueError('"%r" needs to have a value for field "%s" before '
+                                 'this many-to-many relationship can be used.' %
+                                 (instance, self.pk_field_names[self.source_field_name]))
+            # Even if this relation is not to pk, we require still pk value.
+            # The wish is that the instance has been already saved to DB,
+            # although having a pk value isn't a guarantee of that.
+            if instance.pk is None:
+                raise ValueError("%r instance needs to have a primary key value before "
+                                 "a many-to-many relationship can be used." %
+                                 instance.__class__.__name__)
+
+        def __call__(self, *, manager):
+            manager = getattr(self.model, manager)
+            manager_class = create_forward_many_to_many_manager(manager.__class__, rel, reverse)
+            return manager_class(instance=self.instance)
+        do_not_call_in_templates = True
+
+        def _build_remove_filters(self, removed_vals):
+            filters = Q(**{self.source_field_name: self.related_val})
+            # No need to add a subquery condition if removed_vals is a QuerySet without
+            # filters.
+            removed_vals_filters = (not isinstance(removed_vals, QuerySet) or
+                                    removed_vals._has_filters())
+            if removed_vals_filters:
+                filters &= Q(**{'%s__in' % self.target_field_name: removed_vals})
+            if self.symmetrical:
+                symmetrical_filters = Q(**{self.target_field_name: self.related_val})
+                if removed_vals_filters:
+                    symmetrical_filters &= Q(
+                        **{'%s__in' % self.source_field_name: removed_vals})
+                filters |= symmetrical_filters
+            return filters
+
+        def _apply_rel_filters(self, queryset):
+            """
+            Filter the queryset for the instance this manager is bound to.
+            """
+            queryset._add_hints(instance=self.instance)
+            if self._db:
+                queryset = queryset.using(self._db)
+            return queryset._next_is_sticky().filter(**self.core_filters)
+
+        def _remove_prefetched_objects(self):
+            try:
+                self.instance._prefetched_objects_cache.pop(self.prefetch_cache_name)
+            except (AttributeError, KeyError):
+                pass  # nothing to clear from cache
+
+        def get_queryset(self):
+            try:
+                return self.instance._prefetched_objects_cache[self.prefetch_cache_name]
+            except (AttributeError, KeyError):
+                queryset = super().get_queryset()
+                return self._apply_rel_filters(queryset)
+
+        def get_prefetch_queryset(self, instances, queryset=None):
+            if queryset is None:
+                queryset = super().get_queryset()
+
+            queryset._add_hints(instance=instances[0])
+            queryset = queryset.using(queryset._db or self._db)
+
+            query = {'%s__in' % self.query_field_name: instances}
+            queryset = queryset._next_is_sticky().filter(**query)
+
+            # M2M: need to annotate the query in order to get the primary model
+            # that the secondary model was actually related to. We know that
+            # there will already be a join on the join table, so we can just add
+            # the select.
+
+            # For non-autocreated 'through' models, can't assume we are
+            # dealing with PK values.
+            fk = self.through._meta.get_field(self.source_field_name)
+            join_table = fk.model._meta.db_table
+            connection = connections[queryset.db]
+            qn = connection.ops.quote_name
+            queryset = queryset.extra(select={
+                '_prefetch_related_val_%s' % f.attname:
+                '%s.%s' % (qn(join_table), qn(f.column)) for f in fk.local_related_fields})
+            return (
+                queryset,
+                lambda result: tuple(
+                    getattr(result, '_prefetch_related_val_%s' % f.attname)
+                    for f in fk.local_related_fields
+                ),
+                lambda inst: tuple(
+                    f.get_db_prep_value(getattr(inst, f.attname), connection)
+                    for f in fk.foreign_related_fields
+                ),
+                False,
+                self.prefetch_cache_name,
+                False,
             )
-        return result
 
-    def deferred_to_columns(self):
-        """
-        Convert the self.deferred_loading data structure to mapping of table
-        names to sets of column names which are to be loaded. Return the
-        dictionary.
-        """
-        columns = {}
-        self.query.deferred_to_data(columns, self.query.get_loaded_field_names_cb)
-        return columns
+        def add(self, *objs, through_defaults=None):
+            self._remove_prefetched_objects()
+            db = router.db_for_write(self.through, instance=self.instance)
+            with transaction.atomic(using=db, savepoint=False):
+                self._add_items(
+                    self.source_field_name, self.target_field_name, *objs,
+                    through_defaults=through_defaults,
+                )
+                # If this is a symmetrical m2m relation to self, add the mirror
+                # entry in the m2m table. `through_defaults` aren't used here
+                # because of the system check error fields.E332: Many-to-many
+                # fields with intermediate tables must not be symmetrical.
+                if self.symmetrical:
+                    self._add_items(self.target_field_name, self.source_field_name, *objs)
+        add.alters_data = True
 
-    def get_converters(self, expressions):
-        converters = {}
-        for i, expression in enumerate(expressions):
-            if expression:
-                backend_converters = self.connection.ops.get_db_converters(expression)
-                field_converters = expression.get_db_converters(self.connection)
-                if backend_converters or field_converters:
-                    convs = []
-                    for conv in (backend_converters + field_converters):
-                        if func_supports_parameter(conv, 'context'):
-                            warnings.warn(
-                                'Remove the context parameter from %s.%s(). Support for it '
-                                'will be removed in Django 3.0.' % (
-                                    conv.__self__.__class__.__name__,
-                                    conv.__name__,
-                                ),
-                                RemovedInDjango30Warning,
+        def remove(self, *objs):
+            self._remove_prefetched_objects()
+            self._remove_items(self.source_field_name, self.target_field_name, *objs)
+        remove.alters_data = True
+
+        def clear(self):
+            db = router.db_for_write(self.through, instance=self.instance)
+            with transaction.atomic(using=db, savepoint=False):
+                signals.m2m_changed.send(
+                    sender=self.through, action="pre_clear",
+                    instance=self.instance, reverse=self.reverse,
+                    model=self.model, pk_set=None, using=db,
+                )
+                self._remove_prefetched_objects()
+                filters = self._build_remove_filters(super().get_queryset().using(db))
+                self.through._default_manager.using(db).filter(filters).delete()
+
+                signals.m2m_changed.send(
+                    sender=self.through, action="post_clear",
+                    instance=self.instance, reverse=self.reverse,
+                    model=self.model, pk_set=None, using=db,
+                )
+        clear.alters_data = True
+
+        def set(self, objs, *, clear=False, through_defaults=None):
+            # Force evaluation of `objs` in case it's a queryset whose value
+            # could be affected by `manager.clear()`. Refs #19816.
+            objs = tuple(objs)
+
+            db = router.db_for_write(self.through, instance=self.instance)
+            with transaction.atomic(using=db, savepoint=False):
+                if clear:
+                    self.clear()
+                    self.add(*objs, through_defaults=through_defaults)
+                else:
+                    old_ids = set(self.using(db).values_list(self.target_field.target_field.attname, flat=True))
+
+                    new_objs = []
+                    for obj in objs:
+                        fk_val = (
+                            self.target_field.get_foreign_related_value(obj)[0]
+                            if isinstance(obj, self.model) else obj
+                        )
+                        if fk_val in old_ids:
+                            old_ids.remove(fk_val)
+                        else:
+                            new_objs.append(obj)
+
+                    self.remove(*old_ids)
+                    self.add(*new_objs, through_defaults=through_defaults)
+        set.alters_data = True
+
+        def create(self, *, through_defaults=None, **kwargs):
+            db = router.db_for_write(self.instance.__class__, instance=self.instance)
+            new_obj = super(ManyRelatedManager, self.db_manager(db)).create(**kwargs)
+            self.add(new_obj, through_defaults=through_defaults)
+            return new_obj
+        create.alters_data = True
+
+        def get_or_create(self, *, through_defaults=None, **kwargs):
+            db = router.db_for_write(self.instance.__class__, instance=self.instance)
+            obj, created = super(ManyRelatedManager, self.db_manager(db)).get_or_create(**kwargs)
+            # We only need to add() if created because if we got an object back
+            # from get() then the relationship already exists.
+            if created:
+                self.add(obj, through_defaults=through_defaults)
+            return obj, created
+        get_or_create.alters_data = True
+
+        def update_or_create(self, *, through_defaults=None, **kwargs):
+            db = router.db_for_write(self.instance.__class__, instance=self.instance)
+            obj, created = super(ManyRelatedManager, self.db_manager(db)).update_or_create(**kwargs)
+            # We only need to add() if created because if we got an object back
+            # from get() then the relationship already exists.
+            if created:
+                self.add(obj, through_defaults=through_defaults)
+            return obj, created
+        update_or_create.alters_data = True
+
+        def _add_items(self, source_field_name, target_field_name, *objs, through_defaults=None):
+            # source_field_name: the PK fieldname in join table for the source object
+            # target_field_name: the PK fieldname in join table for the target object
+            # *objs - objects to add. Either object instances, or primary keys of object instances.
+            through_defaults = through_defaults or {}
+
+            # If there aren't any objects, there is nothing to do.
+            from django.db.models import Model
+            if objs:
+                new_ids = set()
+                for obj in objs:
+                    if isinstance(obj, self.model):
+                        if not router.allow_relation(obj, self.instance):
+                            raise ValueError(
+                                'Cannot add "%r": instance is on database "%s", value is on database "%s"' %
+                                (obj, self.instance._state.db, obj._state.db)
                             )
-                            conv = functools.partial(conv, context={})
-                        convs.append(conv)
-                    converters[i] = (convs, expression)
-        return converters
+                        fk_val = self.through._meta.get_field(
+                            target_field_name).get_foreign_related_value(obj)[0]
+                        if fk_val is None:
+                            raise ValueError(
+                                'Cannot add "%r": the value for field "%s" is None' %
+                                (obj, target_field_name)
+                            )
+                        new_ids.add(fk_val)
+                    elif isinstance(obj, Model):
+                        raise TypeError(
+                            "'%s' instance expected, got %r" %
+                            (self.model._meta.object_name, obj)
+                        )
+                    else:
+                        new_ids.add(obj)
 
-    def apply_converters(self, rows, converters):
-        connection = self.connection
-        converters = list(converters.items())
-        for row in map(list, rows):
-            for pos, (convs, expression) in converters:
-                value = row[pos]
-                for converter in convs:
-                    value = converter(value, expression, connection)
-                row[pos] = value
-            yield row
+                db = router.db_for_write(self.through, instance=self.instance)
+                vals = (self.through._default_manager.using(db)
+                        .values_list(target_field_name, flat=True)
+                        .filter(**{
+                            source_field_name: self.related_val[0],
+                            '%s__in' % target_field_name: new_ids,
+                        }))
+                new_ids.difference_update(vals)
 
-    def results_iter(self, results=None, tuple_expected=False, chunked_fetch=False,
-                     chunk_size=GET_ITERATOR_CHUNK_SIZE):
-        """Return an iterator over the results from executing this query."""
-        if results is None:
-            results = self.execute_sql(MULTI, chunked_fetch=chunked_fetch, chunk_size=chunk_size)
-        fields = [s[0] for s in self.select[0:self.col_count]]
-        converters = self.get_converters(fields)
-        rows = chain.from_iterable(results)
-        if converters:
-            rows = self.apply_converters(rows, converters)
-            if tuple_expected:
-                rows = map(tuple, rows)
-        return rows
+                with transaction.atomic(using=db, savepoint=False):
+                    if self.reverse or source_field_name == self.source_field_name:
+                        # Don't send the signal when we are inserting the
+                        # duplicate data row for symmetrical reverse entries.
+                        signals.m2m_changed.send(
+                            sender=self.through, action='pre_add',
+                            instance=self.instance, reverse=self.reverse,
+                            model=self.model, pk_set=new_ids, using=db,
+                        )
 
-    def has_results(self):
-        """
-        Backends (e.g. NoSQL) can override this in order to use optimized
-        versions of "query has any results."
-        """
-        # This is always executed on a query clone, so we can modify self.query
-        self.query.add_extra({'a': 1}, None, None, None, None, None)
-        self.query.set_extra_mask(['a'])
-        return bool(self.execute_sql(SINGLE))
+                    # Add the ones that aren't there already
+                    self.through._default_manager.using(db).bulk_create([
+                        self.through(**through_defaults, **{
+                            '%s_id' % source_field_name: self.related_val[0],
+                            '%s_id' % target_field_name: obj_id,
+                        })
+                        for obj_id in new_ids
+                    ])
 
-    def execute_sql(self, result_type=MULTI, chunked_fetch=False, chunk_size=GET_ITERATOR_CHUNK_SIZE):
-        """
-        Run the query against the database and return the result(s). The
-        return value is a single data item if result_type is SINGLE, or an
-        iterator over the results if the result_type is MULTI.
+                    if self.reverse or source_field_name == self.source_field_name:
+                        # Don't send the signal when we are inserting the
+                        # duplicate data row for symmetrical reverse entries.
+                        signals.m2m_changed.send(
+                            sender=self.through, action='post_add',
+                            instance=self.instance, reverse=self.reverse,
+                            model=self.model, pk_set=new_ids, using=db,
+                        )
 
-        result_type is either MULTI (use fetchmany() to retrieve all rows),
-        SINGLE (only retrieve a single row), or None. In this last case, the
-        cursor is returned if any query is executed, since it's used by
-        subclasses such as InsertQuery). It's possible, however, that no query
-        is needed, as the filters describe an empty set. In that case, None is
-        returned, to avoid any unnecessary database interaction.
-        """
-        result_type = result_type or NO_RESULTS
-        try:
-            sql, params = self.as_sql()
-            if not sql:
-                raise EmptyResultSet
-        except EmptyResultSet:
-            if result_type == MULTI:
-                return iter([])
-            else:
+        def _remove_items(self, source_field_name, target_field_name, *objs):
+            # source_field_name: the PK colname in join table for the source object
+            # target_field_name: the PK colname in join table for the target object
+            # *objs - objects to remove. Either object instances, or primary
+            # keys of object instances.
+            if not objs:
                 return
-        if chunked_fetch:
-            cursor = self.connection.chunked_cursor()
-        else:
-            cursor = self.connection.cursor()
-        try:
-            cursor.execute(sql, params)
-        except Exception:
-            # Might fail for server-side cursors (e.g. connection closed)
-            cursor.close()
-            raise
 
-        if result_type == CURSOR:
-            # Give the caller the cursor to process and close.
-            return cursor
-        if result_type == SINGLE:
-            try:
-                val = cursor.fetchone()
-                if val:
-                    return val[0:self.col_count]
-                return val
-            finally:
-                # done with the cursor
-                cursor.close()
-        if result_type == NO_RESULTS:
-            cursor.close()
-            return
-
-        result = cursor_iter(
-            cursor, self.connection.features.empty_fetchmany_value,
-            self.col_count if self.has_extra_select else None,
-            chunk_size,
-        )
-        if not chunked_fetch or not self.connection.features.can_use_chunked_reads:
-            try:
-                # If we are using non-chunked reads, we return the same data
-                # structure as normally, but ensure it is all read into memory
-                # before going any further. Use chunked_fetch if requested,
-                # unless the database doesn't support it.
-                return list(result)
-            finally:
-                # done with the cursor
-                cursor.close()
-        return result
-
-    def as_subquery_condition(self, alias, columns, compiler):
-        qn = compiler.quote_name_unless_alias
-        qn2 = self.connection.ops.quote_name
-
-        for index, select_col in enumerate(self.query.select):
-            lhs_sql, lhs_params = self.compile(select_col)
-            rhs = '%s.%s' % (qn(alias), qn2(columns[index]))
-            self.query.where.add(
-                QueryWrapper('%s = %s' % (lhs_sql, rhs), lhs_params), 'AND')
-
-        sql, params = self.as_sql()
-        return 'EXISTS (%s)' % sql, params
-
-    def explain_query(self):
-        result = list(self.execute_sql())
-        # Some backends return 1 item tuples with strings, and others return
-        # tuples with integers and strings. Flatten them out into strings.
-        for row in result[0]:
-            if not isinstance(row, str):
-                yield ' '.join(str(c) for c in row)
-            else:
-                yield row
-
-
-class SQLInsertCompiler(SQLCompiler):
-    return_id = False
-
-    def field_as_sql(self, field, val):
-        """
-        Take a field and a value intended to be saved on that field, and
-        return placeholder SQL and accompanying params. Check for raw values,
-        expressions, and fields with get_placeholder() defined in that order.
-
-        When field is None, consider the value raw and use it as the
-        placeholder, with no corresponding parameters returned.
-        """
-        if field is None:
-            # A field value of None means the value is raw.
-            sql, params = val, []
-        elif hasattr(val, 'as_sql'):
-            # This is an expression, let's compile it.
-            sql, params = self.compile(val)
-        elif hasattr(field, 'get_placeholder'):
-            # Some fields (e.g. geo fields) need special munging before
-            # they can be inserted.
-            sql, params = field.get_placeholder(val, self, self.connection), [val]
-        else:
-            # Return the common case for the placeholder
-            sql, params = '%s', [val]
-
-        # The following hook is only used by Oracle Spatial, which sometimes
-        # needs to yield 'NULL' and [] as its placeholder and params instead
-        # of '%s' and [None]. The 'NULL' placeholder is produced earlier by
-        # OracleOperations.get_geom_placeholder(). The following line removes
-        # the corresponding None parameter. See ticket #10888.
-        params = self.connection.ops.modify_insert_params(sql, params)
-
-        return sql, params
-
-    def prepare_value(self, field, value):
-        """
-        Prepare a value to be used in a query by resolving it if it is an
-        expression and otherwise calling the field's get_db_prep_save().
-        """
-        if hasattr(value, 'resolve_expression'):
-            value = value.resolve_expression(self.query, allow_joins=False, for_save=True)
-            # Don't allow values containing Col expressions. They refer to
-            # existing columns on a row, but in the case of insert the row
-            # doesn't exist yet.
-            if value.contains_column_references:
-                raise ValueError(
-                    'Failed to insert expression "%s" on %s. F() expressions '
-                    'can only be used to update, not to insert.' % (value, field)
-                )
-            if value.contains_aggregate:
-                raise FieldError("Aggregate functions are not allowed in this query")
-            if value.contains_over_clause:
-                raise FieldError('Window expressions are not allowed in this query.')
-        else:
-            value = field.get_db_prep_save(value, connection=self.connection)
-        return value
-
-    def pre_save_val(self, field, obj):
-        """
-        Get the given field's value off the given obj. pre_save() is used for
-        things like auto_now on DateTimeField. Skip it if this is a raw query.
-        """
-        if self.query.raw:
-            return getattr(obj, field.attname)
-        return field.pre_save(obj, add=True)
-
-    def assemble_as_sql(self, fields, value_rows):
-        """
-        Take a sequence of N fields and a sequence of M rows of values, and
-        generate placeholder SQL and parameters for each field and value.
-        Return a pair containing:
-         * a sequence of M rows of N SQL placeholder strings, and
-         * a sequence of M rows of corresponding parameter values.
-
-        Each placeholder string may contain any number of '%s' interpolation
-        strings, and each parameter row will contain exactly as many params
-        as the total number of '%s's in the corresponding placeholder row.
-        """
-        if not value_rows:
-            return [], []
-
-        # list of (sql, [params]) tuples for each object to be saved
-        # Shape: [n_objs][n_fields][2]
-        rows_of_fields_as_sql = (
-            (self.field_as_sql(field, v) for field, v in zip(fields, row))
-            for row in value_rows
-        )
-
-        # tuple like ([sqls], [[params]s]) for each object to be saved
-        # Shape: [n_objs][2][n_fields]
-        sql_and_param_pair_rows = (zip(*row) for row in rows_of_fields_as_sql)
-
-        # Extract separate lists for placeholders and params.
-        # Each of these has shape [n_objs][n_fields]
-        placeholder_rows, param_rows = zip(*sql_and_param_pair_rows)
-
-        # Params for each field are still lists, and need to be flattened.
-        param_rows = [[p for ps in row for p in ps] for row in param_rows]
-
-        return placeholder_rows, param_rows
-
-    def as_sql(self):
-        # We don't need quote_name_unless_alias() here, since these are all
-        # going to be column names (so we can avoid the extra overhead).
-        qn = self.connection.ops.quote_name
-        opts = self.query.get_meta()
-        insert_statement = self.connection.ops.insert_statement(ignore_conflicts=self.query.ignore_conflicts)
-        result = ['%s %s' % (insert_statement, qn(opts.db_table))]
-        fields = self.query.fields or [opts.pk]
-        result.append('(%s)' % ', '.join(qn(f.column) for f in fields))
-
-        if self.query.fields:
-            value_rows = [
-                [self.prepare_value(field, self.pre_save_val(field, obj)) for field in fields]
-                for obj in self.query.objs
-            ]
-        else:
-            # An empty object.
-            value_rows = [[self.connection.ops.pk_default_value()] for _ in self.query.objs]
-            fields = [None]
-
-        # Currently the backends just accept values when generating bulk
-        # queries and generate their own placeholders. Doing that isn't
-        # necessary and it should be possible to use placeholders and
-        # expressions in bulk inserts too.
-        can_bulk = (not self.return_id and self.connection.features.has_bulk_insert)
-
-        placeholder_rows, param_rows = self.assemble_as_sql(fields, value_rows)
-
-        ignore_conflicts_suffix_sql = self.connection.ops.ignore_conflicts_suffix_sql(
-            ignore_conflicts=self.query.ignore_conflicts
-        )
-        if self.return_id and self.connection.features.can_return_id_from_insert:
-            if self.connection.features.can_return_ids_from_bulk_insert:
-                result.append(self.connection.ops.bulk_insert_sql(fields, placeholder_rows))
-                params = param_rows
-            else:
-                result.append("VALUES (%s)" % ", ".join(placeholder_rows[0]))
-                params = [param_rows[0]]
-            if ignore_conflicts_suffix_sql:
-                result.append(ignore_conflicts_suffix_sql)
-            col = "%s.%s" % (qn(opts.db_table), qn(opts.pk.column))
-            r_fmt, r_params = self.connection.ops.return_insert_id()
-            # Skip empty r_fmt to allow subclasses to customize behavior for
-            # 3rd party backends. Refs #19096.
-            if r_fmt:
-                result.append(r_fmt % col)
-                params += [r_params]
-            return [(" ".join(result), tuple(chain.from_iterable(params)))]
-
-        if can_bulk:
-            result.append(self.connection.ops.bulk_insert_sql(fields, placeholder_rows))
-            if ignore_conflicts_suffix_sql:
-                result.append(ignore_conflicts_suffix_sql)
-            return [(" ".join(result), tuple(p for ps in param_rows for p in ps))]
-        else:
-            if ignore_conflicts_suffix_sql:
-                result.append(ignore_conflicts_suffix_sql)
-            return [
-                (" ".join(result + ["VALUES (%s)" % ", ".join(p)]), vals)
-                for p, vals in zip(placeholder_rows, param_rows)
-            ]
-
-    def execute_sql(self, return_id=False):
-        assert not (
-            return_id and len(self.query.objs) != 1 and
-            not self.connection.features.can_return_ids_from_bulk_insert
-        )
-        self.return_id = return_id
-        with self.connection.cursor() as cursor:
-            for sql, params in self.as_sql():
-                cursor.execute(sql, params)
-            if not return_id:
-                return
-            if self.connection.features.can_return_ids_from_bulk_insert and len(self.query.objs) > 1:
-                return self.connection.ops.fetch_returned_insert_ids(cursor)
-            if self.connection.features.can_return_id_from_insert:
-                assert len(self.query.objs) == 1
-                return self.connection.ops.fetch_returned_insert_id(cursor)
-            return self.connection.ops.last_insert_id(
-                cursor, self.query.get_meta().db_table, self.query.get_meta().pk.column
-            )
-
-
-class SQLDeleteCompiler(SQLCompiler):
-    def as_sql(self):
-        """
-        Create the SQL for this query. Return the SQL string and list of
-        parameters.
-        """
-        assert len([t for t in self.query.alias_map if self.query.alias_refcount[t] > 0]) == 1, \
-            "Can only delete from one table at a time."
-        qn = self.quote_name_unless_alias
-        result = ['DELETE FROM %s' % qn(self.query.base_table)]
-        where, params = self.compile(self.query.where)
-        if where:
-            result.append('WHERE %s' % where)
-        return ' '.join(result), tuple(params)
-
-
-class SQLUpdateCompiler(SQLCompiler):
-    def as_sql(self):
-        """
-        Create the SQL for this query. Return the SQL string and list of
-        parameters.
-        """
-        self.pre_sql_setup()
-        if not self.query.values:
-            return '', ()
-        qn = self.quote_name_unless_alias
-        values, update_params = [], []
-        for field, model, val in self.query.values:
-            if hasattr(val, 'resolve_expression'):
-                val = val.resolve_expression(self.query, allow_joins=False, for_save=True)
-                if val.contains_aggregate:
-                    raise FieldError("Aggregate functions are not allowed in this query")
-                if val.contains_over_clause:
-                    raise FieldError('Window expressions are not allowed in this query.')
-            elif hasattr(val, 'prepare_database_save'):
-                if field.remote_field:
-                    val = field.get_db_prep_save(
-                        val.prepare_database_save(field),
-                        connection=self.connection,
-                    )
+            # Check that all the objects are of the right type
+            old_ids = set()
+            for obj in objs:
+                if isinstance(obj, self.model):
+                    fk_val = self.target_field.get_foreign_related_value(obj)[0]
+                    old_ids.add(fk_val)
                 else:
-                    raise TypeError(
-                        "Tried to update field %s with a model instance, %r. "
-                        "Use a value compatible with %s."
-                        % (field, val, field.__class__.__name__)
-                    )
-            else:
-                val = field.get_db_prep_save(val, connection=self.connection)
+                    old_ids.add(obj)
 
-            # Getting the placeholder for the field.
-            if hasattr(field, 'get_placeholder'):
-                placeholder = field.get_placeholder(val, self, self.connection)
-            else:
-                placeholder = '%s'
-            name = field.column
-            if hasattr(val, 'as_sql'):
-                sql, params = self.compile(val)
-                values.append('%s = %s' % (qn(name), placeholder % sql))
-                update_params.extend(params)
-            elif val is not None:
-                values.append('%s = %s' % (qn(name), placeholder))
-                update_params.append(val)
-            else:
-                values.append('%s = NULL' % qn(name))
-        table = self.query.base_table
-        result = [
-            'UPDATE %s SET' % qn(table),
-            ', '.join(values),
-        ]
-        where, params = self.compile(self.query.where)
-        if where:
-            result.append('WHERE %s' % where)
-        return ' '.join(result), tuple(update_params + params)
+            db = router.db_for_write(self.through, instance=self.instance)
+            with transaction.atomic(using=db, savepoint=False):
+                # Send a signal to the other end if need be.
+                signals.m2m_changed.send(
+                    sender=self.through, action="pre_remove",
+                    instance=self.instance, reverse=self.reverse,
+                    model=self.model, pk_set=old_ids, using=db,
+                )
+                target_model_qs = super().get_queryset()
+                if target_model_qs._has_filters():
+                    old_vals = target_model_qs.using(db).filter(**{
+                        '%s__in' % self.target_field.target_field.attname: old_ids})
+                else:
+                    old_vals = old_ids
+                filters = self._build_remove_filters(old_vals)
+                self.through._default_manager.using(db).filter(filters).delete()
 
-    def execute_sql(self, result_type):
-        """
-        Execute the specified update. Return the number of rows affected by
-        the primary update query. The "primary update query" is the first
-        non-empty query that is executed. Row counts for any subsequent,
-        related queries are not available.
-        """
-        cursor = super().execute_sql(result_type)
-        try:
-            rows = cursor.rowcount if cursor else 0
-            is_empty = cursor is None
-        finally:
-            if cursor:
-                cursor.close()
-        for query in self.query.get_related_updates():
-            aux_rows = query.get_compiler(self.using).execute_sql(result_type)
-            if is_empty and aux_rows:
-                rows = aux_rows
-                is_empty = False
-        return rows
+                signals.m2m_changed.send(
+                    sender=self.through, action="post_remove",
+                    instance=self.instance, reverse=self.reverse,
+                    model=self.model, pk_set=old_ids, using=db,
+                )
 
-    def pre_sql_setup(self):
-        """
-        If the update depends on results from other tables, munge the "where"
-        conditions to match the format required for (portable) SQL updates.
-
-        If multiple updates are required, pull out the id values to update at
-        this point so that they don't change as a result of the progressive
-        updates.
-        """
-        refcounts_before = self.query.alias_refcount.copy()
-        # Ensure base table is in the query
-        self.query.get_initial_alias()
-        count = self.query.count_active_tables()
-        if not self.query.related_updates and count == 1:
-            return
-        query = self.query.chain(klass=Query)
-        query.select_related = False
-        query.clear_ordering(True)
-        query._extra = {}
-        query.select = []
-        query.add_fields([query.get_meta().pk.name])
-        super().pre_sql_setup()
-
-        must_pre_select = count > 1 and not self.connection.features.update_can_self_select
-
-        # Now we adjust the current query: reset the where clause and get rid
-        # of all the tables we don't need (since they're in the sub-select).
-        self.query.where = self.query.where_class()
-        if self.query.related_updates or must_pre_select:
-            # Either we're using the idents in multiple update queries (so
-            # don't want them to change), or the db backend doesn't support
-            # selecting from the updating table (e.g. MySQL).
-            idents = []
-            for rows in query.get_compiler(self.using).execute_sql(MULTI):
-                idents.extend(r[0] for r in rows)
-            self.query.add_filter(('pk__in', idents))
-            self.query.related_ids = idents
-        else:
-            # The fast path. Filters and updates in one query.
-            self.query.add_filter(('pk__in', query))
-        self.query.reset_refcounts(refcounts_before)
-
-
-class SQLAggregateCompiler(SQLCompiler):
-    def as_sql(self):
-        """
-        Create the SQL for this query. Return the SQL string and list of
-        parameters.
-        """
-        sql, params = [], []
-        for annotation in self.query.annotation_select.values():
-            ann_sql, ann_params = self.compile(annotation, select_format=FORCE)
-            sql.append(ann_sql)
-            params.extend(ann_params)
-        self.col_count = len(self.query.annotation_select)
-        sql = ', '.join(sql)
-        params = tuple(params)
-
-        sql = 'SELECT %s FROM (%s) subquery' % (sql, self.query.subquery)
-        params = params + self.query.sub_params
-        return sql, params
-
-
-def cursor_iter(cursor, sentinel, col_count, itersize):
-    """
-    Yield blocks of rows from a cursor and ensure the cursor is closed when
-    done.
-    """
-    try:
-        for rows in iter((lambda: cursor.fetchmany(itersize)), sentinel):
-            yield rows if col_count is None else [r[:col_count] for r in rows]
-    finally:
-        cursor.close()
+    return ManyRelatedManager

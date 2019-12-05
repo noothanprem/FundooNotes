@@ -1,1 +1,1 @@
-ÍzBvenv/lib/python3.6/site-packages/awscli/customizations/s3events.py 2pyX[h
+ÍzMvenv/lib/python3.6/site-packages/awscli/customizations/generatecliskeleton.py 2pyXˆh

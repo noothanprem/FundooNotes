@@ -1,34 +1,39 @@
+# -*- coding: utf-8 -*-
+# Copyright 2018 gevent. See LICENSE.
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+
 import unittest
-import warnings
 
-# This file should only have this one test in it
-# because we have to be careful about our imports
-# and because we need to be careful about our patching.
+from gevent import events
+from zope.interface import verify
 
-class Test(unittest.TestCase):
+class TestImplements(unittest.TestCase):
 
-    def test_with_pkg_resources(self):
-        # Issue 1108: Python 2, importing pkg_resources,
-        # as is done for namespace packages, imports ssl,
-        # leading to an unwanted SSL warning.
-        __import__('pkg_resources')
+    def test_event_loop_blocked(self):
+        verify.verifyClass(events.IEventLoopBlocked, events.EventLoopBlocked)
 
-        from gevent import monkey
+    def test_mem_threshold(self):
+        verify.verifyClass(events.IMemoryUsageThresholdExceeded,
+                           events.MemoryUsageThresholdExceeded)
+        verify.verifyObject(events.IMemoryUsageThresholdExceeded,
+                            events.MemoryUsageThresholdExceeded(0, 0, 0))
 
-        self.assertFalse(monkey.saved)
+    def test_mem_decreased(self):
+        verify.verifyClass(events.IMemoryUsageUnderThreshold,
+                           events.MemoryUsageUnderThreshold)
+        verify.verifyObject(events.IMemoryUsageUnderThreshold,
+                            events.MemoryUsageUnderThreshold(0, 0, 0, 0))
 
-        with warnings.catch_warnings(record=True) as issued_warnings:
-            warnings.simplefilter('always')
 
-            monkey.patch_all()
-            monkey.patch_all()
+class TestEvents(unittest.TestCase):
 
-        issued_warnings = [x for x in issued_warnings
-                           if isinstance(x.message, monkey.MonkeyPatchWarning)]
-
-        self.assertFalse(issued_warnings, [str(i) for i in issued_warnings])
-        self.assertEqual(0, len(issued_warnings))
-
+    def test_is_zope(self):
+        from zope import event
+        self.assertIs(events.subscribers, event.subscribers)
+        self.assertIs(events.notify, event.notify)
 
 if __name__ == '__main__':
     unittest.main()

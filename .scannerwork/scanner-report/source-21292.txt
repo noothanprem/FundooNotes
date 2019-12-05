@@ -1,33 +1,67 @@
+# Copyright (c) Twisted Matrix Laboratories.
+# See LICENSE for details.
 
-# A program which exits after starting a child which inherits its
-# stdin/stdout/stderr and keeps them open until stdin is closed.
+"""
+Testing helpers related to the module system.
+"""
 
-import sys, os
+from __future__ import division, absolute_import
 
-def grandchild():
-    sys.stdout.write('grandchild started')
-    sys.stdout.flush()
-    sys.stdin.read()
+__all__ = ['NoReactor', 'AlternateReactor']
 
-def main():
-    if sys.argv[1] == 'child':
-        if sys.argv[2] == 'windows':
-            import win32api as api, win32process as proc
-            info = proc.STARTUPINFO()
-            info.hStdInput = api.GetStdHandle(api.STD_INPUT_HANDLE)
-            info.hStdOutput = api.GetStdHandle(api.STD_OUTPUT_HANDLE)
-            info.hStdError = api.GetStdHandle(api.STD_ERROR_HANDLE)
-            python = sys.executable
-            scriptDir = os.path.dirname(__file__)
-            scriptName = os.path.basename(__file__)
-            proc.CreateProcess(
-                None, " ".join((python, scriptName, "grandchild")), None,
-                None, 1, 0, os.environ, scriptDir, info)
+import sys
+
+import twisted.internet
+from twisted.test.test_twisted import SetAsideModule
+
+
+
+class NoReactor(SetAsideModule):
+    """
+    Context manager that uninstalls the reactor, if any, and then restores it
+    afterwards.
+    """
+
+    def __init__(self):
+        SetAsideModule.__init__(self, "twisted.internet.reactor")
+
+
+    def __enter__(self):
+        SetAsideModule.__enter__(self)
+        if "twisted.internet.reactor" in self.modules:
+            del twisted.internet.reactor
+
+
+    def __exit__(self, excType, excValue, traceback):
+        SetAsideModule.__exit__(self, excType, excValue, traceback)
+        # Clean up 'reactor' attribute that may have been set on
+        # twisted.internet:
+        reactor = self.modules.get("twisted.internet.reactor", None)
+        if reactor is not None:
+            twisted.internet.reactor = reactor
         else:
-            if os.fork() == 0:
-                grandchild()
-    else:
-        grandchild()
+            try:
+                del twisted.internet.reactor
+            except AttributeError:
+                pass
 
-if __name__ == '__main__':
-    main()
+
+
+class AlternateReactor(NoReactor):
+    """
+    A context manager which temporarily installs a different object as the
+    global reactor.
+    """
+
+    def __init__(self, reactor):
+        """
+        @param reactor: Any object to install as the global reactor.
+        """
+        NoReactor.__init__(self)
+        self.alternate = reactor
+
+
+    def __enter__(self):
+        NoReactor.__enter__(self)
+        twisted.internet.reactor = self.alternate
+        sys.modules['twisted.internet.reactor'] = self.alternate

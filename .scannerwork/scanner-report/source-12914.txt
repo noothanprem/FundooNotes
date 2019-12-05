@@ -2,127 +2,57 @@
 # Licensed under the LGPLv3, see LICENCE file for details.
 import collections
 
-import pyrfc3339
-from ._conditions import (
-    COND_ALLOW,
-    COND_DECLARED,
-    COND_DENY,
-    COND_ERROR,
-    COND_TIME_BEFORE,
-    STD_NAMESPACE,
-)
 
+class AuthContext(collections.Mapping):
+    ''' Holds a set of keys and values relevant to authorization.
 
-class Caveat(collections.namedtuple('Caveat', 'condition location namespace')):
-    '''Represents a condition that must be true for a check to complete
-    successfully.
-
-    If location is provided, the caveat must be discharged by
-    a third party at the given location (a URL string).
-
-    The namespace parameter holds the namespace URI string of the
-    condition - if it is provided, it will be converted to a namespace prefix
-    before adding to the macaroon.
+    It is passed as an argument to authorization checkers, so that the checkers
+    can access information about the context of the authorization request.
+    It is immutable - values can only be added by copying the whole thing.
     '''
-    __slots__ = ()
+    def __init__(self, somedict=None):
+        if somedict is None:
+            somedict = {}
+        self._dict = dict(somedict)
+        self._hash = None
 
-    def __new__(cls, condition, location=None, namespace=None):
-        return super(Caveat, cls).__new__(cls, condition, location, namespace)
+    def with_value(self, key, val):
+        ''' Return a copy of the AuthContext object with the given key and
+        value added.
+        '''
+        new_dict = dict(self._dict)
+        new_dict[key] = val
+        return AuthContext(new_dict)
 
+    def __getitem__(self, key):
+        return self._dict[key]
 
-def declared_caveat(key, value):
-    '''Returns a "declared" caveat asserting that the given key is
-    set to the given value.
+    def __len__(self):
+        return len(self._dict)
 
-    If a macaroon has exactly one first party caveat asserting the value of a
-    particular key, then infer_declared will be able to infer the value, and
-    then the check will allow the declared value if it has the value
-    specified here.
+    def __iter__(self):
+        return iter(self._dict)
 
-    If the key is empty or contains a space, it will return an error caveat.
-    '''
-    if key.find(' ') >= 0 or key == '':
-        return error_caveat('invalid caveat \'declared\' key "{}"'.format(key))
-    return _first_party(COND_DECLARED, key + ' ' + value)
+    def __hash__(self):
+        if self._hash is None:
+            self._hash = hash(frozenset(self._dict.items()))
+        return self._hash
 
-
-def error_caveat(f):
-    '''Returns a caveat that will never be satisfied, holding f as the text of
-    the caveat.
-
-    This should only be used for highly unusual conditions that are never
-    expected to happen in practice, such as a malformed key that is
-    conventionally passed as a constant. It's not a panic but you should
-    only use it in cases where a panic might possibly be appropriate.
-
-    This mechanism means that caveats can be created without error
-    checking and a later systematic check at a higher level (in the
-    bakery package) can produce an error instead.
-    '''
-    return _first_party(COND_ERROR, f)
+    def __eq__(self, other):
+        return self._dict == other._dict
 
 
-def allow_caveat(ops):
-    ''' Returns a caveat that will deny attempts to use the macaroon to perform
-    any operation other than those listed. Operations must not contain a space.
-    '''
-    if ops is None or len(ops) == 0:
-        return error_caveat('no operations allowed')
-    return _operation_caveat(COND_ALLOW, ops)
+class ContextKey(object):
+    '''Provides a unique key suitable for use as a key into AuthContext.'''
 
+    def __init__(self, name):
+        '''Creates a context key using the given name. The name is
+     only for informational purposes.
+     '''
+        self._name = name
 
-def deny_caveat(ops):
-    '''Returns a caveat that will deny attempts to use the macaroon to perform
-    any of the listed operations. Operations must not contain a space.
-    '''
-    return _operation_caveat(COND_DENY, ops)
+    def __str__(self):
+        return '%s#%#x' % (self._name, id(self))
 
-
-def _operation_caveat(cond, ops):
-    ''' Helper for allow_caveat and deny_caveat.
-
-    It checks that all operation names are valid before creating the caveat.
-    '''
-    for op in ops:
-        if op.find(' ') != -1:
-            return error_caveat('invalid operation name "{}"'.format(op))
-    return _first_party(cond, ' '.join(ops))
-
-
-def time_before_caveat(t):
-    '''Return a caveat that specifies that the time that it is checked at
-    should be before t.
-    :param t is a a UTC date in - use datetime.utcnow, not datetime.now
-    '''
-
-    return _first_party(COND_TIME_BEFORE,
-                        pyrfc3339.generate(t, accept_naive=True,
-                                           microseconds=True))
-
-
-def parse_caveat(cav):
-    ''' Parses a caveat into an identifier, identifying the checker that should
-    be used, and the argument to the checker (the rest of the string).
-
-    The identifier is taken from all the characters before the first
-    space character.
-    :return two string, identifier and arg
-    '''
-    if cav == '':
-        raise ValueError('empty caveat')
-    try:
-        i = cav.index(' ')
-    except ValueError:
-        return cav, ''
-    if i == 0:
-        raise ValueError('caveat starts with space character')
-    return cav[0:i], cav[i + 1:]
-
-
-def _first_party(name, arg):
-    condition = name
-    if arg != '':
-        condition += ' ' + arg
-
-    return Caveat(condition=condition,
-                  namespace=STD_NAMESPACE)
+    def __repr__(self):
+        return 'context_key(%r, %#x)' % (self._name, id(self))

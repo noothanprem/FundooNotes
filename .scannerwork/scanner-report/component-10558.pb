@@ -1,1 +1,0 @@
-¾R.venv/lib/python3.6/site-packages/django_six.py 2pyXMh

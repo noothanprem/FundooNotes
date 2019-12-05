@@ -1,1 +1,1 @@
-§ÐXvenv/lib64/python3.6/site-packages/google/protobuf/internal/descriptor_pool_test2_pb2.py 2pyXŠh
+§ÐMvenv/lib64/python3.6/site-packages/google/protobuf/internal/generator_test.py 2pyXÝh

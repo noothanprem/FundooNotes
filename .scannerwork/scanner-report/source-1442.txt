@@ -3,10 +3,10 @@ from __future__ import absolute_import
 from future.utils import PY3
 
 if PY3:
-    from tkinter.ttk import *
+    from tkinter.font import *
 else:
     try:
-        from ttk import *
+        from tkFont import *
     except ImportError:
-        raise ImportError('The ttk module is missing. Does your Py2 '
+        raise ImportError('The tkFont module is missing. Does your Py2 '
                           'installation include tkinter?')

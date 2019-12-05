@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 #
-#  SelfTest/Hash/test_RIPEMD.py: Self-test for the RIPEMD-160 hash function
+#  SelfTest/Util/test_Counter: Self-test for the Crypto.Util.Counter module
 #
-# Written in 2008 by Dwayne C. Litzenberger <dlitz@dlitz.net>
+# Written in 2009 by Dwayne C. Litzenberger <dlitz@dlitz.net>
 #
 # ===================================================================
 # The contents of this file are dedicated to the public domain.  To
@@ -22,51 +22,143 @@
 # SOFTWARE.
 # ===================================================================
 
-#"""Self-test suite for Crypto.Hash.RIPEMD"""
+"""Self-tests for Crypto.Util.Counter"""
 
 __revision__ = "$Id$"
 
+import sys
+if sys.version_info[0] == 2 and sys.version_info[1] == 1:
+    from Crypto.Util.py21compat import *
 from Crypto.Util.py3compat import *
 
-# This is a list of (expected_result, input[, description]) tuples.
-test_data = [
-    # Test vectors downloaded 2008-09-12 from
-    #   http://homes.esat.kuleuven.be/~bosselae/ripemd160.html
-    ('9c1185a5c5e9fc54612808977ee8f548b2258d31', '', "'' (empty string)"),
-    ('0bdc9d2d256b3ee9daae347be6f4dc835a467ffe', 'a'),
-    ('8eb208f7e05d987a9b044a8e98c6b087f15a0bfc', 'abc'),
-    ('5d0689ef49d2fae572b881b123a85ffa21595f36', 'message digest'),
+import unittest
 
-    ('f71c27109c692c1b56bbdceb5b9d2865b3708dbc',
-        'abcdefghijklmnopqrstuvwxyz',
-        'a-z'),
+class CounterTests(unittest.TestCase):
+    def setUp(self):
+        global Counter
+        from Crypto.Util import Counter
 
-    ('12a053384a9c0c88e405a06c27dcf49ada62eb2b',
-        'abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq',
-        'abcdbcd...pnopq'),
+    def test_BE_shortcut(self):
+        """Big endian, shortcut enabled"""
+        c = Counter.new(128)
+        self.assertEqual(c.__PCT_CTR_SHORTCUT__,True) # assert_
+        c = Counter.new(128, little_endian=False)
+        self.assertEqual(c.__PCT_CTR_SHORTCUT__,True) # assert_
+        c = Counter.new(128, disable_shortcut=False)
+        self.assertEqual(c.__PCT_CTR_SHORTCUT__,True) # assert_
+        c = Counter.new(128, little_endian=False, disable_shortcut=False)
+        self.assertEqual(c.__PCT_CTR_SHORTCUT__,True) # assert_
 
-    ('b0e20b6e3116640286ed3a87a5713079b21f5189',
-        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',
-        'A-Z, a-z, 0-9'),
+    def test_LE_shortcut(self):
+        """Little endian, shortcut enabled"""
+        c = Counter.new(128, little_endian=True)
+        self.assertEqual(c.__PCT_CTR_SHORTCUT__,True) # assert_
+        c = Counter.new(128, little_endian=True, disable_shortcut=False)
+        self.assertEqual(c.__PCT_CTR_SHORTCUT__,True) # assert_
 
-    ('9b752e45573d4b39f4dbd3323cab82bf63326bfb',
-        '1234567890' * 8,
-        "'1234567890' * 8"),
+    def test_BE_no_shortcut(self):
+        """Big endian, shortcut disabled"""
+        c = Counter.new(128, disable_shortcut=True)
+        self.assertRaises(AttributeError, getattr, c, '__PCT_CTR_SHORTCUT__')
+        c = Counter.new(128, little_endian=False, disable_shortcut=True)
+        self.assertRaises(AttributeError, getattr, c, '__PCT_CTR_SHORTCUT__')
 
-    ('52783243c1697bdbe16d37f97f68f08325dc1528',
-        'a' * 10**6,
-        '"a" * 10**6'),
-]
+    def test_LE_no_shortcut(self):
+        """Little endian, shortcut disabled"""
+        c = Counter.new(128, little_endian=True, disable_shortcut=True)
+        self.assertRaises(AttributeError, getattr, c, '__PCT_CTR_SHORTCUT__')
+
+    def test_BE_defaults(self):
+        """128-bit, Big endian, defaults"""
+        c = Counter.new(128)
+        self.assertEqual(1, c.next_value())
+        self.assertEqual(b("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01"), c())
+        self.assertEqual(2, c.next_value())
+        self.assertEqual(b("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02"), c())
+        for i in range(3, 256):
+            self.assertEqual(i, c.next_value())
+            self.assertEqual(b("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")+bchr(i), c())
+        self.assertEqual(256, c.next_value())
+        self.assertEqual(b("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00"), c())
+
+    def test_LE_defaults(self):
+        """128-bit, Little endian, defaults"""
+        c = Counter.new(128, little_endian=True)
+        self.assertEqual(1, c.next_value())
+        self.assertEqual(b("\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"), c())
+        self.assertEqual(2, c.next_value())
+        self.assertEqual(b("\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"), c())
+        for i in range(3, 256):
+            self.assertEqual(i, c.next_value())
+            self.assertEqual(bchr(i)+b("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"), c())
+        self.assertEqual(256, c.next_value())
+        self.assertEqual(b("\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"), c())
+
+    def test_BE8_wraparound(self):
+        """8-bit, Big endian, wraparound"""
+        c = Counter.new(8)
+        for i in range(1, 256):
+            self.assertEqual(i, c.next_value())
+            self.assertEqual(bchr(i), c())
+        self.assertRaises(OverflowError, c.next_value)
+        self.assertRaises(OverflowError, c)
+        self.assertRaises(OverflowError, c.next_value)
+        self.assertRaises(OverflowError, c)
+
+    def test_LE8_wraparound(self):
+        """8-bit, Little endian, wraparound"""
+        c = Counter.new(8, little_endian=True)
+        for i in range(1, 256):
+            self.assertEqual(i, c.next_value())
+            self.assertEqual(bchr(i), c())
+        self.assertRaises(OverflowError, c.next_value)
+        self.assertRaises(OverflowError, c)
+        self.assertRaises(OverflowError, c.next_value)
+        self.assertRaises(OverflowError, c)
+
+    def test_BE8_wraparound_allowed(self):
+        """8-bit, Big endian, wraparound with allow_wraparound=True"""
+        c = Counter.new(8, allow_wraparound=True)
+        for i in range(1, 256):
+            self.assertEqual(i, c.next_value())
+            self.assertEqual(bchr(i), c())
+        self.assertEqual(0, c.next_value())
+        self.assertEqual(b("\x00"), c())
+        self.assertEqual(1, c.next_value())
+
+    def test_LE8_wraparound_allowed(self):
+        """8-bit, Little endian, wraparound with allow_wraparound=True"""
+        c = Counter.new(8, little_endian=True, allow_wraparound=True)
+        for i in range(1, 256):
+            self.assertEqual(i, c.next_value())
+            self.assertEqual(bchr(i), c())
+        self.assertEqual(0, c.next_value())
+        self.assertEqual(b("\x00"), c())
+        self.assertEqual(1, c.next_value())
+
+    def test_BE8_carry(self):
+        """8-bit, Big endian, carry attribute"""
+        c = Counter.new(8)
+        for i in range(1, 256):
+            self.assertEqual(0, c.carry)
+            self.assertEqual(i, c.next_value())
+            self.assertEqual(bchr(i), c())
+        self.assertEqual(1, c.carry)
+
+    def test_LE8_carry(self):
+        """8-bit, Little endian, carry attribute"""
+        c = Counter.new(8, little_endian=True)
+        for i in range(1, 256):
+            self.assertEqual(0, c.carry)
+            self.assertEqual(i, c.next_value())
+            self.assertEqual(bchr(i), c())
+        self.assertEqual(1, c.carry)
 
 def get_tests(config={}):
-    from Crypto.Hash import RIPEMD
-    from .common import make_hash_tests
-    return make_hash_tests(RIPEMD, "RIPEMD", test_data,
-        digest_size=20,
-        oid="\x06\x05\x2b\x24\x03\02\x01")
+    from Crypto.SelfTest.st_common import list_test_cases
+    return list_test_cases(CounterTests)
 
 if __name__ == '__main__':
-    import unittest
     suite = lambda: unittest.TestSuite(get_tests())
     unittest.main(defaultTest='suite')
 

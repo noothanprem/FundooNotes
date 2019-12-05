@@ -1,1 +1,1 @@
-‰º\venv/lib/python3.6/site-packages/django_extensions/management/commands/show_template_tags.py 2pyXrh
+‰º\venv/lib/python3.6/site-packages/django_extensions/management/commands/drop_test_database.py 2pyXçh

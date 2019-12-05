@@ -1,1 +1,1 @@
-ÏDAvenv/lib/python3.6/site-packages/django/conf/locale/fr/formats.py 2pyX"h
+ÏD6venv/lib/python3.6/site-packages/django/conf/locale/fr :ÎDÌD

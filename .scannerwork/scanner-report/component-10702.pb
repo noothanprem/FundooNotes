@@ -1,1 +1,1 @@
-ÎS:venv/lib/python3.6/site-packages/faker/providers/ssn/ru_RU :ÍS
+ÎS:venv/lib/python3.6/site-packages/faker/providers/ssn/pt_BR :ÍS

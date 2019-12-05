@@ -1,1 +1,1 @@
-֗2venv/lib/python3.6/site-packages/isort/settings.py 2pyX�h
+֗&venv/lib/python3.6/site-packages/isort :!ӗԗؗٗڗۗܗݗ���

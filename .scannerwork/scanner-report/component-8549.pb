@@ -1,1 +1,1 @@
-ÂBDvenv/lib/python3.6/site-packages/django/conf/locale/de_CH/formats.py 2pyX#h
+ÂB9venv/lib/python3.6/site-packages/django/conf/locale/de_CH :‰BÊB

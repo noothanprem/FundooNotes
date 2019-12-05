@@ -1,1 +1,1 @@
-üÅ@venv/lib/python3.6/site-packages/django_common/email_backends.py 2pyXGh
+üÅ:venv/lib/python3.6/site-packages/django_common/scaffold.py 2pyXöh

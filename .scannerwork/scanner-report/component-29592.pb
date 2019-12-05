@@ -1,1 +1,1 @@
-˜ç@venv/lib64/python3.6/site-packages/django/views/generic/dates.py 2pyXÕh
+˜ç?venv/lib64/python3.6/site-packages/django/views/generic/list.py 2pyXÇh

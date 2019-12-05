@@ -1,1 +1,1 @@
-‚ÅTvenv/lib64/python3.6/site-packages/awscli/customizations/s3/syncstrategy/register.py 2pyX2h
+‚ÅTvenv/lib64/python3.6/site-packages/awscli/customizations/s3/syncstrategy/__init__.py 2pyXh

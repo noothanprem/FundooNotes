@@ -1,1 +1,1 @@
-Ò:venv/lib/python3.6/site-packages/celery/backends/consul.py 2pyXhh
+Ò9venv/lib/python3.6/site-packages/celery/backends/redis.py 2pyX‹h

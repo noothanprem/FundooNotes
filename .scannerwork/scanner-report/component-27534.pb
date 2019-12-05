@@ -1,1 +1,1 @@
-×.venv/lib64/python3.6/site-packages/nacl/pwhash :×××‘×˜×
+×.venv/lib64/python3.6/site-packages/nacl/pwhash :Œ×××‘×˜×

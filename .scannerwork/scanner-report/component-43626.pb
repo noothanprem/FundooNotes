@@ -1,1 +1,1 @@
-ъд<venv/lib64/python3.6/site-packages/elasticsearch/__init__.py 2pyXh
+ъд:venv/lib64/python3.6/site-packages/elasticsearch/compat.py 2pyXh

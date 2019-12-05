@@ -1,1 +1,0 @@
-È	Cvenv/lib/python3.6/site-packages/future/backports/http/cookiejar.py 2pyX¾h

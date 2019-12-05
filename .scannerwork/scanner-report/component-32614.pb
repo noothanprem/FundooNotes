@@ -1,1 +1,1 @@
-æþ:venv/lib64/python3.6/site-packages/django/contrib/messages :åþçþèþéþóþôþõþöþ
+æþ:venv/lib64/python3.6/site-packages/django/contrib/messages :åþçþèþéþòþôþõþöþ

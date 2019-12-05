@@ -1,1 +1,0 @@
-è—.venv/lib/python3.6/site-packages/isort/main.py 2pyX’h

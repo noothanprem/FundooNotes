@@ -1,184 +1,126 @@
+import time
+
+from jwt import DecodeError, ExpiredSignature, decode as jwt_decode
+
+from ..exceptions import AuthTokenError
+from .oauth import BaseOAuth2
+
 """
-Google OpenId, OAuth2, OAuth1, Google+ Sign-in backends, docs at:
-    https://python-social-auth.readthedocs.io/en/latest/backends/google.html
+Copyright (c) 2015 Microsoft Open Technologies, Inc.
+
+All rights reserved.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 """
-from ..utils import handle_http_errors
-from .open_id import OpenIdAuth
-from .oauth import BaseOAuth2, BaseOAuth1
-from ..exceptions import AuthMissingParameter
+
+"""
+Azure AD OAuth2 backend, docs at:
+    https://python-social-auth.readthedocs.io/en/latest/backends/azuread.html
+"""
 
 
-class BaseGoogleAuth(object):
+class AzureADOAuth2(BaseOAuth2):
+    name = 'azuread-oauth2'
+    SCOPE_SEPARATOR = ' '
+    AUTHORIZATION_URL = \
+        'https://login.microsoftonline.com/common/oauth2/authorize'
+    ACCESS_TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/token'
+    ACCESS_TOKEN_METHOD = 'POST'
+    REDIRECT_STATE = False
+    DEFAULT_SCOPE = ['openid', 'profile', 'user_impersonation']
+    EXTRA_DATA = [
+        ('access_token', 'access_token'),
+        ('id_token', 'id_token'),
+        ('refresh_token', 'refresh_token'),
+        ('expires_in', 'expires'),
+        ('expires_on', 'expires_on'),
+        ('not_before', 'not_before'),
+        ('given_name', 'first_name'),
+        ('family_name', 'last_name'),
+        ('token_type', 'token_type')
+    ]
+
     def get_user_id(self, details, response):
-        """Use google email as unique id"""
-        if self.setting('USE_UNIQUE_USER_ID', False):
-            if 'sub' in response:
-                return response['sub']
-            else:
-                return response['id']
-        else:
-            return details['email']
+        """Use upn as unique id"""
+        return response.get('upn')
 
     def get_user_details(self, response):
-        """Return user details from Google API account"""
-        if 'email' in response:
-            email = response['email']
-        else:
-            email = ''
-
-        name, given_name, family_name = (
+        """Return user details from Azure AD account"""
+        fullname, first_name, last_name = (
             response.get('name', ''),
             response.get('given_name', ''),
-            response.get('family_name', ''),
+            response.get('family_name', '')
         )
-
-        fullname, first_name, last_name = self.get_user_names(
-            name, given_name, family_name
-        )
-        return {'username': email.split('@', 1)[0],
-                'email': email,
+        return {'username': fullname,
+                'email': response.get('upn'),
                 'fullname': fullname,
                 'first_name': first_name,
                 'last_name': last_name}
 
-
-class BaseGoogleOAuth2API(BaseGoogleAuth):
     def user_data(self, access_token, *args, **kwargs):
-        """Return user data from Google API"""
-        return self.get_json(
-            'https://www.googleapis.com/oauth2/v3/userinfo',
-            headers={
-                'Authorization': 'Bearer %s' % access_token,
-            },
-        )
-
-    def revoke_token_params(self, token, uid):
-        return {'token': token}
-
-    def revoke_token_headers(self, token, uid):
-        return {'Content-type': 'application/json'}
-
-
-class GoogleOAuth2(BaseGoogleOAuth2API, BaseOAuth2):
-    """Google OAuth2 authentication backend"""
-    name = 'google-oauth2'
-    REDIRECT_STATE = False
-    AUTHORIZATION_URL = 'https://accounts.google.com/o/oauth2/auth'
-    ACCESS_TOKEN_URL = 'https://accounts.google.com/o/oauth2/token'
-    ACCESS_TOKEN_METHOD = 'POST'
-    REVOKE_TOKEN_URL = 'https://accounts.google.com/o/oauth2/revoke'
-    REVOKE_TOKEN_METHOD = 'GET'
-    # The order of the default scope is important
-    DEFAULT_SCOPE = ['openid', 'email', 'profile']
-    EXTRA_DATA = [
-        ('refresh_token', 'refresh_token', True),
-        ('expires_in', 'expires'),
-        ('token_type', 'token_type', True)
-    ]
-
-
-class GooglePlusAuth(BaseGoogleOAuth2API, BaseOAuth2):
-    name = 'google-plus'
-    REDIRECT_STATE = False
-    STATE_PARAMETER = False
-    AUTHORIZATION_URL = 'https://accounts.google.com/o/oauth2/auth'
-    ACCESS_TOKEN_URL = 'https://accounts.google.com/o/oauth2/token'
-    ACCESS_TOKEN_METHOD = 'POST'
-    REVOKE_TOKEN_URL = 'https://accounts.google.com/o/oauth2/revoke'
-    REVOKE_TOKEN_METHOD = 'GET'
-    DEFAULT_SCOPE = [
-        'https://www.googleapis.com/auth/plus.login',
-        'https://www.googleapis.com/auth/plus.me',
-    ]
-    EXTRA_DATA = [
-        ('id', 'user_id'),
-        ('refresh_token', 'refresh_token', True),
-        ('expires_in', 'expires'),
-        ('access_type', 'access_type', True),
-        ('code', 'code')
-    ]
-
-    def auth_complete_params(self, state=None):
-        params = super(GooglePlusAuth, self).auth_complete_params(state)
-        if self.data.get('access_token'):
-            # Don't add postmessage if this is plain server-side workflow
-            params['redirect_uri'] = 'postmessage'
-        return params
-
-    @handle_http_errors
-    def auth_complete(self, *args, **kwargs):
-        if 'access_token' in self.data:  # Client-side workflow
-            token = self.data.get('access_token')
-            response = self.get_json(
-                'https://www.googleapis.com/oauth2/v3/tokeninfo',
-                params={'access_token': token}
-            )
-            self.process_error(response)
-            return self.do_auth(token, response=response, *args, **kwargs)
-        elif 'code' in self.data:  # Server-side workflow
-            response = self.request_access_token(
-                self.ACCESS_TOKEN_URL,
-                data=self.auth_complete_params(),
-                headers=self.auth_headers(),
-                method=self.ACCESS_TOKEN_METHOD
-            )
-            self.process_error(response)
-            return self.do_auth(response['access_token'],
-                                response=response,
-                                *args, **kwargs)
-        elif 'id_token' in self.data:  # Client-side workflow
-            token = self.data.get('id_token')
-            return self.do_auth(token, *args, **kwargs)
+        response = kwargs.get('response')
+        if response and response.get('id_token'):
+            id_token = response.get('id_token')
         else:
-            raise AuthMissingParameter(self, 'access_token, id_token, or code')
+            id_token = access_token
+            
+        try:
+            decoded_id_token = jwt_decode(id_token, verify=False)
+        except (DecodeError, ExpiredSignature) as de:
+            raise AuthTokenError(self, de)
+        return decoded_id_token
 
-    def user_data(self, access_token, *args, **kwargs):
-        if 'id_token' not in self.data:
-            return super(GooglePlusAuth, self).user_data(access_token, *args,
-                                                         **kwargs)
-        response = self.get_json(
-            'https://www.googleapis.com/oauth2/v3/tokeninfo',
-            params={'id_token': access_token}
-        )
-        self.process_error(response)
-        return response
+    def auth_extra_arguments(self):
+        """Return extra arguments needed on auth process. The defaults can be
+        overriden by GET parameters."""
+        extra_arguments = super(AzureADOAuth2, self).auth_extra_arguments()
+        resource = self.setting('RESOURCE')
+        if resource:
+            extra_arguments.update({'resource': resource})
+        return extra_arguments
 
+    def extra_data(self, user, uid, response, details=None, *args, **kwargs):
+        """Return access_token and extra defined names to store in
+        extra_data field"""
+        data = super(AzureADOAuth2, self).extra_data(user, uid, response,
+            details, *args, **kwargs)
+        data['resource'] = self.setting('RESOURCE')
+        return data
 
-class GoogleOAuth(BaseGoogleAuth, BaseOAuth1):
-    """Google OAuth authorization mechanism"""
-    name = 'google-oauth'
-    AUTHORIZATION_URL = 'https://www.google.com/accounts/OAuthAuthorizeToken'
-    REQUEST_TOKEN_URL = 'https://www.google.com/accounts/OAuthGetRequestToken'
-    ACCESS_TOKEN_URL = 'https://www.google.com/accounts/OAuthGetAccessToken'
-    DEFAULT_SCOPE = ['https://www.googleapis.com/auth/userinfo#email']
+    def refresh_token_params(self, token, *args, **kwargs):
+        return {
+            'client_id': self.setting('KEY'),
+            'client_secret': self.setting('SECRET'),
+            'refresh_token': token,
+            'grant_type': 'refresh_token',
+            'resource': self.setting('RESOURCE')
+        }
 
-    def user_data(self, access_token, *args, **kwargs):
-        """Return user data from Google API"""
-        return self.get_querystring(
-            'https://www.googleapis.com/userinfo/email',
-            auth=self.oauth_auth(access_token)
-        )
-
-    def get_key_and_secret(self):
-        """Return Google OAuth Consumer Key and Consumer Secret pair, uses
-        anonymous by default, beware that this marks the application as not
-        registered and a security badge is displayed on authorization page.
-        http://code.google.com/apis/accounts/docs/OAuth_ref.html#SigningOAuth
-        """
-        key_secret = super(GoogleOAuth, self).get_key_and_secret()
-        if key_secret == (None, None):
-            key_secret = ('anonymous', 'anonymous')
-        return key_secret
-
-
-class GoogleOpenId(OpenIdAuth):
-    name = 'google'
-    URL = 'https://www.google.com/accounts/o8/id'
-
-    def get_user_id(self, details, response):
-        """
-        Return user unique id provided by service. For google user email
-        is unique enought to flag a single user. Email comes from schema:
-        http://axschema.org/contact/email
-        """
-        return details['email']
+    def get_auth_token(self, user_id):
+        """Return the access token for the given user, after ensuring that it
+        has not expired, or refreshing it if so."""
+        user = self.get_user(user_id=user_id)
+        access_token = user.social_user.access_token
+        expires_on = user.social_user.extra_data['expires_on']
+        if expires_on <= int(time.time()):
+            new_token_response = self.refresh_token(token=access_token)
+            access_token = new_token_response['access_token']
+        return access_token

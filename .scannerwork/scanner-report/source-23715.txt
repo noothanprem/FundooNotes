@@ -1,42 +1,67 @@
 """
-Github Enterprise OAuth2 backend, docs at:
-    https://python-social-auth.readthedocs.io/en/latest/backends/github_enterprise.html
+Mendeley OAuth1 backend, docs at:
+    https://python-social-auth.readthedocs.io/en/latest/backends/mendeley.html
 """
-from six.moves.urllib.parse import urljoin
-
-from ..utils import append_slash
-from .github import GithubOAuth2, GithubOrganizationOAuth2, \
-                    GithubTeamOAuth2
+from .oauth import BaseOAuth1, BaseOAuth2
 
 
-class GithubEnterpriseMixin(object):
-    def api_url(self):
-        return append_slash(self.setting('API_URL'))
+class MendeleyMixin(object):
+    SCOPE_SEPARATOR = '+'
+    EXTRA_DATA = [('profile_id', 'profile_id'),
+                  ('name', 'name'),
+                  ('bio', 'bio')]
 
-    def authorization_url(self):
-        return self._url('login/oauth/authorize')
+    def get_user_id(self, details, response):
+        return response['id']
 
-    def access_token_url(self):
-        return self._url('login/oauth/access_token')
+    def get_user_details(self, response):
+        """Return user details from Mendeley account"""
+        profile_id = response['id']
+        name = response['display_name']
+        bio = response['link']
+        return {'profile_id': profile_id,
+                'name': name,
+                'bio': bio}
 
-    def _url(self, path):
-        return urljoin(append_slash(self.setting('URL')), path)
+    def user_data(self, access_token, *args, **kwargs):
+        """Return user data provided"""
+        values = self.get_user_data(access_token)
+        values.update(values)
+        return values
+
+    def get_user_data(self, access_token):
+        raise NotImplementedError('Implement in subclass')
 
 
-class GithubEnterpriseOAuth2(GithubEnterpriseMixin, GithubOAuth2):
-    """Github Enterprise OAuth authentication backend"""
-    name = 'github-enterprise'
+class MendeleyOAuth(MendeleyMixin, BaseOAuth1):
+    name = 'mendeley'
+    AUTHORIZATION_URL = 'http://api.mendeley.com/oauth/authorize/'
+    REQUEST_TOKEN_URL = 'http://api.mendeley.com/oauth/request_token/'
+    ACCESS_TOKEN_URL = 'http://api.mendeley.com/oauth/access_token/'
+
+    def get_user_data(self, access_token):
+        return self.get_json(
+            'http://api.mendeley.com/oapi/profiles/info/me/',
+            auth=self.oauth_auth(access_token)
+        )
 
 
-class GithubEnterpriseOrganizationOAuth2(GithubEnterpriseMixin,
-                                         GithubOrganizationOAuth2):
-    """Github Enterprise OAuth2 authentication backend for
-    organizations"""
-    name = 'github-enterprise-org'
-    DEFAULT_SCOPE = ['read:org']
+class MendeleyOAuth2(MendeleyMixin, BaseOAuth2):
+    name = 'mendeley-oauth2'
+    AUTHORIZATION_URL = 'https://api-oauth2.mendeley.com/oauth/authorize'
+    ACCESS_TOKEN_URL = 'https://api-oauth2.mendeley.com/oauth/token'
+    ACCESS_TOKEN_METHOD = 'POST'
+    DEFAULT_SCOPE = ['all']
+    REDIRECT_STATE = False
+    EXTRA_DATA = MendeleyMixin.EXTRA_DATA + [
+        ('refresh_token', 'refresh_token'),
+        ('expires_in', 'expires_in'),
+        ('token_type', 'token_type'),
+    ]
 
-
-class GithubEnterpriseTeamOAuth2(GithubEnterpriseMixin, GithubTeamOAuth2):
-    """Github Enterprise OAuth2 authentication backend for teams"""
-    name = 'github-enterprise-team'
-    DEFAULT_SCOPE = ['read:org']
+    def get_user_data(self, access_token, *args, **kwargs):
+        """Loads user data from service"""
+        return self.get_json(
+            'https://api.mendeley.com/profiles/me/',
+            headers={'Authorization': 'Bearer {0}'.format(access_token)}
+        )

@@ -1,1 +1,1 @@
-¯•Evenv/lib64/python3.6/site-packages/django_elasticsearch_dsl/fields.py 2pyXh
+¯•Evenv/lib64/python3.6/site-packages/django_elasticsearch_dsl/search.py 2pyX'h

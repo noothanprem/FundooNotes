@@ -1,1 +1,1 @@
-•Ë8venv/lib/python3.6/site-packages/cssutils/css/cssrule.py 2pyX±h
+•Ë;venv/lib/python3.6/site-packages/cssutils/css/marginrule.py 2pyX×h

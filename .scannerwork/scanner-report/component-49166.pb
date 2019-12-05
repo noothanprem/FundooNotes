@@ -1,1 +1,1 @@
-Ž€>venv/lib64/python3.6/site-packages/rest_framework/relations.py 2pyX«h
+Ž€Wvenv/lib64/python3.6/site-packages/rest_framework/management/commands/generateschema.py 2pyX@h

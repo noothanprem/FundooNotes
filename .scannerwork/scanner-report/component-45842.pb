@@ -1,1 +1,1 @@
-’æGvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/settings.py 2pyXKh
+’æEvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/models.py 2pyXih

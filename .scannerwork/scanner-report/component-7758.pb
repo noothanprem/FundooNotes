@@ -1,1 +1,1 @@
-Î<Yvenv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/vendor/select2/i18n :^Í<Ï<Ð<Ñ<Ò<Ó<Ô<Õ<Ö<×<Ø<Ù<Ú<Û<Ü<Ý<Þ<ß<à<á<â<ã<ä<å<æ<ç<è<é<ê<ë<ì<í<î<ï<ð<ñ<ò<ó<ô<õ<ö<÷<ø<ù<ú<û<ý<
+Î<Yvenv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/vendor/select2/i18n :^Í<Ï<Ð<Ñ<Ò<Ó<Ô<Õ<Ö<×<Ø<Ù<Ú<Û<Ü<Ý<Þ<ß<à<á<â<ã<ä<å<æ<ç<è<é<ê<ë<ì<í<î<ï<ð<ñ<ò<ó<ô<õ<ö<÷<ø<ù<ú<û<ü<

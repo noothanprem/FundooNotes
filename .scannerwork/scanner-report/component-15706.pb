@@ -1,1 +1,1 @@
-Úz3venv/lib/python3.6/site-packages/awscli/handlers.py 2pyX³h
+Úz2venv/lib/python3.6/site-packages/awscli/clidocs.py 2pyX£h

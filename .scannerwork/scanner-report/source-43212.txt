@@ -3,262 +3,144 @@
 # This file is part of gunicorn released under the MIT license.
 # See the NOTICE for more information.
 
-from datetime import datetime
+import copy
 import os
-from random import randint
-import signal
-from ssl import SSLError
 import sys
-import time
-import traceback
 
-from gunicorn import six
-from gunicorn import util
-from gunicorn.workers.workertmp import WorkerTmp
-from gunicorn.reloader import reloader_engines
-from gunicorn.http.errors import (
-    InvalidHeader, InvalidHeaderName, InvalidRequestLine, InvalidRequestMethod,
-    InvalidHTTPVersion, LimitRequestLine, LimitRequestHeaders,
-)
-from gunicorn.http.errors import InvalidProxyLine, ForbiddenProxyRequest
-from gunicorn.http.errors import InvalidSchemeHeaders
-from gunicorn.http.wsgi import default_environ, Response
-from gunicorn.six import MAXSIZE
+try:
+    import tornado
+except ImportError:
+    raise RuntimeError("You need tornado installed to use this worker.")
+import tornado.web
+import tornado.httpserver
+from tornado.ioloop import IOLoop, PeriodicCallback
+from tornado.wsgi import WSGIContainer
+from gunicorn.workers.base import Worker
+from gunicorn import __version__ as gversion
 
 
-class Worker(object):
+# `io_loop` arguments to many Tornado functions have been removed in Tornado 5.0
+# <http://www.tornadoweb.org/en/stable/releases/v5.0.0.html#backwards-compatibility-notes>
+IOLOOP_PARAMETER_REMOVED = tornado.version_info >= (5, 0, 0)
 
-    SIGNALS = [getattr(signal, "SIG%s" % x)
-            for x in "ABRT HUP QUIT INT TERM USR1 USR2 WINCH CHLD".split()]
 
-    PIPE = []
+class TornadoWorker(Worker):
 
-    def __init__(self, age, ppid, sockets, app, timeout, cfg, log):
-        """\
-        This is called pre-fork so it shouldn't do anything to the
-        current process. If there's a need to make process wide
-        changes you'll want to do that in ``self.init_process()``.
-        """
-        self.age = age
-        self.pid = "[booting]"
-        self.ppid = ppid
-        self.sockets = sockets
-        self.app = app
-        self.timeout = timeout
-        self.cfg = cfg
-        self.booted = False
-        self.aborted = False
-        self.reloader = None
+    @classmethod
+    def setup(cls):
+        web = sys.modules.pop("tornado.web")
+        old_clear = web.RequestHandler.clear
 
-        self.nr = 0
-        jitter = randint(0, cfg.max_requests_jitter)
-        self.max_requests = cfg.max_requests + jitter or MAXSIZE
-        self.alive = True
-        self.log = log
-        self.tmp = WorkerTmp(cfg)
-
-    def __str__(self):
-        return "<Worker %s>" % self.pid
-
-    def notify(self):
-        """\
-        Your worker subclass must arrange to have this method called
-        once every ``self.timeout`` seconds. If you fail in accomplishing
-        this task, the master process will murder your workers.
-        """
-        self.tmp.notify()
-
-    def run(self):
-        """\
-        This is the mainloop of a worker process. You should override
-        this method in a subclass to provide the intended behaviour
-        for your particular evil schemes.
-        """
-        raise NotImplementedError()
-
-    def init_process(self):
-        """\
-        If you override this method in a subclass, the last statement
-        in the function should be to call this method with
-        super(MyWorkerClass, self).init_process() so that the ``run()``
-        loop is initiated.
-        """
-
-        # set environment' variables
-        if self.cfg.env:
-            for k, v in self.cfg.env.items():
-                os.environ[k] = v
-
-        util.set_owner_process(self.cfg.uid, self.cfg.gid,
-                               initgroups=self.cfg.initgroups)
-
-        # Reseed the random number generator
-        util.seed()
-
-        # For waking ourselves up
-        self.PIPE = os.pipe()
-        for p in self.PIPE:
-            util.set_non_blocking(p)
-            util.close_on_exec(p)
-
-        # Prevent fd inheritance
-        for s in self.sockets:
-            util.close_on_exec(s)
-        util.close_on_exec(self.tmp.fileno())
-
-        self.wait_fds = self.sockets + [self.PIPE[0]]
-
-        self.log.close_on_exec()
-
-        self.init_signals()
-
-        # start the reloader
-        if self.cfg.reload:
-            def changed(fname):
-                self.log.info("Worker reloading: %s modified", fname)
-                self.alive = False
-                self.cfg.worker_int(self)
-                time.sleep(0.1)
-                sys.exit(0)
-
-            reloader_cls = reloader_engines[self.cfg.reload_engine]
-            self.reloader = reloader_cls(extra_files=self.cfg.reload_extra_files,
-                                         callback=changed)
-            self.reloader.start()
-
-        self.load_wsgi()
-        self.cfg.post_worker_init(self)
-
-        # Enter main run loop
-        self.booted = True
-        self.run()
-
-    def load_wsgi(self):
-        try:
-            self.wsgi = self.app.wsgi()
-        except SyntaxError as e:
-            if not self.cfg.reload:
-                raise
-
-            self.log.exception(e)
-
-            # fix from PR #1228
-            # storing the traceback into exc_tb will create a circular reference.
-            # per https://docs.python.org/2/library/sys.html#sys.exc_info warning,
-            # delete the traceback after use.
-            try:
-                _, exc_val, exc_tb = sys.exc_info()
-                self.reloader.add_extra_file(exc_val.filename)
-
-                tb_string = six.StringIO()
-                traceback.print_tb(exc_tb, file=tb_string)
-                self.wsgi = util.make_fail_app(tb_string.getvalue())
-            finally:
-                del exc_tb
-
-    def init_signals(self):
-        # reset signaling
-        for s in self.SIGNALS:
-            signal.signal(s, signal.SIG_DFL)
-        # init new signaling
-        signal.signal(signal.SIGQUIT, self.handle_quit)
-        signal.signal(signal.SIGTERM, self.handle_exit)
-        signal.signal(signal.SIGINT, self.handle_quit)
-        signal.signal(signal.SIGWINCH, self.handle_winch)
-        signal.signal(signal.SIGUSR1, self.handle_usr1)
-        signal.signal(signal.SIGABRT, self.handle_abort)
-
-        # Don't let SIGTERM and SIGUSR1 disturb active requests
-        # by interrupting system calls
-        if hasattr(signal, 'siginterrupt'):  # python >= 2.6
-            signal.siginterrupt(signal.SIGTERM, False)
-            signal.siginterrupt(signal.SIGUSR1, False)
-
-        if hasattr(signal, 'set_wakeup_fd'):
-            signal.set_wakeup_fd(self.PIPE[1])
-
-    def handle_usr1(self, sig, frame):
-        self.log.reopen_files()
+        def clear(self):
+            old_clear(self)
+            if "Gunicorn" not in self._headers["Server"]:
+                self._headers["Server"] += " (Gunicorn/%s)" % gversion
+        web.RequestHandler.clear = clear
+        sys.modules["tornado.web"] = web
 
     def handle_exit(self, sig, frame):
-        self.alive = False
+        if self.alive:
+            super(TornadoWorker, self).handle_exit(sig, frame)
 
-    def handle_quit(self, sig, frame):
-        self.alive = False
-        # worker_int callback
-        self.cfg.worker_int(self)
-        time.sleep(0.1)
-        sys.exit(0)
+    def handle_request(self):
+        self.nr += 1
+        if self.alive and self.nr >= self.max_requests:
+            self.log.info("Autorestarting worker after current request.")
+            self.alive = False
 
-    def handle_abort(self, sig, frame):
-        self.alive = False
-        self.cfg.worker_abort(self)
-        sys.exit(1)
+    def watchdog(self):
+        if self.alive:
+            self.notify()
 
-    def handle_error(self, req, client, addr, exc):
-        request_start = datetime.now()
-        addr = addr or ('', -1)  # unix socket case
-        if isinstance(exc, (InvalidRequestLine, InvalidRequestMethod,
-                InvalidHTTPVersion, InvalidHeader, InvalidHeaderName,
-                LimitRequestLine, LimitRequestHeaders,
-                InvalidProxyLine, ForbiddenProxyRequest,
-                InvalidSchemeHeaders,
-                SSLError)):
+        if self.ppid != os.getppid():
+            self.log.info("Parent changed, shutting down: %s", self)
+            self.alive = False
 
-            status_int = 400
-            reason = "Bad Request"
+    def heartbeat(self):
+        if not self.alive:
+            if self.server_alive:
+                if hasattr(self, 'server'):
+                    try:
+                        self.server.stop()
+                    except Exception:
+                        pass
+                self.server_alive = False
+            else:
+                if not self.ioloop._callbacks:
+                    self.ioloop.stop()
 
-            if isinstance(exc, InvalidRequestLine):
-                mesg = "Invalid Request Line '%s'" % str(exc)
-            elif isinstance(exc, InvalidRequestMethod):
-                mesg = "Invalid Method '%s'" % str(exc)
-            elif isinstance(exc, InvalidHTTPVersion):
-                mesg = "Invalid HTTP Version '%s'" % str(exc)
-            elif isinstance(exc, (InvalidHeaderName, InvalidHeader,)):
-                mesg = "%s" % str(exc)
-                if not req and hasattr(exc, "req"):
-                    req = exc.req  # for access log
-            elif isinstance(exc, LimitRequestLine):
-                mesg = "%s" % str(exc)
-            elif isinstance(exc, LimitRequestHeaders):
-                mesg = "Error parsing headers: '%s'" % str(exc)
-            elif isinstance(exc, InvalidProxyLine):
-                mesg = "'%s'" % str(exc)
-            elif isinstance(exc, ForbiddenProxyRequest):
-                reason = "Forbidden"
-                mesg = "Request forbidden"
-                status_int = 403
-            elif isinstance(exc, InvalidSchemeHeaders):
-                mesg = "%s" % str(exc)
-            elif isinstance(exc, SSLError):
-                reason = "Forbidden"
-                mesg = "'%s'" % str(exc)
-                status_int = 403
-
-            msg = "Invalid request from ip={ip}: {error}"
-            self.log.debug(msg.format(ip=addr[0], error=str(exc)))
+    def run(self):
+        self.ioloop = IOLoop.instance()
+        self.alive = True
+        self.server_alive = False
+        if IOLOOP_PARAMETER_REMOVED:
+            PeriodicCallback(self.watchdog, 1000).start()
+            PeriodicCallback(self.heartbeat, 1000).start()
         else:
-            if hasattr(req, "uri"):
-                self.log.exception("Error handling request %s", req.uri)
-            status_int = 500
-            reason = "Internal Server Error"
-            mesg = ""
+            PeriodicCallback(self.watchdog, 1000, io_loop=self.ioloop).start()
+            PeriodicCallback(self.heartbeat, 1000, io_loop=self.ioloop).start()
 
-        if req is not None:
-            request_time = datetime.now() - request_start
-            environ = default_environ(req, client, self.cfg)
-            environ['REMOTE_ADDR'] = addr[0]
-            environ['REMOTE_PORT'] = str(addr[1])
-            resp = Response(req, client, self.cfg)
-            resp.status = "%s %s" % (status_int, reason)
-            resp.response_length = len(mesg)
-            self.log.access(resp, req, environ, request_time)
+        # Assume the app is a WSGI callable if its not an
+        # instance of tornado.web.Application or is an
+        # instance of tornado.wsgi.WSGIApplication
+        app = self.wsgi
+        if not isinstance(app, tornado.web.Application) or \
+           isinstance(app, tornado.wsgi.WSGIApplication):
+            app = WSGIContainer(app)
 
-        try:
-            util.write_error(client, status_int, reason, mesg)
-        except:
-            self.log.debug("Failed to send error message.")
+        # Monkey-patching HTTPConnection.finish to count the
+        # number of requests being handled by Tornado. This
+        # will help gunicorn shutdown the worker if max_requests
+        # is exceeded.
+        httpserver = sys.modules["tornado.httpserver"]
+        if hasattr(httpserver, 'HTTPConnection'):
+            old_connection_finish = httpserver.HTTPConnection.finish
 
-    def handle_winch(self, sig, fname):
-        # Ignore SIGWINCH in worker. Fixes a crash on OpenBSD.
-        self.log.debug("worker: SIGWINCH ignored.")
+            def finish(other):
+                self.handle_request()
+                old_connection_finish(other)
+            httpserver.HTTPConnection.finish = finish
+            sys.modules["tornado.httpserver"] = httpserver
+
+            server_class = tornado.httpserver.HTTPServer
+        else:
+
+            class _HTTPServer(tornado.httpserver.HTTPServer):
+
+                def on_close(instance, server_conn):
+                    self.handle_request()
+                    super(_HTTPServer, instance).on_close(server_conn)
+
+            server_class = _HTTPServer
+
+        if self.cfg.is_ssl:
+            _ssl_opt = copy.deepcopy(self.cfg.ssl_options)
+            # tornado refuses initialization if ssl_options contains following
+            # options
+            del _ssl_opt["do_handshake_on_connect"]
+            del _ssl_opt["suppress_ragged_eofs"]
+            if IOLOOP_PARAMETER_REMOVED:
+                server = server_class(app, ssl_options=_ssl_opt)
+            else:
+                server = server_class(app, io_loop=self.ioloop,
+                                      ssl_options=_ssl_opt)
+        else:
+            if IOLOOP_PARAMETER_REMOVED:
+                server = server_class(app)
+            else:
+                server = server_class(app, io_loop=self.ioloop)
+
+        self.server = server
+        self.server_alive = True
+
+        for s in self.sockets:
+            s.setblocking(0)
+            if hasattr(server, "add_socket"):  # tornado > 2.0
+                server.add_socket(s)
+            elif hasattr(server, "_sockets"):  # tornado 2.0
+                server._sockets[s.fileno()] = s
+
+        server.no_keep_alive = self.cfg.keepalive <= 0
+        server.start(num_processes=1)
+
+        self.ioloop.start()

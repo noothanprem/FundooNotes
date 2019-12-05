@@ -11,42 +11,42 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 
-# Declare all the constants used by DataPipeline in this file
+from awscli.formatter import FullyBufferedFormatter
 
-# DataPipeline role names
-DATAPIPELINE_DEFAULT_SERVICE_ROLE_NAME = "DataPipelineDefaultRole"
-DATAPIPELINE_DEFAULT_RESOURCE_ROLE_NAME = "DataPipelineDefaultResourceRole"
 
-# DataPipeline role arn names
-DATAPIPELINE_DEFAULT_SERVICE_ROLE_ARN = ("arn:aws:iam::aws:policy/"
-                                         "service-role/AWSDataPipelineRole")
-DATAPIPELINE_DEFAULT_RESOURCE_ROLE_ARN = ("arn:aws:iam::aws:policy/"
-                                          "service-role/"
-                                          "AmazonEC2RoleforDataPipelineRole")
+class ListRunsFormatter(FullyBufferedFormatter):
+    TITLE_ROW_FORMAT_STRING = "       %-50.50s  %-19.19s  %-23.23s"
+    FIRST_ROW_FORMAT_STRING = "%4d.  %-50.50s  %-19.19s  %-23.23s"
+    SECOND_ROW_FORMAT_STRING = "       %-50.50s  %-19.19s  %-19.19s"
 
-# Assume Role Policy definitions for roles
-DATAPIPELINE_DEFAULT_RESOURCE_ROLE_ASSUME_POLICY = {
-    "Version": "2008-10-17",
-    "Statement": [
-        {
-            "Sid": "",
-            "Effect": "Allow",
-            "Principal": {"Service": "ec2.amazonaws.com"},
-            "Action": "sts:AssumeRole"
-        }
-    ]
-}
+    def _format_response(self, command_name, response, stream):
+        self._print_headers(stream)
+        for i, obj in enumerate(response):
+            self._print_row(i, obj, stream)
 
-DATAPIPELINE_DEFAULT_SERVICE_ROLE_ASSUME_POLICY = {
-    "Version": "2008-10-17",
-    "Statement": [
-        {
-            "Sid": "",
-            "Effect": "Allow",
-            "Principal": {"Service": ["datapipeline.amazonaws.com",
-                                      "elasticmapreduce.amazonaws.com"]
-                          },
-            "Action": "sts:AssumeRole"
-        }
-    ]
-}
+    def _print_headers(self, stream):
+        stream.write(self.TITLE_ROW_FORMAT_STRING % (
+            "Name", "Scheduled Start", "Status"))
+        stream.write('\n')
+        second_row = (self.SECOND_ROW_FORMAT_STRING % (
+            "ID", "Started", "Ended"))
+        stream.write(second_row)
+        stream.write('\n')
+        stream.write('-' * len(second_row))
+        stream.write('\n')
+
+    def _print_row(self, index, obj, stream):
+        logical_name = obj['@componentParent']
+        object_id = obj['@id']
+        scheduled_start_date = obj.get('@scheduledStartTime', '')
+        status = obj.get('@status', '')
+        start_date = obj.get('@actualStartTime', '')
+        end_date = obj.get('@actualEndTime', '')
+        first_row = self.FIRST_ROW_FORMAT_STRING % (
+            index + 1, logical_name, scheduled_start_date, status)
+        second_row = self.SECOND_ROW_FORMAT_STRING % (
+            object_id, start_date, end_date)
+        stream.write(first_row)
+        stream.write('\n')
+        stream.write(second_row)
+        stream.write('\n\n')

@@ -1,1 +1,1 @@
-†¡Cvenv/lib64/python3.6/site-packages/faker/providers/automotive/pt_BR :…¡
+†¡Cvenv/lib64/python3.6/site-packages/faker/providers/automotive/pt_BR :„¡

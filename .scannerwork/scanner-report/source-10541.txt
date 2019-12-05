@@ -1,172 +1,369 @@
+from __future__ import unicode_literals
+
+import asyncio
+import fnmatch
+import random
+import re
+import string
+import time
+from copy import deepcopy
+
 from django.conf import settings
-from django.contrib.auth import (
-    BACKEND_SESSION_KEY,
-    HASH_SESSION_KEY,
-    SESSION_KEY,
-    _get_backends,
-    get_user_model,
-    load_backend,
-    user_logged_in,
-    user_logged_out,
-)
-from django.contrib.auth.models import AnonymousUser
-from django.utils.crypto import constant_time_compare
-from django.utils.functional import LazyObject
-from django.utils.translation import LANGUAGE_SESSION_KEY
+from django.core.signals import setting_changed
+from django.utils.module_loading import import_string
 
-from channels.db import database_sync_to_async
-from channels.middleware import BaseMiddleware
-from channels.sessions import CookieMiddleware, SessionMiddleware
+from channels import DEFAULT_CHANNEL_LAYER
+
+from .exceptions import ChannelFull, InvalidChannelLayerError
 
 
-@database_sync_to_async
-def get_user(scope):
+class ChannelLayerManager:
     """
-    Return the user model instance associated with the given scope.
-    If no user is retrieved, return an instance of `AnonymousUser`.
+    Takes a settings dictionary of backends and initialises them on request.
     """
-    if "session" not in scope:
-        raise ValueError(
-            "Cannot find session in scope. You should wrap your consumer in SessionMiddleware."
-        )
-    session = scope["session"]
-    user = None
-    try:
-        user_id = _get_user_session_key(session)
-        backend_path = session[BACKEND_SESSION_KEY]
-    except KeyError:
-        pass
-    else:
-        if backend_path in settings.AUTHENTICATION_BACKENDS:
-            backend = load_backend(backend_path)
-            user = backend.get_user(user_id)
-            # Verify the session
-            if hasattr(user, "get_session_auth_hash"):
-                session_hash = session.get(HASH_SESSION_KEY)
-                session_hash_verified = session_hash and constant_time_compare(
-                    session_hash, user.get_session_auth_hash()
-                )
-                if not session_hash_verified:
-                    session.flush()
-                    user = None
-    return user or AnonymousUser()
 
+    def __init__(self):
+        self.backends = {}
+        setting_changed.connect(self._reset_backends)
 
-@database_sync_to_async
-def login(scope, user, backend=None):
-    """
-    Persist a user id and a backend in the request.
-    This way a user doesn't have to re-authenticate on every request.
-    Note that data set during the anonymous session is retained when the user logs in.
-    """
-    if "session" not in scope:
-        raise ValueError(
-            "Cannot find session in scope. You should wrap your consumer in SessionMiddleware."
-        )
-    session = scope["session"]
-    session_auth_hash = ""
-    if user is None:
-        user = scope.get("user", None)
-    if user is None:
-        raise ValueError(
-            "User must be passed as an argument or must be present in the scope."
-        )
-    if hasattr(user, "get_session_auth_hash"):
-        session_auth_hash = user.get_session_auth_hash()
-    if SESSION_KEY in session:
-        if _get_user_session_key(session) != user.pk or (
-            session_auth_hash
-            and not constant_time_compare(
-                session.get(HASH_SESSION_KEY, ""), session_auth_hash
+    def _reset_backends(self, setting, **kwargs):
+        """
+        Removes cached channel layers when the CHANNEL_LAYERS setting changes.
+        """
+        if setting == "CHANNEL_LAYERS":
+            self.backends = {}
+
+    @property
+    def configs(self):
+        # Lazy load settings so we can be imported
+        return getattr(settings, "CHANNEL_LAYERS", {})
+
+    def make_backend(self, name):
+        """
+        Instantiate channel layer.
+        """
+        config = self.configs[name].get("CONFIG", {})
+        return self._make_backend(name, config)
+
+    def make_test_backend(self, name):
+        """
+        Instantiate channel layer using its test config.
+        """
+        try:
+            config = self.configs[name]["TEST_CONFIG"]
+        except KeyError:
+            raise InvalidChannelLayerError("No TEST_CONFIG specified for %s" % name)
+        return self._make_backend(name, config)
+
+    def _make_backend(self, name, config):
+        # Check for old format config
+        if "ROUTING" in self.configs[name]:
+            raise InvalidChannelLayerError(
+                "ROUTING key found for %s - this is no longer needed in Channels 2."
+                % name
             )
-        ):
-            # To avoid reusing another user's session, create a new, empty
-            # session if the existing session corresponds to a different
-            # authenticated user.
-            session.flush()
-    else:
-        session.cycle_key()
-    try:
-        backend = backend or user.backend
-    except AttributeError:
-        backends = _get_backends(return_tuples=True)
-        if len(backends) == 1:
-            _, backend = backends[0]
+        # Load the backend class
+        try:
+            backend_class = import_string(self.configs[name]["BACKEND"])
+        except KeyError:
+            raise InvalidChannelLayerError("No BACKEND specified for %s" % name)
+        except ImportError:
+            raise InvalidChannelLayerError(
+                "Cannot import BACKEND %r specified for %s"
+                % (self.configs[name]["BACKEND"], name)
+            )
+        # Initialise and pass config
+        return backend_class(**config)
+
+    def __getitem__(self, key):
+        if key not in self.backends:
+            self.backends[key] = self.make_backend(key)
+        return self.backends[key]
+
+    def __contains__(self, key):
+        return key in self.configs
+
+    def set(self, key, layer):
+        """
+        Sets an alias to point to a new ChannelLayerWrapper instance, and
+        returns the old one that it replaced. Useful for swapping out the
+        backend during tests.
+        """
+        old = self.backends.get(key, None)
+        self.backends[key] = layer
+        return old
+
+
+class BaseChannelLayer:
+    """
+    Base channel layer class that others can inherit from, with useful
+    common functionality.
+    """
+
+    def __init__(self, expiry=60, capacity=100, channel_capacity=None):
+        self.expiry = expiry
+        self.capacity = capacity
+        self.channel_capacity = channel_capacity or {}
+
+    def compile_capacities(self, channel_capacity):
+        """
+        Takes an input channel_capacity dict and returns the compiled list
+        of regexes that get_capacity will look for as self.channel_capacity
+        """
+        result = []
+        for pattern, value in channel_capacity.items():
+            # If they passed in a precompiled regex, leave it, else interpret
+            # it as a glob.
+            if hasattr(pattern, "match"):
+                result.append((pattern, value))
+            else:
+                result.append((re.compile(fnmatch.translate(pattern)), value))
+        return result
+
+    def get_capacity(self, channel):
+        """
+        Gets the correct capacity for the given channel; either the default,
+        or a matching result from channel_capacity. Returns the first matching
+        result; if you want to control the order of matches, use an ordered dict
+        as input.
+        """
+        for pattern, capacity in self.channel_capacity:
+            if pattern.match(channel):
+                return capacity
+        return self.capacity
+
+    def match_type_and_length(self, name):
+        if isinstance(name, str) and (len(name) < 100):
+            return True
+        return False
+
+    ### Name validation functions
+
+    channel_name_regex = re.compile(r"^[a-zA-Z\d\-_.]+(\![\d\w\-_.]*)?$")
+    group_name_regex = re.compile(r"^[a-zA-Z\d\-_.]+$")
+    invalid_name_error = (
+        "{} name must be a valid unicode string containing only ASCII "
+        + "alphanumerics, hyphens, underscores, or periods."
+    )
+
+    def valid_channel_name(self, name, receive=False):
+        if self.match_type_and_length(name):
+            if bool(self.channel_name_regex.match(name)):
+                # Check cases for special channels
+                if "!" in name and not name.endswith("!") and receive:
+                    raise TypeError(
+                        "Specific channel names in receive() must end at the !"
+                    )
+                return True
+        raise TypeError(
+            "Channel name must be a valid unicode string containing only ASCII "
+            + "alphanumerics, hyphens, or periods, not '{}'.".format(name)
+        )
+
+    def valid_group_name(self, name):
+        if self.match_type_and_length(name):
+            if bool(self.group_name_regex.match(name)):
+                return True
+        raise TypeError(
+            "Group name must be a valid unicode string containing only ASCII "
+            + "alphanumerics, hyphens, or periods."
+        )
+
+    def valid_channel_names(self, names, receive=False):
+        _non_empty_list = True if names else False
+        _names_type = isinstance(names, list)
+        assert _non_empty_list and _names_type, "names must be a non-empty list"
+
+        assert all(
+            self.valid_channel_name(channel, receive=receive) for channel in names
+        )
+        return True
+
+    def non_local_name(self, name):
+        """
+        Given a channel name, returns the "non-local" part. If the channel name
+        is a process-specific channel (contains !) this means the part up to
+        and including the !; if it is anything else, this means the full name.
+        """
+        if "!" in name:
+            return name[: name.find("!") + 1]
         else:
-            raise ValueError(
-                "You have multiple authentication backends configured and therefore must provide the `backend` "
-                "argument or set the `backend` attribute on the user."
-            )
-    session[SESSION_KEY] = user._meta.pk.value_to_string(user)
-    session[BACKEND_SESSION_KEY] = backend
-    session[HASH_SESSION_KEY] = session_auth_hash
-    scope["user"] = user
-    # note this does not reset the CSRF_COOKIE/Token
-    user_logged_in.send(sender=user.__class__, request=None, user=user)
+            return name
 
 
-@database_sync_to_async
-def logout(scope):
+class InMemoryChannelLayer(BaseChannelLayer):
     """
-    Remove the authenticated user's ID from the request and flush their session data.
+    In-memory channel layer implementation
     """
-    if "session" not in scope:
-        raise ValueError(
-            "Login cannot find session in scope. You should wrap your consumer in SessionMiddleware."
+
+    def __init__(
+        self,
+        expiry=60,
+        group_expiry=86400,
+        capacity=100,
+        channel_capacity=None,
+        **kwargs
+    ):
+        super().__init__(
+            expiry=expiry,
+            capacity=capacity,
+            channel_capacity=channel_capacity,
+            **kwargs
         )
-    session = scope["session"]
-    # Dispatch the signal before the user is logged out so the receivers have a
-    # chance to find out *who* logged out.
-    user = scope.get("user", None)
-    if hasattr(user, "is_authenticated") and not user.is_authenticated:
-        user = None
-    if user is not None:
-        user_logged_out.send(sender=user.__class__, request=None, user=user)
-    # remember language choice saved to session
-    language = session.get(LANGUAGE_SESSION_KEY)
-    session.flush()
-    if language is not None:
-        session[LANGUAGE_SESSION_KEY] = language
-    if "user" in scope:
-        scope["user"] = AnonymousUser()
+        self.channels = {}
+        self.groups = {}
+        self.group_expiry = group_expiry
+
+    ### Channel layer API ###
+
+    extensions = ["groups", "flush"]
+
+    async def send(self, channel, message):
+        """
+        Send a message onto a (general or specific) channel.
+        """
+        # Typecheck
+        assert isinstance(message, dict), "message is not a dict"
+        assert self.valid_channel_name(channel), "Channel name not valid"
+        # If it's a process-local channel, strip off local part and stick full name in message
+        assert "__asgi_channel__" not in message
+
+        queue = self.channels.setdefault(channel, asyncio.Queue())
+        # Are we full
+        if queue.qsize() >= self.capacity:
+            raise ChannelFull(channel)
+
+        # Add message
+        await queue.put((time.time() + self.expiry, deepcopy(message)))
+
+    async def receive(self, channel):
+        """
+        Receive the first message that arrives on the channel.
+        If more than one coroutine waits on the same channel, a random one
+        of the waiting coroutines will get the result.
+        """
+        assert self.valid_channel_name(channel)
+        self._clean_expired()
+
+        queue = self.channels.setdefault(channel, asyncio.Queue())
+
+        # Do a plain direct receive
+        _, message = await queue.get()
+
+        # Delete if empty
+        if queue.empty():
+            del self.channels[channel]
+
+        return message
+
+    async def new_channel(self, prefix="specific."):
+        """
+        Returns a new channel name that can be used by something in our
+        process as a specific channel.
+        """
+        return "%s.inmemory!%s" % (
+            prefix,
+            "".join(random.choice(string.ascii_letters) for i in range(12)),
+        )
+
+    ### Expire cleanup ###
+
+    def _clean_expired(self):
+        """
+        Goes through all messages and groups and removes those that are expired.
+        Any channel with an expired message is removed from all groups.
+        """
+        # Channel cleanup
+        for channel, queue in list(self.channels.items()):
+            remove = False
+            # See if it's expired
+            while not queue.empty() and queue._queue[0][0] < time.time():
+                queue.get_nowait()
+                remove = True
+            # Any removal prompts group discard
+            if remove:
+                self._remove_from_groups(channel)
+            # Is the channel now empty and needs deleting?
+            if not queue:
+                del self.channels[channel]
+
+        # Group Expiration
+        timeout = int(time.time()) - self.group_expiry
+        for group in self.groups:
+            for channel in list(self.groups.get(group, set())):
+                # If join time is older than group_expiry end the group membership
+                if (
+                    self.groups[group][channel]
+                    and int(self.groups[group][channel]) < timeout
+                ):
+                    # Delete from group
+                    del self.groups[group][channel]
+
+    ### Flush extension ###
+
+    async def flush(self):
+        self.channels = {}
+        self.groups = {}
+
+    async def close(self):
+        # Nothing to go
+        pass
+
+    def _remove_from_groups(self, channel):
+        """
+        Removes a channel from all groups. Used when a message on it expires.
+        """
+        for channels in self.groups.values():
+            if channel in channels:
+                del channels[channel]
+
+    ### Groups extension ###
+
+    async def group_add(self, group, channel):
+        """
+        Adds the channel name to a group.
+        """
+        # Check the inputs
+        assert self.valid_group_name(group), "Group name not valid"
+        assert self.valid_channel_name(channel), "Channel name not valid"
+        # Add to group dict
+        self.groups.setdefault(group, {})
+        self.groups[group][channel] = time.time()
+
+    async def group_discard(self, group, channel):
+        # Both should be text and valid
+        assert self.valid_channel_name(channel), "Invalid channel name"
+        assert self.valid_group_name(group), "Invalid group name"
+        # Remove from group set
+        if group in self.groups:
+            if channel in self.groups[group]:
+                del self.groups[group][channel]
+            if not self.groups[group]:
+                del self.groups[group]
+
+    async def group_send(self, group, message):
+        # Check types
+        assert isinstance(message, dict), "Message is not a dict"
+        assert self.valid_group_name(group), "Invalid group name"
+        # Run clean
+        self._clean_expired()
+        # Send to each channel
+        for channel in self.groups.get(group, set()):
+            try:
+                await self.send(channel, message)
+            except ChannelFull:
+                pass
 
 
-def _get_user_session_key(session):
-    # This value in the session is always serialized to a string, so we need
-    # to convert it back to Python whenever we access it.
-    return get_user_model()._meta.pk.to_python(session[SESSION_KEY])
-
-
-class UserLazyObject(LazyObject):
+def get_channel_layer(alias=DEFAULT_CHANNEL_LAYER):
     """
-    Throw a more useful error message when scope['user'] is accessed before it's resolved
+    Returns a channel layer by alias, or None if it is not configured.
     """
-
-    def _setup(self):
-        raise ValueError("Accessing scope user before it is ready.")
-
-
-class AuthMiddleware(BaseMiddleware):
-    """
-    Middleware which populates scope["user"] from a Django session.
-    Requires SessionMiddleware to function.
-    """
-
-    def populate_scope(self, scope):
-        # Make sure we have a session
-        if "session" not in scope:
-            raise ValueError(
-                "AuthMiddleware cannot find session in scope. SessionMiddleware must be above it."
-            )
-        # Add it to the scope if it's not there already
-        if "user" not in scope:
-            scope["user"] = UserLazyObject()
-
-    async def resolve_scope(self, scope):
-        scope["user"]._wrapped = await get_user(scope)
+    try:
+        return channel_layers[alias]
+    except KeyError:
+        return None
 
 
-# Handy shortcut for applying all three layers at once
-AuthMiddlewareStack = lambda inner: CookieMiddleware(
-    SessionMiddleware(AuthMiddleware(inner))
-)
+# Default global instance of the channel layer manager
+channel_layers = ChannelLayerManager()

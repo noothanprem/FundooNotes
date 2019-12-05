@@ -1,1 +1,0 @@
-Š%Avenv/lib/python3.6/site-packages/django/contrib/flatpages/urls.py 2pyXh

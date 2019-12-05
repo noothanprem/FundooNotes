@@ -1,1 +1,1 @@
-–°<venv/lib/python3.6/site-packages/lazr/uri/tests/test_docs.py 2pyX8h
+–°/venv/lib/python3.6/site-packages/lazr/uri/tests :	•°—°˜°

@@ -1,1 +1,1 @@
-ŕ:venv/lib64/python3.6/site-packages/corsheaders/__init__.py 2pyXh
+ŕ<venv/lib64/python3.6/site-packages/corsheaders/middleware.py 2pyX�h

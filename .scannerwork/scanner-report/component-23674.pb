@@ -1,1 +1,1 @@
-ú¸Bvenv/lib/python3.6/site-packages/social_core/backends/launchpad.py 2pyXh
+ú¸Avenv/lib/python3.6/site-packages/social_core/backends/withings.py 2pyXh

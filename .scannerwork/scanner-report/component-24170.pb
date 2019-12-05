@@ -1,1 +1,1 @@
-ê¼Yvenv/lib/python3.6/site-packages/django_extensions/management/commands/admin_generator.py 2pyXáh
+ê¼Ovenv/lib/python3.6/site-packages/django_extensions/management/commands/notes.py 2pyXDh

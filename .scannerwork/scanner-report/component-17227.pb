@@ -1,1 +1,0 @@
-ˆ5venv/lib/python3.6/site-packages/simplejson/errors.py 2pyX6h

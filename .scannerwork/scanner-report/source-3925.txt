@@ -1,108 +1,163 @@
+import math
+
 from django.db.models.expressions import Func
 from django.db.models.fields import FloatField, IntegerField
-
-__all__ = [
-    'CumeDist', 'DenseRank', 'FirstValue', 'Lag', 'LastValue', 'Lead',
-    'NthValue', 'Ntile', 'PercentRank', 'Rank', 'RowNumber',
-]
-
-
-class CumeDist(Func):
-    function = 'CUME_DIST'
-    output_field = FloatField()
-    window_compatible = True
+from django.db.models.functions import Cast
+from django.db.models.functions.mixins import (
+    FixDecimalInputMixin, NumericOutputFieldMixin,
+)
+from django.db.models.lookups import Transform
 
 
-class DenseRank(Func):
-    function = 'DENSE_RANK'
-    output_field = IntegerField()
-    window_compatible = True
+class Abs(Transform):
+    function = 'ABS'
+    lookup_name = 'abs'
 
 
-class FirstValue(Func):
-    arity = 1
-    function = 'FIRST_VALUE'
-    window_compatible = True
+class ACos(NumericOutputFieldMixin, Transform):
+    function = 'ACOS'
+    lookup_name = 'acos'
 
 
-class LagLeadFunction(Func):
-    window_compatible = True
-
-    def __init__(self, expression, offset=1, default=None, **extra):
-        if expression is None:
-            raise ValueError(
-                '%s requires a non-null source expression.' %
-                self.__class__.__name__
-            )
-        if offset is None or offset <= 0:
-            raise ValueError(
-                '%s requires a positive integer for the offset.' %
-                self.__class__.__name__
-            )
-        args = (expression, offset)
-        if default is not None:
-            args += (default,)
-        super().__init__(*args, **extra)
-
-    def _resolve_output_field(self):
-        sources = self.get_source_expressions()
-        return sources[0].output_field
+class ASin(NumericOutputFieldMixin, Transform):
+    function = 'ASIN'
+    lookup_name = 'asin'
 
 
-class Lag(LagLeadFunction):
-    function = 'LAG'
+class ATan(NumericOutputFieldMixin, Transform):
+    function = 'ATAN'
+    lookup_name = 'atan'
 
 
-class LastValue(Func):
-    arity = 1
-    function = 'LAST_VALUE'
-    window_compatible = True
+class ATan2(NumericOutputFieldMixin, Func):
+    function = 'ATAN2'
+    arity = 2
+
+    def as_sqlite(self, compiler, connection, **extra_context):
+        if not getattr(connection.ops, 'spatialite', False) or not (
+            (4, 3, 0) <= connection.ops.spatial_version < (5, 0, 0)
+        ):
+            return self.as_sql(compiler, connection)
+        # This function is usually ATan2(y, x), returning the inverse tangent
+        # of y / x, but it's ATan2(x, y) on SpatiaLite >= 4.3.0, < 5.0.0.
+        # Cast integers to float to avoid inconsistent/buggy behavior if the
+        # arguments are mixed between integer and float or decimal.
+        # https://www.gaia-gis.it/fossil/libspatialite/tktview?name=0f72cca3a2
+        clone = self.copy()
+        clone.set_source_expressions([
+            Cast(expression, FloatField()) if isinstance(expression.output_field, IntegerField)
+            else expression for expression in self.get_source_expressions()[::-1]
+        ])
+        return clone.as_sql(compiler, connection, **extra_context)
 
 
-class Lead(LagLeadFunction):
-    function = 'LEAD'
+class Ceil(Transform):
+    function = 'CEILING'
+    lookup_name = 'ceil'
+
+    def as_oracle(self, compiler, connection, **extra_context):
+        return super().as_sql(compiler, connection, function='CEIL', **extra_context)
 
 
-class NthValue(Func):
-    function = 'NTH_VALUE'
-    window_compatible = True
-
-    def __init__(self, expression, nth=1, **extra):
-        if expression is None:
-            raise ValueError('%s requires a non-null source expression.' % self.__class__.__name__)
-        if nth is None or nth <= 0:
-            raise ValueError('%s requires a positive integer as for nth.' % self.__class__.__name__)
-        super().__init__(expression, nth, **extra)
-
-    def _resolve_output_field(self):
-        sources = self.get_source_expressions()
-        return sources[0].output_field
+class Cos(NumericOutputFieldMixin, Transform):
+    function = 'COS'
+    lookup_name = 'cos'
 
 
-class Ntile(Func):
-    function = 'NTILE'
-    output_field = IntegerField()
-    window_compatible = True
+class Cot(NumericOutputFieldMixin, Transform):
+    function = 'COT'
+    lookup_name = 'cot'
 
-    def __init__(self, num_buckets=1, **extra):
-        if num_buckets <= 0:
-            raise ValueError('num_buckets must be greater than 0.')
-        super().__init__(num_buckets, **extra)
+    def as_oracle(self, compiler, connection, **extra_context):
+        return super().as_sql(compiler, connection, template='(1 / TAN(%(expressions)s))', **extra_context)
 
 
-class PercentRank(Func):
-    function = 'PERCENT_RANK'
-    output_field = FloatField()
-    window_compatible = True
+class Degrees(NumericOutputFieldMixin, Transform):
+    function = 'DEGREES'
+    lookup_name = 'degrees'
+
+    def as_oracle(self, compiler, connection, **extra_context):
+        return super().as_sql(
+            compiler, connection,
+            template='((%%(expressions)s) * 180 / %s)' % math.pi,
+            **extra_context
+        )
 
 
-class Rank(Func):
-    function = 'RANK'
-    output_field = IntegerField()
-    window_compatible = True
+class Exp(NumericOutputFieldMixin, Transform):
+    function = 'EXP'
+    lookup_name = 'exp'
 
 
-class RowNumber(Func):
-    function = 'ROW_NUMBER'
-    output_field = IntegerField()
-    window_compatible = True
+class Floor(Transform):
+    function = 'FLOOR'
+    lookup_name = 'floor'
+
+
+class Ln(NumericOutputFieldMixin, Transform):
+    function = 'LN'
+    lookup_name = 'ln'
+
+
+class Log(FixDecimalInputMixin, NumericOutputFieldMixin, Func):
+    function = 'LOG'
+    arity = 2
+
+    def as_sqlite(self, compiler, connection, **extra_context):
+        if not getattr(connection.ops, 'spatialite', False):
+            return self.as_sql(compiler, connection)
+        # This function is usually Log(b, x) returning the logarithm of x to
+        # the base b, but on SpatiaLite it's Log(x, b).
+        clone = self.copy()
+        clone.set_source_expressions(self.get_source_expressions()[::-1])
+        return clone.as_sql(compiler, connection, **extra_context)
+
+
+class Mod(FixDecimalInputMixin, NumericOutputFieldMixin, Func):
+    function = 'MOD'
+    arity = 2
+
+
+class Pi(NumericOutputFieldMixin, Func):
+    function = 'PI'
+    arity = 0
+
+    def as_oracle(self, compiler, connection, **extra_context):
+        return super().as_sql(compiler, connection, template=str(math.pi), **extra_context)
+
+
+class Power(NumericOutputFieldMixin, Func):
+    function = 'POWER'
+    arity = 2
+
+
+class Radians(NumericOutputFieldMixin, Transform):
+    function = 'RADIANS'
+    lookup_name = 'radians'
+
+    def as_oracle(self, compiler, connection, **extra_context):
+        return super().as_sql(
+            compiler, connection,
+            template='((%%(expressions)s) * %s / 180)' % math.pi,
+            **extra_context
+        )
+
+
+class Round(Transform):
+    function = 'ROUND'
+    lookup_name = 'round'
+
+
+class Sin(NumericOutputFieldMixin, Transform):
+    function = 'SIN'
+    lookup_name = 'sin'
+
+
+class Sqrt(NumericOutputFieldMixin, Transform):
+    function = 'SQRT'
+    lookup_name = 'sqrt'
+
+
+class Tan(NumericOutputFieldMixin, Transform):
+    function = 'TAN'
+    lookup_name = 'tan'

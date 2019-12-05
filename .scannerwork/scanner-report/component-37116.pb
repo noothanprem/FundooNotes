@@ -1,1 +1,1 @@
-ü¡?venv/lib64/python3.6/site-packages/faker/providers/person/en_TH :û¡
+ü¡?venv/lib64/python3.6/site-packages/faker/providers/person/en_TH :ú¡

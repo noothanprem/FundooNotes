@@ -1,1 +1,1 @@
-æBvenv/lib/python3.6/site-packages/django/db/migrations/migration.py 2pyXÂh
+æ5venv/lib/python3.6/site-packages/django/db/migrations :åçèéêëìíîïğñ‚

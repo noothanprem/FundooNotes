@@ -1,1 +1,1 @@
-ÉDvenv/lib/python3.6/site-packages/django/db/backends/base/features.py 2pyXµh
+É8venv/lib/python3.6/site-packages/django/db/backends/base :ÈÊËÌÍÎÏÙÛ

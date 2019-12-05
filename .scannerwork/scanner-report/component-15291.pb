@@ -1,1 +1,1 @@
-»w7venv/lib/python3.6/site-packages/awscli/errorhandler.py 2pyXOh
+»w4venv/lib/python3.6/site-packages/awscli/completer.py 2pyX“h

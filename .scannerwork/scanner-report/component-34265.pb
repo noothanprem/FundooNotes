@@ -1,1 +1,1 @@
-ًOvenv/lib64/python3.6/site-packages/django/core/management/commands/inspectdb.py 2pyX�h
+ًKvenv/lib64/python3.6/site-packages/django/core/management/commands/flush.py 2pyXSh

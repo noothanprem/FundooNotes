@@ -1,1 +1,1 @@
-²‡6venv/lib/python3.6/site-packages/kombu/utils/compat.py 2pyXŒh
+²‡8venv/lib/python3.6/site-packages/kombu/utils/__init__.py 2pyXh

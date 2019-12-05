@@ -1,1 +1,1 @@
-ˆd5venv/lib/python3.6/site-packages/requests/adapters.py 2pyX–h
+ˆd1venv/lib/python3.6/site-packages/requests/help.py 2pyXxh

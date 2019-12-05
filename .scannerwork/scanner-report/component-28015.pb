@@ -1,1 +1,1 @@
-як>venv/lib64/python3.6/site-packages/reportlab/lib/fontfinder.py 2pyXуh
+як=venv/lib64/python3.6/site-packages/reportlab/lib/extformat.py 2pyX\h

@@ -1,1 +1,1 @@
-ò)Ovenv/lib/python3.6/site-packages/django/contrib/sessions/migrations/__init__.py 2pyXh
+ò)Cvenv/lib/python3.6/site-packages/django/contrib/sessions/migrations :ð)ó)

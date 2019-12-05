@@ -1,1 +1,1 @@
-¿æ/venv/lib64/python3.6/site-packages/django/forms :¾æÀæÁæßæàæáæâæíæîæ
+¿æ/venv/lib64/python3.6/site-packages/django/forms :¾æÁæÀæßæàæáæâæíæîæ

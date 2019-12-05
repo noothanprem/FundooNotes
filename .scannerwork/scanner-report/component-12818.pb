@@ -1,1 +1,1 @@
-’dKvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_discharge_all.py 2pyX¥h
+’dCvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_codec.py 2pyXÅh

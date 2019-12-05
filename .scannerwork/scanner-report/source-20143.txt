@@ -1,70 +1,238 @@
-"""Python bindings for 0MQ."""
-
 # Copyright (C) PyZMQ Developers
 # Distributed under the terms of the Modified BSD License.
 
-# load bundled libzmq, if there is one:
-def _load_libzmq():
-    """load bundled libzmq if there is one"""
-    import sys, ctypes, platform, os
-    dlopen = hasattr(sys, 'getdlopenflags') # unix-only
-    # RTLD flags are added to os in Python 3
-    # get values from os because ctypes values are WRONG on pypy
-    PYPY = platform.python_implementation().lower() == 'pypy'
-    
-    if dlopen:
-        dlflags = sys.getdlopenflags()
-        # set RTLD_GLOBAL, unset RTLD_LOCAL
-        flags = ctypes.RTLD_GLOBAL | dlflags
-        # ctypes.RTLD_LOCAL is 0 on pypy, which is *wrong*
-        flags &= ~ getattr(os, 'RTLD_LOCAL', 4)
-        # pypy on darwin needs RTLD_LAZY for some reason
-        if PYPY and sys.platform == 'darwin':
-            flags |= getattr(os, 'RTLD_LAZY', 1)
-            flags &= ~ getattr(os, 'RTLD_NOW', 2)
-        sys.setdlopenflags(flags)
-    try:
-        from . import libzmq
-    except ImportError:
-        pass
-    else:
-        # store libzmq as zmq._libzmq for backward-compat
-        globals()['_libzmq'] = libzmq
-        if PYPY:
-            # some versions of pypy (5.3 < ? < 5.8) needs explicit CDLL load for some reason,
-            # otherwise symbols won't be globally available
-            # do this unconditionally because it should be harmless (?)
-            ctypes.CDLL(libzmq.__file__, ctypes.RTLD_GLOBAL)
-    finally:
-        if dlopen:
-            sys.setdlopenflags(dlflags)
+import os
+import sys
+import time
 
-_load_libzmq()
+from pytest import mark
+
+import zmq
+
+from zmq.tests import PollZMQTestCase, have_gevent, GreenTest
+
+def wait():
+    time.sleep(.25)
 
 
-# zmq top-level imports
+class TestPoll(PollZMQTestCase):
 
-from zmq import backend
-from zmq.backend import *
-from zmq import sugar
-from zmq.sugar import *
+    Poller = zmq.Poller
 
-def get_includes():
-    """Return a list of directories to include for linking against pyzmq with cython."""
-    from os.path import join, dirname, abspath, pardir, exists
-    base = dirname(__file__)
-    parent = abspath(join(base, pardir))
-    includes = [ parent ] + [ join(parent, base, subdir) for subdir in ('utils',) ]
-    if exists(join(parent, base, 'include')):
-        includes.append(join(parent, base, 'include'))
-    return includes
-    
-def get_library_dirs():
-    """Return a list of directories used to link against pyzmq's bundled libzmq."""
-    from os.path import join, dirname, abspath, pardir
-    base = dirname(__file__)
-    parent = abspath(join(base, pardir))
-    return [ join(parent, base) ]
+    def test_pair(self):
+        s1, s2 = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
 
-COPY_THRESHOLD = 65536
-__all__ = ['get_includes', 'COPY_THRESHOLD'] + sugar.__all__ + backend.__all__
+        # Sleep to allow sockets to connect.
+        wait()
+
+        poller = self.Poller()
+        poller.register(s1, zmq.POLLIN|zmq.POLLOUT)
+        poller.register(s2, zmq.POLLIN|zmq.POLLOUT)
+        # Poll result should contain both sockets
+        socks = dict(poller.poll())
+        # Now make sure that both are send ready.
+        self.assertEqual(socks[s1], zmq.POLLOUT)
+        self.assertEqual(socks[s2], zmq.POLLOUT)
+        # Now do a send on both, wait and test for zmq.POLLOUT|zmq.POLLIN
+        s1.send(b'msg1')
+        s2.send(b'msg2')
+        wait()
+        socks = dict(poller.poll())
+        self.assertEqual(socks[s1], zmq.POLLOUT|zmq.POLLIN)
+        self.assertEqual(socks[s2], zmq.POLLOUT|zmq.POLLIN)
+        # Make sure that both are in POLLOUT after recv.
+        s1.recv()
+        s2.recv()
+        socks = dict(poller.poll())
+        self.assertEqual(socks[s1], zmq.POLLOUT)
+        self.assertEqual(socks[s2], zmq.POLLOUT)
+
+        poller.unregister(s1)
+        poller.unregister(s2)
+
+
+    def test_reqrep(self):
+        s1, s2 = self.create_bound_pair(zmq.REP, zmq.REQ)
+
+        # Sleep to allow sockets to connect.
+        wait()
+
+        poller = self.Poller()
+        poller.register(s1, zmq.POLLIN|zmq.POLLOUT)
+        poller.register(s2, zmq.POLLIN|zmq.POLLOUT)
+
+        # Make sure that s1 is in state 0 and s2 is in POLLOUT
+        socks = dict(poller.poll())
+        self.assertEqual(s1 in socks, 0)
+        self.assertEqual(socks[s2], zmq.POLLOUT)
+
+        # Make sure that s2 goes immediately into state 0 after send.
+        s2.send(b'msg1')
+        socks = dict(poller.poll())
+        self.assertEqual(s2 in socks, 0)
+
+        # Make sure that s1 goes into POLLIN state after a time.sleep().
+        time.sleep(0.5)
+        socks = dict(poller.poll())
+        self.assertEqual(socks[s1], zmq.POLLIN)
+
+        # Make sure that s1 goes into POLLOUT after recv.
+        s1.recv()
+        socks = dict(poller.poll())
+        self.assertEqual(socks[s1], zmq.POLLOUT)
+
+        # Make sure s1 goes into state 0 after send.
+        s1.send(b'msg2')
+        socks = dict(poller.poll())
+        self.assertEqual(s1 in socks, 0)
+
+        # Wait and then see that s2 is in POLLIN.
+        time.sleep(0.5)
+        socks = dict(poller.poll())
+        self.assertEqual(socks[s2], zmq.POLLIN)
+
+        # Make sure that s2 is in POLLOUT after recv.
+        s2.recv()
+        socks = dict(poller.poll())
+        self.assertEqual(socks[s2], zmq.POLLOUT)
+
+        poller.unregister(s1)
+        poller.unregister(s2)
+
+    def test_no_events(self):
+        s1, s2 = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
+        poller = self.Poller()
+        poller.register(s1, zmq.POLLIN|zmq.POLLOUT)
+        poller.register(s2, 0)
+        self.assertTrue(s1 in poller)
+        self.assertFalse(s2 in poller)
+        poller.register(s1, 0)
+        self.assertFalse(s1 in poller)
+
+    def test_pubsub(self):
+        s1, s2 = self.create_bound_pair(zmq.PUB, zmq.SUB)
+        s2.setsockopt(zmq.SUBSCRIBE, b'')
+
+        # Sleep to allow sockets to connect.
+        wait()
+
+        poller = self.Poller()
+        poller.register(s1, zmq.POLLIN|zmq.POLLOUT)
+        poller.register(s2, zmq.POLLIN)
+
+        # Now make sure that both are send ready.
+        socks = dict(poller.poll())
+        self.assertEqual(socks[s1], zmq.POLLOUT)
+        self.assertEqual(s2 in socks, 0)
+        # Make sure that s1 stays in POLLOUT after a send.
+        s1.send(b'msg1')
+        socks = dict(poller.poll())
+        self.assertEqual(socks[s1], zmq.POLLOUT)
+
+        # Make sure that s2 is POLLIN after waiting.
+        wait()
+        socks = dict(poller.poll())
+        self.assertEqual(socks[s2], zmq.POLLIN)
+
+        # Make sure that s2 goes into 0 after recv.
+        s2.recv()
+        socks = dict(poller.poll())
+        self.assertEqual(s2 in socks, 0)
+
+        poller.unregister(s1)
+        poller.unregister(s2)
+
+    @mark.skipif(sys.platform.startswith('win'), reason='Windows')
+    def test_raw(self):
+        r, w = os.pipe()
+        r = os.fdopen(r, 'rb')
+        w = os.fdopen(w, 'wb')
+        p = self.Poller()
+        p.register(r, zmq.POLLIN)
+        socks = dict(p.poll(1))
+        assert socks == {}
+        w.write(b'x')
+        w.flush()
+        socks = dict(p.poll(1))
+        assert socks == {r.fileno(): zmq.POLLIN}
+        w.close()
+        r.close()
+
+    def test_timeout(self):
+        """make sure Poller.poll timeout has the right units (milliseconds)."""
+        s1, s2 = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
+        poller = self.Poller()
+        poller.register(s1, zmq.POLLIN)
+        tic = time.time()
+        evt = poller.poll(.005)
+        toc = time.time()
+        self.assertTrue(toc-tic < 0.1)
+        tic = time.time()
+        evt = poller.poll(5)
+        toc = time.time()
+        self.assertTrue(toc-tic < 0.1)
+        self.assertTrue(toc-tic > .001)
+        tic = time.time()
+        evt = poller.poll(500)
+        toc = time.time()
+        self.assertTrue(toc-tic < 1)
+        self.assertTrue(toc-tic > 0.1)
+
+class TestSelect(PollZMQTestCase):
+
+    def test_pair(self):
+        s1, s2 = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
+
+        # Sleep to allow sockets to connect.
+        wait()
+
+        rlist, wlist, xlist = zmq.select([s1, s2], [s1, s2], [s1, s2])
+        self.assert_(s1 in wlist)
+        self.assert_(s2 in wlist)
+        self.assert_(s1 not in rlist)
+        self.assert_(s2 not in rlist)
+
+    def test_timeout(self):
+        """make sure select timeout has the right units (seconds)."""
+        s1, s2 = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
+        tic = time.time()
+        r,w,x = zmq.select([s1,s2],[],[],.005)
+        toc = time.time()
+        self.assertTrue(toc-tic < 1)
+        self.assertTrue(toc-tic > 0.001)
+        tic = time.time()
+        r,w,x = zmq.select([s1,s2],[],[],.25)
+        toc = time.time()
+        self.assertTrue(toc-tic < 1)
+        self.assertTrue(toc-tic > 0.1)
+
+
+if have_gevent:
+    import gevent
+    from zmq import green as gzmq
+
+    class TestPollGreen(GreenTest, TestPoll):
+        Poller = gzmq.Poller
+
+        def test_wakeup(self):
+            s1, s2 = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
+            poller = self.Poller()
+            poller.register(s2, zmq.POLLIN)
+
+            tic = time.time()
+            r = gevent.spawn(lambda: poller.poll(10000))
+            s = gevent.spawn(lambda: s1.send(b'msg1'))
+            r.join()
+            toc = time.time()
+            self.assertTrue(toc-tic < 1)
+        
+        def test_socket_poll(self):
+            s1, s2 = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
+
+            tic = time.time()
+            r = gevent.spawn(lambda: s2.poll(10000))
+            s = gevent.spawn(lambda: s1.send(b'msg1'))
+            r.join()
+            toc = time.time()
+            self.assertTrue(toc-tic < 1)
+

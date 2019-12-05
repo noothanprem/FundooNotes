@@ -1,1 +1,1 @@
-̊8venv/lib/python3.6/site-packages/importlib_metadata/docs :Ίӊ
+̊8venv/lib/python3.6/site-packages/importlib_metadata/docs :ΊҊ

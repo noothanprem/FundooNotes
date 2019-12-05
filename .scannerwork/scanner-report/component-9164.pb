@@ -1,2 +1,1 @@
-ÌG;venv/lib/python3.6/site-packages/provider/oauth2/migrations :
-ËGÍGÎGÏGÐG
+ÌG_venv/lib/python3.6/site-packages/provider/oauth2/migrations/0002_auto__chg_field_client_user.py 2pyXfh

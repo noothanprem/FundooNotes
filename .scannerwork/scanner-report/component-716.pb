@@ -1,1 +1,1 @@
-ÌEvenv/lib/python3.6/site-packages/celery/backends/database/__init__.py 2pyX½h
+ÌDvenv/lib/python3.6/site-packages/celery/backends/database/session.py 2pyX=h

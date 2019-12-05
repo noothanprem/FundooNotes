@@ -1,305 +1,549 @@
 # -*- coding: utf-8 -*-
 
 """
-requests.auth
-~~~~~~~~~~~~~
+requests.cookies
+~~~~~~~~~~~~~~~~
 
-This module contains the authentication handlers for Requests.
+Compatibility code to be able to use `cookielib.CookieJar` with requests.
+
+requests.utils imports from here, so be careful with imports.
 """
 
-import os
-import re
+import copy
 import time
-import hashlib
-import threading
-import warnings
+import calendar
 
-from base64 import b64encode
-
-from .compat import urlparse, str, basestring
-from .cookies import extract_cookies_to_jar
 from ._internal_utils import to_native_string
-from .utils import parse_dict_header
+from .compat import cookielib, urlparse, urlunparse, Morsel, MutableMapping
 
-CONTENT_TYPE_FORM_URLENCODED = 'application/x-www-form-urlencoded'
-CONTENT_TYPE_MULTI_PART = 'multipart/form-data'
+try:
+    import threading
+except ImportError:
+    import dummy_threading as threading
 
 
-def _basic_auth_str(username, password):
-    """Returns a Basic Auth string."""
+class MockRequest(object):
+    """Wraps a `requests.Request` to mimic a `urllib2.Request`.
 
-    # "I want us to put a big-ol' comment on top of it that
-    # says that this behaviour is dumb but we need to preserve
-    # it because people are relying on it."
-    #    - Lukasa
-    #
-    # These are here solely to maintain backwards compatibility
-    # for things like ints. This will be removed in 3.0.0.
-    if not isinstance(username, basestring):
-        warnings.warn(
-            "Non-string usernames will no longer be supported in Requests "
-            "3.0.0. Please convert the object you've passed in ({!r}) to "
-            "a string or bytes object in the near future to avoid "
-            "problems.".format(username),
-            category=DeprecationWarning,
+    The code in `cookielib.CookieJar` expects this interface in order to correctly
+    manage cookie policies, i.e., determine whether a cookie can be set, given the
+    domains of the request and the cookie.
+
+    The original request object is read-only. The client is responsible for collecting
+    the new headers via `get_new_headers()` and interpreting them appropriately. You
+    probably want `get_cookie_header`, defined below.
+    """
+
+    def __init__(self, request):
+        self._r = request
+        self._new_headers = {}
+        self.type = urlparse(self._r.url).scheme
+
+    def get_type(self):
+        return self.type
+
+    def get_host(self):
+        return urlparse(self._r.url).netloc
+
+    def get_origin_req_host(self):
+        return self.get_host()
+
+    def get_full_url(self):
+        # Only return the response's URL if the user hadn't set the Host
+        # header
+        if not self._r.headers.get('Host'):
+            return self._r.url
+        # If they did set it, retrieve it and reconstruct the expected domain
+        host = to_native_string(self._r.headers['Host'], encoding='utf-8')
+        parsed = urlparse(self._r.url)
+        # Reconstruct the URL as we expect it
+        return urlunparse([
+            parsed.scheme, host, parsed.path, parsed.params, parsed.query,
+            parsed.fragment
+        ])
+
+    def is_unverifiable(self):
+        return True
+
+    def has_header(self, name):
+        return name in self._r.headers or name in self._new_headers
+
+    def get_header(self, name, default=None):
+        return self._r.headers.get(name, self._new_headers.get(name, default))
+
+    def add_header(self, key, val):
+        """cookielib has no legitimate use for this method; add it back if you find one."""
+        raise NotImplementedError("Cookie headers should be added with add_unredirected_header()")
+
+    def add_unredirected_header(self, name, value):
+        self._new_headers[name] = value
+
+    def get_new_headers(self):
+        return self._new_headers
+
+    @property
+    def unverifiable(self):
+        return self.is_unverifiable()
+
+    @property
+    def origin_req_host(self):
+        return self.get_origin_req_host()
+
+    @property
+    def host(self):
+        return self.get_host()
+
+
+class MockResponse(object):
+    """Wraps a `httplib.HTTPMessage` to mimic a `urllib.addinfourl`.
+
+    ...what? Basically, expose the parsed HTTP headers from the server response
+    the way `cookielib` expects to see them.
+    """
+
+    def __init__(self, headers):
+        """Make a MockResponse for `cookielib` to read.
+
+        :param headers: a httplib.HTTPMessage or analogous carrying the headers
+        """
+        self._headers = headers
+
+    def info(self):
+        return self._headers
+
+    def getheaders(self, name):
+        self._headers.getheaders(name)
+
+
+def extract_cookies_to_jar(jar, request, response):
+    """Extract the cookies from the response into a CookieJar.
+
+    :param jar: cookielib.CookieJar (not necessarily a RequestsCookieJar)
+    :param request: our own requests.Request object
+    :param response: urllib3.HTTPResponse object
+    """
+    if not (hasattr(response, '_original_response') and
+            response._original_response):
+        return
+    # the _original_response field is the wrapped httplib.HTTPResponse object,
+    req = MockRequest(request)
+    # pull out the HTTPMessage with the headers and put it in the mock:
+    res = MockResponse(response._original_response.msg)
+    jar.extract_cookies(res, req)
+
+
+def get_cookie_header(jar, request):
+    """
+    Produce an appropriate Cookie header string to be sent with `request`, or None.
+
+    :rtype: str
+    """
+    r = MockRequest(request)
+    jar.add_cookie_header(r)
+    return r.get_new_headers().get('Cookie')
+
+
+def remove_cookie_by_name(cookiejar, name, domain=None, path=None):
+    """Unsets a cookie by name, by default over all domains and paths.
+
+    Wraps CookieJar.clear(), is O(n).
+    """
+    clearables = []
+    for cookie in cookiejar:
+        if cookie.name != name:
+            continue
+        if domain is not None and domain != cookie.domain:
+            continue
+        if path is not None and path != cookie.path:
+            continue
+        clearables.append((cookie.domain, cookie.path, cookie.name))
+
+    for domain, path, name in clearables:
+        cookiejar.clear(domain, path, name)
+
+
+class CookieConflictError(RuntimeError):
+    """There are two cookies that meet the criteria specified in the cookie jar.
+    Use .get and .set and include domain and path args in order to be more specific.
+    """
+
+
+class RequestsCookieJar(cookielib.CookieJar, MutableMapping):
+    """Compatibility class; is a cookielib.CookieJar, but exposes a dict
+    interface.
+
+    This is the CookieJar we create by default for requests and sessions that
+    don't specify one, since some clients may expect response.cookies and
+    session.cookies to support dict operations.
+
+    Requests does not use the dict interface internally; it's just for
+    compatibility with external client code. All requests code should work
+    out of the box with externally provided instances of ``CookieJar``, e.g.
+    ``LWPCookieJar`` and ``FileCookieJar``.
+
+    Unlike a regular CookieJar, this class is pickleable.
+
+    .. warning:: dictionary operations that are normally O(1) may be O(n).
+    """
+
+    def get(self, name, default=None, domain=None, path=None):
+        """Dict-like get() that also supports optional domain and path args in
+        order to resolve naming collisions from using one cookie jar over
+        multiple domains.
+
+        .. warning:: operation is O(n), not O(1).
+        """
+        try:
+            return self._find_no_duplicates(name, domain, path)
+        except KeyError:
+            return default
+
+    def set(self, name, value, **kwargs):
+        """Dict-like set() that also supports optional domain and path args in
+        order to resolve naming collisions from using one cookie jar over
+        multiple domains.
+        """
+        # support client code that unsets cookies by assignment of a None value:
+        if value is None:
+            remove_cookie_by_name(self, name, domain=kwargs.get('domain'), path=kwargs.get('path'))
+            return
+
+        if isinstance(value, Morsel):
+            c = morsel_to_cookie(value)
+        else:
+            c = create_cookie(name, value, **kwargs)
+        self.set_cookie(c)
+        return c
+
+    def iterkeys(self):
+        """Dict-like iterkeys() that returns an iterator of names of cookies
+        from the jar.
+
+        .. seealso:: itervalues() and iteritems().
+        """
+        for cookie in iter(self):
+            yield cookie.name
+
+    def keys(self):
+        """Dict-like keys() that returns a list of names of cookies from the
+        jar.
+
+        .. seealso:: values() and items().
+        """
+        return list(self.iterkeys())
+
+    def itervalues(self):
+        """Dict-like itervalues() that returns an iterator of values of cookies
+        from the jar.
+
+        .. seealso:: iterkeys() and iteritems().
+        """
+        for cookie in iter(self):
+            yield cookie.value
+
+    def values(self):
+        """Dict-like values() that returns a list of values of cookies from the
+        jar.
+
+        .. seealso:: keys() and items().
+        """
+        return list(self.itervalues())
+
+    def iteritems(self):
+        """Dict-like iteritems() that returns an iterator of name-value tuples
+        from the jar.
+
+        .. seealso:: iterkeys() and itervalues().
+        """
+        for cookie in iter(self):
+            yield cookie.name, cookie.value
+
+    def items(self):
+        """Dict-like items() that returns a list of name-value tuples from the
+        jar. Allows client-code to call ``dict(RequestsCookieJar)`` and get a
+        vanilla python dict of key value pairs.
+
+        .. seealso:: keys() and values().
+        """
+        return list(self.iteritems())
+
+    def list_domains(self):
+        """Utility method to list all the domains in the jar."""
+        domains = []
+        for cookie in iter(self):
+            if cookie.domain not in domains:
+                domains.append(cookie.domain)
+        return domains
+
+    def list_paths(self):
+        """Utility method to list all the paths in the jar."""
+        paths = []
+        for cookie in iter(self):
+            if cookie.path not in paths:
+                paths.append(cookie.path)
+        return paths
+
+    def multiple_domains(self):
+        """Returns True if there are multiple domains in the jar.
+        Returns False otherwise.
+
+        :rtype: bool
+        """
+        domains = []
+        for cookie in iter(self):
+            if cookie.domain is not None and cookie.domain in domains:
+                return True
+            domains.append(cookie.domain)
+        return False  # there is only one domain in jar
+
+    def get_dict(self, domain=None, path=None):
+        """Takes as an argument an optional domain and path and returns a plain
+        old Python dict of name-value pairs of cookies that meet the
+        requirements.
+
+        :rtype: dict
+        """
+        dictionary = {}
+        for cookie in iter(self):
+            if (
+                (domain is None or cookie.domain == domain) and
+                (path is None or cookie.path == path)
+            ):
+                dictionary[cookie.name] = cookie.value
+        return dictionary
+
+    def __contains__(self, name):
+        try:
+            return super(RequestsCookieJar, self).__contains__(name)
+        except CookieConflictError:
+            return True
+
+    def __getitem__(self, name):
+        """Dict-like __getitem__() for compatibility with client code. Throws
+        exception if there are more than one cookie with name. In that case,
+        use the more explicit get() method instead.
+
+        .. warning:: operation is O(n), not O(1).
+        """
+        return self._find_no_duplicates(name)
+
+    def __setitem__(self, name, value):
+        """Dict-like __setitem__ for compatibility with client code. Throws
+        exception if there is already a cookie of that name in the jar. In that
+        case, use the more explicit set() method instead.
+        """
+        self.set(name, value)
+
+    def __delitem__(self, name):
+        """Deletes a cookie given a name. Wraps ``cookielib.CookieJar``'s
+        ``remove_cookie_by_name()``.
+        """
+        remove_cookie_by_name(self, name)
+
+    def set_cookie(self, cookie, *args, **kwargs):
+        if hasattr(cookie.value, 'startswith') and cookie.value.startswith('"') and cookie.value.endswith('"'):
+            cookie.value = cookie.value.replace('\\"', '')
+        return super(RequestsCookieJar, self).set_cookie(cookie, *args, **kwargs)
+
+    def update(self, other):
+        """Updates this jar with cookies from another CookieJar or dict-like"""
+        if isinstance(other, cookielib.CookieJar):
+            for cookie in other:
+                self.set_cookie(copy.copy(cookie))
+        else:
+            super(RequestsCookieJar, self).update(other)
+
+    def _find(self, name, domain=None, path=None):
+        """Requests uses this method internally to get cookie values.
+
+        If there are conflicting cookies, _find arbitrarily chooses one.
+        See _find_no_duplicates if you want an exception thrown if there are
+        conflicting cookies.
+
+        :param name: a string containing name of cookie
+        :param domain: (optional) string containing domain of cookie
+        :param path: (optional) string containing path of cookie
+        :return: cookie.value
+        """
+        for cookie in iter(self):
+            if cookie.name == name:
+                if domain is None or cookie.domain == domain:
+                    if path is None or cookie.path == path:
+                        return cookie.value
+
+        raise KeyError('name=%r, domain=%r, path=%r' % (name, domain, path))
+
+    def _find_no_duplicates(self, name, domain=None, path=None):
+        """Both ``__get_item__`` and ``get`` call this function: it's never
+        used elsewhere in Requests.
+
+        :param name: a string containing name of cookie
+        :param domain: (optional) string containing domain of cookie
+        :param path: (optional) string containing path of cookie
+        :raises KeyError: if cookie is not found
+        :raises CookieConflictError: if there are multiple cookies
+            that match name and optionally domain and path
+        :return: cookie.value
+        """
+        toReturn = None
+        for cookie in iter(self):
+            if cookie.name == name:
+                if domain is None or cookie.domain == domain:
+                    if path is None or cookie.path == path:
+                        if toReturn is not None:  # if there are multiple cookies that meet passed in criteria
+                            raise CookieConflictError('There are multiple cookies with name, %r' % (name))
+                        toReturn = cookie.value  # we will eventually return this as long as no cookie conflict
+
+        if toReturn:
+            return toReturn
+        raise KeyError('name=%r, domain=%r, path=%r' % (name, domain, path))
+
+    def __getstate__(self):
+        """Unlike a normal CookieJar, this class is pickleable."""
+        state = self.__dict__.copy()
+        # remove the unpickleable RLock object
+        state.pop('_cookies_lock')
+        return state
+
+    def __setstate__(self, state):
+        """Unlike a normal CookieJar, this class is pickleable."""
+        self.__dict__.update(state)
+        if '_cookies_lock' not in self.__dict__:
+            self._cookies_lock = threading.RLock()
+
+    def copy(self):
+        """Return a copy of this RequestsCookieJar."""
+        new_cj = RequestsCookieJar()
+        new_cj.set_policy(self.get_policy())
+        new_cj.update(self)
+        return new_cj
+
+    def get_policy(self):
+        """Return the CookiePolicy instance used."""
+        return self._policy
+
+
+def _copy_cookie_jar(jar):
+    if jar is None:
+        return None
+
+    if hasattr(jar, 'copy'):
+        # We're dealing with an instance of RequestsCookieJar
+        return jar.copy()
+    # We're dealing with a generic CookieJar instance
+    new_jar = copy.copy(jar)
+    new_jar.clear()
+    for cookie in jar:
+        new_jar.set_cookie(copy.copy(cookie))
+    return new_jar
+
+
+def create_cookie(name, value, **kwargs):
+    """Make a cookie from underspecified parameters.
+
+    By default, the pair of `name` and `value` will be set for the domain ''
+    and sent on every request (this is sometimes called a "supercookie").
+    """
+    result = {
+        'version': 0,
+        'name': name,
+        'value': value,
+        'port': None,
+        'domain': '',
+        'path': '/',
+        'secure': False,
+        'expires': None,
+        'discard': True,
+        'comment': None,
+        'comment_url': None,
+        'rest': {'HttpOnly': None},
+        'rfc2109': False,
+    }
+
+    badargs = set(kwargs) - set(result)
+    if badargs:
+        err = 'create_cookie() got unexpected keyword arguments: %s'
+        raise TypeError(err % list(badargs))
+
+    result.update(kwargs)
+    result['port_specified'] = bool(result['port'])
+    result['domain_specified'] = bool(result['domain'])
+    result['domain_initial_dot'] = result['domain'].startswith('.')
+    result['path_specified'] = bool(result['path'])
+
+    return cookielib.Cookie(**result)
+
+
+def morsel_to_cookie(morsel):
+    """Convert a Morsel object into a Cookie containing the one k/v pair."""
+
+    expires = None
+    if morsel['max-age']:
+        try:
+            expires = int(time.time() + int(morsel['max-age']))
+        except ValueError:
+            raise TypeError('max-age: %s must be integer' % morsel['max-age'])
+    elif morsel['expires']:
+        time_template = '%a, %d-%b-%Y %H:%M:%S GMT'
+        expires = calendar.timegm(
+            time.strptime(morsel['expires'], time_template)
         )
-        username = str(username)
-
-    if not isinstance(password, basestring):
-        warnings.warn(
-            "Non-string passwords will no longer be supported in Requests "
-            "3.0.0. Please convert the object you've passed in ({!r}) to "
-            "a string or bytes object in the near future to avoid "
-            "problems.".format(password),
-            category=DeprecationWarning,
-        )
-        password = str(password)
-    # -- End Removal --
-
-    if isinstance(username, str):
-        username = username.encode('latin1')
-
-    if isinstance(password, str):
-        password = password.encode('latin1')
-
-    authstr = 'Basic ' + to_native_string(
-        b64encode(b':'.join((username, password))).strip()
+    return create_cookie(
+        comment=morsel['comment'],
+        comment_url=bool(morsel['comment']),
+        discard=False,
+        domain=morsel['domain'],
+        expires=expires,
+        name=morsel.key,
+        path=morsel['path'],
+        port=None,
+        rest={'HttpOnly': morsel['httponly']},
+        rfc2109=False,
+        secure=bool(morsel['secure']),
+        value=morsel.value,
+        version=morsel['version'] or 0,
     )
 
-    return authstr
+
+def cookiejar_from_dict(cookie_dict, cookiejar=None, overwrite=True):
+    """Returns a CookieJar from a key/value dictionary.
+
+    :param cookie_dict: Dict of key/values to insert into CookieJar.
+    :param cookiejar: (optional) A cookiejar to add the cookies to.
+    :param overwrite: (optional) If False, will not replace cookies
+        already in the jar with new ones.
+    :rtype: CookieJar
+    """
+    if cookiejar is None:
+        cookiejar = RequestsCookieJar()
+
+    if cookie_dict is not None:
+        names_from_jar = [cookie.name for cookie in cookiejar]
+        for name in cookie_dict:
+            if overwrite or (name not in names_from_jar):
+                cookiejar.set_cookie(create_cookie(name, cookie_dict[name]))
+
+    return cookiejar
 
 
-class AuthBase(object):
-    """Base class that all auth implementations derive from"""
+def merge_cookies(cookiejar, cookies):
+    """Add cookies to cookiejar and returns a merged CookieJar.
 
-    def __call__(self, r):
-        raise NotImplementedError('Auth hooks must be callable.')
+    :param cookiejar: CookieJar object to add the cookies to.
+    :param cookies: Dictionary or CookieJar object to be added.
+    :rtype: CookieJar
+    """
+    if not isinstance(cookiejar, cookielib.CookieJar):
+        raise ValueError('You can only merge into CookieJar')
 
-
-class HTTPBasicAuth(AuthBase):
-    """Attaches HTTP Basic Authentication to the given Request object."""
-
-    def __init__(self, username, password):
-        self.username = username
-        self.password = password
-
-    def __eq__(self, other):
-        return all([
-            self.username == getattr(other, 'username', None),
-            self.password == getattr(other, 'password', None)
-        ])
-
-    def __ne__(self, other):
-        return not self == other
-
-    def __call__(self, r):
-        r.headers['Authorization'] = _basic_auth_str(self.username, self.password)
-        return r
-
-
-class HTTPProxyAuth(HTTPBasicAuth):
-    """Attaches HTTP Proxy Authentication to a given Request object."""
-
-    def __call__(self, r):
-        r.headers['Proxy-Authorization'] = _basic_auth_str(self.username, self.password)
-        return r
-
-
-class HTTPDigestAuth(AuthBase):
-    """Attaches HTTP Digest Authentication to the given Request object."""
-
-    def __init__(self, username, password):
-        self.username = username
-        self.password = password
-        # Keep state in per-thread local storage
-        self._thread_local = threading.local()
-
-    def init_per_thread_state(self):
-        # Ensure state is initialized just once per-thread
-        if not hasattr(self._thread_local, 'init'):
-            self._thread_local.init = True
-            self._thread_local.last_nonce = ''
-            self._thread_local.nonce_count = 0
-            self._thread_local.chal = {}
-            self._thread_local.pos = None
-            self._thread_local.num_401_calls = None
-
-    def build_digest_header(self, method, url):
-        """
-        :rtype: str
-        """
-
-        realm = self._thread_local.chal['realm']
-        nonce = self._thread_local.chal['nonce']
-        qop = self._thread_local.chal.get('qop')
-        algorithm = self._thread_local.chal.get('algorithm')
-        opaque = self._thread_local.chal.get('opaque')
-        hash_utf8 = None
-
-        if algorithm is None:
-            _algorithm = 'MD5'
-        else:
-            _algorithm = algorithm.upper()
-        # lambdas assume digest modules are imported at the top level
-        if _algorithm == 'MD5' or _algorithm == 'MD5-SESS':
-            def md5_utf8(x):
-                if isinstance(x, str):
-                    x = x.encode('utf-8')
-                return hashlib.md5(x).hexdigest()
-            hash_utf8 = md5_utf8
-        elif _algorithm == 'SHA':
-            def sha_utf8(x):
-                if isinstance(x, str):
-                    x = x.encode('utf-8')
-                return hashlib.sha1(x).hexdigest()
-            hash_utf8 = sha_utf8
-        elif _algorithm == 'SHA-256':
-            def sha256_utf8(x):
-                if isinstance(x, str):
-                    x = x.encode('utf-8')
-                return hashlib.sha256(x).hexdigest()
-            hash_utf8 = sha256_utf8
-        elif _algorithm == 'SHA-512':
-            def sha512_utf8(x):
-                if isinstance(x, str):
-                    x = x.encode('utf-8')
-                return hashlib.sha512(x).hexdigest()
-            hash_utf8 = sha512_utf8
-
-        KD = lambda s, d: hash_utf8("%s:%s" % (s, d))
-
-        if hash_utf8 is None:
-            return None
-
-        # XXX not implemented yet
-        entdig = None
-        p_parsed = urlparse(url)
-        #: path is request-uri defined in RFC 2616 which should not be empty
-        path = p_parsed.path or "/"
-        if p_parsed.query:
-            path += '?' + p_parsed.query
-
-        A1 = '%s:%s:%s' % (self.username, realm, self.password)
-        A2 = '%s:%s' % (method, path)
-
-        HA1 = hash_utf8(A1)
-        HA2 = hash_utf8(A2)
-
-        if nonce == self._thread_local.last_nonce:
-            self._thread_local.nonce_count += 1
-        else:
-            self._thread_local.nonce_count = 1
-        ncvalue = '%08x' % self._thread_local.nonce_count
-        s = str(self._thread_local.nonce_count).encode('utf-8')
-        s += nonce.encode('utf-8')
-        s += time.ctime().encode('utf-8')
-        s += os.urandom(8)
-
-        cnonce = (hashlib.sha1(s).hexdigest()[:16])
-        if _algorithm == 'MD5-SESS':
-            HA1 = hash_utf8('%s:%s:%s' % (HA1, nonce, cnonce))
-
-        if not qop:
-            respdig = KD(HA1, "%s:%s" % (nonce, HA2))
-        elif qop == 'auth' or 'auth' in qop.split(','):
-            noncebit = "%s:%s:%s:%s:%s" % (
-                nonce, ncvalue, cnonce, 'auth', HA2
-            )
-            respdig = KD(HA1, noncebit)
-        else:
-            # XXX handle auth-int.
-            return None
-
-        self._thread_local.last_nonce = nonce
-
-        # XXX should the partial digests be encoded too?
-        base = 'username="%s", realm="%s", nonce="%s", uri="%s", ' \
-               'response="%s"' % (self.username, realm, nonce, path, respdig)
-        if opaque:
-            base += ', opaque="%s"' % opaque
-        if algorithm:
-            base += ', algorithm="%s"' % algorithm
-        if entdig:
-            base += ', digest="%s"' % entdig
-        if qop:
-            base += ', qop="auth", nc=%s, cnonce="%s"' % (ncvalue, cnonce)
-
-        return 'Digest %s' % (base)
-
-    def handle_redirect(self, r, **kwargs):
-        """Reset num_401_calls counter on redirects."""
-        if r.is_redirect:
-            self._thread_local.num_401_calls = 1
-
-    def handle_401(self, r, **kwargs):
-        """
-        Takes the given response and tries digest-auth, if needed.
-
-        :rtype: requests.Response
-        """
-
-        # If response is not 4xx, do not auth
-        # See https://github.com/requests/requests/issues/3772
-        if not 400 <= r.status_code < 500:
-            self._thread_local.num_401_calls = 1
-            return r
-
-        if self._thread_local.pos is not None:
-            # Rewind the file position indicator of the body to where
-            # it was to resend the request.
-            r.request.body.seek(self._thread_local.pos)
-        s_auth = r.headers.get('www-authenticate', '')
-
-        if 'digest' in s_auth.lower() and self._thread_local.num_401_calls < 2:
-
-            self._thread_local.num_401_calls += 1
-            pat = re.compile(r'digest ', flags=re.IGNORECASE)
-            self._thread_local.chal = parse_dict_header(pat.sub('', s_auth, count=1))
-
-            # Consume content and release the original connection
-            # to allow our new request to reuse the same one.
-            r.content
-            r.close()
-            prep = r.request.copy()
-            extract_cookies_to_jar(prep._cookies, r.request, r.raw)
-            prep.prepare_cookies(prep._cookies)
-
-            prep.headers['Authorization'] = self.build_digest_header(
-                prep.method, prep.url)
-            _r = r.connection.send(prep, **kwargs)
-            _r.history.append(r)
-            _r.request = prep
-
-            return _r
-
-        self._thread_local.num_401_calls = 1
-        return r
-
-    def __call__(self, r):
-        # Initialize per-thread state, if needed
-        self.init_per_thread_state()
-        # If we have a saved nonce, skip the 401
-        if self._thread_local.last_nonce:
-            r.headers['Authorization'] = self.build_digest_header(r.method, r.url)
+    if isinstance(cookies, dict):
+        cookiejar = cookiejar_from_dict(
+            cookies, cookiejar=cookiejar, overwrite=False)
+    elif isinstance(cookies, cookielib.CookieJar):
         try:
-            self._thread_local.pos = r.body.tell()
+            cookiejar.update(cookies)
         except AttributeError:
-            # In the case of HTTPDigestAuth being reused and the body of
-            # the previous request was a file-like object, pos has the
-            # file position of the previous body. Ensure it's set to
-            # None.
-            self._thread_local.pos = None
-        r.register_hook('response', self.handle_401)
-        r.register_hook('response', self.handle_redirect)
-        self._thread_local.num_401_calls = 1
+            for cookie_in_jar in cookies:
+                cookiejar.set_cookie(cookie_in_jar)
 
-        return r
-
-    def __eq__(self, other):
-        return all([
-            self.username == getattr(other, 'username', None),
-            self.password == getattr(other, 'password', None)
-        ])
-
-    def __ne__(self, other):
-        return not self == other
+    return cookiejar

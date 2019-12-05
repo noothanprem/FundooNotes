@@ -1,1 +1,1 @@
-Ä_7venv/lib/python3.6/site-packages/PIL/WebPImagePlugin.py 2pyX½h
+Ä_9venv/lib/python3.6/site-packages/PIL/SpiderImagePlugin.py 2pyX»h

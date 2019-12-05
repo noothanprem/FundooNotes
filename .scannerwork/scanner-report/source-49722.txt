@@ -1,64 +1,47 @@
-from xml.dom import minidom
+"""
+OpenStack OpenId backend
+"""
+from six.moves.urllib_parse import urlsplit
+from openid.extensions import ax
 
-from .oauth import BaseOAuth2
+from .open_id import OpenIdAuth
 
 
-class NaverOAuth2(BaseOAuth2):
-    """Naver OAuth authentication backend"""
-    name = 'naver'
-    AUTHORIZATION_URL = 'https://nid.naver.com/oauth2.0/authorize'
-    ACCESS_TOKEN_URL = 'https://nid.naver.com/oauth2.0/token'
-    ACCESS_TOKEN_METHOD = 'POST'
-    EXTRA_DATA = [
-        ('id', 'id'),
-    ]
-
-    def get_user_id(self, details, response):
-        return response.get('id')
+class OpenStackOpenId(OpenIdAuth):
+    name = 'openstack'
+    URL = 'openstackid.org'
 
     def get_user_details(self, response):
-        """Return user details from Naver account"""
-        return {
-            'username': response.get('username'),
-            'email': response.get('email'),
-            'fullname': response.get('username'),
-        }
+        """Generate username from identity url"""
+        values = super(OpenStackDevOpenId, self).get_user_details(response)
+        values['username'] = values.get('username') or \
+            urlsplit(response.identity_url).path.strip('/')
+        values['nickname'] = values.get('nickname', '')
+        return values
 
-    def user_data(self, access_token, *args, **kwargs):
-        """Loads user data from service"""
-        response = self.request(
-            'https://openapi.naver.com/v1/nid/getUserProfile.xml',
-            headers={
-                'Authorization': 'Bearer {0}'.format(access_token),
-                'Content_Type': 'text/xml'
-            }
-        )
+    def setup_request(self, params=None):
+        """Fetch email, firstname, lastname from openid"""
+        request = self.openid_request(params)
 
-        dom = minidom.parseString(response.text.encode('utf-8').strip())
+        # TODO: use sreg instead ax request to fetch nickname as username
+        fetch_request = ax.FetchRequest()
+        fetch_request.add(ax.AttrInfo(
+            'http://axschema.org/contact/email',
+            alias='email',
+            required=True
+        ))
 
-        return {
-            'id': self._dom_value(dom, 'id'),
-            'email': self._dom_value(dom, 'email'),
-            'username': self._dom_value(dom, 'name'),
-            'nickname': self._dom_value(dom, 'nickname'),
-            'gender': self._dom_value(dom, 'gender'),
-            'age': self._dom_value(dom, 'age'),
-            'birthday': self._dom_value(dom, 'birthday'),
-            'profile_image': self._dom_value(dom, 'profile_image')
-        }
+        fetch_request.add(ax.AttrInfo(
+            'http://axschema.org/namePerson/first',
+            alias='firstname',
+            required=True
+        ))
 
-    def auth_headers(self):
-        client_id, client_secret = self.get_key_and_secret()
-        return {
-            'grant_type': 'authorization_code',
-            'code': self.data.get('code'),
-            'client_id': client_id,
-            'client_secret': client_secret,
-        }
+        fetch_request.add(ax.AttrInfo(
+            'http://axschema.org/namePerson/last',
+            alias='lastname',
+            required=True
+        ))
 
-    def _dom_value(self, dom, key):
-        try:
-            # Fixed Missing Key Getting Error
-            return dom.getElementsByTagName(key)[0].childNodes[0].data
-        except IndexError:
-            return ''
+        request.addExtension(fetch_request)
+        return request

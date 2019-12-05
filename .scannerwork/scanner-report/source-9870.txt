@@ -24,181 +24,379 @@
 #
 ###############################################################################
 
-from __future__ import absolute_import, print_function
+from __future__ import absolute_import
 
 import os
-import unittest
-from txaio.testutil import replace_loop
 
 if os.environ.get('USE_TWISTED', False):
-    from mock import patch
-    from zope.interface import implementer
-    from twisted.internet.interfaces import IReactorTime
+    from twisted.trial import unittest
+    from twisted.internet import defer
+    from twisted.python.failure import Failure
+    from autobahn.wamp import message, role
+    from autobahn.wamp.exception import ProtocolError
+    from autobahn.twisted.wamp import ApplicationSession
 
-    @implementer(IReactorTime)
-    class FakeReactor(object):
+    class MockTransport:
+        def __init__(self):
+            self.messages = []
+
+        def send(self, msg):
+            self.messages.append(msg)
+
+        def close(self, *args, **kw):
+            pass
+
+    class MockApplicationSession(ApplicationSession):
         '''
-        This just fakes out enough reactor methods so .run() can work.
+        This is used by tests, which typically attach their own handler to
+        on*() methods. This just collects any errors from onUserError
         '''
-        stop_called = False
 
-        def __init__(self, to_raise):
-            self.stop_called = False
-            self.to_raise = to_raise
-            self.delayed = []
+        def __init__(self, *args, **kw):
+            ApplicationSession.__init__(self, *args, **kw)
+            self.errors = []
+            self._realm = u'dummy'
+            self._transport = MockTransport()
 
-        def run(self, *args, **kw):
-            raise self.to_raise
+        def onUserError(self, e, msg):
+            self.errors.append((e.value, msg))
 
-        def stop(self):
-            self.stop_called = True
+    def exception_raiser(exc):
+        '''
+        Create a method that takes any args and always raises the given
+        Exception instance.
+        '''
+        assert isinstance(exc, Exception), "Must derive from Exception"
 
-        def callLater(self, delay, func, *args, **kwargs):
-            self.delayed.append((delay, func, args, kwargs))
+        def method(*args, **kw):
+            raise exc
+        return method
 
-        def connectTCP(self, *args, **kw):
-            raise RuntimeError("ConnectTCP shouldn't get called")
+    def async_exception_raiser(exc):
+        '''
+        Create a method that takes any args, and always returns a Deferred
+        that has failed.
+        '''
+        assert isinstance(exc, Exception), "Must derive from Exception"
 
-    class TestWampTwistedRunner(unittest.TestCase):
-        # XXX should figure out *why* but the test_protocol timeout
-        # tests fail if we *don't* patch out this txaio stuff. So,
-        # presumably it's messing up some global state that both tests
-        # implicitly depend on ...
-
-        @patch('txaio.use_twisted')
-        @patch('txaio.start_logging')
-        @patch('txaio.config')
-        def test_connect_error(self, *args):
-            '''
-            Ensure the runner doesn't swallow errors and that it exits the
-            reactor properly if there is one.
-            '''
+        def method(*args, **kw):
             try:
-                from autobahn.twisted.wamp import ApplicationRunner
-                from twisted.internet.error import ConnectionRefusedError
-                # the 'reactor' member doesn't exist until we import it
-                from twisted.internet import reactor  # noqa: F401
-            except ImportError:
-                raise unittest.SkipTest('No twisted')
+                raise exc
+            except:
+                return defer.fail(Failure())
+        return method
 
-            runner = ApplicationRunner(u'ws://localhost:1', u'realm')
-            exception = ConnectionRefusedError("It's a trap!")
+    def create_mock_welcome():
+        return message.Welcome(
+            1234,
+            {
+                u'broker': role.RoleBrokerFeatures(),
+            },
+        )
 
-            with patch('twisted.internet.reactor', FakeReactor(exception)) as mockreactor:
-                self.assertRaises(
-                    ConnectionRefusedError,
-                    # pass a no-op session-creation method
-                    runner.run, lambda _: None, start_reactor=True
-                )
-                self.assertTrue(mockreactor.stop_called)
-else:
-    # Asyncio tests.
-    try:
-        import asyncio
-        from unittest.mock import patch, Mock
-    except ImportError:
-        # Trollius >= 0.3 was renamed to asyncio
-        # noinspection PyUnresolvedReferences
-        import trollius as asyncio
-        from mock import patch, Mock
-    from autobahn.asyncio.wamp import ApplicationRunner
-
-    class TestApplicationRunner(unittest.TestCase):
+    class TestSessionCallbacks(unittest.TestCase):
         '''
-        Test the autobahn.asyncio.wamp.ApplicationRunner class.
+        These test that callbacks on user-overridden ApplicationSession
+        methods that produce errors are handled correctly.
+
+        XXX should do state-diagram documenting where we are when each
+        of these cases arises :/
         '''
-        def _assertRaisesRegex(self, exception, error, *args, **kw):
-            try:
-                self.assertRaisesRegex
-            except AttributeError:
-                f = self.assertRaisesRegexp
-            else:
-                f = self.assertRaisesRegex
-            f(exception, error, *args, **kw)
 
-        def test_explicit_SSLContext(self):
-            '''
-            Ensure that loop.create_connection is called with the exact SSL
-            context object that is passed (as ssl) to the __init__ method of
-            ApplicationRunner.
-            '''
-            with replace_loop(Mock()) as loop:
-                with patch.object(asyncio, 'get_event_loop', return_value=loop):
-                    loop.run_until_complete = Mock(return_value=(Mock(), Mock()))
-                    ssl = {}
-                    runner = ApplicationRunner(u'ws://127.0.0.1:8080/ws', u'realm',
-                                               ssl=ssl)
-                    runner.run('_unused_')
-                    self.assertIs(ssl, loop.create_connection.call_args[1]['ssl'])
+        # XXX sure would be nice to use py.test @fixture to do the
+        # async/sync exception-raising stuff (i.e. make each test run
+        # twice)...but that would mean switching all test-running over
+        # to py-test
 
-        def test_omitted_SSLContext_insecure(self):
-            '''
-            Ensure that loop.create_connection is called with ssl=False
-            if no ssl argument is passed to the __init__ method of
-            ApplicationRunner and the websocket URL starts with "ws:".
-            '''
-            with replace_loop(Mock()) as loop:
-                with patch.object(asyncio, 'get_event_loop', return_value=loop):
-                    loop.run_until_complete = Mock(return_value=(Mock(), Mock()))
-                    runner = ApplicationRunner(u'ws://127.0.0.1:8080/ws', u'realm')
-                    runner.run('_unused_')
-                    self.assertIs(False, loop.create_connection.call_args[1]['ssl'])
+        skip = True
 
-        def test_omitted_SSLContext_secure(self):
-            '''
-            Ensure that loop.create_connection is called with ssl=True
-            if no ssl argument is passed to the __init__ method of
-            ApplicationRunner and the websocket URL starts with "wss:".
-            '''
-            with replace_loop(Mock()) as loop:
-                with patch.object(asyncio, 'get_event_loop', return_value=loop):
-                    loop.run_until_complete = Mock(return_value=(Mock(), Mock()))
-                    runner = ApplicationRunner(u'wss://127.0.0.1:8080/wss', u'realm')
-                    runner.run(self.fail)
-                    self.assertIs(True, loop.create_connection.call_args[1]['ssl'])
+        def test_on_join(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("blammo")
+            session.onJoin = exception_raiser(exception)
+            msg = create_mock_welcome()
 
-        def test_conflict_SSL_True_with_ws_url(self):
-            '''
-            ApplicationRunner must raise an exception if given an ssl value of True
-            but only a "ws:" URL.
-            '''
-            with replace_loop(Mock()) as loop:
-                loop.run_until_complete = Mock(return_value=(Mock(), Mock()))
-                runner = ApplicationRunner(u'ws://127.0.0.1:8080/wss', u'realm',
-                                           ssl=True)
-                error = (r'^ssl argument value passed to ApplicationRunner '
-                         r'conflicts with the "ws:" prefix of the url '
-                         r'argument\. Did you mean to use "wss:"\?$')
-                self._assertRaisesRegex(Exception, error, runner.run, '_unused_')
+            # give the sesion a WELCOME, from which it should call onJoin
+            session.onMessage(msg)
 
-        def test_conflict_SSLContext_with_ws_url(self):
-            '''
-            ApplicationRunner must raise an exception if given an ssl value that is
-            an instance of SSLContext, but only a "ws:" URL.
-            '''
-            import ssl
-            try:
-                # Try to create an SSLContext, to be as rigorous as we can be
-                # by avoiding making assumptions about the ApplicationRunner
-                # implementation. If we happen to be on a Python that has no
-                # SSLContext, we pass ssl=True, which will simply cause this
-                # test to degenerate to the behavior of
-                # test_conflict_SSL_True_with_ws_url (above). In fact, at the
-                # moment (2015-05-10), none of this matters because the
-                # ApplicationRunner implementation does not check to require
-                # that its ssl argument is either a bool or an SSLContext. But
-                # that may change, so we should be careful.
-                ssl.create_default_context
-            except AttributeError:
-                context = True
-            else:
-                context = ssl.create_default_context()
+            # make sure we got the right error out of onUserError
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
 
-            with replace_loop(Mock()) as loop:
-                loop.run_until_complete = Mock(return_value=(Mock(), Mock()))
-                runner = ApplicationRunner(u'ws://127.0.0.1:8080/wss', u'realm',
-                                           ssl=context)
-                error = (r'^ssl argument value passed to ApplicationRunner '
-                         r'conflicts with the "ws:" prefix of the url '
-                         r'argument\. Did you mean to use "wss:"\?$')
-                self._assertRaisesRegex(Exception, error, runner.run, '_unused_')
+        def test_on_join_deferred(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("blammo")
+            session.onJoin = async_exception_raiser(exception)
+            msg = create_mock_welcome()
+
+            # give the sesion a WELCOME, from which it should call onJoin
+            session.onMessage(msg)
+
+            # make sure we got the right error out of onUserError
+            # import traceback
+            # traceback.print_exception(*session.errors[0][:3])
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        def test_on_leave(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("boom")
+            session.onLeave = exception_raiser(exception)
+            msg = message.Abort(u"testing")
+
+            # we haven't done anything, so this is "abort before we've
+            # connected"
+            session.onMessage(msg)
+
+            # make sure we got the right error out of onUserError
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        def test_on_leave_deferred(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("boom")
+            session.onLeave = async_exception_raiser(exception)
+            msg = message.Abort(u"testing")
+
+            # we haven't done anything, so this is "abort before we've
+            # connected"
+            session.onMessage(msg)
+
+            # make sure we got the right error out of onUserError
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        def test_on_leave_valid_session(self):
+            '''
+            cover when onLeave called after we have a valid session
+            '''
+            session = MockApplicationSession()
+            exception = RuntimeError("such challenge")
+            session.onLeave = exception_raiser(exception)
+            # we have to get to an established connection first...
+            session.onMessage(create_mock_welcome())
+            self.assertTrue(session._session_id is not None)
+
+            # okay we have a session ("because ._session_id is not None")
+            msg = message.Goodbye()
+            session.onMessage(msg)
+
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        def test_on_leave_valid_session_deferred(self):
+            '''
+            cover when onLeave called after we have a valid session
+            '''
+            session = MockApplicationSession()
+            exception = RuntimeError("such challenge")
+            session.onLeave = async_exception_raiser(exception)
+            # we have to get to an established connection first...
+            session.onMessage(create_mock_welcome())
+            self.assertTrue(session._session_id is not None)
+
+            # okay we have a session ("because ._session_id is not None")
+            msg = message.Goodbye()
+            session.onMessage(msg)
+
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        def test_on_leave_after_bad_challenge(self):
+            '''
+            onLeave raises error after onChallenge fails
+            '''
+            session = MockApplicationSession()
+            exception = RuntimeError("such challenge")
+            session.onLeave = exception_raiser(exception)
+            session.onChallenge = exception_raiser(exception)
+            # make a challenge (which will fail, and then the
+            # subsequent onLeave will also fail)
+            msg = message.Challenge(u"foo")
+            session.onMessage(msg)
+
+            self.assertEqual(2, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        def test_on_disconnect_via_close(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("sideways")
+            session.onDisconnect = exception_raiser(exception)
+            # we short-cut the whole state-machine traversal here by
+            # just calling onClose directly, which would normally be
+            # called via a Protocol, e.g.,
+            # autobahn.wamp.websocket.WampWebSocketProtocol
+            session.onClose(False)
+
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        def test_on_disconnect_via_close_deferred(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("sideways")
+            session.onDisconnect = async_exception_raiser(exception)
+            # we short-cut the whole state-machine traversal here by
+            # just calling onClose directly, which would normally be
+            # called via a Protocol, e.g.,
+            # autobahn.wamp.websocket.WampWebSocketProtocol
+            session.onClose(False)
+
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        # XXX FIXME Probably more ways to call onLeave!
+
+        def test_on_challenge(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("such challenge")
+            session.onChallenge = exception_raiser(exception)
+            msg = message.Challenge(u"foo")
+
+            # execute
+            session.onMessage(msg)
+
+            # we already handle any onChallenge errors as "abort the
+            # connection". So make sure our error showed up in the
+            # fake-transport.
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+            self.assertEqual(1, len(session._transport.messages))
+            reply = session._transport.messages[0]
+            self.assertIsInstance(reply, message.Abort)
+            self.assertEqual("such challenge", reply.message)
+
+        def test_on_challenge_deferred(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("such challenge")
+            session.onChallenge = async_exception_raiser(exception)
+            msg = message.Challenge(u"foo")
+
+            # execute
+            session.onMessage(msg)
+
+            # we already handle any onChallenge errors as "abort the
+            # connection". So make sure our error showed up in the
+            # fake-transport.
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(session.errors[0][0], exception)
+            self.assertEqual(1, len(session._transport.messages))
+            reply = session._transport.messages[0]
+            self.assertIsInstance(reply, message.Abort)
+            self.assertEqual("such challenge", reply.message)
+
+        def test_no_session(self):
+            '''
+            test "all other cases" when we don't yet have a session
+            established, which should all raise ProtocolErrors and
+            *not* go through the onUserError handler. We cheat and
+            just test one.
+            '''
+            session = MockApplicationSession()
+            exception = RuntimeError("such challenge")
+            session.onConnect = exception_raiser(exception)
+
+            for msg in [message.Goodbye()]:
+                self.assertRaises(ProtocolError, session.onMessage, (msg,))
+            self.assertEqual(0, len(session.errors))
+
+        def test_on_disconnect(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("oh sadness")
+            session.onDisconnect = exception_raiser(exception)
+            # we short-cut the whole state-machine traversal here by
+            # just calling onClose directly, which would normally be
+            # called via a Protocol, e.g.,
+            # autobahn.wamp.websocket.WampWebSocketProtocol
+            session.onClose(False)
+
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        def test_on_disconnect_deferred(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("oh sadness")
+            session.onDisconnect = async_exception_raiser(exception)
+            # we short-cut the whole state-machine traversal here by
+            # just calling onClose directly, which would normally be
+            # called via a Protocol, e.g.,
+            # autobahn.wamp.websocket.WampWebSocketProtocol
+            session.onClose(False)
+
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        def test_on_disconnect_with_session(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("the pain runs deep")
+            session.onDisconnect = exception_raiser(exception)
+            # create a valid session
+            session.onMessage(create_mock_welcome())
+
+            # we short-cut the whole state-machine traversal here by
+            # just calling onClose directly, which would normally be
+            # called via a Protocol, e.g.,
+            # autobahn.wamp.websocket.WampWebSocketProtocol
+            session.onClose(False)
+
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        def test_on_disconnect_with_session_deferred(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("the pain runs deep")
+            session.onDisconnect = async_exception_raiser(exception)
+            # create a valid session
+            session.onMessage(create_mock_welcome())
+
+            # we short-cut the whole state-machine traversal here by
+            # just calling onClose directly, which would normally be
+            # called via a Protocol, e.g.,
+            # autobahn.wamp.websocket.WampWebSocketProtocol
+            session.onClose(False)
+
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        def test_on_connect(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("the pain runs deep")
+            session.onConnect = exception_raiser(exception)
+            trans = MockTransport()
+
+            # normally would be called from a Protocol?
+            session.onOpen(trans)
+
+            # shouldn't have done the .join()
+            self.assertEqual(0, len(trans.messages))
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        def test_on_connect_deferred(self):
+            session = MockApplicationSession()
+            exception = RuntimeError("the pain runs deep")
+            session.onConnect = async_exception_raiser(exception)
+            trans = MockTransport()
+
+            # normally would be called from a Protocol?
+            session.onOpen(trans)
+
+            # shouldn't have done the .join()
+            self.assertEqual(0, len(trans.messages))
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
+
+        # XXX likely missing other ways to invoke the above. need to
+        # cover, for sure:
+        #
+        # onChallenge
+        # onJoin
+        # onLeave
+        # onDisconnect
+        #
+        # what about other ISession ones?
+        # onConnect
+        # onDisconnect
+
+        # NOTE: for Event stuff, that is publish() handlers,
+        # test_publish_callback_exception in test_protocol.py already
+        # covers exceptions coming from user-code.

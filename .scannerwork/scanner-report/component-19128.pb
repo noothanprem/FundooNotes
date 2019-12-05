@@ -1,1 +1,1 @@
-¸•2venv/lib/python3.6/site-packages/botocore/hooks.py 2pyXÎh
+¸•6venv/lib/python3.6/site-packages/botocore/serialize.py 2pyX´h

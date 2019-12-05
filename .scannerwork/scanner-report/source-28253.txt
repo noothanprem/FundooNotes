@@ -5,7 +5,7 @@ from reportlab.graphics.shapes import Drawing, _DrawingEditorMixin, String
 from reportlab.graphics.charts.textlabels import Label
 from reportlab.graphics.samples.excelcolors import *
 
-class Bubble(_DrawingEditorMixin,Drawing):
+class Scatter(_DrawingEditorMixin,Drawing):
     def __init__(self,width=200,height=150,*args,**kw):
         Drawing.__init__(self,width,height,*args,**kw)
         self._add(self,ScatterPlot(),name='chart',validate=None,desc="The main chart")
@@ -23,14 +23,12 @@ class Bubble(_DrawingEditorMixin,Drawing):
         self.chart.lines[7].strokeColor = color08
         self.chart.lines[8].strokeColor = color09
         self.chart.lines[9].strokeColor = color10
-        self.chart.lines.symbol.kind        ='Circle'
-        self.chart.lines.symbol.size        = 15
         self.chart.fillColor         = backgroundGrey
         self.chart.lineLabels.fontName              = 'Helvetica'
         self.chart.xValueAxis.labels.fontName       = 'Helvetica'
         self.chart.xValueAxis.labels.fontSize       = 7
         self.chart.xValueAxis.forceZero             = 0
-        self.chart.data             = [((100,100), (200,200), (250,210), (300,300), (350,450))]
+        self.chart.data             = [((100,100), (200,200), (250,210), (300,300), (400,500)), ((100,200), (200,300), (250,200), (300,400), (400, 600))]
         self.chart.xValueAxis.avoidBoundFrac           = 1
         self.chart.xValueAxis.gridEnd                  = 115
         self.chart.xValueAxis.tickDown                 = 3
@@ -48,7 +46,7 @@ class Bubble(_DrawingEditorMixin,Drawing):
         self.Title.height     = 20
         self.Title.textAnchor ='middle'
         self._add(self,Legend(),name='Legend',validate=None,desc="The legend or key for the chart")
-        self.Legend.colorNamePairs = [(color01, 'Widgets')]
+        self.Legend.colorNamePairs = [(color01, 'Widgets'), (color02, 'Sprockets')]
         self.Legend.fontName       = 'Helvetica'
         self.Legend.fontSize       = 7
         self.Legend.x              = 153
@@ -70,4 +68,4 @@ class Bubble(_DrawingEditorMixin,Drawing):
         self._add(self,0,name='preview',validate=None,desc=None)
 
 if __name__=="__main__": #NORUNTESTS
-    Bubble().save(formats=['pdf'],outDir=None,fnRoot='bubble')
+    Scatter().save(formats=['pdf'],outDir=None,fnRoot='scatter')

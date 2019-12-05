@@ -1,31 +1,16 @@
-from gevent import monkey
-monkey.patch_all(subprocess=True)
-
 import sys
-from gevent.server import DatagramServer
+import gevent.signal
+assert gevent.signal # Get gevent.signal as a module, make sure our backwards compatibility kicks in
 
-from gevent.testing.util import run
-from gevent.testing import util
-from gevent.testing import main
+import test__core_loop_run # this runs main tests, fails if signal() is not callable.
+assert test__core_loop_run # pyflakes
 
-class Test_udp_client(util.TestServer):
+from gevent.hub import signal as hub_signal
+from gevent import signal as top_signal # pylint:disable=reimported
 
-    def test(self):
-        log = []
-
-        def handle(message, address):
-            log.append(message)
-            server.sendto(b'reply-from-server', address)
-
-        server = DatagramServer('127.0.0.1:9001', handle)
-        server.start()
-        try:
-            run([sys.executable, '-W', 'ignore', '-u', 'udp_client.py', 'Test_udp_client'],
-                timeout=10, cwd=self.cwd)
-        finally:
-            server.close()
-        self.assertEqual(log, [b'Test_udp_client'])
-
-
-if __name__ == '__main__':
-    main()
+assert gevent.signal is hub_signal
+assert gevent.signal is top_signal
+assert hasattr(gevent.signal, 'signal')
+s = top_signal(2, sys.stderr.write, 'INTERRUPT')
+assert isinstance(s, top_signal)
+assert isinstance(s, hub_signal)

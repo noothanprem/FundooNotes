@@ -1,31 +1,225 @@
 u
-pythonS100YRename method "getInitialResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2&& n
-pythonS100RRename method "getResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2)) o
-pythonS100SRename method "setMechanism" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2<< h
-pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2FF q
-pythonS100URename method "test_onFailure" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2SS 
-pythonS100cRename method "test_sendAuthInitialResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2cc $
-pythonS100eRename method "test_sendAuthNoInitialResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2pp &„
-pythonS100hRename method "test_sendAuthEmptyInitialResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2zz )u
-pythonS100WRename method "test_onChallenge" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-„„ }
-pythonS100_Rename method "test_onChallengeResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‘‘  z
-pythonS100\Rename method "test_onChallengeEmpty" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-   ƒ
-pythonS100eRename method "test_onChallengeIllegalPadding" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¬¬ &†
-pythonS100hRename method "test_onChallengeIllegalCharacters" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¸¸ )~
-pythonS100`Rename method "test_onChallengeMalformed" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÄÄ !j
+pythonS100YRename method "test_sidNotUnicode" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 233 z
+pythonS100^Rename method "test_passwordNotUnicode" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2;; u
+pythonS100YRename method "test_unicodeSecret" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2CC h
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2QQ l
+pythonS100PRename method "testBasic" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2^^ k
+pythonS100ORename method "testSend" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2cc u
+pythonS100YRename method "testResultResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2mm t
+pythonS100XRename method "testErrorResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2yy {
+pythonS100]Rename method "testNonTrackedResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‚‚ p
+pythonS100RRename method "testCleanup" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+›› z
+pythonS100\Rename method "testDisconnectCleanup" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+©© x
+pythonS100ZRename method "testNoModifyingDict" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¶¶ y
+pythonS100[Rename method "testRequestTimingOut" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÆÆ |
+pythonS100^Rename method "testRequestNotTimingOut" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÔÔ †
+pythonS100hRename method "testDisconnectTimeoutCancellation" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ââ )r
+pythonS100TRename method "onStreamStart" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+õõ p
+pythonS100RRename method "onStreamEnd" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ùù r
+pythonS100TRename method "onStreamError" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ýý j
 pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÕÕ r
-pythonS100TRename method "_setMechanism" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ãã w
-pythonS100YRename method "test_notAcceptable" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
- ‚
-pythonS100dRename method "test_notAcceptableWithoutUser" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-œœ %w
-pythonS117[Rename this parameter "initialResponse" to match the regular expression ^[_a-z][a-z0-9_]*$. 2## &s
-pythonS116WRename this field "initialResponse" to match the regular expression ^[_a-z][_a-z0-9]*$. 2$$ 
+ y
+pythonS100[Rename method "test_sendHeaderBasic" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+““ ˆ
+pythonS100jRename method "test_sendHeaderAdditionalNamespaces" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¢¢ +~
+pythonS100`Rename method "test_sendHeaderInitiating" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+³³ !}
+pythonS100_Rename method "test_sendHeaderReceiving" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÁÁ  |
+pythonS100^Rename method "test_receiveStreamError" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÑÑ ƒ
+pythonS100eRename method "test_sendStreamErrorInitiating" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÞÞ &‹
+pythonS100mRename method "test_sendStreamErrorInitiatingNoHeader" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+íí .‚
+pythonS100dRename method "test_sendStreamErrorReceiving" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+þþ %Š
+pythonS100lRename method "test_sendStreamErrorReceivingNoHeader" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ -s
+pythonS100URename method "connectionMade" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÆÆ r
+pythonS100TRename method "streamStarted" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÉÉ x
+pythonS100ZRename method "associateWithStream" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÌÌ #j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ãã u
+pythonS100WRename method "test_streamStart" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+èè {
+pythonS100]Rename method "test_streamStartLegacy" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+úú ‚
+pythonS100dRename method "test_streamBadVersionOneDigit" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‡‡ %‚
+pythonS100dRename method "test_streamBadVersionNoNumber" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+”” %j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¤¤ t
+pythonS100VRename method "onAuthenticated" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+­­ q
+pythonS100SRename method "onInitFailed" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+±± o
+pythonS100QRename method "testSucces" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+µµ p
+pythonS100RRename method "testFailure" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÅÅ u
+pythonS100WRename method "test_streamStart" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+×× j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+öö u
+pythonS100WRename method "test_streamStart" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ûû …
+pythonS100gRename method "test_streamStartUnicodeSessionID" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ (j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+žž m
+pythonS100ORename method "tearDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+®® v
+pythonS100XRename method "test_initRequired" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+²² y
+pythonS100[Rename method "test_wantedSupported" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+»» {
+pythonS100]Rename method "test_certificateVerify" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÒÒ ‚
+pythonS100dRename method "test_certificateVerifyContext" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+éé %‡
+pythonS100iRename method "test_wantedNotSupportedNotRequired" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+„„ *„
+pythonS100fRename method "test_wantedNotSupportedRequired" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+’’ '{
+pythonS100]Rename method "test_notWantedRequired" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+   ~
+pythonS100`Rename method "test_notWantedNotRequired" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+°° !j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÙÙ s
+pythonS100URename method "testAdvertized" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÞÞ ~
+pythonS100`Rename method "testNotAdvertizedRequired" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+çç !
+pythonS100cRename method "testNotAdvertizedNotRequired" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ðð $t
+pythonS100VRename method "test_toResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+üü z
+pythonS100\Rename method "test_toResponseNoFrom" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ x
+pythonS100ZRename method "test_toResponseNoTo" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+™™ €
+pythonS100bRename method "test_toResponseNoAddressing" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¥¥ #n
+pythonS100PRename method "test_noID" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+°° p
+pythonS100RRename method "test_noType" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¹¹ q
+pythonS100SRename method "addBootstrap" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÊÊ s
+pythonS100URename method "makeConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÙÙ s
+pythonS100URename method "connectionMade" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÝÝ z
+pythonS100\Rename method "connectionInitialized" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+áá s
+pythonS100URename method "connectionLost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+åå s
+pythonS100URename method "connectionLost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+òò x
+pythonS100ZRename method "test_makeConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+•• s
+pythonS100URename method "connectionMade" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+šš x
+pythonS100ZRename method "test_connectionLost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¤¤ j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+µµ t
+pythonS100VRename method "test_addHandler" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÀÀ w
+pythonS100YRename method "test_removeHandler" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÊÊ j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÛÛ ‚
+pythonS100dRename method "test_connectedLogTrafficFalse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+€	€	 %
+pythonS100cRename method "test_connectedLogTrafficTrue" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+		 $|
+pythonS100^Rename method "test_disconnectedReason" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¹	¹	 t
+pythonS100VRename method "test_addHandler" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+Å	Å	 
+pythonS100aRename method "test_addHandlerInitialized" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+Ò	Ò	 "y
+pythonS100[Rename method "test_sendInitialized" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ç	ç	 z
+pythonS100\Rename method "test_sendNotConnected" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ú	ú	 |
+pythonS100^Rename method "test_sendNotInitialized" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+™
+™
+ z
+pythonS100\Rename method "test_sendDisconnected" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¬
+¬
+ j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+È
+È
+ x
+pythonS100ZRename method "associateWithStream" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+Ð
+Ð
+ #‘
+pythonS100sRename method "test_buildProtocolAuthenticatorInstantiation" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+à
+à
+ 4€
+pythonS100bRename method "test_buildProtocolXmlStream" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+î
+î
+ #|
+pythonS100^Rename method "test_buildProtocolTwice" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ö
+ö
+ t
+pythonS117XRename this local variable "idBytes" to match the regular expression ^[_a-z][a-z0-9_]*$. 2ff z
+pythonS117\Rename this local variable "splitHeader" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+™™ z
+pythonS117\Rename this local variable "splitHeader" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+©© z
+pythonS117\Rename this local variable "splitHeader" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¼¼ z
+pythonS117\Rename this local variable "splitHeader" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ËË ‚
+pythonS117dRename this local variable "connectionMadeCalls" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÁÁ 
+pythonS117cRename this local variable "streamStartedCalls" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÂÂ ‡
+pythonS117iRename this local variable "associateWithStreamCalls" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÃÃ  u
+pythonS117WRename this parameter "rootElement" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÉÉ$ /x
+pythonS117ZRename this parameter "contextFactory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+×× 'x
+pythonS117ZRename this parameter "contextFactory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+óó 'h
+pythonS1542KRename function "cb" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2nn j
+pythonS1542KRename function "cb" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+’’ j
+pythonS1542KRename function "eb" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¼¼ t
+pythonS1542URename function "fakeStartTLS" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+×× t
+pythonS1542URename function "fakeStartTLS" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+óó |
+pythonS1542]Rename function "authenticatorFactory" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+Ó
+Ó
+  

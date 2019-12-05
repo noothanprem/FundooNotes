@@ -1,77 +1,77 @@
-import operator
+import sys
 
-from django.db.backends.base.features import BaseDatabaseFeatures
-from django.db.utils import InterfaceError
-from django.utils.functional import cached_property
+from psycopg2 import errorcodes
+
+from django.db.backends.base.creation import BaseDatabaseCreation
+from django.db.backends.utils import strip_quotes
 
 
-class DatabaseFeatures(BaseDatabaseFeatures):
-    allows_group_by_selected_pks = True
-    can_return_id_from_insert = True
-    can_return_ids_from_bulk_insert = True
-    has_real_datatype = True
-    has_native_uuid_field = True
-    has_native_duration_field = True
-    can_defer_constraint_checks = True
-    has_select_for_update = True
-    has_select_for_update_nowait = True
-    has_select_for_update_of = True
-    can_release_savepoints = True
-    supports_tablespaces = True
-    supports_transactions = True
-    can_introspect_autofield = True
-    can_introspect_ip_address_field = True
-    can_introspect_materialized_views = True
-    can_introspect_small_integer_field = True
-    can_distinct_on_fields = True
-    can_rollback_ddl = True
-    supports_combined_alters = True
-    nulls_order_largest = True
-    closed_cursor_error_class = InterfaceError
-    has_case_insensitive_like = False
-    greatest_least_ignores_nulls = True
-    can_clone_databases = True
-    supports_temporal_subtraction = True
-    supports_slicing_ordering_in_compound = True
-    create_test_procedure_without_params_sql = """
-        CREATE FUNCTION test_procedure () RETURNS void AS $$
-        DECLARE
-            V_I INTEGER;
-        BEGIN
-            V_I := 1;
-        END;
-    $$ LANGUAGE plpgsql;"""
-    create_test_procedure_with_int_param_sql = """
-        CREATE FUNCTION test_procedure (P_I INTEGER) RETURNS void AS $$
-        DECLARE
-            V_I INTEGER;
-        BEGIN
-            V_I := P_I;
-        END;
-    $$ LANGUAGE plpgsql;"""
-    requires_casted_case_in_updates = True
-    supports_over_clause = True
-    supports_aggregate_filter_clause = True
-    supported_explain_formats = {'JSON', 'TEXT', 'XML', 'YAML'}
-    validates_explain_options = False  # A query will error on invalid options.
+class DatabaseCreation(BaseDatabaseCreation):
 
-    @cached_property
-    def is_postgresql_9_5(self):
-        return self.connection.pg_version >= 90500
+    def _quote_name(self, name):
+        return self.connection.ops.quote_name(name)
 
-    @cached_property
-    def is_postgresql_9_6(self):
-        return self.connection.pg_version >= 90600
+    def _get_database_create_suffix(self, encoding=None, template=None):
+        suffix = ""
+        if encoding:
+            suffix += " ENCODING '{}'".format(encoding)
+        if template:
+            suffix += " TEMPLATE {}".format(self._quote_name(template))
+        return suffix and "WITH" + suffix
 
-    @cached_property
-    def is_postgresql_10(self):
-        return self.connection.pg_version >= 100000
+    def sql_table_creation_suffix(self):
+        test_settings = self.connection.settings_dict['TEST']
+        assert test_settings['COLLATION'] is None, (
+            "PostgreSQL does not support collation setting at database creation time."
+        )
+        return self._get_database_create_suffix(
+            encoding=test_settings['CHARSET'],
+            template=test_settings.get('TEMPLATE'),
+        )
 
-    has_select_for_update_skip_locked = property(operator.attrgetter('is_postgresql_9_5'))
-    has_brin_index_support = property(operator.attrgetter('is_postgresql_9_5'))
-    has_jsonb_agg = property(operator.attrgetter('is_postgresql_9_5'))
-    has_brin_autosummarize = property(operator.attrgetter('is_postgresql_10'))
-    has_gin_pending_list_limit = property(operator.attrgetter('is_postgresql_9_5'))
-    supports_ignore_conflicts = property(operator.attrgetter('is_postgresql_9_5'))
-    has_phraseto_tsquery = property(operator.attrgetter('is_postgresql_9_6'))
-    supports_table_partitions = property(operator.attrgetter('is_postgresql_10'))
+    def _database_exists(self, cursor, database_name):
+        cursor.execute('SELECT 1 FROM pg_catalog.pg_database WHERE datname = %s', [strip_quotes(database_name)])
+        return cursor.fetchone() is not None
+
+    def _execute_create_test_db(self, cursor, parameters, keepdb=False):
+        try:
+            if keepdb and self._database_exists(cursor, parameters['dbname']):
+                # If the database should be kept and it already exists, don't
+                # try to create a new one.
+                return
+            super()._execute_create_test_db(cursor, parameters, keepdb)
+        except Exception as e:
+            if getattr(e.__cause__, 'pgcode', '') != errorcodes.DUPLICATE_DATABASE:
+                # All errors except "database already exists" cancel tests.
+                self.log('Got an error creating the test database: %s' % e)
+                sys.exit(2)
+            elif not keepdb:
+                # If the database should be kept, ignore "database already
+                # exists".
+                raise e
+
+    def _clone_test_db(self, suffix, verbosity, keepdb=False):
+        # CREATE DATABASE ... WITH TEMPLATE ... requires closing connections
+        # to the template database.
+        self.connection.close()
+
+        source_database_name = self.connection.settings_dict['NAME']
+        target_database_name = self.get_test_db_clone_settings(suffix)['NAME']
+        test_db_params = {
+            'dbname': self._quote_name(target_database_name),
+            'suffix': self._get_database_create_suffix(template=source_database_name),
+        }
+        with self._nodb_connection.cursor() as cursor:
+            try:
+                self._execute_create_test_db(cursor, test_db_params, keepdb)
+            except Exception:
+                try:
+                    if verbosity >= 1:
+                        self.log('Destroying old test database for alias %s...' % (
+                            self._get_database_display_str(verbosity, target_database_name),
+                        ))
+                    cursor.execute('DROP DATABASE %(dbname)s' % test_db_params)
+                    self._execute_create_test_db(cursor, test_db_params, keepdb)
+                except Exception as e:
+                    self.log('Got an error cloning the test database: %s' % e)
+                    sys.exit(2)

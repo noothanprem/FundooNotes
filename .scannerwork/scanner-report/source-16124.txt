@@ -19,191 +19,54 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import sys
+"""Test than modules in gevent.green package are indeed green.
+To do that spawn a green server and then access it using a green socket.
+If either operation blocked the whole script would block and timeout.
+"""
+from gevent import monkey
+monkey.patch_all()
+
 import gevent.testing as greentest
-import weakref
-import time
-import gc
 
-from gevent import sleep
-from gevent import Timeout
-from gevent import get_hub
+try:
+    import urllib2
+except ImportError:
+    from urllib import request as urllib2
+try:
+    import BaseHTTPServer
+except ImportError:
+    from http import server as BaseHTTPServer
 
-
-from gevent.testing.timing import SMALL_TICK as DELAY
-from gevent.testing import flaky
-
-
-class Error(Exception):
-    pass
+import gevent
+from gevent.testing import params
 
 
-class _UpdateNowProxy(object):
+class TestGreenness(greentest.TestCase):
+    check_totalrefcount = False
 
-    update_now_calls = 0
+    def setUp(self):
+        server_address = params.DEFAULT_BIND_ADDR_TUPLE
+        BaseHTTPServer.BaseHTTPRequestHandler.protocol_version = "HTTP/1.0"
+        self.httpd = BaseHTTPServer.HTTPServer(server_address, BaseHTTPServer.BaseHTTPRequestHandler)
+        self.httpd.request_count = 0
 
-    def __init__(self, loop):
-        self.loop = loop
+    def tearDown(self):
+        self.httpd.server_close()
+        self.httpd = None
 
-    def __getattr__(self, name):
-        return getattr(self.loop, name)
+    def serve(self):
+        self.httpd.handle_request()
+        self.httpd.request_count += 1
 
-    def update_now(self):
-        self.update_now_calls += 1
-        self.loop.update_now()
+    def test_urllib2(self):
+        server = gevent.spawn(self.serve)
 
-class _UpdateNowWithTimerProxy(_UpdateNowProxy):
-
-    def timer(self, *_args, **_kwargs):
-        return _Timer(self)
-
-class _Timer(object):
-
-    pending = False
-    active = False
-
-    def __init__(self, loop):
-        self.loop = loop
-
-    def start(self, *_args, **kwargs):
-        if kwargs.get("update"):
-            self.loop.update_now()
-        self.pending = self.active = True
-
-    def stop(self):
-        self.active = self.pending = False
-
-    def close(self):
-        "Does nothing"
-
-
-class Test(greentest.TestCase):
-
-    def test_timeout_calls_update_now(self):
-        hub = get_hub()
-        loop = hub.loop
-        proxy = _UpdateNowWithTimerProxy(loop)
-        hub.loop = proxy
-
-        try:
-            with Timeout(DELAY * 2) as t:
-                self.assertTrue(t.pending)
-        finally:
-            hub.loop = loop
-
-        self.assertEqual(1, proxy.update_now_calls)
-
-    def test_sleep_calls_update_now(self):
-        hub = get_hub()
-        loop = hub.loop
-        proxy = _UpdateNowProxy(loop)
-        hub.loop = proxy
-        try:
-            sleep(0.01)
-        finally:
-            hub.loop = loop
-
-        self.assertEqual(1, proxy.update_now_calls)
-
-
-    @greentest.skipOnAppVeyor("Timing is flaky, especially under Py 3.4/64-bit")
-    @greentest.skipOnPyPy3OnCI("Timing is flaky, especially under Py 3.4/64-bit")
-    @greentest.reraises_flaky_timeout(Timeout)
-    def test_api(self):
-        # Nothing happens if with-block finishes before the timeout expires
-        t = Timeout(DELAY * 2)
-        self.assertFalse(t.pending, t)
-        with t:
-            self.assertTrue(t.pending, t)
-            sleep(DELAY)
-        # check if timer was actually cancelled
-        self.assertFalse(t.pending, t)
-        sleep(DELAY * 2)
-
-        # An exception will be raised if it's not
-        with self.assertRaises(Timeout) as exc:
-            with Timeout(DELAY) as t:
-                sleep(DELAY * 10)
-
-        self.assertIs(exc.exception, t)
-
-        # You can customize the exception raised:
-        with self.assertRaises(IOError):
-            with Timeout(DELAY, IOError("Operation takes way too long")):
-                sleep(DELAY * 10)
-
-        # Providing classes instead of values should be possible too:
-        with self.assertRaises(ValueError):
-            with Timeout(DELAY, ValueError):
-                sleep(DELAY * 10)
-
-
-        try:
-            1 / 0
-        except ZeroDivisionError:
-            with self.assertRaises(ZeroDivisionError):
-                with Timeout(DELAY, sys.exc_info()[0]):
-                    sleep(DELAY * 10)
-                    raise AssertionError('should not get there')
-                raise AssertionError('should not get there')
-        else:
-            raise AssertionError('should not get there')
-
-        # It's possible to cancel the timer inside the block:
-        with Timeout(DELAY) as timer:
-            timer.cancel()
-            sleep(DELAY * 2)
-
-        # To silent the exception before exiting the block, pass False as second parameter.
-        XDELAY = 0.1
-        start = time.time()
-        with Timeout(XDELAY, False):
-            sleep(XDELAY * 2)
-        delta = (time.time() - start)
-        self.assertTimeWithinRange(delta, 0, XDELAY * 2)
-
-        # passing None as seconds disables the timer
-        with Timeout(None):
-            sleep(DELAY)
-        sleep(DELAY)
-
-    def test_ref(self):
-        err = Error()
-        err_ref = weakref.ref(err)
-        with Timeout(DELAY * 2, err):
-            sleep(DELAY)
-        del err
-        gc.collect()
-        self.assertFalse(err_ref(), err_ref)
-
-    @flaky.reraises_flaky_race_condition()
-    def test_nested_timeout(self):
-        with Timeout(DELAY, False):
-            with Timeout(DELAY * 10, False):
-                sleep(DELAY * 3 * 20)
-            raise AssertionError('should not get there')
-
-        with Timeout(DELAY) as t1:
-            with Timeout(DELAY * 20) as t2:
-                with self.assertRaises(Timeout) as exc:
-                    sleep(DELAY * 30)
-                self.assertIs(exc.exception, t1)
-
-                self.assertFalse(t1.pending, t1)
-                self.assertTrue(t2.pending, t2)
-
-            self.assertFalse(t2.pending)
-
-        with Timeout(DELAY * 20) as t1:
-            with Timeout(DELAY) as t2:
-                with self.assertRaises(Timeout) as exc:
-                    sleep(DELAY * 30)
-                self.assertIs(exc.exception, t2)
-
-                self.assertTrue(t1.pending, t1)
-                self.assertFalse(t2.pending, t2)
-
-        self.assertFalse(t1.pending)
+        port = self.httpd.socket.getsockname()[1]
+        with self.assertRaises(urllib2.HTTPError) as exc:
+            urllib2.urlopen('http://127.0.0.1:%s' % port)
+        self.assertEqual(exc.exception.code, 501)
+        server.get(0.01)
+        self.assertEqual(self.httpd.request_count, 1)
 
 
 if __name__ == '__main__':

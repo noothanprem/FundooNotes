@@ -1,1 +1,0 @@
-¨:venv/lib/python3.6/site-packages/oauth2_provider/scopes.py 2pyX3h

@@ -1,1 +1,0 @@
-©Ìvenv/bin/rst2odt.py 2pyXh

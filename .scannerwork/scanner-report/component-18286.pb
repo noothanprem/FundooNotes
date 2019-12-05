@@ -1,1 +1,1 @@
-îŽ@venv/lib/python3.6/site-packages/botocore/docs/bcdoc/__init__.py 2pyXh
+îŽ=venv/lib/python3.6/site-packages/botocore/docs/bcdoc/style.py 2pyX£h

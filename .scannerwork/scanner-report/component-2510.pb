@@ -1,1 +1,1 @@
-Î:venv/lib/python3.6/site-packages/openid/yadis/parsehtml.py 2pyXÐh
+Î-venv/lib/python3.6/site-packages/openid/yadis :ÍÏÐÑÒÓÔÕÖãæ

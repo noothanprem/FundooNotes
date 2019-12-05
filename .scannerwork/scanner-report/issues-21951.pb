@@ -1,41 +1,36 @@
-l
-pythonS100PRename method "testStuff" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2@@ x
-pythonS100\Rename method "test_addObserverTwice" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ee }
-pythonS100aRename method "test_addObserverInDispatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2yy "Ü
-pythonS100hRename method "test_addOnetimeObserverInDispatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-êê )x
-pythonS100ZRename method "testOnetimeDispatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ßß y
-pythonS100[Rename method "testDispatcherResult" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-≥≥ }
-pythonS100_Rename method "testOrderedXPathDispatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¡¡  Ñ
-pythonS100fRename method "test_cleanUpRemoveEventObserver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-÷÷ 'Ñ
-pythonS100fRename method "test_cleanUpRemoveXPathObserver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÂÂ 'Ö
-pythonS100gRename method "test_cleanUpOnetimeEventObserver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ıı (Ö
-pythonS100gRename method "test_cleanUpOnetimeXPathObserver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÉÉ (Ç
-pythonS100dRename method "test_observerRaisingException" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-íí %j
+h
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 q
+pythonS100URename method "loseConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 s
+pythonS100WRename method "test_receiveRoot" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2** u
+pythonS100YRename method "test_receiveBadXML" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2:: q
+pythonS100URename method "test_streamEnd" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2WW j
 pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-øø x
-pythonS100ZRename method "test_sendFromSource" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-√√ v
-pythonS100XRename method "test_sendFromSink" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-—— É
-pythonS117eRename this local variable "originalCallbackList" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ßß l
-pythonS116PRename this field "callList" to match the regular expression ^[_a-z][_a-z0-9]*$. 2++ q
-pythonS1542RRename function "onMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÅÅ q
-pythonS1542RRename function "onMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-òò r
-pythonS1542SRename function "raiseError" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-°° j
+ÉÉ {
+pythonS100]Rename method "test_installBootstraps" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+áá 
+pythonS100aRename method "test_addAndRemoveBootstrap" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+òò "j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+≤≤ â
+pythonS100kRename method "test_buildProtocolInstallsBootstraps" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+∂∂ ,Ñ
+pythonS100fRename method "test_buildProtocolStoresFactory" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+«« 'j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+’’ á
+pythonS100iRename method "test_buildProtocolFactoryArguments" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+⁄⁄ *z
+pythonS117^Rename this local variable "streamStarted" to match the regular expression ^[_a-z][a-z0-9_]*$. 2.. x
+pythonS117\Rename this local variable "streamError" to match the regular expression ^[_a-z][a-z0-9_]*$. 2>> v
+pythonS117ZRename this local variable "streamEnd" to match the regular expression ^[_a-z][a-z0-9_]*$. 2?? v
+pythonS117ZRename this local variable "streamEnd" to match the regular expression ^[_a-z][a-z0-9_]*$. 2[[ v
+pythonS1542YRename function "streamStartEvent" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 200 v
+pythonS1542YRename function "streamErrorEvent" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2AA t
+pythonS1542WRename function "streamEndEvent" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2DD t
+pythonS1542WRename function "streamEndEvent" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2]] j
 pythonS1542KRename function "cb" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-«« j
+çç j
 pythonS1542KRename function "cb" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-’’ 
+üü j
+pythonS1542KRename function "cb" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ºº 

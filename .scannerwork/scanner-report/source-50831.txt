@@ -1,50 +1,54 @@
 from __future__ import absolute_import, division, unicode_literals
 
-from xml.sax.xmlreader import AttributesNSImpl
-
-from ..constants import adjustForeignAttributes, unadjustForeignAttributes
-
-prefix_mapping = {}
-for prefix, localName, namespace in adjustForeignAttributes.values():
-    if prefix is not None:
-        prefix_mapping[prefix] = namespace
+from genshi.core import QName, Attrs
+from genshi.core import START, END, TEXT, COMMENT, DOCTYPE
 
 
-def to_sax(walker, handler):
-    """Call SAX-like content handler based on treewalker walker
+def to_genshi(walker):
+    """Convert a tree to a genshi tree
 
     :arg walker: the treewalker to use to walk the tree to convert it
 
-    :arg handler: SAX handler to use
+    :returns: generator of genshi nodes
 
     """
-    handler.startDocument()
-    for prefix, namespace in prefix_mapping.items():
-        handler.startPrefixMapping(prefix, namespace)
-
+    text = []
     for token in walker:
         type = token["type"]
-        if type == "Doctype":
-            continue
-        elif type in ("StartTag", "EmptyTag"):
-            attrs = AttributesNSImpl(token["data"],
-                                     unadjustForeignAttributes)
-            handler.startElementNS((token["namespace"], token["name"]),
-                                   token["name"],
-                                   attrs)
-            if type == "EmptyTag":
-                handler.endElementNS((token["namespace"], token["name"]),
-                                     token["name"])
-        elif type == "EndTag":
-            handler.endElementNS((token["namespace"], token["name"]),
-                                 token["name"])
-        elif type in ("Characters", "SpaceCharacters"):
-            handler.characters(token["data"])
-        elif type == "Comment":
-            pass
-        else:
-            assert False, "Unknown token type"
+        if type in ("Characters", "SpaceCharacters"):
+            text.append(token["data"])
+        elif text:
+            yield TEXT, "".join(text), (None, -1, -1)
+            text = []
 
-    for prefix, namespace in prefix_mapping.items():
-        handler.endPrefixMapping(prefix)
-    handler.endDocument()
+        if type in ("StartTag", "EmptyTag"):
+            if token["namespace"]:
+                name = "{%s}%s" % (token["namespace"], token["name"])
+            else:
+                name = token["name"]
+            attrs = Attrs([(QName("{%s}%s" % attr if attr[0] is not None else attr[1]), value)
+                           for attr, value in token["data"].items()])
+            yield (START, (QName(name), attrs), (None, -1, -1))
+            if type == "EmptyTag":
+                type = "EndTag"
+
+        if type == "EndTag":
+            if token["namespace"]:
+                name = "{%s}%s" % (token["namespace"], token["name"])
+            else:
+                name = token["name"]
+
+            yield END, QName(name), (None, -1, -1)
+
+        elif type == "Comment":
+            yield COMMENT, token["data"], (None, -1, -1)
+
+        elif type == "Doctype":
+            yield DOCTYPE, (token["name"], token["publicId"],
+                            token["systemId"]), (None, -1, -1)
+
+        else:
+            pass  # FIXME: What to do?
+
+    if text:
+        yield TEXT, "".join(text), (None, -1, -1)

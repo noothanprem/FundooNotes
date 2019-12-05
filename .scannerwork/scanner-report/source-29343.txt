@@ -4,753 +4,558 @@
 # Copyright (c) 2005-2019, Ilya Etingof <etingof@gmail.com>
 # License: http://snmplabs.com/pyasn1/license.html
 #
-# Original concept and code by Mike C. Fletcher.
-#
 import sys
 
-from pyasn1.type import error
+from pyasn1 import error
+from pyasn1.type import tag
+from pyasn1.type import tagmap
 
-__all__ = ['SingleValueConstraint', 'ContainedSubtypeConstraint',
-           'ValueRangeConstraint', 'ValueSizeConstraint',
-           'PermittedAlphabetConstraint', 'InnerTypeConstraint',
-           'ConstraintsExclusion', 'ConstraintsIntersection',
-           'ConstraintsUnion']
+__all__ = ['NamedType', 'OptionalNamedType', 'DefaultedNamedType',
+           'NamedTypes']
+
+try:
+    any
+
+except NameError:
+    any = lambda x: bool(filter(bool, x))
 
 
-class AbstractConstraint(object):
+class NamedType(object):
+    """Create named field object for a constructed ASN.1 type.
 
-    def __init__(self, *values):
-        self._valueMap = set()
-        self._setValues(values)
-        self.__hash = hash((self.__class__.__name__, self._values))
+    The |NamedType| object represents a single name and ASN.1 type of a constructed ASN.1 type.
 
-    def __call__(self, value, idx=None):
-        if not self._values:
-            return
+    |NamedType| objects are immutable and duck-type Python :class:`tuple` objects
+    holding *name* and *asn1Object* components.
 
-        try:
-            self._testValue(value, idx)
+    Parameters
+    ----------
+    name: :py:class:`str`
+        Field name
 
-        except error.ValueConstraintError:
-            raise error.ValueConstraintError(
-                '%s failed at: %r' % (self, sys.exc_info()[1])
-            )
+    asn1Object:
+        ASN.1 type object
+    """
+    isOptional = False
+    isDefaulted = False
+
+    def __init__(self, name, asn1Object, openType=None):
+        self.__name = name
+        self.__type = asn1Object
+        self.__nameAndType = name, asn1Object
+        self.__openType = openType
 
     def __repr__(self):
-        representation = '%s object' % (self.__class__.__name__)
+        representation = '%s=%r' % (self.name, self.asn1Object)
 
-        if self._values:
-            representation += ', consts %s' % ', '.join(
-                [repr(x) for x in self._values])
+        if self.openType:
+            representation += ', open type %r' % self.openType
 
-        return '<%s>' % representation
+        return '<%s object, type %s>' % (
+            self.__class__.__name__, representation)
 
     def __eq__(self, other):
-        return self is other and True or self._values == other
+        return self.__nameAndType == other
 
     def __ne__(self, other):
-        return self._values != other
+        return self.__nameAndType != other
 
     def __lt__(self, other):
-        return self._values < other
+        return self.__nameAndType < other
 
     def __le__(self, other):
-        return self._values <= other
+        return self.__nameAndType <= other
 
     def __gt__(self, other):
-        return self._values > other
+        return self.__nameAndType > other
 
     def __ge__(self, other):
-        return self._values >= other
+        return self.__nameAndType >= other
+
+    def __hash__(self):
+        return hash(self.__nameAndType)
+
+    def __getitem__(self, idx):
+        return self.__nameAndType[idx]
+
+    def __iter__(self):
+        return iter(self.__nameAndType)
+
+    @property
+    def name(self):
+        return self.__name
+
+    @property
+    def asn1Object(self):
+        return self.__type
+
+    @property
+    def openType(self):
+        return self.__openType
+
+    # Backward compatibility
+
+    def getName(self):
+        return self.name
+
+    def getType(self):
+        return self.asn1Object
+
+
+class OptionalNamedType(NamedType):
+    __doc__ = NamedType.__doc__
+
+    isOptional = True
+
+
+class DefaultedNamedType(NamedType):
+    __doc__ = NamedType.__doc__
+
+    isDefaulted = True
+
+
+class NamedTypes(object):
+    """Create a collection of named fields for a constructed ASN.1 type.
+
+    The NamedTypes object represents a collection of named fields of a constructed ASN.1 type.
+
+    *NamedTypes* objects are immutable and duck-type Python :class:`dict` objects
+    holding *name* as keys and ASN.1 type object as values.
+
+    Parameters
+    ----------
+    *namedTypes: :class:`~pyasn1.type.namedtype.NamedType`
+
+    Examples
+    --------
+
+    .. code-block:: python
+
+        class Description(Sequence):
+            '''
+            ASN.1 specification:
+
+            Description ::= SEQUENCE {
+                surname    IA5String,
+                first-name IA5String OPTIONAL,
+                age        INTEGER DEFAULT 40
+            }
+            '''
+            componentType = NamedTypes(
+                NamedType('surname', IA5String()),
+                OptionalNamedType('first-name', IA5String()),
+                DefaultedNamedType('age', Integer(40))
+            )
+
+        descr = Description()
+        descr['surname'] = 'Smith'
+        descr['first-name'] = 'John'
+    """
+    def __init__(self, *namedTypes, **kwargs):
+        self.__namedTypes = namedTypes
+        self.__namedTypesLen = len(self.__namedTypes)
+        self.__minTagSet = self.__computeMinTagSet()
+        self.__nameToPosMap = self.__computeNameToPosMap()
+        self.__tagToPosMap = self.__computeTagToPosMap()
+        self.__ambiguousTypes = 'terminal' not in kwargs and self.__computeAmbiguousTypes() or {}
+        self.__uniqueTagMap = self.__computeTagMaps(unique=True)
+        self.__nonUniqueTagMap = self.__computeTagMaps(unique=False)
+        self.__hasOptionalOrDefault = any([True for namedType in self.__namedTypes
+                                           if namedType.isDefaulted or namedType.isOptional])
+        self.__hasOpenTypes = any([True for namedType in self.__namedTypes
+                                   if namedType.openType])
+
+        self.__requiredComponents = frozenset(
+                [idx for idx, nt in enumerate(self.__namedTypes) if not nt.isOptional and not nt.isDefaulted]
+            )
+        self.__keys = frozenset([namedType.name for namedType in self.__namedTypes])
+        self.__values = tuple([namedType.asn1Object for namedType in self.__namedTypes])
+        self.__items = tuple([(namedType.name, namedType.asn1Object) for namedType in self.__namedTypes])
+
+    def __repr__(self):
+        representation = ', '.join(['%r' % x for x in self.__namedTypes])
+        return '<%s object, types %s>' % (
+            self.__class__.__name__, representation)
+
+    def __eq__(self, other):
+        return self.__namedTypes == other
+
+    def __ne__(self, other):
+        return self.__namedTypes != other
+
+    def __lt__(self, other):
+        return self.__namedTypes < other
+
+    def __le__(self, other):
+        return self.__namedTypes <= other
+
+    def __gt__(self, other):
+        return self.__namedTypes > other
+
+    def __ge__(self, other):
+        return self.__namedTypes >= other
+
+    def __hash__(self):
+        return hash(self.__namedTypes)
+
+    def __getitem__(self, idx):
+        try:
+            return self.__namedTypes[idx]
+
+        except TypeError:
+            return self.__namedTypes[self.__nameToPosMap[idx]]
+
+    def __contains__(self, key):
+        return key in self.__nameToPosMap
+
+    def __iter__(self):
+        return (x[0] for x in self.__namedTypes)
 
     if sys.version_info[0] <= 2:
         def __nonzero__(self):
-            return self._values and True or False
+            return self.__namedTypesLen > 0
     else:
         def __bool__(self):
-            return self._values and True or False
-
-    def __hash__(self):
-        return self.__hash
-
-    def _setValues(self, values):
-        self._values = values
-
-    def _testValue(self, value, idx):
-        raise error.ValueConstraintError(value)
-
-    # Constraints derivation logic
-    def getValueMap(self):
-        return self._valueMap
-
-    def isSuperTypeOf(self, otherConstraint):
-        # TODO: fix possible comparison of set vs scalars here
-        return (otherConstraint is self or
-                not self._values or
-                otherConstraint == self or
-                self in otherConstraint.getValueMap())
-
-    def isSubTypeOf(self, otherConstraint):
-        return (otherConstraint is self or
-                not self or
-                otherConstraint == self or
-                otherConstraint in self._valueMap)
-
-
-class SingleValueConstraint(AbstractConstraint):
-    """Create a SingleValueConstraint object.
-
-    The SingleValueConstraint satisfies any value that
-    is present in the set of permitted values.
-
-    Objects of this type are iterable (emitting constraint values) and
-    can act as operands for some arithmetic operations e.g. addition
-    and subtraction. The latter can be used for combining multiple
-    SingleValueConstraint objects into one.
-
-    The SingleValueConstraint object can be applied to
-    any ASN.1 type.
-
-    Parameters
-    ----------
-    *values: :class:`int`
-        Full set of values permitted by this constraint object.
-
-    Examples
-    --------
-    .. code-block:: python
-
-        class DivisorOfSix(Integer):
-            '''
-            ASN.1 specification:
-
-            Divisor-Of-6 ::= INTEGER (1 | 2 | 3 | 6)
-            '''
-            subtypeSpec = SingleValueConstraint(1, 2, 3, 6)
-
-        # this will succeed
-        divisor_of_six = DivisorOfSix(1)
-
-        # this will raise ValueConstraintError
-        divisor_of_six = DivisorOfSix(7)
-    """
-    def _setValues(self, values):
-        self._values = values
-        self._set = set(values)
-
-    def _testValue(self, value, idx):
-        if value not in self._set:
-            raise error.ValueConstraintError(value)
-
-    # Constrains can be merged or reduced
-
-    def __contains__(self, item):
-        return item in self._set
-
-    def __iter__(self):
-        return iter(self._set)
-
-    def __sub__(self, constraint):
-        return self.__class__(*(self._set.difference(constraint)))
-
-    def __add__(self, constraint):
-        return self.__class__(*(self._set.union(constraint)))
-
-    def __sub__(self, constraint):
-        return self.__class__(*(self._set.difference(constraint)))
-
-
-class ContainedSubtypeConstraint(AbstractConstraint):
-    """Create a ContainedSubtypeConstraint object.
-
-    The ContainedSubtypeConstraint satisfies any value that
-    is present in the set of permitted values and also
-    satisfies included constraints.
-
-    The ContainedSubtypeConstraint object can be applied to
-    any ASN.1 type.
-
-    Parameters
-    ----------
-    *values:
-        Full set of values and constraint objects permitted
-        by this constraint object.
-
-    Examples
-    --------
-    .. code-block:: python
-
-        class DivisorOfEighteen(Integer):
-            '''
-            ASN.1 specification:
-
-            Divisors-of-18 ::= INTEGER (INCLUDES Divisors-of-6 | 9 | 18)
-            '''
-            subtypeSpec = ContainedSubtypeConstraint(
-                SingleValueConstraint(1, 2, 3, 6), 9, 18
-            )
-
-        # this will succeed
-        divisor_of_eighteen = DivisorOfEighteen(9)
-
-        # this will raise ValueConstraintError
-        divisor_of_eighteen = DivisorOfEighteen(10)
-    """
-    def _testValue(self, value, idx):
-        for constraint in self._values:
-            if isinstance(constraint, AbstractConstraint):
-                constraint(value, idx)
-            elif value not in self._set:
-                raise error.ValueConstraintError(value)
-
-
-class ValueRangeConstraint(AbstractConstraint):
-    """Create a ValueRangeConstraint object.
-
-    The ValueRangeConstraint satisfies any value that
-    falls in the range of permitted values.
-
-    The ValueRangeConstraint object can only be applied
-    to :class:`~pyasn1.type.univ.Integer` and
-    :class:`~pyasn1.type.univ.Real` types.
-
-    Parameters
-    ----------
-    start: :class:`int`
-        Minimum permitted value in the range (inclusive)
-
-    end: :class:`int`
-        Maximum permitted value in the range (inclusive)
-
-    Examples
-    --------
-    .. code-block:: python
-
-        class TeenAgeYears(Integer):
-            '''
-            ASN.1 specification:
-
-            TeenAgeYears ::= INTEGER (13 .. 19)
-            '''
-            subtypeSpec = ValueRangeConstraint(13, 19)
-
-        # this will succeed
-        teen_year = TeenAgeYears(18)
-
-        # this will raise ValueConstraintError
-        teen_year = TeenAgeYears(20)
-    """
-    def _testValue(self, value, idx):
-        if value < self.start or value > self.stop:
-            raise error.ValueConstraintError(value)
-
-    def _setValues(self, values):
-        if len(values) != 2:
-            raise error.PyAsn1Error(
-                '%s: bad constraint values' % (self.__class__.__name__,)
-            )
-        self.start, self.stop = values
-        if self.start > self.stop:
-            raise error.PyAsn1Error(
-                '%s: screwed constraint values (start > stop): %s > %s' % (
-                    self.__class__.__name__,
-                    self.start, self.stop
-                )
-            )
-        AbstractConstraint._setValues(self, values)
-
-
-class ValueSizeConstraint(ValueRangeConstraint):
-    """Create a ValueSizeConstraint object.
-
-    The ValueSizeConstraint satisfies any value for
-    as long as its size falls within the range of
-    permitted sizes.
-
-    The ValueSizeConstraint object can be applied
-    to :class:`~pyasn1.type.univ.BitString`,
-    :class:`~pyasn1.type.univ.OctetString` (including
-    all :ref:`character ASN.1 types <type.char>`),
-    :class:`~pyasn1.type.univ.SequenceOf`
-    and :class:`~pyasn1.type.univ.SetOf` types.
-
-    Parameters
-    ----------
-    minimum: :class:`int`
-        Minimum permitted size of the value (inclusive)
-
-    maximum: :class:`int`
-        Maximum permitted size of the value (inclusive)
-
-    Examples
-    --------
-    .. code-block:: python
-
-        class BaseballTeamRoster(SetOf):
-            '''
-            ASN.1 specification:
-
-            BaseballTeamRoster ::= SET SIZE (1..25) OF PlayerNames
-            '''
-            componentType = PlayerNames()
-            subtypeSpec = ValueSizeConstraint(1, 25)
-
-        # this will succeed
-        team = BaseballTeamRoster()
-        team.extend(['Jan', 'Matej'])
-        encode(team)
-
-        # this will raise ValueConstraintError
-        team = BaseballTeamRoster()
-        team.extend(['Jan'] * 26)
-        encode(team)
-
-    Note
-    ----
-    Whenever ValueSizeConstraint is applied to mutable types
-    (e.g. :class:`~pyasn1.type.univ.SequenceOf`,
-    :class:`~pyasn1.type.univ.SetOf`), constraint
-    validation only happens at the serialisation phase rather
-    than schema instantiation phase (as it is with immutable
-    types).
-    """
-    def _testValue(self, value, idx):
-        valueSize = len(value)
-        if valueSize < self.start or valueSize > self.stop:
-            raise error.ValueConstraintError(value)
-
-
-class PermittedAlphabetConstraint(SingleValueConstraint):
-    """Create a PermittedAlphabetConstraint object.
-
-    The PermittedAlphabetConstraint satisfies any character
-    string for as long as all its characters are present in
-    the set of permitted characters.
-
-    Objects of this type are iterable (emitting constraint values) and
-    can act as operands for some arithmetic operations e.g. addition
-    and subtraction.
-
-    The PermittedAlphabetConstraint object can only be applied
-    to the :ref:`character ASN.1 types <type.char>` such as
-    :class:`~pyasn1.type.char.IA5String`.
-
-    Parameters
-    ----------
-    *alphabet: :class:`str`
-        Full set of characters permitted by this constraint object.
-
-    Example
-    -------
-    .. code-block:: python
-
-        class BooleanValue(IA5String):
-            '''
-            ASN.1 specification:
-
-            BooleanValue ::= IA5String (FROM ('T' | 'F'))
-            '''
-            subtypeSpec = PermittedAlphabetConstraint('T', 'F')
-
-        # this will succeed
-        truth = BooleanValue('T')
-        truth = BooleanValue('TF')
-
-        # this will raise ValueConstraintError
-        garbage = BooleanValue('TAF')
-
-    ASN.1 `FROM ... EXCEPT ...` clause can be modelled by combining multiple
-    PermittedAlphabetConstraint objects into one:
-
-    Example
-    -------
-    .. code-block:: python
-
-        class Lipogramme(IA5String):
-            '''
-            ASN.1 specification:
-
-            Lipogramme ::=
-                IA5String (FROM (ALL EXCEPT ("e"|"E")))
-            '''
-            subtypeSpec = (
-                PermittedAlphabetConstraint(*string.printable) -
-                PermittedAlphabetConstraint('e', 'E')
-            )
-
-        # this will succeed
-        lipogramme = Lipogramme('A work of fiction?')
-
-        # this will raise ValueConstraintError
-        lipogramme = Lipogramme('Eel')
-
-    Note
-    ----
-    Although `ConstraintsExclusion` object could seemingly be used for this
-    purpose, practically, for it to work, it needs to represent its operand
-    constraints as sets and intersect one with the other. That would require
-    the insight into the constraint values (and their types) that are otherwise
-    hidden inside the constraint object.
-
-    Therefore it's more practical to model `EXCEPT` clause at
-    `PermittedAlphabetConstraint` level instead.
-    """
-    def _setValues(self, values):
-        self._values = values
-        self._set = set(values)
-
-    def _testValue(self, value, idx):
-        if not self._set.issuperset(value):
-            raise error.ValueConstraintError(value)
-
-
-class ComponentPresentConstraint(AbstractConstraint):
-    """Create a ComponentPresentConstraint object.
-
-    The ComponentPresentConstraint is only satisfied when the value
-    is not `None`.
-
-    The ComponentPresentConstraint object is typically used with
-    `WithComponentsConstraint`.
-
-    Examples
-    --------
-    .. code-block:: python
-
-        present = ComponentPresentConstraint()
-
-        # this will succeed
-        present('whatever')
-
-        # this will raise ValueConstraintError
-        present(None)
-    """
-    def _setValues(self, values):
-        self._values = ('<must be present>',)
-
-        if values:
-            raise error.PyAsn1Error('No arguments expected')
-
-    def _testValue(self, value, idx):
-        if value is None:
-            raise error.ValueConstraintError(
-                'Component is not present:')
-
-
-class ComponentAbsentConstraint(AbstractConstraint):
-    """Create a ComponentAbsentConstraint object.
-
-    The ComponentAbsentConstraint is only satisfied when the value
-    is `None`.
-
-    The ComponentAbsentConstraint object is typically used with
-    `WithComponentsConstraint`.
-
-    Examples
-    --------
-    .. code-block:: python
-
-        absent = ComponentAbsentConstraint()
-
-        # this will succeed
-        absent(None)
-
-        # this will raise ValueConstraintError
-        absent('whatever')
-    """
-    def _setValues(self, values):
-        self._values = ('<must be absent>',)
-
-        if values:
-            raise error.PyAsn1Error('No arguments expected')
-
-    def _testValue(self, value, idx):
-        if value is not None:
-            raise error.ValueConstraintError(
-                'Component is not absent: %r' % value)
-
-
-class WithComponentsConstraint(AbstractConstraint):
-    """Create a WithComponentsConstraint object.
-
-    The `WithComponentsConstraint` satisfies any mapping object that has
-    constrained fields present or absent, what is indicated by
-    `ComponentPresentConstraint` and `ComponentAbsentConstraint`
-    objects respectively.
-
-    The `WithComponentsConstraint` object is typically applied
-    to  :class:`~pyasn1.type.univ.Set` or
-    :class:`~pyasn1.type.univ.Sequence` types.
-
-    Parameters
-    ----------
-    *fields: :class:`tuple`
-        Zero or more tuples of (`field`, `constraint`) indicating constrained
-        fields.
-
-    Notes
-    -----
-    On top of the primary use of `WithComponentsConstraint` (ensuring presence
-    or absence of particular components of a :class:`~pyasn1.type.univ.Set` or
-    :class:`~pyasn1.type.univ.Sequence`), it is also possible to pass any other
-    constraint objects or their combinations. In case of scalar fields, these
-    constraints will be verified in addition to the constraints belonging to
-    scalar components themselves. However, formally, these additional
-    constraints do not change the type of these ASN.1 objects.
-
-    Examples
-    --------
-
-    .. code-block:: python
-
-        class Item(Sequence):  #  Set is similar
-            '''
-            ASN.1 specification:
-
-            Item ::= SEQUENCE {
-                id    INTEGER OPTIONAL,
-                name  OCTET STRING OPTIONAL
-            } WITH COMPONENTS id PRESENT, name ABSENT | id ABSENT, name PRESENT
-            '''
-            componentType = NamedTypes(
-                OptionalNamedType('id', Integer()),
-                OptionalNamedType('name', OctetString())
-            )
-            withComponents = ConstraintsUnion(
-                WithComponentsConstraint(
-                    ('id', ComponentPresentConstraint()),
-                    ('name', ComponentAbsentConstraint())
-                ),
-                WithComponentsConstraint(
-                    ('id', ComponentAbsentConstraint()),
-                    ('name', ComponentPresentConstraint())
-                )
-            )
-
-        item = Item()
-
-        # This will succeed
-        item['id'] = 1
-
-        # This will succeed
-        item.reset()
-        item['name'] = 'John'
-
-        # This will fail (on encoding)
-        item.reset()
-        descr['id'] = 1
-        descr['name'] = 'John'
-    """
-    def _testValue(self, value, idx):
-        for field, constraint in self._values:
-            constraint(value.get(field))
-
-    def _setValues(self, values):
-        AbstractConstraint._setValues(self, values)
-
-
-# This is a bit kludgy, meaning two op modes within a single constraint
-class InnerTypeConstraint(AbstractConstraint):
-    """Value must satisfy the type and presence constraints"""
-
-    def _testValue(self, value, idx):
-        if self.__singleTypeConstraint:
-            self.__singleTypeConstraint(value)
-        elif self.__multipleTypeConstraint:
-            if idx not in self.__multipleTypeConstraint:
-                raise error.ValueConstraintError(value)
-            constraint, status = self.__multipleTypeConstraint[idx]
-            if status == 'ABSENT':  # XXX presence is not checked!
-                raise error.ValueConstraintError(value)
-            constraint(value)
-
-    def _setValues(self, values):
-        self.__multipleTypeConstraint = {}
-        self.__singleTypeConstraint = None
-        for v in values:
-            if isinstance(v, tuple):
-                self.__multipleTypeConstraint[v[0]] = v[1], v[2]
-            else:
-                self.__singleTypeConstraint = v
-        AbstractConstraint._setValues(self, values)
-
-
-# Logic operations on constraints
-
-class ConstraintsExclusion(AbstractConstraint):
-    """Create a ConstraintsExclusion logic operator object.
-
-    The ConstraintsExclusion logic operator succeeds when the
-    value does *not* satisfy the operand constraint.
-
-    The ConstraintsExclusion object can be applied to
-    any constraint and logic operator object.
-
-    Parameters
-    ----------
-    *constraints:
-        Constraint or logic operator objects.
-
-    Examples
-    --------
-    .. code-block:: python
-
-        class LuckyNumber(Integer):
-            subtypeSpec = ConstraintsExclusion(
-                SingleValueConstraint(13)
-            )
-
-        # this will succeed
-        luckyNumber = LuckyNumber(12)
-
-        # this will raise ValueConstraintError
-        luckyNumber = LuckyNumber(13)
-
-    Note
-    ----
-    The `FROM ... EXCEPT ...` ASN.1 clause should be modeled by combining
-    constraint objects into one. See `PermittedAlphabetConstraint` for more
-    information.
-    """
-    def _testValue(self, value, idx):
-        for constraint in self._values:
-            try:
-                constraint(value, idx)
-
-            except error.ValueConstraintError:
-                continue
-
-            raise error.ValueConstraintError(value)
-
-    def _setValues(self, values):
-        AbstractConstraint._setValues(self, values)
-
-
-class AbstractConstraintSet(AbstractConstraint):
-
-    def __getitem__(self, idx):
-        return self._values[idx]
-
-    def __iter__(self):
-        return iter(self._values)
-
-    def __add__(self, value):
-        return self.__class__(*(self._values + (value,)))
-
-    def __radd__(self, value):
-        return self.__class__(*((value,) + self._values))
+            return self.__namedTypesLen > 0
 
     def __len__(self):
-        return len(self._values)
+        return self.__namedTypesLen
 
-    # Constraints inclusion in sets
+    # Python dict protocol
 
-    def _setValues(self, values):
-        self._values = values
-        for constraint in values:
-            if constraint:
-                self._valueMap.add(constraint)
-                self._valueMap.update(constraint.getValueMap())
+    def values(self):
+        return self.__values
 
+    def keys(self):
+        return self.__keys
 
-class ConstraintsIntersection(AbstractConstraintSet):
-    """Create a ConstraintsIntersection logic operator object.
+    def items(self):
+        return self.__items
 
-    The ConstraintsIntersection logic operator only succeeds
-    if *all* its operands succeed.
+    def clone(self):
+        return self.__class__(*self.__namedTypes)
 
-    The ConstraintsIntersection object can be applied to
-    any constraint and logic operator objects.
+    class PostponedError(object):
+        def __init__(self, errorMsg):
+            self.__errorMsg = errorMsg
 
-    The ConstraintsIntersection object duck-types the immutable
-    container object like Python :py:class:`tuple`.
+        def __getitem__(self, item):
+            raise  error.PyAsn1Error(self.__errorMsg)
 
-    Parameters
-    ----------
-    *constraints:
-        Constraint or logic operator objects.
+    def __computeTagToPosMap(self):
+        tagToPosMap = {}
+        for idx, namedType in enumerate(self.__namedTypes):
+            tagMap = namedType.asn1Object.tagMap
+            if isinstance(tagMap, NamedTypes.PostponedError):
+                return tagMap
+            if not tagMap:
+                continue
+            for _tagSet in tagMap.presentTypes:
+                if _tagSet in tagToPosMap:
+                    return NamedTypes.PostponedError('Duplicate component tag %s at %s' % (_tagSet, namedType))
+                tagToPosMap[_tagSet] = idx
 
-    Examples
-    --------
-    .. code-block:: python
+        return tagToPosMap
 
-        class CapitalAndSmall(IA5String):
-            '''
-            ASN.1 specification:
+    def __computeNameToPosMap(self):
+        nameToPosMap = {}
+        for idx, namedType in enumerate(self.__namedTypes):
+            if namedType.name in nameToPosMap:
+                return NamedTypes.PostponedError('Duplicate component name %s at %s' % (namedType.name, namedType))
+            nameToPosMap[namedType.name] = idx
 
-            CapitalAndSmall ::=
-                IA5String (FROM ("A".."Z"|"a".."z"))
-            '''
-            subtypeSpec = ConstraintsIntersection(
-                PermittedAlphabetConstraint('A', 'Z'),
-                PermittedAlphabetConstraint('a', 'z')
-            )
+        return nameToPosMap
 
-        # this will succeed
-        capital_and_small = CapitalAndSmall('Hello')
-
-        # this will raise ValueConstraintError
-        capital_and_small = CapitalAndSmall('hello')
-    """
-    def _testValue(self, value, idx):
-        for constraint in self._values:
-            constraint(value, idx)
-
-
-class ConstraintsUnion(AbstractConstraintSet):
-    """Create a ConstraintsUnion logic operator object.
-
-    The ConstraintsUnion logic operator succeeds if
-    *at least* a single operand succeeds.
-
-    The ConstraintsUnion object can be applied to
-    any constraint and logic operator objects.
-
-    The ConstraintsUnion object duck-types the immutable
-    container object like Python :py:class:`tuple`.
-
-    Parameters
-    ----------
-    *constraints:
-        Constraint or logic operator objects.
-
-    Examples
-    --------
-    .. code-block:: python
-
-        class CapitalOrSmall(IA5String):
-            '''
-            ASN.1 specification:
-
-            CapitalOrSmall ::=
-                IA5String (FROM ("A".."Z") | FROM ("a".."z"))
-            '''
-            subtypeSpec = ConstraintsUnion(
-                PermittedAlphabetConstraint('A', 'Z'),
-                PermittedAlphabetConstraint('a', 'z')
-            )
-
-        # this will succeed
-        capital_or_small = CapitalAndSmall('Hello')
-
-        # this will raise ValueConstraintError
-        capital_or_small = CapitalOrSmall('hello!')
-    """
-    def _testValue(self, value, idx):
-        for constraint in self._values:
-            try:
-                constraint(value, idx)
-            except error.ValueConstraintError:
-                pass
+    def __computeAmbiguousTypes(self):
+        ambiguousTypes = {}
+        partialAmbiguousTypes = ()
+        for idx, namedType in reversed(tuple(enumerate(self.__namedTypes))):
+            if namedType.isOptional or namedType.isDefaulted:
+                partialAmbiguousTypes = (namedType,) + partialAmbiguousTypes
             else:
-                return
+                partialAmbiguousTypes = (namedType,)
+            if len(partialAmbiguousTypes) == len(self.__namedTypes):
+                ambiguousTypes[idx] = self
+            else:
+                ambiguousTypes[idx] = NamedTypes(*partialAmbiguousTypes, **dict(terminal=True))
+        return ambiguousTypes
 
-        raise error.ValueConstraintError(
-            'all of %s failed for "%s"' % (self._values, value)
-        )
+    def getTypeByPosition(self, idx):
+        """Return ASN.1 type object by its position in fields set.
 
-# TODO:
-# refactor InnerTypeConstraint
-# add tests for type check
-# implement other constraint types
-# make constraint validation easy to skip
+        Parameters
+        ----------
+        idx: :py:class:`int`
+            Field index
+
+        Returns
+        -------
+        :
+            ASN.1 type
+
+        Raises
+        ------
+        ~pyasn1.error.PyAsn1Error
+            If given position is out of fields range
+        """
+        try:
+            return self.__namedTypes[idx].asn1Object
+
+        except IndexError:
+            raise error.PyAsn1Error('Type position out of range')
+
+    def getPositionByType(self, tagSet):
+        """Return field position by its ASN.1 type.
+
+        Parameters
+        ----------
+        tagSet: :class:`~pysnmp.type.tag.TagSet`
+            ASN.1 tag set distinguishing one ASN.1 type from others.
+
+        Returns
+        -------
+        : :py:class:`int`
+            ASN.1 type position in fields set
+
+        Raises
+        ------
+        ~pyasn1.error.PyAsn1Error
+            If *tagSet* is not present or ASN.1 types are not unique within callee *NamedTypes*
+        """
+        try:
+            return self.__tagToPosMap[tagSet]
+
+        except KeyError:
+            raise error.PyAsn1Error('Type %s not found' % (tagSet,))
+
+    def getNameByPosition(self, idx):
+        """Return field name by its position in fields set.
+
+        Parameters
+        ----------
+        idx: :py:class:`idx`
+            Field index
+
+        Returns
+        -------
+        : :py:class:`str`
+            Field name
+
+        Raises
+        ------
+        ~pyasn1.error.PyAsn1Error
+            If given field name is not present in callee *NamedTypes*
+        """
+        try:
+            return self.__namedTypes[idx].name
+
+        except IndexError:
+            raise error.PyAsn1Error('Type position out of range')
+
+    def getPositionByName(self, name):
+        """Return field position by filed name.
+
+        Parameters
+        ----------
+        name: :py:class:`str`
+            Field name
+
+        Returns
+        -------
+        : :py:class:`int`
+            Field position in fields set
+
+        Raises
+        ------
+        ~pyasn1.error.PyAsn1Error
+            If *name* is not present or not unique within callee *NamedTypes*
+        """
+        try:
+            return self.__nameToPosMap[name]
+
+        except KeyError:
+            raise error.PyAsn1Error('Name %s not found' % (name,))
+
+    def getTagMapNearPosition(self, idx):
+        """Return ASN.1 types that are allowed at or past given field position.
+
+        Some ASN.1 serialisation allow for skipping optional and defaulted fields.
+        Some constructed ASN.1 types allow reordering of the fields. When recovering
+        such objects it may be important to know which types can possibly be
+        present at any given position in the field sets.
+
+        Parameters
+        ----------
+        idx: :py:class:`int`
+            Field index
+
+        Returns
+        -------
+        : :class:`~pyasn1.type.tagmap.TagMap`
+            Map if ASN.1 types allowed at given field position
+
+        Raises
+        ------
+        ~pyasn1.error.PyAsn1Error
+            If given position is out of fields range
+        """
+        try:
+            return self.__ambiguousTypes[idx].tagMap
+
+        except KeyError:
+            raise error.PyAsn1Error('Type position out of range')
+
+    def getPositionNearType(self, tagSet, idx):
+        """Return the closest field position where given ASN.1 type is allowed.
+
+        Some ASN.1 serialisation allow for skipping optional and defaulted fields.
+        Some constructed ASN.1 types allow reordering of the fields. When recovering
+        such objects it may be important to know at which field position, in field set,
+        given *tagSet* is allowed at or past *idx* position.
+
+        Parameters
+        ----------
+        tagSet: :class:`~pyasn1.type.tag.TagSet`
+           ASN.1 type which field position to look up
+
+        idx: :py:class:`int`
+            Field position at or past which to perform ASN.1 type look up
+
+        Returns
+        -------
+        : :py:class:`int`
+            Field position in fields set
+
+        Raises
+        ------
+        ~pyasn1.error.PyAsn1Error
+            If *tagSet* is not present or not unique within callee *NamedTypes*
+            or *idx* is out of fields range
+        """
+        try:
+            return idx + self.__ambiguousTypes[idx].getPositionByType(tagSet)
+
+        except KeyError:
+            raise error.PyAsn1Error('Type position out of range')
+
+    def __computeMinTagSet(self):
+        minTagSet = None
+        for namedType in self.__namedTypes:
+            asn1Object = namedType.asn1Object
+
+            try:
+                tagSet = asn1Object.minTagSet
+
+            except AttributeError:
+                tagSet = asn1Object.tagSet
+
+            if minTagSet is None or tagSet < minTagSet:
+                minTagSet = tagSet
+
+        return minTagSet or tag.TagSet()
+
+    @property
+    def minTagSet(self):
+        """Return the minimal TagSet among ASN.1 type in callee *NamedTypes*.
+
+        Some ASN.1 types/serialisation protocols require ASN.1 types to be
+        arranged based on their numerical tag value. The *minTagSet* property
+        returns that.
+
+        Returns
+        -------
+        : :class:`~pyasn1.type.tagset.TagSet`
+            Minimal TagSet among ASN.1 types in callee *NamedTypes*
+        """
+        return self.__minTagSet
+
+    def __computeTagMaps(self, unique):
+        presentTypes = {}
+        skipTypes = {}
+        defaultType = None
+        for namedType in self.__namedTypes:
+            tagMap = namedType.asn1Object.tagMap
+            if isinstance(tagMap, NamedTypes.PostponedError):
+                return tagMap
+            for tagSet in tagMap:
+                if unique and tagSet in presentTypes:
+                    return NamedTypes.PostponedError('Non-unique tagSet %s of %s at %s' % (tagSet, namedType, self))
+                presentTypes[tagSet] = namedType.asn1Object
+            skipTypes.update(tagMap.skipTypes)
+
+            if defaultType is None:
+                defaultType = tagMap.defaultType
+            elif tagMap.defaultType is not None:
+                return NamedTypes.PostponedError('Duplicate default ASN.1 type at %s' % (self,))
+
+        return tagmap.TagMap(presentTypes, skipTypes, defaultType)
+
+    @property
+    def tagMap(self):
+        """Return a *TagMap* object from tags and types recursively.
+
+        Return a :class:`~pyasn1.type.tagmap.TagMap` object by
+        combining tags from *TagMap* objects of children types and
+        associating them with their immediate child type.
+
+        Example
+        -------
+        .. code-block:: python
+
+           OuterType ::= CHOICE {
+               innerType INTEGER
+           }
+
+        Calling *.tagMap* on *OuterType* will yield a map like this:
+
+        .. code-block:: python
+
+           Integer.tagSet -> Choice
+        """
+        return self.__nonUniqueTagMap
+
+    @property
+    def tagMapUnique(self):
+        """Return a *TagMap* object from unique tags and types recursively.
+
+        Return a :class:`~pyasn1.type.tagmap.TagMap` object by
+        combining tags from *TagMap* objects of children types and
+        associating them with their immediate child type.
+
+        Example
+        -------
+        .. code-block:: python
+
+           OuterType ::= CHOICE {
+               innerType INTEGER
+           }
+
+        Calling *.tagMapUnique* on *OuterType* will yield a map like this:
+
+        .. code-block:: python
+
+           Integer.tagSet -> Choice
+
+        Note
+        ----
+
+        Duplicate *TagSet* objects found in the tree of children
+        types would cause error.
+        """
+        return self.__uniqueTagMap
+
+    @property
+    def hasOptionalOrDefault(self):
+        return self.__hasOptionalOrDefault
+
+    @property
+    def hasOpenTypes(self):
+        return self.__hasOpenTypes
+
+    @property
+    def namedTypes(self):
+        return tuple(self.__namedTypes)
+
+    @property
+    def requiredComponents(self):
+        return self.__requiredComponents

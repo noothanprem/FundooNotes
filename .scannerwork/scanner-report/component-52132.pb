@@ -1,1 +1,1 @@
-¤—htmlcov/jquery.min.js 2jsXh
+¤—!htmlcov/jquery.tablesorter.min.js 2jsXh

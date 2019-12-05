@@ -1,1 +1,0 @@
-èÊEvenv/lib/python3.6/site-packages/cssutils/tests/test_cssproperties.py 2pyX@h

@@ -1,1 +1,1 @@
-“K4venv/lib/python3.6/site-packages/libpasteurize/fixes :.’K”K•K–K—K˜K™KšK›KœKKKŸK¸K¹KºK»K¼K½K¾K¿KÀKÁK
+“KDvenv/lib/python3.6/site-packages/libpasteurize/fixes/fix_imports2.py 2pyX¯h

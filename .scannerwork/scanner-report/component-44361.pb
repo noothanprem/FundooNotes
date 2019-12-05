@@ -1,1 +1,1 @@
-из;venv/lib64/python3.6/site-packages/botocore/errorfactory.py 2pyX`h
+из6venv/lib64/python3.6/site-packages/botocore/session.py 2pyXЗh

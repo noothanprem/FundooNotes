@@ -1,1 +1,1 @@
-²¡.venv/lib/python3.6/site-packages/xdg/Config.py 2pyX(h
+²¡$venv/lib/python3.6/site-packages/xdg :'°¡±¡³¡´¡µ¡¶¡·¡¸¡Ç¡È¡É¡Ê¡Ë¡

@@ -1,1 +1,0 @@
-Š×'venv/lib64/python3.6/site-packages/nacl :‰×™×š×µ×¶×·×Ã×Ä×Å×

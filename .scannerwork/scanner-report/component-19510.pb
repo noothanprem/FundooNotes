@@ -1,1 +1,1 @@
-¶˜6venv/lib/python3.6/site-packages/amqp/basic_message.py 2pyXwh
+¶˜0venv/lib/python3.6/site-packages/amqp/channel.py 2pyX¥h

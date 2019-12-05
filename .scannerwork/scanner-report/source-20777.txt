@@ -1,1132 +1,4011 @@
-# -*- test-case-name: twisted.web.test.test_xml -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-Some fairly inadequate testcases for Twisted XML support.
+Test HTTP support.
 """
 
+from __future__ import absolute_import, division
+
+import base64
+import calendar
+import cgi
+import random
+
+import hamcrest
+
+try:
+    from urlparse import urlparse, urlunsplit, clear_cache
+except ImportError:
+    from urllib.parse import urlparse, urlunsplit, clear_cache
+
 from io import BytesIO
+from itertools import cycle
+from zope.interface import (
+    provider,
+    directlyProvides,
+    providedBy,
+)
+from zope.interface.verify import verifyObject
 
+from twisted.python.compat import (_PY3, iterbytes, long, networkString,
+                                   unicode, intToBytes)
+from twisted.python.components import proxyForInterface
+from twisted.python.failure import Failure
+from twisted.trial import unittest
 from twisted.trial.unittest import TestCase
-from twisted.web import sux
-from twisted.web import microdom
-from twisted.web import domhelpers
+from twisted.web import http, http_headers, iweb
+from twisted.web.http import PotentialDataLoss, _DataLoss
+from twisted.web.http import _IdentityTransferDecoder
+from twisted.internet import address
+from twisted.internet.task import Clock
+from twisted.internet.error import ConnectionLost, ConnectionDone
+from twisted.protocols import loopback
+from twisted.test.proto_helpers import (StringTransport, NonStreamingProducer,
+                                        EventLoggingObserver)
+from twisted.test.test_internet import DummyProducer
+from twisted.web.test.requesthelper import (
+    DummyChannel,
+    bytesLinearWhitespaceComponents,
+    sanitizedBytes,
+    textLinearWhitespaceComponents,
+)
 
+from twisted.logger import globalLogPublisher
 
-class Sux0r(sux.XMLParser):
-    def __init__(self):
-        self.tokens = []
-
-
-    def getTagStarts(self):
-        return [token for token in self.tokens if token[0] == 'start']
-
-
-    def gotTagStart(self, name, attrs):
-        self.tokens.append(("start", name, attrs))
-
-
-    def gotText(self, text):
-        self.tokens.append(("text", text))
-
-
-
-class SUXTests(TestCase):
-
-    def test_bork(self):
-        s = b"<bork><bork><bork>"
-        ms = Sux0r()
-        ms.connectionMade()
-        ms.dataReceived(s)
-        self.assertEqual(len(ms.getTagStarts()),3)
+from ._util import (
+    assertIsFilesystemTemporary,
+)
 
 
 
-class MicroDOMTests(TestCase):
+class _IDeprecatedHTTPChannelToRequestInterfaceProxy(proxyForInterface(
+        http._IDeprecatedHTTPChannelToRequestInterface)):
+    """
+    Proxy L{_IDeprecatedHTTPChannelToRequestInterface}.  Used to
+    assert that the interface matches what L{HTTPChannel} expects.
+    """
 
-    def test_leadingTextDropping(self):
+
+
+def _makeRequestProxyFactory(clsToWrap):
+    """
+    Return a callable that proxies instances of C{clsToWrap} via
+        L{_IDeprecatedHTTPChannelToRequestInterface}.
+
+    @param clsToWrap: The class whose instances will be proxied.
+    @type cls: L{_IDeprecatedHTTPChannelToRequestInterface}
+        implementer.
+
+    @return: A factory that returns
+        L{_IDeprecatedHTTPChannelToRequestInterface} proxies.
+    @rtype: L{callable} whose interface matches C{clsToWrap}'s constructor.
+    """
+
+    def _makeRequestProxy(*args, **kwargs):
+        instance = clsToWrap(*args, **kwargs)
+        return _IDeprecatedHTTPChannelToRequestInterfaceProxy(instance)
+
+    # For INonQueuedRequestFactory
+    directlyProvides(_makeRequestProxy, providedBy(clsToWrap))
+    return _makeRequestProxy
+
+
+
+class DummyPullProducerHandler(http.Request):
+    """
+    An HTTP request handler that registers a dummy pull producer to serve the
+    body.
+
+    The owner must call C{finish} to complete the response.
+    """
+    def process(self):
+        self._actualProducer = NonStreamingProducer(self)
+        self.setResponseCode(200)
+        self.registerProducer(self._actualProducer, False)
+
+
+DummyPullProducerHandlerProxy = _makeRequestProxyFactory(
+    DummyPullProducerHandler)
+
+
+
+class DateTimeTests(unittest.TestCase):
+    """Test date parsing functions."""
+
+    def testRoundtrip(self):
+        for i in range(10000):
+            time = random.randint(0, 2000000000)
+            timestr = http.datetimeToString(time)
+            time2 = http.stringToDatetime(timestr)
+            self.assertEqual(time, time2)
+
+
+    def testStringToDatetime(self):
+        dateStrings = [
+            b"Sun, 06 Nov 1994 08:49:37 GMT",
+            b"06 Nov 1994 08:49:37 GMT",
+            b"Sunday, 06-Nov-94 08:49:37 GMT",
+            b"06-Nov-94 08:49:37 GMT",
+            b"Sunday, 06-Nov-1994 08:49:37 GMT",
+            b"06-Nov-1994 08:49:37 GMT",
+            b"Sun Nov  6 08:49:37 1994",
+            b"Nov  6 08:49:37 1994",
+        ]
+        dateInt = calendar.timegm((1994, 11, 6, 8, 49, 37, 6, 6, 0))
+        for dateString in dateStrings:
+            self.assertEqual(http.stringToDatetime(dateString), dateInt)
+        self.assertEqual(
+            http.stringToDatetime(b"Thursday, 29-Sep-16 17:15:29 GMT"),
+            calendar.timegm((2016, 9, 29, 17, 15, 29, 3, 273, 0)))
+
+
+
+class DummyHTTPHandler(http.Request):
+
+    def process(self):
+        self.content.seek(0, 0)
+        data = self.content.read()
+        length = self.getHeader(b'content-length')
+        if length is None:
+            length = networkString(str(length))
+        request = b"'''\n" + length + b"\n" + data + b"'''\n"
+        self.setResponseCode(200)
+        self.setHeader(b"Request", self.uri)
+        self.setHeader(b"Command", self.method)
+        self.setHeader(b"Version", self.clientproto)
+        self.setHeader(b"Content-Length", intToBytes(len(request)))
+        self.write(request)
+        self.finish()
+
+
+DummyHTTPHandlerProxy = _makeRequestProxyFactory(DummyHTTPHandler)
+
+
+@provider(iweb.INonQueuedRequestFactory)
+class DummyNewHTTPHandler(DummyHTTPHandler):
+    """
+    This is exactly like the DummyHTTPHandler but it takes only one argument
+    in its constructor, with no default arguments. This exists to test an
+    alternative code path in L{HTTPChannel}.
+    """
+    def __init__(self, channel):
+        DummyHTTPHandler.__init__(self, channel)
+
+
+DummyNewHTTPHandlerProxy = _makeRequestProxyFactory(DummyNewHTTPHandler)
+
+
+class DelayedHTTPHandler(DummyHTTPHandler):
+    """
+    Like L{DummyHTTPHandler}, but doesn't respond immediately.
+    """
+    def process(self):
+        pass
+
+
+    def delayedProcess(self):
+        DummyHTTPHandler.process(self)
+
+
+DelayedHTTPHandlerProxy = _makeRequestProxyFactory(DelayedHTTPHandler)
+
+
+class LoopbackHTTPClient(http.HTTPClient):
+
+    def connectionMade(self):
+        self.sendCommand(b"GET", b"/foo/bar")
+        self.sendHeader(b"Content-Length", 10)
+        self.endHeaders()
+        self.transport.write(b"0123456789")
+
+
+
+def parametrizeTimeoutMixin(protocol, reactor):
+    """
+    Parametrizes the L{TimeoutMixin} so that it works with whatever reactor is
+    being used by the test.
+
+    @param protocol: A L{_GenericHTTPChannel} or something implementing a
+        similar interface.
+    @type protocol: L{_GenericHTTPChannel}
+
+    @param reactor: An L{IReactorTime} implementation.
+    @type reactor: L{IReactorTime}
+
+    @return: The C{channel}, with its C{callLater} method patched.
+    """
+    # This is a terrible violation of the abstraction later of
+    # _genericHTTPChannelProtocol, but we need to do it because
+    # policies.TimeoutMixin doesn't accept a reactor on the object.
+    # See https://twistedmatrix.com/trac/ticket/8488
+    protocol._channel.callLater = reactor.callLater
+    return protocol
+
+
+class ResponseTestMixin(object):
+    """
+    A mixin that provides a simple means of comparing an actual response string
+    to an expected response string by performing the minimal parsing.
+    """
+
+    def assertResponseEquals(self, responses, expected):
         """
-        Make sure that if there's no top-level node lenient-mode won't
-        drop leading text that's outside of any elements.
+        Assert that the C{responses} matches the C{expected} responses.
+
+        @type responses: C{bytes}
+        @param responses: The bytes sent in response to one or more requests.
+
+        @type expected: C{list} of C{tuple} of C{bytes}
+        @param expected: The expected values for the responses.  Each tuple
+            element of the list represents one response.  Each byte string
+            element of the tuple is a full header line without delimiter, except
+            for the last element which gives the full response body.
         """
-        s = "Hi orders! <br>Well. <br>"
-        d = microdom.parseString(s, beExtremelyLenient=True)
-        self.assertEqual(d.firstChild().toxml(),
-                          '<html>Hi orders! <br />Well. <br /></html>')
-        byteStream = BytesIO()
-        d.firstChild().writexml(byteStream, '', '', '', '', {}, '')
-        self.assertEqual(byteStream.getvalue(),
-                         b'<html>Hi orders! <br />Well. <br /></html>')
+        for response in expected:
+            expectedHeaders, expectedContent = response[:-1], response[-1]
+            # Intentionally avoid mutating the inputs here.
+            expectedStatus = expectedHeaders[0]
+            expectedHeaders = expectedHeaders[1:]
+
+            headers, rest = responses.split(b'\r\n\r\n', 1)
+            headers = headers.splitlines()
+            status = headers.pop(0)
+
+            self.assertEqual(expectedStatus, status)
+            self.assertEqual(set(headers), set(expectedHeaders))
+            content = rest[:len(expectedContent)]
+            responses = rest[len(expectedContent):]
+            self.assertEqual(content, expectedContent)
 
 
-    def test_trailingTextDropping(self):
+
+class HTTP1_0Tests(unittest.TestCase, ResponseTestMixin):
+    requests = (
+        b"GET / HTTP/1.0\r\n"
+        b"\r\n"
+        b"GET / HTTP/1.1\r\n"
+        b"Accept: text/html\r\n"
+        b"\r\n")
+
+    expected_response = [
+        (b"HTTP/1.0 200 OK",
+         b"Request: /",
+         b"Command: GET",
+         b"Version: HTTP/1.0",
+         b"Content-Length: 13",
+         b"'''\nNone\n'''\n")]
+
+    def test_buffer(self):
         """
-        Ensure that no *trailing* text in a mal-formed
-        no-top-level-element document(s) will not be dropped.
+        Send requests over a channel and check responses match what is expected.
         """
-        s = "<br>Hi orders!"
-        d = microdom.parseString(s, beExtremelyLenient=True)
-        self.assertEqual(d.firstChild().toxml(),
-                          '<html><br />Hi orders!</html>')
-        byteStream = BytesIO()
-        d.firstChild().writexml(byteStream, '', '', '', '', {}, '')
-        self.assertEqual(byteStream.getvalue(),
-                         b'<html><br />Hi orders!</html>')
+        b = StringTransport()
+        a = http.HTTPChannel()
+        a.requestFactory = DummyHTTPHandlerProxy
+        a.makeConnection(b)
+        # one byte at a time, to stress it.
+        for byte in iterbytes(self.requests):
+            a.dataReceived(byte)
+        a.connectionLost(IOError("all one"))
+        value = b.value()
+        self.assertResponseEquals(value, self.expected_response)
 
 
-    def test_noTags(self):
+    def test_requestBodyTimeout(self):
         """
-        A string with nothing that looks like a tag at all should just
-        be parsed as body text.
+        L{HTTPChannel} resets its timeout whenever data from a request body is
+        delivered to it.
         """
-        s = "Hi orders!"
-        d = microdom.parseString(s, beExtremelyLenient=True)
-        self.assertEqual(d.firstChild().toxml(),
-                          "<html>Hi orders!</html>")
+        clock = Clock()
+        transport = StringTransport()
+        protocol = http.HTTPChannel()
+        protocol.timeOut = 100
+        protocol.callLater = clock.callLater
+        protocol.makeConnection(transport)
+        protocol.dataReceived(b'POST / HTTP/1.0\r\nContent-Length: 2\r\n\r\n')
+        clock.advance(99)
+        self.assertFalse(transport.disconnecting)
+        protocol.dataReceived(b'x')
+        clock.advance(99)
+        self.assertFalse(transport.disconnecting)
+        protocol.dataReceived(b'x')
+        self.assertEqual(len(protocol.requests), 1)
 
 
-    def test_surroundingCrap(self):
+    def test_requestBodyDefaultTimeout(self):
         """
-        If a document is surrounded by non-xml text, the text should
-        be remain in the XML.
+        L{HTTPChannel}'s default timeout is 60 seconds.
         """
-        s = "Hi<br> orders!"
-        d = microdom.parseString(s, beExtremelyLenient=True)
-        self.assertEqual(d.firstChild().toxml(),
-                          "<html>Hi<br /> orders!</html>")
+        clock = Clock()
+        transport = StringTransport()
+        factory = http.HTTPFactory()
+        protocol = factory.buildProtocol(None)
+        protocol = parametrizeTimeoutMixin(protocol, clock)
+        protocol.makeConnection(transport)
+        protocol.dataReceived(b'POST / HTTP/1.0\r\nContent-Length: 2\r\n\r\n')
+        clock.advance(59)
+        self.assertFalse(transport.disconnecting)
+        clock.advance(1)
+        self.assertTrue(transport.disconnecting)
 
 
-    def test_caseSensitiveSoonCloser(self):
-        s = """
-              <HTML><BODY>
-              <P ALIGN="CENTER">
-                <A HREF="http://www.apache.org/"><IMG SRC="/icons/apache_pb.gif"></A>
-              </P>
+    def test_transportForciblyClosed(self):
+        """
+        If a timed out transport doesn't close after 15 seconds, the
+        L{HTTPChannel} will forcibly close it.
+        """
+        logObserver = EventLoggingObserver.createWithCleanup(
+            self,
+            globalLogPublisher
+        )
+        clock = Clock()
+        transport = StringTransport()
+        factory = http.HTTPFactory()
+        protocol = factory.buildProtocol(None)
+        protocol = parametrizeTimeoutMixin(protocol, clock)
+        protocol.makeConnection(transport)
+        protocol.dataReceived(b'POST / HTTP/1.0\r\nContent-Length: 2\r\n\r\n')
+        self.assertFalse(transport.disconnecting)
+        self.assertFalse(transport.disconnected)
 
-              <P>
-                This is an insane set of text nodes that should NOT be gathered under
-                the A tag above.
-              </P>
-              </BODY></HTML>
+        # Force the initial timeout.
+        clock.advance(60)
+        self.assertTrue(transport.disconnecting)
+        self.assertFalse(transport.disconnected)
+        self.assertEquals(1, len(logObserver))
+        event = logObserver[0]
+        self.assertIn("Timing out client: {peer}", event["log_format"])
+
+        # Watch the transport get force-closed.
+        clock.advance(14)
+        self.assertTrue(transport.disconnecting)
+        self.assertFalse(transport.disconnected)
+        clock.advance(1)
+        self.assertTrue(transport.disconnecting)
+        self.assertTrue(transport.disconnected)
+        self.assertEquals(2, len(logObserver))
+        event = logObserver[1]
+        self.assertEquals(
+            "Forcibly timing out client: {peer}",
+            event["log_format"]
+        )
+
+
+    def test_transportNotAbortedAfterConnectionLost(self):
+        """
+        If a timed out transport ends up calling C{connectionLost}, it prevents
+        the force-closure of the transport.
+        """
+        clock = Clock()
+        transport = StringTransport()
+        factory = http.HTTPFactory()
+        protocol = factory.buildProtocol(None)
+        protocol = parametrizeTimeoutMixin(protocol, clock)
+        protocol.makeConnection(transport)
+        protocol.dataReceived(b'POST / HTTP/1.0\r\nContent-Length: 2\r\n\r\n')
+        self.assertFalse(transport.disconnecting)
+        self.assertFalse(transport.disconnected)
+
+        # Force the initial timeout.
+        clock.advance(60)
+        self.assertTrue(transport.disconnecting)
+        self.assertFalse(transport.disconnected)
+
+        # Move forward nearly to the timeout, then fire connectionLost.
+        clock.advance(14)
+        protocol.connectionLost(None)
+
+        # Check that the transport isn't forcibly closed.
+        clock.advance(1)
+        self.assertTrue(transport.disconnecting)
+        self.assertFalse(transport.disconnected)
+
+
+    def test_transportNotAbortedWithZeroAbortTimeout(self):
+        """
+        If the L{HTTPChannel} has its c{abortTimeout} set to L{None}, it never
+        aborts.
+        """
+        clock = Clock()
+        transport = StringTransport()
+        factory = http.HTTPFactory()
+        protocol = factory.buildProtocol(None)
+        protocol._channel.abortTimeout = None
+        protocol = parametrizeTimeoutMixin(protocol, clock)
+        protocol.makeConnection(transport)
+        protocol.dataReceived(b'POST / HTTP/1.0\r\nContent-Length: 2\r\n\r\n')
+        self.assertFalse(transport.disconnecting)
+        self.assertFalse(transport.disconnected)
+
+        # Force the initial timeout.
+        clock.advance(60)
+        self.assertTrue(transport.disconnecting)
+        self.assertFalse(transport.disconnected)
+
+        # Move an absurdly long way just to prove the point.
+        clock.advance(2**32)
+        self.assertTrue(transport.disconnecting)
+        self.assertFalse(transport.disconnected)
+
+
+    def test_connectionLostAfterForceClose(self):
+        """
+        If a timed out transport doesn't close after 15 seconds, the
+        L{HTTPChannel} will forcibly close it.
+        """
+        clock = Clock()
+        transport = StringTransport()
+        factory = http.HTTPFactory()
+        protocol = factory.buildProtocol(None)
+        protocol = parametrizeTimeoutMixin(protocol, clock)
+        protocol.makeConnection(transport)
+        protocol.dataReceived(b'POST / HTTP/1.0\r\nContent-Length: 2\r\n\r\n')
+        self.assertFalse(transport.disconnecting)
+        self.assertFalse(transport.disconnected)
+
+        # Force the initial timeout and the follow-on forced closure.
+        clock.advance(60)
+        clock.advance(15)
+        self.assertTrue(transport.disconnecting)
+        self.assertTrue(transport.disconnected)
+
+        # Now call connectionLost on the protocol. This is done by some
+        # transports, including TCP and TLS. We don't have anything we can
+        # assert on here: this just must not explode.
+        protocol.connectionLost(ConnectionDone)
+
+
+    def test_noPipeliningApi(self):
+        """
+        Test that a L{http.Request} subclass with no queued kwarg works as
+        expected.
+        """
+        b = StringTransport()
+        a = http.HTTPChannel()
+        a.requestFactory = DummyHTTPHandlerProxy
+        a.makeConnection(b)
+        # one byte at a time, to stress it.
+        for byte in iterbytes(self.requests):
+            a.dataReceived(byte)
+        a.connectionLost(IOError("all done"))
+        value = b.value()
+        self.assertResponseEquals(value, self.expected_response)
+
+
+    def test_noPipelining(self):
+        """
+        Test that pipelined requests get buffered, not processed in parallel.
+        """
+        b = StringTransport()
+        a = http.HTTPChannel()
+        a.requestFactory = DelayedHTTPHandlerProxy
+        a.makeConnection(b)
+        # one byte at a time, to stress it.
+        for byte in iterbytes(self.requests):
+            a.dataReceived(byte)
+        value = b.value()
+
+        # So far only one request should have been dispatched.
+        self.assertEqual(value, b'')
+        self.assertEqual(1, len(a.requests))
+
+        # Now, process each request one at a time.
+        while a.requests:
+            self.assertEqual(1, len(a.requests))
+            request = a.requests[0].original
+            request.delayedProcess()
+
+        value = b.value()
+        self.assertResponseEquals(value, self.expected_response)
+
+
+
+class HTTP1_1Tests(HTTP1_0Tests):
+
+    requests = (
+        b"GET / HTTP/1.1\r\n"
+        b"Accept: text/html\r\n"
+        b"\r\n"
+        b"POST / HTTP/1.1\r\n"
+        b"Content-Length: 10\r\n"
+        b"\r\n"
+        b"0123456789POST / HTTP/1.1\r\n"
+        b"Content-Length: 10\r\n"
+        b"\r\n"
+        b"0123456789HEAD / HTTP/1.1\r\n"
+        b"\r\n")
+
+    expected_response = [
+        (b"HTTP/1.1 200 OK",
+         b"Request: /",
+         b"Command: GET",
+         b"Version: HTTP/1.1",
+         b"Content-Length: 13",
+         b"'''\nNone\n'''\n"),
+        (b"HTTP/1.1 200 OK",
+         b"Request: /",
+         b"Command: POST",
+         b"Version: HTTP/1.1",
+         b"Content-Length: 21",
+         b"'''\n10\n0123456789'''\n"),
+        (b"HTTP/1.1 200 OK",
+         b"Request: /",
+         b"Command: POST",
+         b"Version: HTTP/1.1",
+         b"Content-Length: 21",
+         b"'''\n10\n0123456789'''\n"),
+        (b"HTTP/1.1 200 OK",
+         b"Request: /",
+         b"Command: HEAD",
+         b"Version: HTTP/1.1",
+         b"Content-Length: 13",
+         b"")]
+
+
+
+class HTTP1_1_close_Tests(HTTP1_0Tests):
+
+    requests = (
+        b"GET / HTTP/1.1\r\n"
+        b"Accept: text/html\r\n"
+        b"Connection: close\r\n"
+        b"\r\n"
+        b"GET / HTTP/1.0\r\n"
+        b"\r\n")
+
+    expected_response = [
+        (b"HTTP/1.1 200 OK",
+         b"Connection: close",
+         b"Request: /",
+         b"Command: GET",
+         b"Version: HTTP/1.1",
+         b"Content-Length: 13",
+         b"'''\nNone\n'''\n")]
+
+
+
+class HTTP0_9Tests(HTTP1_0Tests):
+
+    requests = (
+        b"GET /\r\n")
+
+    expected_response = b"HTTP/1.1 400 Bad Request\r\n\r\n"
+
+
+    def assertResponseEquals(self, response, expectedResponse):
+        self.assertEqual(response, expectedResponse)
+
+
+    def test_noPipelining(self):
+        raise unittest.SkipTest("HTTP/0.9 not supported")
+
+
+
+class PipeliningBodyTests(unittest.TestCase, ResponseTestMixin):
+    """
+    Tests that multiple pipelined requests with bodies are correctly buffered.
+    """
+
+    requests = (
+        b"POST / HTTP/1.1\r\n"
+        b"Content-Length: 10\r\n"
+        b"\r\n"
+        b"0123456789POST / HTTP/1.1\r\n"
+        b"Content-Length: 10\r\n"
+        b"\r\n"
+        b"0123456789"
+    )
+
+    expectedResponses = [
+        (b"HTTP/1.1 200 OK",
+         b"Request: /",
+         b"Command: POST",
+         b"Version: HTTP/1.1",
+         b"Content-Length: 21",
+         b"'''\n10\n0123456789'''\n"),
+        (b"HTTP/1.1 200 OK",
+         b"Request: /",
+         b"Command: POST",
+         b"Version: HTTP/1.1",
+         b"Content-Length: 21",
+         b"'''\n10\n0123456789'''\n")]
+
+    def test_noPipelining(self):
+        """
+        Test that pipelined requests get buffered, not processed in parallel.
+        """
+        b = StringTransport()
+        a = http.HTTPChannel()
+        a.requestFactory = DelayedHTTPHandlerProxy
+        a.makeConnection(b)
+        # one byte at a time, to stress it.
+        for byte in iterbytes(self.requests):
+            a.dataReceived(byte)
+        value = b.value()
+
+        # So far only one request should have been dispatched.
+        self.assertEqual(value, b'')
+        self.assertEqual(1, len(a.requests))
+
+        # Now, process each request one at a time.
+        while a.requests:
+            self.assertEqual(1, len(a.requests))
+            request = a.requests[0].original
+            request.delayedProcess()
+
+        value = b.value()
+        self.assertResponseEquals(value, self.expectedResponses)
+
+
+    def test_pipeliningReadLimit(self):
+        """
+        When pipelined requests are received, we will optimistically continue
+        receiving data up to a specified limit, then pause the transport.
+
+        @see: L{http.HTTPChannel._optimisticEagerReadSize}
+        """
+        b = StringTransport()
+        a = http.HTTPChannel()
+        a.requestFactory = DelayedHTTPHandlerProxy
+        a.makeConnection(b)
+        underLimit = a._optimisticEagerReadSize // len(self.requests)
+        for x in range(1, underLimit + 1):
+            a.dataReceived(self.requests)
+            self.assertEqual(b.producerState, 'producing',
+                             'state was {state!r} after {x} iterations'
+                             .format(state=b.producerState, x=x))
+        a.dataReceived(self.requests)
+        self.assertEquals(b.producerState, 'paused')
+
+
+
+class ShutdownTests(unittest.TestCase):
+    """
+    Tests that connections can be shut down by L{http.Request} objects.
+    """
+
+    class ShutdownHTTPHandler(http.Request):
+        """
+        A HTTP handler that just immediately calls loseConnection.
+        """
+        def process(self):
+            self.loseConnection()
+
+
+    request = (
+        b"POST / HTTP/1.1\r\n"
+        b"Content-Length: 10\r\n"
+        b"\r\n"
+        b"0123456789"
+    )
+
+
+    def test_losingConnection(self):
+        """
+        Calling L{http.Request.loseConnection} causes the transport to be
+        disconnected.
+        """
+        b = StringTransport()
+        a = http.HTTPChannel()
+        a.requestFactory = _makeRequestProxyFactory(self.ShutdownHTTPHandler)
+        a.makeConnection(b)
+        a.dataReceived(self.request)
+
+        # The transport should have been shut down.
+        self.assertTrue(b.disconnecting)
+
+        # No response should have been written.
+        value = b.value()
+        self.assertEqual(value, b'')
+
+
+
+class SecurityTests(unittest.TestCase):
+    """
+    Tests that L{http.Request.isSecure} correctly takes the transport into
+    account.
+    """
+    def test_isSecure(self):
+        """
+        Calling L{http.Request.isSecure} when the channel is backed with a
+        secure transport will return L{True}.
+        """
+        b = DummyChannel.SSL()
+        a = http.HTTPChannel()
+        a.makeConnection(b)
+        req = http.Request(a)
+        self.assertTrue(req.isSecure())
+
+
+    def test_notSecure(self):
+        """
+        Calling L{http.Request.isSecure} when the channel is not backed with a
+        secure transport will return L{False}.
+        """
+        b = DummyChannel.TCP()
+        a = http.HTTPChannel()
+        a.makeConnection(b)
+        req = http.Request(a)
+        self.assertFalse(req.isSecure())
+
+
+    def test_notSecureAfterFinish(self):
+        """
+        After a request is finished, calling L{http.Request.isSecure} will
+        always return L{False}.
+        """
+        b = DummyChannel.SSL()
+        a = http.HTTPChannel()
+        a.makeConnection(b)
+        req = http.Request(a)
+        a.requests.append(req)
+
+        req.setResponseCode(200)
+        req.finish()
+        self.assertFalse(req.isSecure())
+
+
+
+class GenericHTTPChannelTests(unittest.TestCase):
+    """
+    Tests for L{http._genericHTTPChannelProtocol}, a L{HTTPChannel}-alike which
+    can handle different HTTP protocol channels.
+    """
+    requests = (
+        b"GET / HTTP/1.1\r\n"
+        b"Accept: text/html\r\n"
+        b"Connection: close\r\n"
+        b"\r\n"
+        b"GET / HTTP/1.0\r\n"
+        b"\r\n")
+
+
+    def _negotiatedProtocolForTransportInstance(self, t):
+        """
+        Run a request using the specific instance of a transport. Returns the
+        negotiated protocol string.
+        """
+        a = http._genericHTTPChannelProtocolFactory(b'')
+        a.requestFactory = DummyHTTPHandlerProxy
+        a.makeConnection(t)
+        # one byte at a time, to stress it.
+        for byte in iterbytes(self.requests):
+            a.dataReceived(byte)
+        a.connectionLost(IOError("all done"))
+        return a._negotiatedProtocol
+
+
+    def test_h2CancelsH11Timeout(self):
+        """
+        When the transport is switched to H2, the HTTPChannel timeouts are
+        cancelled.
+        """
+        clock = Clock()
+
+        a = http._genericHTTPChannelProtocolFactory(b'')
+        a.requestFactory = DummyHTTPHandlerProxy
+
+        # Set the original timeout to be 100s
+        a.timeOut = 100
+        a.callLater = clock.callLater
+
+        b = StringTransport()
+        b.negotiatedProtocol = b'h2'
+        a.makeConnection(b)
+
+        # We've made the connection, but we actually check if we've negotiated
+        # H2 when data arrives. Right now, the HTTPChannel will have set up a
+        # single delayed call.
+        hamcrest.assert_that(
+            clock.getDelayedCalls(),
+            hamcrest.contains(
+                hamcrest.has_property(
+                    "cancelled",
+                    hamcrest.equal_to(False),
+                ),
+            ),
+        )
+        h11Timeout = clock.getDelayedCalls()[0]
+
+        # We give it the HTTP data, and it switches out for H2.
+        a.dataReceived(b'')
+        self.assertEqual(a._negotiatedProtocol, b'h2')
+
+        # The first delayed call is cancelled, and H2 creates a new one for its
+        # own timeouts.
+        self.assertTrue(h11Timeout.cancelled)
+        hamcrest.assert_that(
+            clock.getDelayedCalls(),
+            hamcrest.contains(
+                hamcrest.has_property(
+                    "cancelled",
+                    hamcrest.equal_to(False),
+                ),
+            ),
+        )
+
+    if not http.H2_ENABLED:
+        test_h2CancelsH11Timeout.skip = "HTTP/2 support not present"
+
+
+    def test_protocolUnspecified(self):
+        """
+        If the transport has no support for protocol negotiation (no
+        negotiatedProtocol attribute), HTTP/1.1 is assumed.
+        """
+        b = StringTransport()
+        negotiatedProtocol = self._negotiatedProtocolForTransportInstance(b)
+        self.assertEqual(negotiatedProtocol, b'http/1.1')
+
+
+    def test_protocolNone(self):
+        """
+        If the transport has no support for protocol negotiation (returns None
+        for negotiatedProtocol), HTTP/1.1 is assumed.
+        """
+        b = StringTransport()
+        b.negotiatedProtocol = None
+        negotiatedProtocol = self._negotiatedProtocolForTransportInstance(b)
+        self.assertEqual(negotiatedProtocol, b'http/1.1')
+
+
+    def test_http11(self):
+        """
+        If the transport reports that HTTP/1.1 is negotiated, that's what's
+        negotiated.
+        """
+        b = StringTransport()
+        b.negotiatedProtocol = b'http/1.1'
+        negotiatedProtocol = self._negotiatedProtocolForTransportInstance(b)
+        self.assertEqual(negotiatedProtocol, b'http/1.1')
+
+
+    def test_http2_present(self):
+        """
+        If the transport reports that HTTP/2 is negotiated and HTTP/2 is
+        present, that's what's negotiated.
+        """
+        b = StringTransport()
+        b.negotiatedProtocol = b'h2'
+        negotiatedProtocol = self._negotiatedProtocolForTransportInstance(b)
+        self.assertEqual(negotiatedProtocol, b'h2')
+    if not http.H2_ENABLED:
+        test_http2_present.skip = "HTTP/2 support not present"
+
+
+    def test_http2_absent(self):
+        """
+        If the transport reports that HTTP/2 is negotiated and HTTP/2 is not
+        present, an error is encountered.
+        """
+        b = StringTransport()
+        b.negotiatedProtocol = b'h2'
+        self.assertRaises(
+            ValueError,
+            self._negotiatedProtocolForTransportInstance,
+            b,
+        )
+    if http.H2_ENABLED:
+        test_http2_absent.skip = "HTTP/2 support present"
+
+
+    def test_unknownProtocol(self):
+        """
+        If the transport reports that a protocol other than HTTP/1.1 or HTTP/2
+        is negotiated, an error occurs.
+        """
+        b = StringTransport()
+        b.negotiatedProtocol = b'smtp'
+        self.assertRaises(
+            AssertionError,
+            self._negotiatedProtocolForTransportInstance,
+            b,
+        )
+
+
+    def test_factory(self):
+        """
+        The C{factory} attribute is taken from the inner channel.
+        """
+        a = http._genericHTTPChannelProtocolFactory(b'')
+        a._channel.factory = b"Foo"
+        self.assertEqual(a.factory, b"Foo")
+
+
+    def test_GenericHTTPChannelPropagatesCallLater(self):
+        """
+        If C{callLater} is patched onto the L{http._GenericHTTPChannelProtocol}
+        then we need to propagate it through to the backing channel.
+        """
+        clock = Clock()
+        factory = http.HTTPFactory(reactor=clock)
+        protocol = factory.buildProtocol(None)
+
+        self.assertEqual(protocol.callLater, clock.callLater)
+        self.assertEqual(protocol._channel.callLater, clock.callLater)
+
+
+    def test_genericHTTPChannelCallLaterUpgrade(self):
+        """
+        If C{callLater} is patched onto the L{http._GenericHTTPChannelProtocol}
+        then we need to propagate it across onto a new backing channel after
+        upgrade.
+        """
+        clock = Clock()
+        factory = http.HTTPFactory(reactor=clock)
+        protocol = factory.buildProtocol(None)
+
+        self.assertEqual(protocol.callLater, clock.callLater)
+        self.assertEqual(protocol._channel.callLater, clock.callLater)
+
+        transport = StringTransport()
+        transport.negotiatedProtocol = b'h2'
+        protocol.requestFactory = DummyHTTPHandler
+        protocol.makeConnection(transport)
+
+        # Send a byte to make it think the handshake is done.
+        protocol.dataReceived(b'P')
+
+        self.assertEqual(protocol.callLater, clock.callLater)
+        self.assertEqual(protocol._channel.callLater, clock.callLater)
+    if not http.H2_ENABLED:
+        test_genericHTTPChannelCallLaterUpgrade.skip = (
+            "HTTP/2 support not present"
+        )
+
+
+    def test_unregistersProducer(self):
+        """
+        The L{_GenericHTTPChannelProtocol} will unregister its proxy channel
+        from the transport if upgrade is negotiated.
+        """
+        transport = StringTransport()
+        transport.negotiatedProtocol = b'h2'
+
+        genericProtocol = http._genericHTTPChannelProtocolFactory(b'')
+        genericProtocol.requestFactory = DummyHTTPHandlerProxy
+        genericProtocol.makeConnection(transport)
+
+        originalChannel = genericProtocol._channel
+
+        # We expect the transport has a underlying channel registered as
+        # a producer.
+        self.assertIs(transport.producer, originalChannel)
+
+        # Force the upgrade.
+        genericProtocol.dataReceived(b'P')
+
+        # The transport should not have the original channel as its
+        # producer...
+        self.assertIsNot(transport.producer, originalChannel)
+
+        # ...it should have the new H2 channel as its producer
+        self.assertIs(transport.producer, genericProtocol._channel)
+
+    if not http.H2_ENABLED:
+        test_unregistersProducer.skip = "HTTP/2 support not present"
+
+
+
+class HTTPLoopbackTests(unittest.TestCase):
+
+    expectedHeaders = {b'request': b'/foo/bar',
+                       b'command': b'GET',
+                       b'version': b'HTTP/1.0',
+                       b'content-length': b'21'}
+    numHeaders = 0
+    gotStatus = 0
+    gotResponse = 0
+    gotEndHeaders = 0
+
+    def _handleStatus(self, version, status, message):
+        self.gotStatus = 1
+        self.assertEqual(version, b"HTTP/1.0")
+        self.assertEqual(status, b"200")
+
+    def _handleResponse(self, data):
+        self.gotResponse = 1
+        self.assertEqual(data, b"'''\n10\n0123456789'''\n")
+
+    def _handleHeader(self, key, value):
+        self.numHeaders = self.numHeaders + 1
+        self.assertEqual(self.expectedHeaders[key.lower()], value)
+
+    def _handleEndHeaders(self):
+        self.gotEndHeaders = 1
+        self.assertEqual(self.numHeaders, 4)
+
+    def testLoopback(self):
+        server = http.HTTPChannel()
+        server.requestFactory = DummyHTTPHandlerProxy
+        client = LoopbackHTTPClient()
+        client.handleResponse = self._handleResponse
+        client.handleHeader = self._handleHeader
+        client.handleEndHeaders = self._handleEndHeaders
+        client.handleStatus = self._handleStatus
+        d = loopback.loopbackAsync(server, client)
+        d.addCallback(self._cbTestLoopback)
+        return d
+
+    def _cbTestLoopback(self, ignored):
+        if not (self.gotStatus and self.gotResponse and self.gotEndHeaders):
+            raise RuntimeError(
+                "didn't got all callbacks %s"
+                % [self.gotStatus, self.gotResponse, self.gotEndHeaders])
+        del self.gotEndHeaders
+        del self.gotResponse
+        del self.gotStatus
+        del self.numHeaders
+
+
+
+def _prequest(**headers):
+    """
+    Make a request with the given request headers for the persistence tests.
+    """
+    request = http.Request(DummyChannel(), False)
+    for headerName, v in headers.items():
+        request.requestHeaders.setRawHeaders(networkString(headerName), v)
+    return request
+
+
+
+class PersistenceTests(unittest.TestCase):
+    """
+    Tests for persistent HTTP connections.
+    """
+    def setUp(self):
+        self.channel = http.HTTPChannel()
+        self.request = _prequest()
+
+
+    def test_http09(self):
+        """
+        After being used for an I{HTTP/0.9} request, the L{HTTPChannel} is not
+        persistent.
+        """
+        persist = self.channel.checkPersistence(self.request, b"HTTP/0.9")
+        self.assertFalse(persist)
+        self.assertEqual(
+            [], list(self.request.responseHeaders.getAllRawHeaders()))
+
+
+    def test_http10(self):
+        """
+        After being used for an I{HTTP/1.0} request, the L{HTTPChannel} is not
+        persistent.
+        """
+        persist = self.channel.checkPersistence(self.request, b"HTTP/1.0")
+        self.assertFalse(persist)
+        self.assertEqual(
+            [], list(self.request.responseHeaders.getAllRawHeaders()))
+
+
+    def test_http11(self):
+        """
+        After being used for an I{HTTP/1.1} request, the L{HTTPChannel} is
+        persistent.
+        """
+        persist = self.channel.checkPersistence(self.request, b"HTTP/1.1")
+        self.assertTrue(persist)
+        self.assertEqual(
+            [], list(self.request.responseHeaders.getAllRawHeaders()))
+
+
+    def test_http11Close(self):
+        """
+        After being used for an I{HTTP/1.1} request with a I{Connection: Close}
+        header, the L{HTTPChannel} is not persistent.
+        """
+        request = _prequest(connection=[b"close"])
+        persist = self.channel.checkPersistence(request, b"HTTP/1.1")
+        self.assertFalse(persist)
+        self.assertEqual(
+            [(b"Connection", [b"close"])],
+            list(request.responseHeaders.getAllRawHeaders()))
+
+
+
+class IdentityTransferEncodingTests(TestCase):
+    """
+    Tests for L{_IdentityTransferDecoder}.
+    """
+    def setUp(self):
+        """
+        Create an L{_IdentityTransferDecoder} with callbacks hooked up so that
+        calls to them can be inspected.
+        """
+        self.data = []
+        self.finish = []
+        self.contentLength = 10
+        self.decoder = _IdentityTransferDecoder(
+            self.contentLength, self.data.append, self.finish.append)
+
+
+    def test_exactAmountReceived(self):
+        """
+        If L{_IdentityTransferDecoder.dataReceived} is called with a byte string
+        with length equal to the content length passed to
+        L{_IdentityTransferDecoder}'s initializer, the data callback is invoked
+        with that string and the finish callback is invoked with a zero-length
+        string.
+        """
+        self.decoder.dataReceived(b'x' * self.contentLength)
+        self.assertEqual(self.data, [b'x' * self.contentLength])
+        self.assertEqual(self.finish, [b''])
+
+
+    def test_shortStrings(self):
+        """
+        If L{_IdentityTransferDecoder.dataReceived} is called multiple times
+        with byte strings which, when concatenated, are as long as the content
+        length provided, the data callback is invoked with each string and the
+        finish callback is invoked only after the second call.
+        """
+        self.decoder.dataReceived(b'x')
+        self.assertEqual(self.data, [b'x'])
+        self.assertEqual(self.finish, [])
+        self.decoder.dataReceived(b'y' * (self.contentLength - 1))
+        self.assertEqual(self.data, [b'x', b'y' * (self.contentLength - 1)])
+        self.assertEqual(self.finish, [b''])
+
+
+    def test_longString(self):
+        """
+        If L{_IdentityTransferDecoder.dataReceived} is called with a byte string
+        with length greater than the provided content length, only the prefix
+        of that string up to the content length is passed to the data callback
+        and the remainder is passed to the finish callback.
+        """
+        self.decoder.dataReceived(b'x' * self.contentLength + b'y')
+        self.assertEqual(self.data, [b'x' * self.contentLength])
+        self.assertEqual(self.finish, [b'y'])
+
+
+    def test_rejectDataAfterFinished(self):
+        """
+        If data is passed to L{_IdentityTransferDecoder.dataReceived} after the
+        finish callback has been invoked, C{RuntimeError} is raised.
+        """
+        failures = []
+        def finish(bytes):
+            try:
+                decoder.dataReceived(b'foo')
+            except:
+                failures.append(Failure())
+        decoder = _IdentityTransferDecoder(5, self.data.append, finish)
+        decoder.dataReceived(b'x' * 4)
+        self.assertEqual(failures, [])
+        decoder.dataReceived(b'y')
+        failures[0].trap(RuntimeError)
+        self.assertEqual(
+            str(failures[0].value),
+            "_IdentityTransferDecoder cannot decode data after finishing")
+
+
+    def test_unknownContentLength(self):
+        """
+        If L{_IdentityTransferDecoder} is constructed with L{None} for the
+        content length, it passes all data delivered to it through to the data
+        callback.
+        """
+        data = []
+        finish = []
+        decoder = _IdentityTransferDecoder(None, data.append, finish.append)
+        decoder.dataReceived(b'x')
+        self.assertEqual(data, [b'x'])
+        decoder.dataReceived(b'y')
+        self.assertEqual(data, [b'x', b'y'])
+        self.assertEqual(finish, [])
+
+
+    def _verifyCallbacksUnreferenced(self, decoder):
+        """
+        Check the decoder's data and finish callbacks and make sure they are
+        None in order to help avoid references cycles.
+        """
+        self.assertIdentical(decoder.dataCallback, None)
+        self.assertIdentical(decoder.finishCallback, None)
+
+
+    def test_earlyConnectionLose(self):
+        """
+        L{_IdentityTransferDecoder.noMoreData} raises L{_DataLoss} if it is
+        called and the content length is known but not enough bytes have been
+        delivered.
+        """
+        self.decoder.dataReceived(b'x' * (self.contentLength - 1))
+        self.assertRaises(_DataLoss, self.decoder.noMoreData)
+        self._verifyCallbacksUnreferenced(self.decoder)
+
+
+    def test_unknownContentLengthConnectionLose(self):
+        """
+        L{_IdentityTransferDecoder.noMoreData} calls the finish callback and
+        raises L{PotentialDataLoss} if it is called and the content length is
+        unknown.
+        """
+        body = []
+        finished = []
+        decoder = _IdentityTransferDecoder(None, body.append, finished.append)
+        self.assertRaises(PotentialDataLoss, decoder.noMoreData)
+        self.assertEqual(body, [])
+        self.assertEqual(finished, [b''])
+        self._verifyCallbacksUnreferenced(decoder)
+
+
+    def test_finishedConnectionLose(self):
+        """
+        L{_IdentityTransferDecoder.noMoreData} does not raise any exception if
+        it is called when the content length is known and that many bytes have
+        been delivered.
+        """
+        self.decoder.dataReceived(b'x' * self.contentLength)
+        self.decoder.noMoreData()
+        self._verifyCallbacksUnreferenced(self.decoder)
+
+
+
+class ChunkedTransferEncodingTests(unittest.TestCase):
+    """
+    Tests for L{_ChunkedTransferDecoder}, which turns a byte stream encoded
+    using HTTP I{chunked} C{Transfer-Encoding} back into the original byte
+    stream.
+    """
+    def test_decoding(self):
+        """
+        L{_ChunkedTransferDecoder.dataReceived} decodes chunked-encoded data
+        and passes the result to the specified callback.
+        """
+        L = []
+        p = http._ChunkedTransferDecoder(L.append, None)
+        p.dataReceived(b'3\r\nabc\r\n5\r\n12345\r\n')
+        p.dataReceived(b'a\r\n0123456789\r\n')
+        self.assertEqual(L, [b'abc', b'12345', b'0123456789'])
+
+
+    def test_short(self):
+        """
+        L{_ChunkedTransferDecoder.dataReceived} decodes chunks broken up and
+        delivered in multiple calls.
+        """
+        L = []
+        finished = []
+        p = http._ChunkedTransferDecoder(L.append, finished.append)
+        for s in iterbytes(b'3\r\nabc\r\n5\r\n12345\r\n0\r\n\r\n'):
+            p.dataReceived(s)
+        self.assertEqual(L, [b'a', b'b', b'c', b'1', b'2', b'3', b'4', b'5'])
+        self.assertEqual(finished, [b''])
+
+
+    def test_newlines(self):
+        """
+        L{_ChunkedTransferDecoder.dataReceived} doesn't treat CR LF pairs
+        embedded in chunk bodies specially.
+        """
+        L = []
+        p = http._ChunkedTransferDecoder(L.append, None)
+        p.dataReceived(b'2\r\n\r\n\r\n')
+        self.assertEqual(L, [b'\r\n'])
+
+
+    def test_extensions(self):
+        """
+        L{_ChunkedTransferDecoder.dataReceived} disregards chunk-extension
+        fields.
+        """
+        L = []
+        p = http._ChunkedTransferDecoder(L.append, None)
+        p.dataReceived(b'3; x-foo=bar\r\nabc\r\n')
+        self.assertEqual(L, [b'abc'])
+
+
+    def test_finish(self):
+        """
+        L{_ChunkedTransferDecoder.dataReceived} interprets a zero-length
+        chunk as the end of the chunked data stream and calls the completion
+        callback.
+        """
+        finished = []
+        p = http._ChunkedTransferDecoder(None, finished.append)
+        p.dataReceived(b'0\r\n\r\n')
+        self.assertEqual(finished, [b''])
+
+
+    def test_extra(self):
+        """
+        L{_ChunkedTransferDecoder.dataReceived} passes any bytes which come
+        after the terminating zero-length chunk to the completion callback.
+        """
+        finished = []
+        p = http._ChunkedTransferDecoder(None, finished.append)
+        p.dataReceived(b'0\r\n\r\nhello')
+        self.assertEqual(finished, [b'hello'])
+
+
+    def test_afterFinished(self):
+        """
+        L{_ChunkedTransferDecoder.dataReceived} raises C{RuntimeError} if it
+        is called after it has seen the last chunk.
+        """
+        p = http._ChunkedTransferDecoder(None, lambda bytes: None)
+        p.dataReceived(b'0\r\n\r\n')
+        self.assertRaises(RuntimeError, p.dataReceived, b'hello')
+
+
+    def test_earlyConnectionLose(self):
+        """
+        L{_ChunkedTransferDecoder.noMoreData} raises L{_DataLoss} if it is
+        called and the end of the last trailer has not yet been received.
+        """
+        parser = http._ChunkedTransferDecoder(None, lambda bytes: None)
+        parser.dataReceived(b'0\r\n\r')
+        exc = self.assertRaises(_DataLoss, parser.noMoreData)
+        self.assertEqual(
+            str(exc),
+            "Chunked decoder in 'TRAILER' state, still expecting more data "
+            "to get to 'FINISHED' state.")
+
+
+    def test_finishedConnectionLose(self):
+        """
+        L{_ChunkedTransferDecoder.noMoreData} does not raise any exception if
+        it is called after the terminal zero length chunk is received.
+        """
+        parser = http._ChunkedTransferDecoder(None, lambda bytes: None)
+        parser.dataReceived(b'0\r\n\r\n')
+        parser.noMoreData()
+
+
+    def test_reentrantFinishedNoMoreData(self):
+        """
+        L{_ChunkedTransferDecoder.noMoreData} can be called from the finished
+        callback without raising an exception.
+        """
+        errors = []
+        successes = []
+        def finished(extra):
+            try:
+                parser.noMoreData()
+            except:
+                errors.append(Failure())
+            else:
+                successes.append(True)
+        parser = http._ChunkedTransferDecoder(None, finished)
+        parser.dataReceived(b'0\r\n\r\n')
+        self.assertEqual(errors, [])
+        self.assertEqual(successes, [True])
+
+
+
+class ChunkingTests(unittest.TestCase, ResponseTestMixin):
+
+    strings = [b"abcv", b"", b"fdfsd423", b"Ffasfas\r\n",
+               b"523523\n\rfsdf", b"4234"]
+
+    def testChunks(self):
+        for s in self.strings:
+            chunked = b''.join(http.toChunk(s))
+            self.assertEqual((s, b''), http.fromChunk(chunked))
+        self.assertRaises(ValueError, http.fromChunk, b'-5\r\nmalformed!\r\n')
+
+    def testConcatenatedChunks(self):
+        chunked = b''.join([b''.join(http.toChunk(t)) for t in self.strings])
+        result = []
+        buffer = b""
+        for c in iterbytes(chunked):
+            buffer = buffer + c
+            try:
+                data, buffer = http.fromChunk(buffer)
+                result.append(data)
+            except ValueError:
+                pass
+        self.assertEqual(result, self.strings)
+
+    def test_chunkedResponses(self):
+        """
+        Test that the L{HTTPChannel} correctly chunks responses when needed.
+        """
+        trans = StringTransport()
+        channel = http.HTTPChannel()
+        channel.makeConnection(trans)
+
+        req = http.Request(channel, False)
+
+        req.setResponseCode(200)
+        req.clientproto = b"HTTP/1.1"
+        req.responseHeaders.setRawHeaders(b"test", [b"lemur"])
+        req.write(b'Hello')
+        req.write(b'World!')
+
+        self.assertResponseEquals(
+            trans.value(),
+            [(b"HTTP/1.1 200 OK",
+              b"Test: lemur",
+              b"Transfer-Encoding: chunked",
+              b"5\r\nHello\r\n6\r\nWorld!\r\n")])
+
+
+
+class ParsingTests(unittest.TestCase):
+    """
+    Tests for protocol parsing in L{HTTPChannel}.
+    """
+    def setUp(self):
+        self.didRequest = False
+
+
+    def runRequest(self, httpRequest, requestFactory=None, success=True,
+                   channel=None):
+        """
+        Execute a web request based on plain text content.
+
+        @param httpRequest: Content for the request which is processed.
+        @type httpRequest: C{bytes}
+
+        @param requestFactory: 2-argument callable returning a Request.
+        @type requestFactory: C{callable}
+
+        @param success: Value to compare against I{self.didRequest}.
+        @type success: C{bool}
+
+        @param channel: Channel instance over which the request is processed.
+        @type channel: L{HTTPChannel}
+
+        @return: Returns the channel used for processing the request.
+        @rtype: L{HTTPChannel}
+        """
+        if not channel:
+            channel = http.HTTPChannel()
+
+        if requestFactory:
+            channel.requestFactory = _makeRequestProxyFactory(requestFactory)
+
+        httpRequest = httpRequest.replace(b"\n", b"\r\n")
+        transport = StringTransport()
+
+        channel.makeConnection(transport)
+        # one byte at a time, to stress it.
+        for byte in iterbytes(httpRequest):
+            if channel.transport.disconnecting:
+                break
+            channel.dataReceived(byte)
+        channel.connectionLost(IOError("all done"))
+
+        if success:
+            self.assertTrue(self.didRequest)
+        else:
+            self.assertFalse(self.didRequest)
+        return channel
+
+
+    def test_invalidNonAsciiMethod(self):
+        """
+        When client sends invalid HTTP method containing
+        non-ascii characters HTTP 400 'Bad Request' status will be returned.
+        """
+        processed = []
+        class MyRequest(http.Request):
+            def process(self):
+                processed.append(self)
+                self.finish()
+
+        badRequestLine = b"GE\xc2\xa9 / HTTP/1.1\r\n\r\n"
+        channel = self.runRequest(badRequestLine, MyRequest, 0)
+        self.assertEqual(
+            channel.transport.value(),
+            b"HTTP/1.1 400 Bad Request\r\n\r\n")
+        self.assertTrue(channel.transport.disconnecting)
+        self.assertEqual(processed, [])
+
+
+    def test_basicAuth(self):
+        """
+        L{HTTPChannel} provides username and password information supplied in
+        an I{Authorization} header to the L{Request} which makes it available
+        via its C{getUser} and C{getPassword} methods.
+        """
+        requests = []
+        class Request(http.Request):
+            def process(self):
+                self.credentials = (self.getUser(), self.getPassword())
+                requests.append(self)
+
+        for u, p in [(b"foo", b"bar"), (b"hello", b"there:z")]:
+            s = base64.encodestring(b":".join((u, p))).strip()
+            f = b"GET / HTTP/1.0\nAuthorization: Basic " + s + b"\n\n"
+            self.runRequest(f, Request, 0)
+            req = requests.pop()
+            self.assertEqual((u, p), req.credentials)
+
+
+    def test_headers(self):
+        """
+        Headers received by L{HTTPChannel} in a request are made available to
+        the L{Request}.
+        """
+        processed = []
+        class MyRequest(http.Request):
+            def process(self):
+                processed.append(self)
+                self.finish()
+
+        requestLines = [
+            b"GET / HTTP/1.0",
+            b"Foo: bar",
+            b"baz: Quux",
+            b"baz: quux",
+            b"",
+            b""]
+
+        self.runRequest(b'\n'.join(requestLines), MyRequest, 0)
+        [request] = processed
+        self.assertEqual(
+            request.requestHeaders.getRawHeaders(b'foo'), [b'bar'])
+        self.assertEqual(
+            request.requestHeaders.getRawHeaders(b'bAz'), [b'Quux', b'quux'])
+
+
+    def test_headersMultiline(self):
+        """
+        Line folded headers are handled by L{HTTPChannel} by replacing each
+        fold with a single space by the time they are made available to the
+        L{Request}. Any leading whitespace in the folded lines of the header
+        value is preserved.
+
+        See RFC 7230 section 3.2.4.
+        """
+        processed = []
+
+        class MyRequest(http.Request):
+            def process(self):
+                processed.append(self)
+                self.finish()
+
+        requestLines = [
+            b"GET / HTTP/1.0",
+            b"nospace: ",
+            b" nospace\t",
+            b"space:space",
+            b" space",
+            b"spaces: spaces",
+            b"  spaces",
+            b"   spaces",
+            b"tab: t",
+            b"\ta",
+            b"\tb",
+            b"",
+            b"",
+        ]
+
+        self.runRequest(b"\n".join(requestLines), MyRequest, 0)
+        [request] = processed
+        # All leading and trailing whitespace is stripped from the
+        # header-value.
+        self.assertEqual(
+            request.requestHeaders.getRawHeaders(b"nospace"),
+            [b"nospace"],
+        )
+        self.assertEqual(
+            request.requestHeaders.getRawHeaders(b"space"),
+            [b"space  space"],
+        )
+        self.assertEqual(
+            request.requestHeaders.getRawHeaders(b"spaces"),
+            [b"spaces   spaces    spaces"],
+        )
+        self.assertEqual(
+            request.requestHeaders.getRawHeaders(b"tab"),
+            [b"t \ta \tb"],
+        )
+
+
+    def test_tooManyHeaders(self):
+        """
+        L{HTTPChannel} enforces a limit of C{HTTPChannel.maxHeaders} on the
+        number of headers received per request.
+        """
+        processed = []
+        class MyRequest(http.Request):
+            def process(self):
+                processed.append(self)
+
+        requestLines = [b"GET / HTTP/1.0"]
+        for i in range(http.HTTPChannel.maxHeaders + 2):
+            requestLines.append(networkString("%s: foo" % (i,)))
+        requestLines.extend([b"", b""])
+
+        channel = self.runRequest(b"\n".join(requestLines), MyRequest, 0)
+        self.assertEqual(processed, [])
+        self.assertEqual(
+            channel.transport.value(),
+            b"HTTP/1.1 400 Bad Request\r\n\r\n")
+
+
+    def test_invalidContentLengthHeader(self):
+        """
+        If a Content-Length header with a non-integer value is received, a 400
+        (Bad Request) response is sent to the client and the connection is
+        closed.
+        """
+        processed = []
+        class MyRequest(http.Request):
+            def process(self):
+                processed.append(self)
+                self.finish()
+
+        requestLines = [b"GET / HTTP/1.0", b"Content-Length: x", b"", b""]
+        channel = self.runRequest(b"\n".join(requestLines), MyRequest, 0)
+        self.assertEqual(
+            channel.transport.value(),
+            b"HTTP/1.1 400 Bad Request\r\n\r\n")
+        self.assertTrue(channel.transport.disconnecting)
+        self.assertEqual(processed, [])
+
+
+    def test_invalidHeaderNoColon(self):
+        """
+        If a header without colon is received a 400 (Bad Request) response
+        is sent to the client and the connection is closed.
+        """
+        processed = []
+        class MyRequest(http.Request):
+            def process(self):
+                processed.append(self)
+                self.finish()
+
+        requestLines = [b"GET / HTTP/1.0", b"HeaderName ", b"", b""]
+        channel = self.runRequest(b"\n".join(requestLines), MyRequest, 0)
+        self.assertEqual(
+            channel.transport.value(),
+            b"HTTP/1.1 400 Bad Request\r\n\r\n")
+        self.assertTrue(channel.transport.disconnecting)
+        self.assertEqual(processed, [])
+
+
+    def test_headerLimitPerRequest(self):
+        """
+        L{HTTPChannel} enforces the limit of C{HTTPChannel.maxHeaders} per
+        request so that headers received in an earlier request do not count
+        towards the limit when processing a later request.
+        """
+        processed = []
+        class MyRequest(http.Request):
+            def process(self):
+                processed.append(self)
+                self.finish()
+
+        self.patch(http.HTTPChannel, 'maxHeaders', 1)
+        requestLines = [
+            b"GET / HTTP/1.1",
+            b"Foo: bar",
+            b"",
+            b"",
+            b"GET / HTTP/1.1",
+            b"Bar: baz",
+            b"",
+            b""]
+
+        channel = self.runRequest(b"\n".join(requestLines), MyRequest, 0)
+        [first, second] = processed
+        self.assertEqual(first.getHeader(b'foo'), b'bar')
+        self.assertEqual(second.getHeader(b'bar'), b'baz')
+        self.assertEqual(
+            channel.transport.value(),
+            b'HTTP/1.1 200 OK\r\n'
+            b'Transfer-Encoding: chunked\r\n'
+            b'\r\n'
+            b'0\r\n'
+            b'\r\n'
+            b'HTTP/1.1 200 OK\r\n'
+            b'Transfer-Encoding: chunked\r\n'
+            b'\r\n'
+            b'0\r\n'
+            b'\r\n')
+
+
+    def test_headersTooBigInitialCommand(self):
+        """
+        Enforces a limit of C{HTTPChannel.totalHeadersSize}
+        on the size of headers received per request starting from initial
+        command line.
+        """
+        processed = []
+        class MyRequest(http.Request):
+            def process(self):
+                processed.append(self)
+                self.finish()
+
+        channel = http.HTTPChannel()
+        channel.totalHeadersSize = 10
+        httpRequest = b'GET /path/longer/than/10 HTTP/1.1\n'
+
+        channel = self.runRequest(
+            httpRequest=httpRequest,
+            requestFactory=MyRequest,
+            channel=channel,
+            success=False
+        )
+
+        self.assertEqual(processed, [])
+        self.assertEqual(
+            channel.transport.value(),
+            b"HTTP/1.1 400 Bad Request\r\n\r\n")
+
+
+    def test_headersTooBigOtherHeaders(self):
+        """
+        Enforces a limit of C{HTTPChannel.totalHeadersSize}
+        on the size of headers received per request counting first line
+        and total headers.
+        """
+        processed = []
+        class MyRequest(http.Request):
+            def process(self):
+                processed.append(self)
+                self.finish()
+
+        channel = http.HTTPChannel()
+        channel.totalHeadersSize = 40
+        httpRequest = (
+            b'GET /less/than/40 HTTP/1.1\n'
+            b'Some-Header: less-than-40\n'
+            )
+
+        channel = self.runRequest(
+            httpRequest=httpRequest,
+            requestFactory=MyRequest,
+            channel=channel, success=False
+        )
+
+        self.assertEqual(processed, [])
+        self.assertEqual(
+            channel.transport.value(),
+            b"HTTP/1.1 400 Bad Request\r\n\r\n")
+
+
+    def test_headersTooBigPerRequest(self):
+        """
+        Enforces total size of headers per individual request and counter
+        is reset at the end of each request.
+        """
+        class SimpleRequest(http.Request):
+            def process(self):
+                self.finish()
+        channel = http.HTTPChannel()
+        channel.totalHeadersSize = 60
+        channel.requestFactory = SimpleRequest
+        httpRequest = (
+            b'GET / HTTP/1.1\n'
+            b'Some-Header: total-less-than-60\n'
+            b'\n'
+            b'GET / HTTP/1.1\n'
+            b'Some-Header: less-than-60\n'
+            b'\n'
+            )
+
+        channel = self.runRequest(
+            httpRequest=httpRequest, channel=channel, success=False)
+
+        self.assertEqual(
+            channel.transport.value(),
+            b'HTTP/1.1 200 OK\r\n'
+            b'Transfer-Encoding: chunked\r\n'
+            b'\r\n'
+            b'0\r\n'
+            b'\r\n'
+            b'HTTP/1.1 200 OK\r\n'
+            b'Transfer-Encoding: chunked\r\n'
+            b'\r\n'
+            b'0\r\n'
+            b'\r\n'
+            )
+
+
+    def testCookies(self):
+        """
+        Test cookies parsing and reading.
+        """
+        httpRequest = b'''\
+GET / HTTP/1.0
+Cookie: rabbit="eat carrot"; ninja=secret; spam="hey 1=1!"
+
+'''
+        cookies = {}
+        testcase = self
+        class MyRequest(http.Request):
+            def process(self):
+                for name in [b'rabbit', b'ninja', b'spam']:
+                    cookies[name] = self.getCookie(name)
+                testcase.didRequest = True
+                self.finish()
+
+        self.runRequest(httpRequest, MyRequest)
+
+        self.assertEqual(
+            cookies, {
+                b'rabbit': b'"eat carrot"',
+                b'ninja': b'secret',
+                b'spam': b'"hey 1=1!"'})
+
+
+    def testGET(self):
+        httpRequest = b'''\
+GET /?key=value&multiple=two+words&multiple=more%20words&empty= HTTP/1.0
+
+'''
+        method = []
+        args = []
+        testcase = self
+        class MyRequest(http.Request):
+            def process(self):
+                method.append(self.method)
+                args.extend([
+                        self.args[b"key"],
+                        self.args[b"empty"],
+                        self.args[b"multiple"]])
+                testcase.didRequest = True
+                self.finish()
+
+        self.runRequest(httpRequest, MyRequest)
+        self.assertEqual(method, [b"GET"])
+        self.assertEqual(
+            args, [[b"value"], [b""], [b"two words", b"more words"]])
+
+
+    def test_extraQuestionMark(self):
+        """
+        While only a single '?' is allowed in an URL, several other servers
+        allow several and pass all after the first through as part of the
+        query arguments.  Test that we emulate this behavior.
+        """
+        httpRequest = b'GET /foo?bar=?&baz=quux HTTP/1.0\n\n'
+
+        method = []
+        path = []
+        args = []
+        testcase = self
+        class MyRequest(http.Request):
+            def process(self):
+                method.append(self.method)
+                path.append(self.path)
+                args.extend([self.args[b'bar'], self.args[b'baz']])
+                testcase.didRequest = True
+                self.finish()
+
+        self.runRequest(httpRequest, MyRequest)
+        self.assertEqual(method, [b'GET'])
+        self.assertEqual(path, [b'/foo'])
+        self.assertEqual(args, [[b'?'], [b'quux']])
+
+
+    def test_formPOSTRequest(self):
+        """
+        The request body of a I{POST} request with a I{Content-Type} header
+        of I{application/x-www-form-urlencoded} is parsed according to that
+        content type and made available in the C{args} attribute of the
+        request object.  The original bytes of the request may still be read
+        from the C{content} attribute.
+        """
+        query = 'key=value&multiple=two+words&multiple=more%20words&empty='
+        httpRequest = networkString('''\
+POST / HTTP/1.0
+Content-Length: %d
+Content-Type: application/x-www-form-urlencoded
+
+%s''' % (len(query), query))
+
+        method = []
+        args = []
+        content = []
+        testcase = self
+        class MyRequest(http.Request):
+            def process(self):
+                method.append(self.method)
+                args.extend([
+                        self.args[b'key'], self.args[b'empty'],
+                        self.args[b'multiple']])
+                content.append(self.content.read())
+                testcase.didRequest = True
+                self.finish()
+
+        self.runRequest(httpRequest, MyRequest)
+        self.assertEqual(method, [b"POST"])
+        self.assertEqual(
+            args, [[b"value"], [b""], [b"two words", b"more words"]])
+        # Reading from the content file-like must produce the entire request
+        # body.
+        self.assertEqual(content, [networkString(query)])
+
+
+    def test_missingContentDisposition(self):
+        """
+        If the C{Content-Disposition} header is missing, the request is denied
+        as a bad request.
+        """
+        req = b'''\
+POST / HTTP/1.0
+Content-Type: multipart/form-data; boundary=AaB03x
+Content-Length: 103
+
+--AaB03x
+Content-Type: text/plain
+Content-Transfer-Encoding: quoted-printable
+
+abasdfg
+--AaB03x--
+'''
+        channel = self.runRequest(req, http.Request, success=False)
+        self.assertEqual(
+            channel.transport.value(),
+            b"HTTP/1.1 400 Bad Request\r\n\r\n")
+
+    if _PY3:
+        test_missingContentDisposition.skip = (
+            "cgi.parse_multipart is much more error-tolerant on Python 3.")
+
+
+    def test_multipartProcessingFailure(self):
+        """
+        When the multipart processing fails the client gets a 400 Bad Request.
+        """
+        # The parsing failure is having a UTF-8 boundary -- the spec
+        # says it must be ASCII.
+        req = b'''\
+POST / HTTP/1.0
+Content-Type: multipart/form-data; boundary=\xe2\x98\x83
+Content-Length: 103
+
+--\xe2\x98\x83
+Content-Type: text/plain
+Content-Length: 999999999999999999999999999999999999999999999999999999999999999
+Content-Transfer-Encoding: quoted-printable
+
+abasdfg
+--\xe2\x98\x83--
+'''
+        channel = self.runRequest(req, http.Request, success=False)
+        self.assertEqual(
+            channel.transport.value(),
+            b"HTTP/1.1 400 Bad Request\r\n\r\n")
+
+
+    def test_multipartFormData(self):
+        """
+        If the request has a Content-Type of C{multipart/form-data}, and the
+        form data is parseable, the form arguments will be added to the
+        request's args.
+        """
+        processed = []
+        class MyRequest(http.Request):
+            def process(self):
+                processed.append(self)
+                self.write(b"done")
+                self.finish()
+        req = b'''\
+POST / HTTP/1.0
+Content-Type: multipart/form-data; boundary=AaB03x
+Content-Length: 149
+
+--AaB03x
+Content-Type: text/plain
+Content-Disposition: form-data; name="text"
+Content-Transfer-Encoding: quoted-printable
+
+abasdfg
+--AaB03x--
+'''
+        channel = self.runRequest(req, MyRequest, success=False)
+        self.assertEqual(channel.transport.value(),
+                         b"HTTP/1.0 200 OK\r\n\r\ndone")
+        self.assertEqual(len(processed), 1)
+        self.assertEqual(processed[0].args, {b"text": [b"abasdfg"]})
+
+
+    def test_multipartFileData(self):
+        """
+        If the request has a Content-Type of C{multipart/form-data},
+        and the form data is parseable and contains files, the file
+        portions will be added to the request's args.
+        """
+        processed = []
+        class MyRequest(http.Request):
+            def process(self):
+                processed.append(self)
+                self.write(b"done")
+                self.finish()
+
+        body = b"""-----------------------------738837029596785559389649595
+Content-Disposition: form-data; name="uploadedfile"; filename="test"
+Content-Type: application/octet-stream
+
+abasdfg
+-----------------------------738837029596785559389649595--
+"""
+
+        req = '''\
+POST / HTTP/1.0
+Content-Type: multipart/form-data; boundary=---------------------------738837029596785559389649595
+Content-Length: ''' + str(len(body.replace(b"\n", b"\r\n"))) + '''
+
+
+'''
+        channel = self.runRequest(req.encode('ascii') + body, MyRequest,
+                                  success=False)
+        self.assertEqual(channel.transport.value(),
+                         b"HTTP/1.0 200 OK\r\n\r\ndone")
+        self.assertEqual(len(processed), 1)
+        self.assertEqual(processed[0].args, {b"uploadedfile": [b"abasdfg"]})
+
+
+    def test_chunkedEncoding(self):
+        """
+        If a request uses the I{chunked} transfer encoding, the request body is
+        decoded accordingly before it is made available on the request.
+        """
+        httpRequest = b'''\
+GET / HTTP/1.0
+Content-Type: text/plain
+Transfer-Encoding: chunked
+
+6
+Hello,
+14
+ spam,eggs spam spam
+0
+
+'''
+        path = []
+        method = []
+        content = []
+        decoder = []
+        testcase = self
+
+        class MyRequest(http.Request):
+            def process(self):
+                content.append(self.content)
+                content.append(self.content.read())
+                # Don't let it close the original content object.  We want to
+                # inspect it later.
+                self.content = BytesIO()
+                method.append(self.method)
+                path.append(self.path)
+                decoder.append(self.channel._transferDecoder)
+                testcase.didRequest = True
+                self.finish()
+
+        self.runRequest(httpRequest, MyRequest)
+
+        # We took responsibility for closing this when we replaced the request
+        # attribute, above.
+        self.addCleanup(content[0].close)
+
+        assertIsFilesystemTemporary(self, content[0])
+        self.assertEqual(content[1], b'Hello, spam,eggs spam spam')
+        self.assertEqual(method, [b'GET'])
+        self.assertEqual(path, [b'/'])
+        self.assertEqual(decoder, [None])
+
+
+    def test_malformedChunkedEncoding(self):
+        """
+        If a request uses the I{chunked} transfer encoding, but provides an
+        invalid chunk length value, the request fails with a 400 error.
+        """
+        # See test_chunkedEncoding for the correct form of this request.
+        httpRequest = b'''\
+GET / HTTP/1.1
+Content-Type: text/plain
+Transfer-Encoding: chunked
+
+MALFORMED_LINE_THIS_SHOULD_BE_'6'
+Hello,
+14
+ spam,eggs spam spam
+0
+
+'''
+        didRequest = []
+
+        class MyRequest(http.Request):
+
+            def process(self):
+                # This request should fail, so this should never be called.
+                didRequest.append(True)
+
+        channel = self.runRequest(httpRequest, MyRequest, success=False)
+        self.assertFalse(didRequest, "Request.process called")
+        self.assertEqual(
+            channel.transport.value(),
+            b"HTTP/1.1 400 Bad Request\r\n\r\n")
+        self.assertTrue(channel.transport.disconnecting)
+
+
+    def test_basicAuthException(self):
+        """
+        A L{Request} that throws an exception processing basic authorization
+        logs an error and uses an empty username and password.
+        """
+        logObserver = EventLoggingObserver.createWithCleanup(
+            self,
+            globalLogPublisher
+        )
+        requests = []
+        class Request(http.Request):
+            def process(self):
+                self.credentials = (self.getUser(), self.getPassword())
+                requests.append(self)
+
+        u = b"foo"
+        p = b"bar"
+        s = base64.encodestring(b":".join((u, p))).strip()
+        f = b"GET / HTTP/1.0\nAuthorization: Basic " + s + b"\n\n"
+        self.patch(base64, 'decodestring', lambda x: [])
+        self.runRequest(f, Request, 0)
+        req = requests.pop()
+        self.assertEqual(('', ''), req.credentials)
+        self.assertEquals(1, len(logObserver))
+        event = logObserver[0]
+        f = event["log_failure"]
+        self.assertIsInstance(f.value, AttributeError)
+        self.flushLoggedErrors(AttributeError)
+
+
+
+class QueryArgumentsTests(unittest.TestCase):
+    def testParseqs(self):
+        self.assertEqual(
+            cgi.parse_qs(b"a=b&d=c;+=f"),
+            http.parse_qs(b"a=b&d=c;+=f"))
+        self.assertRaises(
+            ValueError, http.parse_qs, b"blah", strict_parsing=True)
+        self.assertEqual(
+            cgi.parse_qs(b"a=&b=c", keep_blank_values=1),
+            http.parse_qs(b"a=&b=c", keep_blank_values=1))
+        self.assertEqual(
+            cgi.parse_qs(b"a=&b=c"),
+            http.parse_qs(b"a=&b=c"))
+
+
+    def test_urlparse(self):
+        """
+        For a given URL, L{http.urlparse} should behave the same as L{urlparse},
+        except it should always return C{bytes}, never text.
+        """
+        def urls():
+            for scheme in (b'http', b'https'):
+                for host in (b'example.com',):
+                    for port in (None, 100):
+                        for path in (b'', b'path'):
+                            if port is not None:
+                                host = host + b':' + networkString(str(port))
+                                yield urlunsplit((scheme, host, path, b'', b''))
+
+
+        def assertSameParsing(url, decode):
             """
-        d = microdom.parseString(s, beExtremelyLenient=1)
-        l = domhelpers.findNodesNamed(d.documentElement, 'a')
-        n = domhelpers.gatherTextNodes(l[0],1).replace('&nbsp;',' ')
-        self.assertEqual(n.find('insane'), -1)
-
-
-    def test_lenientParenting(self):
-        """
-        Test that C{parentNode} attributes are set to meaningful values when
-        we are parsing HTML that lacks a root node.
-        """
-        # Spare the rod, ruin the child.
-        s = "<br/><br/>"
-        d = microdom.parseString(s, beExtremelyLenient=1)
-        self.assertIdentical(d.documentElement,
-                             d.documentElement.firstChild().parentNode)
-
-
-    def test_lenientParentSingle(self):
-        """
-        Test that the C{parentNode} attribute is set to a meaningful value
-        when we parse an HTML document that has a non-Element root node.
-        """
-        s = "Hello"
-        d = microdom.parseString(s, beExtremelyLenient=1)
-        self.assertIdentical(d.documentElement,
-                             d.documentElement.firstChild().parentNode)
-
-
-    def test_unEntities(self):
-        s = """
-                <HTML>
-                    This HTML goes between Stupid <=CrAzY!=> Dumb.
-                </HTML>
+            Verify that C{url} is parsed into the same objects by both
+            L{http.urlparse} and L{urlparse}.
             """
-        d = microdom.parseString(s, beExtremelyLenient=1)
-        n = domhelpers.gatherTextNodes(d)
-        self.assertNotEqual(n.find('>'), -1)
+            urlToStandardImplementation = url
+            if decode:
+                urlToStandardImplementation = url.decode('ascii')
+
+            # stdlib urlparse will give back whatever type we give it.  To be
+            # able to compare the values meaningfully, if it gives back unicode,
+            # convert all the values to bytes.
+            standardResult = urlparse(urlToStandardImplementation)
+            if isinstance(standardResult.scheme, unicode):
+                # The choice of encoding is basically irrelevant.  The values
+                # are all in ASCII.  UTF-8 is, of course, the correct choice.
+                expected = (standardResult.scheme.encode('utf-8'),
+                            standardResult.netloc.encode('utf-8'),
+                            standardResult.path.encode('utf-8'),
+                            standardResult.params.encode('utf-8'),
+                            standardResult.query.encode('utf-8'),
+                            standardResult.fragment.encode('utf-8'))
+            else:
+                expected = (standardResult.scheme,
+                            standardResult.netloc,
+                            standardResult.path,
+                            standardResult.params,
+                            standardResult.query,
+                            standardResult.fragment)
+
+            scheme, netloc, path, params, query, fragment = http.urlparse(url)
+            self.assertEqual(
+                (scheme, netloc, path, params, query, fragment), expected)
+            self.assertIsInstance(scheme, bytes)
+            self.assertIsInstance(netloc, bytes)
+            self.assertIsInstance(path, bytes)
+            self.assertIsInstance(params, bytes)
+            self.assertIsInstance(query, bytes)
+            self.assertIsInstance(fragment, bytes)
+
+        # With caching, unicode then str
+        clear_cache()
+        for url in urls():
+            assertSameParsing(url, True)
+            assertSameParsing(url, False)
+
+        # With caching, str then unicode
+        clear_cache()
+        for url in urls():
+            assertSameParsing(url, False)
+            assertSameParsing(url, True)
+
+        # Without caching
+        for url in urls():
+            clear_cache()
+            assertSameParsing(url, True)
+            clear_cache()
+            assertSameParsing(url, False)
 
 
-    def test_emptyError(self):
-        self.assertRaises(sux.ParseError, microdom.parseString, "")
-
-
-    def test_tameDocument(self):
-        s = """
-        <test>
-         <it>
-          <is>
-           <a>
-            test
-           </a>
-          </is>
-         </it>
-        </test>
+    def test_urlparseRejectsUnicode(self):
         """
-        d = microdom.parseString(s)
-        self.assertEqual(
-            domhelpers.gatherTextNodes(d.documentElement).strip() ,'test')
-
-
-    def test_awfulTagSoup(self):
-        s = """
-        <html>
-        <head><title> I send you this message to have your advice!!!!</titl e
-        </headd>
-
-        <body bgcolor alink hlink vlink>
-
-        <h1><BLINK>SALE</blINK> TWENTY MILLION EMAILS & FUR COAT NOW
-        FREE WITH `ENLARGER'</h1>
-
-        YES THIS WONDERFUL AWFER IS NOW HERER!!!
-
-        <script LANGUAGE="javascript">
-function give_answers() {
-if (score < 70) {
-alert("I hate you");
-}}
-        </script><a href=/foo.com/lalal name=foo>lalal</a>
-        </body>
-        </HTML>
+        L{http.urlparse} should reject unicode input early.
         """
-        d = microdom.parseString(s, beExtremelyLenient=1)
-        l = domhelpers.findNodesNamed(d.documentElement, 'blink')
-        self.assertEqual(len(l), 1)
+        self.assertRaises(TypeError, http.urlparse, u'http://example.org/path')
 
 
-    def test_scriptLeniency(self):
-        s = """
-        <script>(foo < bar) and (bar > foo)</script>
-        <script language="javascript">foo </scrip bar </script>
-        <script src="foo">
-        <script src="foo">baz</script>
-        <script /><script></script>
+
+class ClientDriver(http.HTTPClient):
+    def handleStatus(self, version, status, message):
+        self.version = version
+        self.status = status
+        self.message = message
+
+class ClientStatusParsingTests(unittest.TestCase):
+    def testBaseline(self):
+        c = ClientDriver()
+        c.lineReceived(b'HTTP/1.0 201 foo')
+        self.assertEqual(c.version, b'HTTP/1.0')
+        self.assertEqual(c.status, b'201')
+        self.assertEqual(c.message, b'foo')
+
+    def testNoMessage(self):
+        c = ClientDriver()
+        c.lineReceived(b'HTTP/1.0 201')
+        self.assertEqual(c.version, b'HTTP/1.0')
+        self.assertEqual(c.status, b'201')
+        self.assertEqual(c.message, b'')
+
+    def testNoMessage_trailingSpace(self):
+        c = ClientDriver()
+        c.lineReceived(b'HTTP/1.0 201 ')
+        self.assertEqual(c.version, b'HTTP/1.0')
+        self.assertEqual(c.status, b'201')
+        self.assertEqual(c.message, b'')
+
+
+
+class RequestTests(unittest.TestCase, ResponseTestMixin):
+    """
+    Tests for L{http.Request}
+    """
+    def _compatHeadersTest(self, oldName, newName):
         """
-        d = microdom.parseString(s, beExtremelyLenient=1)
-        self.assertEqual(d.firstChild().firstChild().firstChild().data,
-                          "(foo < bar) and (bar > foo)")
-        self.assertEqual(
-            d.firstChild().getElementsByTagName("script")[1].firstChild().data,
-            "foo </scrip bar ")
+        Verify that each of two different attributes which are associated with
+        the same state properly reflect changes made through the other.
 
-
-    def test_scriptLeniencyIntelligence(self):
-        # if there is comment or CDATA in script, the autoquoting in bEL mode
-        # should not happen
-        s = """<script><!-- lalal --></script>"""
-        self.assertEqual(
-            microdom.parseString(s, beExtremelyLenient=1).firstChild().toxml(), s)
-        s = """<script><![CDATA[lalal]]></script>"""
-        self.assertEqual(
-            microdom.parseString(s, beExtremelyLenient=1).firstChild().toxml(), s)
-        s = """<script> // <![CDATA[
-        lalal
-        //]]></script>"""
-        self.assertEqual(
-            microdom.parseString(s, beExtremelyLenient=1).firstChild().toxml(), s)
-
-
-    def test_preserveCase(self):
-        s = '<eNcApSuLaTe><sUxor></sUxor><bOrk><w00T>TeXt</W00t></BoRk></EnCaPsUlAtE>'
-        s2 = s.lower().replace('text', 'TeXt')
-        # these are the only two option permutations that *can* parse the above
-        d = microdom.parseString(s, caseInsensitive=1, preserveCase=1)
-        d2 = microdom.parseString(s, caseInsensitive=1, preserveCase=0)
-        # caseInsensitive=0 preserveCase=0 is not valid, it's converted to
-        # caseInsensitive=0 preserveCase=1
-        d3 = microdom.parseString(s2, caseInsensitive=0, preserveCase=1)
-        d4 = microdom.parseString(s2, caseInsensitive=1, preserveCase=0)
-        d5 = microdom.parseString(s2, caseInsensitive=1, preserveCase=1)
-        # this is slightly contrived, toxml() doesn't need to be identical
-        # for the documents to be equivalent (i.e. <b></b> to <b/>),
-        # however this assertion tests preserving case for start and
-        # end tags while still matching stuff like <bOrk></BoRk>
-        self.assertEqual(d.documentElement.toxml(), s)
-        self.assertTrue(d.isEqualToDocument(d2), "%r != %r" % (d.toxml(), d2.toxml()))
-        self.assertTrue(d2.isEqualToDocument(d3), "%r != %r" % (d2.toxml(), d3.toxml()))
-        # caseInsensitive=0 on the left, NOT perserveCase=1 on the right
-        ## XXX THIS TEST IS TURNED OFF UNTIL SOMEONE WHO CARES ABOUT FIXING IT DOES
-        #self.assertFalse(d3.isEqualToDocument(d2), "%r == %r" % (d3.toxml(), d2.toxml()))
-        self.assertTrue(d3.isEqualToDocument(d4), "%r != %r" % (d3.toxml(), d4.toxml()))
-        self.assertTrue(d4.isEqualToDocument(d5), "%r != %r" % (d4.toxml(), d5.toxml()))
-
-
-    def test_differentQuotes(self):
-        s = '<test a="a" b=\'b\' />'
-        d = microdom.parseString(s)
-        e = d.documentElement
-        self.assertEqual(e.getAttribute('a'), 'a')
-        self.assertEqual(e.getAttribute('b'), 'b')
-
-
-    def test_Linebreaks(self):
-        s = '<test \na="a"\n\tb="#b" />'
-        d = microdom.parseString(s)
-        e = d.documentElement
-        self.assertEqual(e.getAttribute('a'), 'a')
-        self.assertEqual(e.getAttribute('b'), '#b')
-
-
-    def test_mismatchedTags(self):
-        for s in '<test>', '<test> </tset>', '</test>':
-            self.assertRaises(microdom.MismatchedTags, microdom.parseString, s)
-
-
-    def test_comment(self):
-        s = "<bar><!--<foo />--></bar>"
-        d = microdom.parseString(s)
-        e = d.documentElement
-        self.assertEqual(e.nodeName, "bar")
-        c = e.childNodes[0]
-        self.assertTrue(isinstance(c, microdom.Comment))
-        self.assertEqual(c.value, "<foo />")
-        c2 = c.cloneNode()
-        self.assertTrue(c is not c2)
-        self.assertEqual(c2.toxml(), "<!--<foo />-->")
-
-
-    def test_text(self):
-        d = microdom.parseString("<bar>xxxx</bar>").documentElement
-        text = d.childNodes[0]
-        self.assertTrue(isinstance(text, microdom.Text))
-        self.assertEqual(text.value, "xxxx")
-        clone = text.cloneNode()
-        self.assertTrue(clone is not text)
-        self.assertEqual(clone.toxml(), "xxxx")
-
-
-    def test_entities(self):
-        nodes = microdom.parseString("<b>&amp;&#12AB;</b>").documentElement.childNodes
-        self.assertEqual(len(nodes), 2)
-        self.assertEqual(nodes[0].data, "&amp;")
-        self.assertEqual(nodes[1].data, "&#12AB;")
-        self.assertEqual(nodes[0].cloneNode().toxml(), "&amp;")
-        for n in nodes:
-            self.assertTrue(isinstance(n, microdom.EntityReference))
-
-
-    def test_CData(self):
-        s = '<x><![CDATA[</x>\r\n & foo]]></x>'
-        cdata = microdom.parseString(s).documentElement.childNodes[0]
-        self.assertTrue(isinstance(cdata, microdom.CDATASection))
-        self.assertEqual(cdata.data, "</x>\r\n & foo")
-        self.assertEqual(cdata.cloneNode().toxml(), "<![CDATA[</x>\r\n & foo]]>")
-
-
-    def test_singletons(self):
-        s = "<foo><b/><b /><b\n/></foo>"
-        s2 = "<foo><b/><b/><b/></foo>"
-        nodes = microdom.parseString(s).documentElement.childNodes
-        nodes2 = microdom.parseString(s2).documentElement.childNodes
-        self.assertEqual(len(nodes), 3)
-        for (n, n2) in zip(nodes, nodes2):
-            self.assertTrue(isinstance(n, microdom.Element))
-            self.assertEqual(n.nodeName, "b")
-            self.assertTrue(n.isEqualToNode(n2))
-
-
-    def test_attributes(self):
-        s = '<foo a="b" />'
-        node = microdom.parseString(s).documentElement
-
-        self.assertEqual(node.getAttribute("a"), "b")
-        self.assertEqual(node.getAttribute("c"), None)
-        self.assertTrue(node.hasAttribute("a"))
-        self.assertTrue(not node.hasAttribute("c"))
-        a = node.getAttributeNode("a")
-        self.assertEqual(a.value, "b")
-
-        node.setAttribute("foo", "bar")
-        self.assertEqual(node.getAttribute("foo"), "bar")
-
-
-    def test_children(self):
-        s = "<foo><bar /><baz /><bax>foo</bax></foo>"
-        d = microdom.parseString(s).documentElement
-        self.assertEqual([n.nodeName for n in d.childNodes], ["bar", "baz", "bax"])
-        self.assertEqual(d.lastChild().nodeName, "bax")
-        self.assertEqual(d.firstChild().nodeName, "bar")
-        self.assertTrue(d.hasChildNodes())
-        self.assertTrue(not d.firstChild().hasChildNodes())
-
-
-    def test_mutate(self):
-        s = "<foo />"
-        s1 = '<foo a="b"><bar/><foo/></foo>'
-        s2 = '<foo a="b">foo</foo>'
-        d = microdom.parseString(s).documentElement
-        d1 = microdom.parseString(s1).documentElement
-        d2 = microdom.parseString(s2).documentElement
-
-        d.appendChild(d.cloneNode())
-        d.setAttribute("a", "b")
-        child = d.childNodes[0]
-        self.assertEqual(child.getAttribute("a"), None)
-        self.assertEqual(child.nodeName, "foo")
-
-        d.insertBefore(microdom.Element("bar"), child)
-        self.assertEqual(d.childNodes[0].nodeName, "bar")
-        self.assertEqual(d.childNodes[1], child)
-        for n in d.childNodes:
-            self.assertEqual(n.parentNode, d)
-        self.assertTrue(d.isEqualToNode(d1))
-
-        d.removeChild(child)
-        self.assertEqual(len(d.childNodes), 1)
-        self.assertEqual(d.childNodes[0].nodeName, "bar")
-
-        t = microdom.Text("foo")
-        d.replaceChild(t, d.firstChild())
-        self.assertEqual(d.firstChild(), t)
-        self.assertTrue(d.isEqualToNode(d2))
-
-
-    def test_replaceNonChild(self):
+        This is used to test that the C{headers}/C{responseHeaders} and
+        C{received_headers}/C{requestHeaders} pairs interact properly.
         """
-        L{Node.replaceChild} raises L{ValueError} if the node given to be
-        replaced is not a child of the node C{replaceChild} is called on.
+        req = http.Request(DummyChannel(), False)
+        getattr(req, newName).setRawHeaders(b"test", [b"lemur"])
+        self.assertEqual(getattr(req, oldName)[b"test"], b"lemur")
+        setattr(req, oldName, {b"foo": b"bar"})
+        self.assertEqual(
+            list(getattr(req, newName).getAllRawHeaders()),
+            [(b"Foo", [b"bar"])])
+        setattr(req, newName, http_headers.Headers())
+        self.assertEqual(getattr(req, oldName), {})
+
+
+    def test_getHeader(self):
         """
-        parent = microdom.parseString('<foo />')
-        orphan = microdom.parseString('<bar />')
-        replacement = microdom.parseString('<baz />')
+        L{http.Request.getHeader} returns the value of the named request
+        header.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(b"test", [b"lemur"])
+        self.assertEqual(req.getHeader(b"test"), b"lemur")
+
+
+    def test_getHeaderReceivedMultiples(self):
+        """
+        When there are multiple values for a single request header,
+        L{http.Request.getHeader} returns the last value.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(b"test", [b"lemur", b"panda"])
+        self.assertEqual(req.getHeader(b"test"), b"panda")
+
+
+    def test_getHeaderNotFound(self):
+        """
+        L{http.Request.getHeader} returns L{None} when asked for the value of a
+        request header which is not present.
+        """
+        req = http.Request(DummyChannel(), False)
+        self.assertEqual(req.getHeader(b"test"), None)
+
+
+    def test_getAllHeaders(self):
+        """
+        L{http.Request.getAllheaders} returns a C{dict} mapping all request
+        header names to their corresponding values.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(b"test", [b"lemur"])
+        self.assertEqual(req.getAllHeaders(), {b"test": b"lemur"})
+
+
+    def test_getAllHeadersNoHeaders(self):
+        """
+        L{http.Request.getAllHeaders} returns an empty C{dict} if there are no
+        request headers.
+        """
+        req = http.Request(DummyChannel(), False)
+        self.assertEqual(req.getAllHeaders(), {})
+
+
+    def test_getAllHeadersMultipleHeaders(self):
+        """
+        When there are multiple values for a single request header,
+        L{http.Request.getAllHeaders} returns only the last value.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(b"test", [b"lemur", b"panda"])
+        self.assertEqual(req.getAllHeaders(), {b"test": b"panda"})
+
+
+    def test_setResponseCode(self):
+        """
+        L{http.Request.setResponseCode} takes a status code and causes it to be
+        used as the response status.
+        """
+        channel = DummyChannel()
+        req = http.Request(channel, False)
+        req.setResponseCode(201)
+        req.write(b'')
+        self.assertEqual(
+            channel.transport.written.getvalue().splitlines()[0],
+            b"(no clientproto yet) 201 Created")
+
+
+    def test_setResponseCodeAndMessage(self):
+        """
+        L{http.Request.setResponseCode} takes a status code and a message and
+        causes them to be used as the response status.
+        """
+        channel = DummyChannel()
+        req = http.Request(channel, False)
+        req.setResponseCode(202, b"happily accepted")
+        req.write(b'')
+        self.assertEqual(
+            channel.transport.written.getvalue().splitlines()[0],
+            b'(no clientproto yet) 202 happily accepted')
+
+
+    def test_setResponseCodeAndMessageNotBytes(self):
+        """
+        L{http.Request.setResponseCode} accepts C{bytes} for the message
+        parameter and raises L{TypeError} if passed anything else.
+        """
+        channel = DummyChannel()
+        req = http.Request(channel, False)
+        self.assertRaises(TypeError, req.setResponseCode,
+                          202, u"not happily accepted")
+
+
+    def test_setResponseCodeAcceptsIntegers(self):
+        """
+        L{http.Request.setResponseCode} accepts C{int} for the code parameter
+        and raises L{TypeError} if passed anything else.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.setResponseCode(1)
+        self.assertRaises(TypeError, req.setResponseCode, "1")
+
+
+    def test_setResponseCodeAcceptsLongIntegers(self):
+        """
+        L{http.Request.setResponseCode} accepts C{long} for the code
+        parameter.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.setResponseCode(long(1))
+
+
+    def test_setLastModifiedNeverSet(self):
+        """
+        When no previous value was set and no 'if-modified-since' value was
+        requested, L{http.Request.setLastModified} takes a timestamp in seconds
+        since the epoch and sets the request's lastModified attribute.
+        """
+        req = http.Request(DummyChannel(), False)
+
+        req.setLastModified(42)
+
+        self.assertEqual(req.lastModified, 42)
+
+
+    def test_setLastModifiedUpdate(self):
+        """
+        If the supplied timestamp is later than the lastModified attribute's
+        value, L{http.Request.setLastModified} updates the lastModifed
+        attribute.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.setLastModified(0)
+
+        req.setLastModified(1)
+
+        self.assertEqual(req.lastModified, 1)
+
+
+    def test_setLastModifiedIgnore(self):
+        """
+        If the supplied timestamp occurs earlier than the current lastModified
+        attribute, L{http.Request.setLastModified} ignores it.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.setLastModified(1)
+
+        req.setLastModified(0)
+
+        self.assertEqual(req.lastModified, 1)
+
+
+    def test_setLastModifiedCached(self):
+        """
+        If the resource is older than the if-modified-since date in the request
+        header, L{http.Request.setLastModified} returns L{http.CACHED}.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(
+            networkString('if-modified-since'),
+                          [b'02 Jan 1970 00:00:00 GMT']
+            )
+
+        result = req.setLastModified(42)
+
+        self.assertEqual(result, http.CACHED)
+
+
+    def test_setLastModifiedNotCached(self):
+        """
+        If the resource is newer than the if-modified-since date in the request
+        header, L{http.Request.setLastModified} returns None
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(
+            networkString('if-modified-since'),
+                          [b'01 Jan 1970 00:00:00 GMT']
+            )
+
+        result = req.setLastModified(1000000)
+
+        self.assertEqual(result, None)
+
+
+    def test_setLastModifiedTwiceNotCached(self):
+        """
+        When L{http.Request.setLastModified} is called multiple times, the
+        highest supplied value is honored. If that value is higher than the
+        if-modified-since date in the request header, the method returns None.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(
+            networkString('if-modified-since'),
+                          [b'01 Jan 1970 00:00:01 GMT']
+            )
+        req.setLastModified(1000000)
+
+        result = req.setLastModified(0)
+
+        self.assertEqual(result, None)
+
+
+    def test_setLastModifiedTwiceCached(self):
+        """
+        When L{http.Request.setLastModified} is called multiple times, the
+        highest supplied value is honored. If that value is lower than the
+        if-modified-since date in the request header, the method returns
+        L{http.CACHED}.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(
+            networkString('if-modified-since'),
+                          [b'01 Jan 1999 00:00:01 GMT']
+            )
+        req.setLastModified(1)
+
+        result = req.setLastModified(0)
+
+        self.assertEqual(result, http.CACHED)
+
+
+    def test_setHost(self):
+        """
+        L{http.Request.setHost} sets the value of the host request header.
+        The port should not be added because it is the default.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.setHost(b"example.com", 80)
+        self.assertEqual(
+            req.requestHeaders.getRawHeaders(b"host"), [b"example.com"])
+
+
+    def test_setHostSSL(self):
+        """
+        L{http.Request.setHost} sets the value of the host request header.
+        The port should not be added because it is the default.
+        """
+        d = DummyChannel()
+        d.transport = DummyChannel.SSL()
+        req = http.Request(d, False)
+        req.setHost(b"example.com", 443)
+        self.assertEqual(
+            req.requestHeaders.getRawHeaders(b"host"), [b"example.com"])
+
+
+    def test_setHostNonDefaultPort(self):
+        """
+        L{http.Request.setHost} sets the value of the host request header.
+        The port should be added because it is not the default.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.setHost(b"example.com", 81)
+        self.assertEqual(
+            req.requestHeaders.getRawHeaders(b"host"), [b"example.com:81"])
+
+
+    def test_setHostSSLNonDefaultPort(self):
+        """
+        L{http.Request.setHost} sets the value of the host request header.
+        The port should be added because it is not the default.
+        """
+        d = DummyChannel()
+        d.transport = DummyChannel.SSL()
+        req = http.Request(d, False)
+        req.setHost(b"example.com", 81)
+        self.assertEqual(
+            req.requestHeaders.getRawHeaders(b"host"), [b"example.com:81"])
+
+
+    def test_setHeader(self):
+        """
+        L{http.Request.setHeader} sets the value of the given response header.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.setHeader(b"test", b"lemur")
+        self.assertEqual(req.responseHeaders.getRawHeaders(b"test"), [b"lemur"])
+
+
+    def _checkCookie(self, expectedCookieValue, *args, **kwargs):
+        """
+        Call L{http.Request.addCookie} with C{*args} and C{**kwargs}, and check
+        that the cookie value is equal to C{expectedCookieValue}.
+        """
+        channel = DummyChannel()
+        req = http.Request(channel, False)
+        req.addCookie(*args, **kwargs)
+        self.assertEqual(req.cookies[0], expectedCookieValue)
+
+        # Write nothing to make it produce the headers
+        req.write(b"")
+        writtenLines = channel.transport.written.getvalue().split(b"\r\n")
+
+        # There should be one Set-Cookie header
+        addCookieLines = [x for x in writtenLines
+                          if x.startswith(b"Set-Cookie")]
+        self.assertEqual(len(addCookieLines), 1)
+        self.assertEqual(addCookieLines[0],
+                         b"Set-Cookie: " + expectedCookieValue)
+
+
+    def test_addCookieWithMinimumArgumentsUnicode(self):
+        """
+        L{http.Request.addCookie} adds a new cookie to be sent with the
+        response, and can be called with just a key and a value. L{unicode}
+        arguments are encoded using UTF-8.
+        """
+        expectedCookieValue = b"foo=bar"
+
+        self._checkCookie(expectedCookieValue, u"foo", u"bar")
+
+
+    def test_addCookieWithAllArgumentsUnicode(self):
+        """
+        L{http.Request.addCookie} adds a new cookie to be sent with the
+        response. L{unicode} arguments are encoded using UTF-8.
+        """
+        expectedCookieValue = (
+            b"foo=bar; Expires=Fri, 31 Dec 9999 23:59:59 GMT; "
+            b"Domain=.example.com; Path=/; Max-Age=31536000; "
+            b"Comment=test; Secure; HttpOnly")
+
+        self._checkCookie(expectedCookieValue,
+            u"foo", u"bar", expires=u"Fri, 31 Dec 9999 23:59:59 GMT",
+            domain=u".example.com", path=u"/", max_age=u"31536000",
+            comment=u"test", secure=True, httpOnly=True)
+
+
+    def test_addCookieWithMinimumArgumentsBytes(self):
+        """
+        L{http.Request.addCookie} adds a new cookie to be sent with the
+        response, and can be called with just a key and a value. L{bytes}
+        arguments are not decoded.
+        """
+        expectedCookieValue = b"foo=bar"
+
+        self._checkCookie(expectedCookieValue, b"foo", b"bar")
+
+
+    def test_addCookieWithAllArgumentsBytes(self):
+        """
+        L{http.Request.addCookie} adds a new cookie to be sent with the
+        response. L{bytes} arguments are not decoded.
+        """
+        expectedCookieValue = (
+            b"foo=bar; Expires=Fri, 31 Dec 9999 23:59:59 GMT; "
+            b"Domain=.example.com; Path=/; Max-Age=31536000; "
+            b"Comment=test; Secure; HttpOnly")
+
+        self._checkCookie(
+            expectedCookieValue,
+            b"foo", b"bar", expires=b"Fri, 31 Dec 9999 23:59:59 GMT",
+            domain=b".example.com", path=b"/", max_age=b"31536000",
+            comment=b"test", secure=True, httpOnly=True)
+
+
+    def test_addCookieSanitization(self):
+        """
+        L{http.Request.addCookie} replaces linear whitespace and
+        semicolons with single spaces.
+        """
+        def cookieValue(key, value):
+            return b'='.join([key, value])
+
+        arguments = [('expires', b'Expires'),
+                     ('domain', b'Domain'),
+                     ('path', b'Path'),
+                     ('max_age', b'Max-Age'),
+                     ('comment', b'Comment')]
+
+        inputsAndOutputs = list(
+            zip(textLinearWhitespaceComponents +
+                bytesLinearWhitespaceComponents,
+                cycle([sanitizedBytes])))
+
+        inputsAndOutputs = [
+            ["Foo; bar", b"Foo  bar"],
+            [b"Foo; bar", b"Foo  bar"],
+        ]
+
+        for inputValue, outputValue in inputsAndOutputs:
+            self._checkCookie(cookieValue(outputValue, outputValue),
+                              inputValue, inputValue)
+            for argument, parameter in arguments:
+                expected = b"; ".join([
+                    cookieValue(outputValue, outputValue),
+                    cookieValue(parameter, outputValue),
+                ])
+                self._checkCookie(expected, inputValue, inputValue,
+                                  **{argument: inputValue})
+
+
+    def test_addCookieSameSite(self):
+        """
+        L{http.Request.setCookie} supports a C{sameSite} argument.
+        """
+        self._checkCookie(
+            b"foo=bar; SameSite=lax", b"foo", b"bar", sameSite="lax")
+        self._checkCookie(
+            b"foo=bar; SameSite=lax", b"foo", b"bar", sameSite="Lax")
+        self._checkCookie(
+            b"foo=bar; SameSite=strict", b"foo", b"bar", sameSite="strict")
 
         self.assertRaises(
-            ValueError, parent.replaceChild, replacement, orphan)
+            ValueError,
+            self._checkCookie,
+            b"", b"foo", b"bar", sameSite="anything-else")
 
 
-    def test_search(self):
-        s = "<foo><bar id='me' /><baz><foo /></baz></foo>"
-        s2 = "<fOo><bAr id='me' /><bAz><fOO /></bAz></fOo>"
-        d = microdom.parseString(s)
-        d2 = microdom.parseString(s2, caseInsensitive=0, preserveCase=1)
-        d3 = microdom.parseString(s2, caseInsensitive=1, preserveCase=1)
-
-        root = d.documentElement
-        self.assertEqual(root.firstChild(), d.getElementById('me'))
-        self.assertEqual(d.getElementsByTagName("foo"),
-                          [root, root.lastChild().firstChild()])
-
-        root = d2.documentElement
-        self.assertEqual(root.firstChild(), d2.getElementById('me'))
-        self.assertEqual(d2.getElementsByTagName('fOo'), [root])
-        self.assertEqual(d2.getElementsByTagName('fOO'),
-                          [root.lastChild().firstChild()])
-        self.assertEqual(d2.getElementsByTagName('foo'), [])
-
-        root = d3.documentElement
-        self.assertEqual(root.firstChild(), d3.getElementById('me'))
-        self.assertEqual(d3.getElementsByTagName('FOO'),
-                          [root, root.lastChild().firstChild()])
-        self.assertEqual(d3.getElementsByTagName('fOo'),
-                          [root, root.lastChild().firstChild()])
-
-
-    def test_doctype(self):
-        s = ('<?xml version="1.0"?>'
-        '<!DOCTYPE foo PUBLIC "baz" "http://www.example.com/example.dtd">'
-        '<foo></foo>')
-        s2 = '<foo/>'
-        d = microdom.parseString(s)
-        d2 = microdom.parseString(s2)
-        self.assertEqual(d.doctype,
-                          'foo PUBLIC "baz" "http://www.example.com/example.dtd"')
-        self.assertEqual(d.toxml(), s)
-        self.assertFalse(d.isEqualToDocument(d2))
-        self.assertTrue(d.documentElement.isEqualToNode(d2.documentElement))
-
-    samples = [("<img/>", "<img />"),
-               ("<foo A='b'>x</foo>", '<foo A="b">x</foo>'),
-               ("<foo><BAR /></foo>", "<foo><BAR></BAR></foo>"),
-               ("<foo>hello there &amp; yoyoy</foo>",
-                "<foo>hello there &amp; yoyoy</foo>"),
-               ]
-
-    def test_output(self):
-        for s, out in self.samples:
-            d = microdom.parseString(s, caseInsensitive=0)
-            d2 = microdom.parseString(out, caseInsensitive=0)
-            testOut = d.documentElement.toxml()
-            self.assertEqual(out, testOut)
-            self.assertTrue(d.isEqualToDocument(d2))
-
-
-    def test_errors(self):
-        for s in ["<foo>&am</foo>", "<foo", "<f>&</f>", "<() />"]:
-            self.assertRaises(Exception, microdom.parseString, s)
-
-
-    def test_caseInsensitive(self):
-        s  = "<foo a='b'><BAx>x</bax></FOO>"
-        s2 = '<foo a="b"><bax>x</bax></foo>'
-        s3 = "<FOO a='b'><BAx>x</BAx></FOO>"
-        s4 = "<foo A='b'>x</foo>"
-        d = microdom.parseString(s)
-        d2 = microdom.parseString(s2)
-        d3 = microdom.parseString(s3, caseInsensitive=1)
-        d4 = microdom.parseString(s4, caseInsensitive=1, preserveCase=1)
-        d5 = microdom.parseString(s4, caseInsensitive=1, preserveCase=0)
-        d6 = microdom.parseString(s4, caseInsensitive=0, preserveCase=0)
-        out = microdom.parseString(s).documentElement.toxml()
-        self.assertRaises(microdom.MismatchedTags, microdom.parseString,
-            s, caseInsensitive=0)
-        self.assertEqual(out, s2)
-        self.assertTrue(d.isEqualToDocument(d2))
-        self.assertTrue(d.isEqualToDocument(d3))
-        self.assertTrue(d4.documentElement.hasAttribute('a'))
-        self.assertFalse(d6.documentElement.hasAttribute('a'))
-        self.assertEqual(d4.documentElement.toxml(), '<foo A="b">x</foo>')
-        self.assertEqual(d5.documentElement.toxml(), '<foo a="b">x</foo>')
-
-
-    def test_eatingWhitespace(self):
-        s = """<hello>
-        </hello>"""
-        d = microdom.parseString(s)
-        self.assertTrue(not d.documentElement.hasChildNodes(),
-                        d.documentElement.childNodes)
-        self.assertTrue(d.isEqualToDocument(microdom.parseString('<hello></hello>')))
-
-
-    def test_lenientAmpersand(self):
-        prefix = "<?xml version='1.0'?>"
-        # we use <pre> so space will be preserved
-        for i, o in [("&", "&amp;"),
-                     ("& ", "&amp; "),
-                     ("&amp;", "&amp;"),
-                     ("&hello monkey", "&amp;hello monkey")]:
-            d = microdom.parseString("%s<pre>%s</pre>"
-                                     % (prefix, i), beExtremelyLenient=1)
-            self.assertEqual(d.documentElement.toxml(), "<pre>%s</pre>" % o)
-        # non-space preserving
-        d = microdom.parseString("<t>hello & there</t>", beExtremelyLenient=1)
-        self.assertEqual(d.documentElement.toxml(), "<t>hello &amp; there</t>")
-
-
-    def test_insensitiveLenient(self):
-        # testing issue #537
-        d = microdom.parseString(
-            "<?xml version='1.0'?><bar><xA><y>c</Xa> <foo></bar>",
-            beExtremelyLenient=1)
-        self.assertEqual(d.documentElement.firstChild().toxml(), "<xa><y>c</y></xa>")
-
-
-    def test_laterCloserSimple(self):
-        s = "<ul><li>foo<li>bar<li>baz</ul>"
-        d = microdom.parseString(s, beExtremelyLenient=1)
-        expected = "<ul><li>foo</li><li>bar</li><li>baz</li></ul>"
-        actual = d.documentElement.toxml()
-        self.assertEqual(expected, actual)
-
-
-    def test_laterCloserCaseInsensitive(self):
-        s = "<DL><p><DT>foo<DD>bar</DL>"
-        d = microdom.parseString(s, beExtremelyLenient=1)
-        expected = "<dl><p></p><dt>foo</dt><dd>bar</dd></dl>"
-        actual = d.documentElement.toxml()
-        self.assertEqual(expected, actual)
-
-
-    def test_laterCloserDL(self):
-        s = ("<dl>"
-             "<dt>word<dd>definition"
-             "<dt>word<dt>word<dd>definition<dd>definition"
-             "</dl>")
-        expected = ("<dl>"
-                    "<dt>word</dt><dd>definition</dd>"
-                    "<dt>word</dt><dt>word</dt><dd>definition</dd><dd>definition</dd>"
-                    "</dl>")
-        d = microdom.parseString(s, beExtremelyLenient=1)
-        actual = d.documentElement.toxml()
-        self.assertEqual(expected, actual)
-
-
-    def test_unicodeTolerance(self):
-        import struct
-        s = '<foo><bar><baz /></bar></foo>'
-        j =(u'<?xml version="1.0" encoding="UCS-2" ?>\r\n<JAPANESE>\r\n'
-            u'<TITLE>\u5c02\u9580\u5bb6\u30ea\u30b9\u30c8 </TITLE></JAPANESE>')
-        j2=(b'\xff\xfe<\x00?\x00x\x00m\x00l\x00 \x00v\x00e\x00r\x00s\x00i\x00o'
-            b'\x00n\x00=\x00"\x001\x00.\x000\x00"\x00 \x00e\x00n\x00c\x00o\x00d'
-            b'\x00i\x00n\x00g\x00=\x00"\x00U\x00C\x00S\x00-\x002\x00"\x00 \x00?'
-            b'\x00>\x00\r\x00\n\x00<\x00J\x00A\x00P\x00A\x00N\x00E\x00S\x00E'
-            b'\x00>\x00\r\x00\n\x00<\x00T\x00I\x00T\x00L\x00E\x00>\x00\x02\\'
-            b'\x80\x95\xb6[\xea0\xb90\xc80 \x00<\x00/\x00T\x00I\x00T\x00L\x00E'
-            b'\x00>\x00<\x00/\x00J\x00A\x00P\x00A\x00N\x00E\x00S\x00E\x00>\x00')
-        def reverseBytes(s):
-            fmt = str(len(s) // 2) + 'H'
-            return struct.pack('<' + fmt, *struct.unpack('>' + fmt, s))
-        urd = microdom.parseString(reverseBytes(s.encode('UTF-16')))
-        ud = microdom.parseString(s.encode('UTF-16'))
-        sd = microdom.parseString(s)
-        self.assertTrue(ud.isEqualToDocument(sd))
-        self.assertTrue(ud.isEqualToDocument(urd))
-        ud = microdom.parseString(j)
-        urd = microdom.parseString(reverseBytes(j2))
-        sd = microdom.parseString(j2)
-        self.assertTrue(ud.isEqualToDocument(sd))
-        self.assertTrue(ud.isEqualToDocument(urd))
-
-        # test that raw text still gets encoded
-        # test that comments get encoded
-        j3=microdom.parseString(u'<foo/>')
-        hdr='<?xml version="1.0"?>'
-        div=microdom.lmx().text(u'\u221a', raw=1).node
-        de=j3.documentElement
-        de.appendChild(div)
-        de.appendChild(j3.createComment(u'\u221a'))
-        self.assertEqual(j3.toxml(), (hdr +
-                         u'<foo><div>\u221a</div><!--\u221a--></foo>'))
-
-
-    def test_namedChildren(self):
-        tests = {"<foo><bar /><bar unf='1' /><bar>asdfadsf</bar>"
-                         "<bam/></foo>" : 3,
-                 '<foo>asdf</foo>' : 0,
-                 '<foo><bar><bar></bar></bar></foo>' : 1,
-                 }
-        for t in tests.keys():
-            node = microdom.parseString(t).documentElement
-            result = domhelpers.namedChildren(node, 'bar')
-            self.assertEqual(len(result), tests[t])
-            if result:
-                self.assertTrue(hasattr(result[0], 'tagName'))
-
-
-    def test_cloneNode(self):
-        s = '<foo a="b"><bax>x</bax></foo>'
-        node = microdom.parseString(s).documentElement
-        clone = node.cloneNode(deep=1)
-        self.failIfEquals(node, clone)
-        self.assertEqual(len(node.childNodes), len(clone.childNodes))
-        c1, c2 = node.firstChild(), clone.firstChild()
-        self.failIfEquals(c1, c2)
-        self.assertEqual(len(c1.childNodes), len(c2.childNodes))
-        self.failIfEquals(c1.firstChild(), c2.firstChild())
-        self.assertEqual(s, clone.toxml())
-        self.assertEqual(node.namespace, clone.namespace)
-
-
-    def test_cloneDocument(self):
-        s = ('<?xml version="1.0"?>'
-             '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"'
-             '"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><foo></foo>')
-
-        node = microdom.parseString(s)
-        clone = node.cloneNode(deep=1)
-        self.failIfEquals(node, clone)
-        self.assertEqual(len(node.childNodes), len(clone.childNodes))
-        self.assertEqual(s, clone.toxml())
-
-        self.assertTrue(clone.isEqualToDocument(node))
-        self.assertTrue(node.isEqualToDocument(clone))
-
-
-    def test_LMX(self):
-        n = microdom.Element("p")
-        lmx = microdom.lmx(n)
-        lmx.text("foo")
-        b = lmx.b(a="c")
-        b.foo()["z"] = "foo"
-        b.foo()
-        b.add("bar", c="y")
-
-        s = '<p>foo<b a="c"><foo z="foo"></foo><foo></foo><bar c="y"></bar></b></p>'
-        self.assertEqual(s, n.toxml())
-
-
-    def test_dict(self):
+    def test_firstWrite(self):
         """
-        Returns a dictionary which is hashable.
+        For an HTTP 1.0 request, L{http.Request.write} sends an HTTP 1.0
+        Response-Line and whatever response headers are set.
         """
-        n = microdom.Element("p")
-        hash(n)
+        channel = DummyChannel()
+        req = http.Request(channel, False)
+        trans = StringTransport()
+
+        channel.transport = trans
+
+        req.setResponseCode(200)
+        req.clientproto = b"HTTP/1.0"
+        req.responseHeaders.setRawHeaders(b"test", [b"lemur"])
+        req.write(b'Hello')
+
+        self.assertResponseEquals(
+            trans.value(),
+            [(b"HTTP/1.0 200 OK",
+              b"Test: lemur",
+              b"Hello")])
 
 
-    def test_escaping(self):
-        # issue 590
-        raw = "&'some \"stuff\"', <what up?>"
-        cooked = "&amp;'some &quot;stuff&quot;', &lt;what up?&gt;"
-        esc1 = microdom.escape(raw)
-        self.assertEqual(esc1, cooked)
-        self.assertEqual(microdom.unescape(esc1), raw)
-
-
-    def test_namespaces(self):
-        s = '''
-        <x xmlns="base">
-        <y />
-        <y q="1" x:q="2" y:q="3" />
-        <y:y xml:space="1">here is    some space </y:y>
-        <y:y />
-        <x:y />
-        </x>
-        '''
-        d = microdom.parseString(s)
-        # at least make sure it doesn't traceback
-        s2 = d.toprettyxml()
-        self.assertEqual(d.documentElement.namespace,
-                          "base")
-        self.assertEqual(d.documentElement.getElementsByTagName("y")[0].namespace,
-                          "base")
-        self.assertEqual(
-            d.documentElement.getElementsByTagName("y")[1].getAttributeNS('base','q'),
-            '1')
-
-        d2 = microdom.parseString(s2)
-        self.assertEqual(d2.documentElement.namespace,
-                          "base")
-        self.assertEqual(d2.documentElement.getElementsByTagName("y")[0].namespace,
-                          "base")
-        self.assertEqual(
-            d2.documentElement.getElementsByTagName("y")[1].getAttributeNS('base','q'),
-            '1')
-
-
-    def test_namespaceDelete(self):
+    def test_firstWriteHTTP11Chunked(self):
         """
-        Test that C{toxml} can support xml structures that remove namespaces.
+        For an HTTP 1.1 request, L{http.Request.write} sends an HTTP 1.1
+        Response-Line, whatever response headers are set, and uses chunked
+        encoding for the response body.
         """
-        s1 = ('<?xml version="1.0"?><html xmlns="http://www.w3.org/TR/REC-html40">'
-              '<body xmlns=""></body></html>')
-        s2 = microdom.parseString(s1).toxml()
-        self.assertEqual(s1, s2)
+        channel = DummyChannel()
+        req = http.Request(channel, False)
+        trans = StringTransport()
+
+        channel.transport = trans
+
+        req.setResponseCode(200)
+        req.clientproto = b"HTTP/1.1"
+        req.responseHeaders.setRawHeaders(b"test", [b"lemur"])
+        req.write(b'Hello')
+        req.write(b'World!')
+
+        self.assertResponseEquals(
+            trans.value(),
+            [(b"HTTP/1.1 200 OK",
+              b"Test: lemur",
+              b"Transfer-Encoding: chunked",
+              b"5\r\nHello\r\n6\r\nWorld!\r\n")])
 
 
-    def test_namespaceInheritance(self):
+    def test_firstWriteLastModified(self):
         """
-        Check that unspecified namespace is a thing separate from undefined
-        namespace. This test added after discovering some weirdness in Lore.
+        For an HTTP 1.0 request for a resource with a known last modified time,
+        L{http.Request.write} sends an HTTP Response-Line, whatever response
+        headers are set, and a last-modified header with that time.
         """
-        # will only work if childNodes is mutated. not sure why.
-        child = microdom.Element('ol')
-        parent = microdom.Element('div', namespace='http://www.w3.org/1999/xhtml')
-        parent.childNodes = [child]
-        self.assertEqual(parent.toxml(),
-                          '<div xmlns="http://www.w3.org/1999/xhtml"><ol></ol></div>')
+        channel = DummyChannel()
+        req = http.Request(channel, False)
+        trans = StringTransport()
 
+        channel.transport = trans
 
-    def test_prefixedTags(self):
-        """
-        XML elements with a prefixed name as per upper level tag definition
-        have a start-tag of C{"<prefix:tag>"} and an end-tag of
-        C{"</prefix:tag>"}.
+        req.setResponseCode(200)
+        req.clientproto = b"HTTP/1.0"
+        req.lastModified = 0
+        req.responseHeaders.setRawHeaders(b"test", [b"lemur"])
+        req.write(b'Hello')
 
-        Refer to U{http://www.w3.org/TR/xml-names/#ns-using} for details.
-        """
-        outerNamespace = "http://example.com/outer"
-        innerNamespace = "http://example.com/inner"
-
-        document = microdom.Document()
-        # Create the root in one namespace.  Microdom will probably make this
-        # the default namespace.
-        root = document.createElement("root", namespace=outerNamespace)
-
-        # Give the root some prefixes to use.
-        root.addPrefixes({innerNamespace: "inner"})
-
-        # Append a child to the root from the namespace that prefix is bound
-        # to.
-        tag = document.createElement("tag", namespace=innerNamespace)
-
-        # Give that tag a child too.  This way we test rendering of tags with
-        # children and without children.
-        child = document.createElement("child", namespace=innerNamespace)
-
-        tag.appendChild(child)
-        root.appendChild(tag)
-        document.appendChild(root)
-
-        # ok, the xml should appear like this
-        xmlOk = (
-            '<?xml version="1.0"?>'
-            '<root xmlns="http://example.com/outer" '
-            'xmlns:inner="http://example.com/inner">'
-            '<inner:tag><inner:child></inner:child></inner:tag>'
-            '</root>')
-
-        xmlOut = document.toxml()
-        self.assertEqual(xmlOut, xmlOk)
-
-
-    def test_prefixPropagation(self):
-        """
-        Children of prefixed tags respect the default namespace at the point
-        where they are rendered.  Specifically, they are not influenced by the
-        prefix of their parent as that prefix has no bearing on them.
-
-        See U{http://www.w3.org/TR/xml-names/#scoping} for details.
-
-        To further clarify the matter, the following::
-
-            <root xmlns="http://example.com/ns/test">
-                <mytag xmlns="http://example.com/ns/mytags">
-                    <mysubtag xmlns="http://example.com/ns/mytags">
-                        <element xmlns="http://example.com/ns/test"></element>
-                    </mysubtag>
-                </mytag>
-            </root>
-
-        Should become this after all the namespace declarations have been
-        I{moved up}::
-
-            <root xmlns="http://example.com/ns/test"
-                  xmlns:mytags="http://example.com/ns/mytags">
-                <mytags:mytag>
-                    <mytags:mysubtag>
-                        <element></element>
-                    </mytags:mysubtag>
-                </mytags:mytag>
-            </root>
-        """
-        outerNamespace = "http://example.com/outer"
-        innerNamespace = "http://example.com/inner"
-
-        document = microdom.Document()
-        # creates a root element
-        root = document.createElement("root", namespace=outerNamespace)
-        document.appendChild(root)
-
-        # Create a child with a specific namespace with a prefix bound to it.
-        root.addPrefixes({innerNamespace: "inner"})
-        mytag = document.createElement("mytag",namespace=innerNamespace)
-        root.appendChild(mytag)
-
-        # Create a child of that which has the outer namespace.
-        mysubtag = document.createElement("mysubtag", namespace=outerNamespace)
-        mytag.appendChild(mysubtag)
-
-        xmlOk = (
-            '<?xml version="1.0"?>'
-            '<root xmlns="http://example.com/outer" '
-            'xmlns:inner="http://example.com/inner">'
-            '<inner:mytag>'
-            '<mysubtag></mysubtag>'
-            '</inner:mytag>'
-            '</root>'
+        self.assertResponseEquals(
+            trans.value(),
+            [(b"HTTP/1.0 200 OK",
+              b"Test: lemur",
+              b"Last-Modified: Thu, 01 Jan 1970 00:00:00 GMT",
+              b"Hello")]
         )
-        xmlOut = document.toxml()
-        self.assertEqual(xmlOut, xmlOk)
+
+
+    def test_lastModifiedAlreadyWritten(self):
+        """
+        If the last-modified header already exists in the L{http.Request}
+        response headers, the lastModified attribute is ignored and a message
+        is logged.
+        """
+        logObserver = EventLoggingObserver.createWithCleanup(
+            self,
+            globalLogPublisher
+        )
+        channel = DummyChannel()
+        req = http.Request(channel, False)
+        trans = StringTransport()
+
+        channel.transport = trans
+
+        req.setResponseCode(200)
+        req.clientproto = b"HTTP/1.0"
+        req.lastModified = 1000000000
+        req.responseHeaders.setRawHeaders(
+            b"last-modified",
+            [b"Thu, 01 Jan 1970 00:00:00 GMT"]
+        )
+        req.write(b'Hello')
+
+        self.assertResponseEquals(
+            trans.value(),
+            [(b"HTTP/1.0 200 OK",
+              b"Last-Modified: Thu, 01 Jan 1970 00:00:00 GMT",
+              b"Hello")])
+        self.assertEquals(1, len(logObserver))
+        event = logObserver[0]
+        self.assertEquals(
+            "Warning: last-modified specified both in"
+            " header list and lastModified attribute.",
+            event["log_format"]
+        )
+
+
+    def test_receivedCookiesDefault(self):
+        """
+        L{http.Request.received_cookies} defaults to an empty L{dict}.
+        """
+        req = http.Request(DummyChannel(), False)
+        self.assertEqual(req.received_cookies, {})
+
+
+    def test_parseCookies(self):
+        """
+        L{http.Request.parseCookies} extracts cookies from C{requestHeaders}
+        and adds them to C{received_cookies}.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(
+            b"cookie", [b'test="lemur"; test2="panda"'])
+        req.parseCookies()
+        self.assertEqual(
+            req.received_cookies, {b"test": b'"lemur"', b"test2": b'"panda"'})
+
+
+    def test_parseCookiesMultipleHeaders(self):
+        """
+        L{http.Request.parseCookies} can extract cookies from multiple Cookie
+        headers.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(
+            b"cookie", [b'test="lemur"', b'test2="panda"'])
+        req.parseCookies()
+        self.assertEqual(
+            req.received_cookies, {b"test": b'"lemur"', b"test2": b'"panda"'})
+
+
+    def test_parseCookiesNoCookie(self):
+        """
+        L{http.Request.parseCookies} can be called on a request without a
+        cookie header.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.parseCookies()
+        self.assertEqual(req.received_cookies, {})
+
+
+    def test_parseCookiesEmptyCookie(self):
+        """
+        L{http.Request.parseCookies} can be called on a request with an
+        empty cookie header.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(
+            b"cookie", [])
+        req.parseCookies()
+        self.assertEqual(req.received_cookies, {})
+
+
+    def test_parseCookiesIgnoreValueless(self):
+        """
+        L{http.Request.parseCookies} ignores cookies which don't have a
+        value.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(
+            b"cookie", [b'foo; bar; baz;'])
+        req.parseCookies()
+        self.assertEqual(
+            req.received_cookies, {})
+
+
+    def test_parseCookiesEmptyValue(self):
+        """
+        L{http.Request.parseCookies} parses cookies with an empty value.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(
+            b"cookie", [b'foo='])
+        req.parseCookies()
+        self.assertEqual(
+            req.received_cookies, {b'foo': b''})
+
+
+    def test_parseCookiesRetainRightSpace(self):
+        """
+        L{http.Request.parseCookies} leaves trailing whitespace in the
+        cookie value.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(
+            b"cookie", [b'foo=bar '])
+        req.parseCookies()
+        self.assertEqual(
+            req.received_cookies, {b'foo': b'bar '})
+
+
+    def test_parseCookiesStripLeftSpace(self):
+        """
+        L{http.Request.parseCookies} strips leading whitespace in the
+        cookie key.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(
+            b"cookie", [b' foo=bar'])
+        req.parseCookies()
+        self.assertEqual(
+            req.received_cookies, {b'foo': b'bar'})
+
+
+    def test_parseCookiesContinueAfterMalformedCookie(self):
+        """
+        L{http.Request.parseCookies} parses valid cookies set before or
+        after malformed cookies.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.requestHeaders.setRawHeaders(
+            b"cookie", [b'12345; test="lemur"; 12345; test2="panda"; 12345'])
+        req.parseCookies()
+        self.assertEqual(
+            req.received_cookies, {b"test": b'"lemur"', b"test2": b'"panda"'})
+
+
+    def test_connectionLost(self):
+        """
+        L{http.Request.connectionLost} closes L{Request.content} and drops the
+        reference to the L{HTTPChannel} to assist with garbage collection.
+        """
+        req = http.Request(DummyChannel(), False)
+
+        # Cause Request.content to be created at all.
+        req.gotLength(10)
+
+        # Grab a reference to content in case the Request drops it later on.
+        content = req.content
+
+        # Put some bytes into it
+        req.handleContentChunk(b"hello")
+
+        # Then something goes wrong and content should get closed.
+        req.connectionLost(Failure(ConnectionLost("Finished")))
+        self.assertTrue(content.closed)
+        self.assertIdentical(req.channel, None)
+
+
+    def test_registerProducerTwiceFails(self):
+        """
+        Calling L{Request.registerProducer} when a producer is already
+        registered raises ValueError.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.registerProducer(DummyProducer(), True)
+        self.assertRaises(
+            ValueError, req.registerProducer, DummyProducer(), True)
+
+
+    def test_registerProducerWhenNotQueuedRegistersPushProducer(self):
+        """
+        Calling L{Request.registerProducer} with an IPushProducer when the
+        request is not queued registers the producer as a push producer on the
+        request's transport.
+        """
+        req = http.Request(DummyChannel(), False)
+        producer = DummyProducer()
+        req.registerProducer(producer, True)
+        self.assertEqual([(producer, True)], req.transport.producers)
+
+
+    def test_registerProducerWhenNotQueuedRegistersPullProducer(self):
+        """
+        Calling L{Request.registerProducer} with an IPullProducer when the
+        request is not queued registers the producer as a pull producer on the
+        request's transport.
+        """
+        req = http.Request(DummyChannel(), False)
+        producer = DummyProducer()
+        req.registerProducer(producer, False)
+        self.assertEqual([(producer, False)], req.transport.producers)
+
+
+    def test_connectionLostNotification(self):
+        """
+        L{Request.connectionLost} triggers all finish notification Deferreds
+        and cleans up per-request state.
+        """
+        d = DummyChannel()
+        request = http.Request(d, True)
+        finished = request.notifyFinish()
+        request.connectionLost(Failure(ConnectionLost("Connection done")))
+        self.assertIdentical(request.channel, None)
+        return self.assertFailure(finished, ConnectionLost)
+
+
+    def test_finishNotification(self):
+        """
+        L{Request.finish} triggers all finish notification Deferreds.
+        """
+        request = http.Request(DummyChannel(), False)
+        finished = request.notifyFinish()
+        # Force the request to have a non-None content attribute.  This is
+        # probably a bug in Request.
+        request.gotLength(1)
+        request.finish()
+        return finished
+
+
+    def test_writeAfterFinish(self):
+        """
+        Calling L{Request.write} after L{Request.finish} has been called results
+        in a L{RuntimeError} being raised.
+        """
+        request = http.Request(DummyChannel(), False)
+        finished = request.notifyFinish()
+        # Force the request to have a non-None content attribute.  This is
+        # probably a bug in Request.
+        request.gotLength(1)
+        request.write(b'foobar')
+        request.finish()
+        self.assertRaises(RuntimeError, request.write, b'foobar')
+        return finished
+
+
+    def test_finishAfterConnectionLost(self):
+        """
+        Calling L{Request.finish} after L{Request.connectionLost} has been
+        called results in a L{RuntimeError} being raised.
+        """
+        channel = DummyChannel()
+        req = http.Request(channel, False)
+        req.connectionLost(Failure(ConnectionLost("The end.")))
+        self.assertRaises(RuntimeError, req.finish)
+
+
+    def test_writeAfterConnectionLost(self):
+        """
+        Calling L{Request.write} after L{Request.connectionLost} has been
+        called does not raise an exception. L{RuntimeError} will be raised
+        when finish is called on the request.
+        """
+        channel = DummyChannel()
+        req = http.Request(channel, False)
+        req.connectionLost(Failure(ConnectionLost("The end.")))
+        req.write(b'foobar')
+        self.assertRaises(RuntimeError, req.finish)
+
+
+    def test_reprUninitialized(self):
+        """
+        L{Request.__repr__} returns the class name, object address, and
+        dummy-place holder values when used on a L{Request} which has not yet
+        been initialized.
+        """
+        request = http.Request(DummyChannel(), False)
+        self.assertEqual(
+            repr(request),
+            '<Request at 0x%x method=(no method yet) uri=(no uri yet) '
+            'clientproto=(no clientproto yet)>' % (id(request),))
+
+
+    def test_reprInitialized(self):
+        """
+        L{Request.__repr__} returns, as a L{str}, the class name, object
+        address, and the method, uri, and client protocol of the HTTP request
+        it represents.  The string is in the form::
+
+          <Request at ADDRESS method=METHOD uri=URI clientproto=PROTOCOL>
+       """
+        request = http.Request(DummyChannel(), False)
+        request.clientproto = b'HTTP/1.0'
+        request.method = b'GET'
+        request.uri = b'/foo/bar'
+        self.assertEqual(
+            repr(request),
+            '<Request at 0x%x method=GET uri=/foo/bar '
+            'clientproto=HTTP/1.0>' % (id(request),))
+
+
+    def test_reprSubclass(self):
+        """
+        Subclasses of L{Request} inherit a C{__repr__} implementation which
+        includes the subclass's name in place of the string C{"Request"}.
+        """
+        class Otherwise(http.Request):
+            pass
+
+        request = Otherwise(DummyChannel(), False)
+        self.assertEqual(
+            repr(request),
+            '<Otherwise at 0x%x method=(no method yet) uri=(no uri yet) '
+            'clientproto=(no clientproto yet)>' % (id(request),))
+
+
+    def test_unregisterNonQueuedNonStreamingProducer(self):
+        """
+        L{Request.unregisterProducer} unregisters a non-queued non-streaming
+        producer from the request and the request's transport.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.transport = StringTransport()
+        req.registerProducer(DummyProducer(), False)
+        req.unregisterProducer()
+        self.assertEqual((None, None), (req.producer, req.transport.producer))
+
+
+    def test_unregisterNonQueuedStreamingProducer(self):
+        """
+        L{Request.unregisterProducer} unregisters a non-queued streaming
+        producer from the request and the request's transport.
+        """
+        req = http.Request(DummyChannel(), False)
+        req.transport = StringTransport()
+        req.registerProducer(DummyProducer(), True)
+        req.unregisterProducer()
+        self.assertEqual((None, None), (req.producer, req.transport.producer))
+
+
+    def test_finishProducesLog(self):
+        """
+        L{http.Request.finish} will call the channel's factory to produce a log
+        message.
+        """
+        factory = http.HTTPFactory()
+        factory.timeOut = None
+        factory._logDateTime = "sometime"
+        factory._logDateTimeCall = True
+        factory.startFactory()
+        factory.logFile = BytesIO()
+        proto = factory.buildProtocol(None)
+
+        val = [
+            b"GET /path HTTP/1.1\r\n",
+            b"\r\n\r\n"
+        ]
+
+        trans = StringTransport()
+        proto.makeConnection(trans)
+
+        for x in val:
+            proto.dataReceived(x)
+
+        proto._channel.requests[0].finish()
+
+        # A log message should be written out
+        self.assertIn(b'sometime "GET /path HTTP/1.1"',
+                      factory.logFile.getvalue())
+
+
+    def test_requestBodyTimeoutFromFactory(self):
+        """
+        L{HTTPChannel} timeouts whenever data from a request body is not
+        delivered to it in time, even when it gets built from a L{HTTPFactory}.
+        """
+        clock = Clock()
+        factory = http.HTTPFactory(timeout=100, reactor=clock)
+        factory.startFactory()
+        protocol = factory.buildProtocol(None)
+        transport = StringTransport()
+        protocol = parametrizeTimeoutMixin(protocol, clock)
+
+        # Confirm that the timeout is what we think it is.
+        self.assertEqual(protocol.timeOut, 100)
+
+        protocol.makeConnection(transport)
+        protocol.dataReceived(b'POST / HTTP/1.0\r\nContent-Length: 2\r\n\r\n')
+        clock.advance(99)
+        self.assertFalse(transport.disconnecting)
+        clock.advance(2)
+        self.assertTrue(transport.disconnecting)
+
+
+    def test_finishCleansConnection(self):
+        """
+        L{http.Request.finish} will notify the channel that it is finished, and
+        will put the transport back in the producing state so that the reactor
+        can close the connection.
+        """
+        factory = http.HTTPFactory()
+        factory.timeOut = None
+        factory._logDateTime = "sometime"
+        factory._logDateTimeCall = True
+        factory.startFactory()
+        factory.logFile = BytesIO()
+        proto = factory.buildProtocol(None)
+        proto._channel._optimisticEagerReadSize = 0
+
+        val = [
+            b"GET /path HTTP/1.1\r\n",
+            b"\r\n\r\n"
+        ]
+
+        trans = StringTransport()
+        proto.makeConnection(trans)
+
+        self.assertEqual(trans.producerState, 'producing')
+
+        for x in val:
+            proto.dataReceived(x)
+
+        proto.dataReceived(b'GET ') # just a few extra bytes to exhaust the
+                                    # optimistic buffer size
+        self.assertEqual(trans.producerState, 'paused')
+        proto._channel.requests[0].finish()
+        self.assertEqual(trans.producerState, 'producing')
+
+
+    def test_provides_IDeprecatedHTTPChannelToRequestInterface(self):
+        """
+        L{http.Request} provides
+        L{http._IDeprecatedHTTPChannelToRequestInterface}, which
+        defines the interface used by L{http.HTTPChannel}.
+        """
+        req = http.Request(DummyChannel(), False)
+        verifyObject(http._IDeprecatedHTTPChannelToRequestInterface, req)
+
+
+    def test_eq(self):
+        """
+        A L{http.Request} is equal to itself.
+        """
+        req = http.Request(DummyChannel(), False)
+        self.assertEqual(req, req)
+
+
+    def test_ne(self):
+        """
+        A L{http.Request} is not equal to another object.
+        """
+        req = http.Request(DummyChannel(), False)
+        self.assertNotEqual(req, http.Request(DummyChannel(), False))
+
+
+    def test_hashable(self):
+        """
+        A L{http.Request} is hashable.
+        """
+        req = http.Request(DummyChannel(), False)
+        hash(req)
+
+
+    def test_eqWithNonRequest(self):
+        """
+        A L{http.Request} on the left hand side of an equality
+        comparison to an instance that is not a L{http.Request} hands
+        the comparison off to that object's C{__eq__} implementation.
+        """
+        eqCalls = []
+
+        class _NotARequest(object):
+
+            def __eq__(self, other):
+                eqCalls.append(other)
+                return True
+
+        req = http.Request(DummyChannel(), False)
+
+        self.assertEqual(req, _NotARequest())
+        self.assertEqual(eqCalls, [req])
+
+
+    def test_neWithNonRequest(self):
+        """
+        A L{http.Request} on the left hand side of an inequality
+        comparison to an instance that is not a L{http.Request} hands
+        the comparison off to that object's C{__ne__} implementation.
+        """
+        eqCalls = []
+
+        class _NotARequest(object):
+
+            def __ne__(self, other):
+                eqCalls.append(other)
+                return True
+
+        req = http.Request(DummyChannel(), False)
+
+        self.assertNotEqual(req, _NotARequest())
+        self.assertEqual(eqCalls, [req])
+
+
+    def test_finishProducerStillRegistered(self):
+        """
+        A RuntimeError is logged if a producer is still registered
+        when an L{http.Request} is finished.
+        """
+        logObserver = EventLoggingObserver.createWithCleanup(
+            self,
+            globalLogPublisher
+        )
+        request = http.Request(DummyChannel(), False)
+        request.registerProducer(DummyProducer(), True)
+        request.finish()
+        self.assertEquals(1, len(logObserver))
+        event = logObserver[0]
+        f = event["log_failure"]
+        self.assertIsInstance(f.value, RuntimeError)
+        self.flushLoggedErrors(RuntimeError)
+
+
+    def test_getClientIPWithIPv4(self):
+        """
+        L{http.Request.getClientIP} returns the host part of the
+        client's address when connected over IPv4.
+        """
+        request = http.Request(
+            DummyChannel(peer=address.IPv6Address("TCP", "127.0.0.1", 12344)))
+        self.assertEqual(request.getClientIP(), "127.0.0.1")
+
+
+    def test_getClientIPWithIPv6(self):
+        """
+        L{http.Request.getClientIP} returns the host part of the
+        client's address when connected over IPv6.
+        """
+        request = http.Request(
+            DummyChannel(peer=address.IPv6Address("TCP", "::1", 12344)))
+        self.assertEqual(request.getClientIP(), "::1")
+
+
+    def test_getClientIPWithNonTCPPeer(self):
+        """
+        L{http.Request.getClientIP} returns L{None} for the client's
+        IP address when connected over a non-TCP transport.
+        """
+        request = http.Request(
+            DummyChannel(peer=address.UNIXAddress("/path/to/socket")))
+        self.assertEqual(request.getClientIP(), None)
+
+
+    def test_getClientAddress(self):
+        """
+        L{http.Request.getClientAddress} returns the client's address
+        as an L{IAddress} provider.
+        """
+        client = address.UNIXAddress("/path/to/socket")
+        request = http.Request(DummyChannel(peer=client))
+        self.assertIs(request.getClientAddress(), client)
 
 
 
-class BrokenHTMLTests(TestCase):
+class MultilineHeadersTests(unittest.TestCase):
     """
-    Tests for when microdom encounters very bad HTML and C{beExtremelyLenient}
-    is enabled. These tests are inspired by some HTML generated in by a mailer,
-    which breaks up very long lines by splitting them with '!\n '. The expected
-    behaviour is loosely modelled on the way Firefox treats very bad HTML.
+    Tests to exercise handling of multiline headers by L{HTTPClient}.  RFCs 1945
+    (HTTP 1.0) and 2616 (HTTP 1.1) state that HTTP message header fields can
+    span multiple lines if each extra line is preceded by at least one space or
+    horizontal tab.
+    """
+    def setUp(self):
+        """
+        Initialize variables used to verify that the header-processing functions
+        are getting called.
+        """
+        self.handleHeaderCalled = False
+        self.handleEndHeadersCalled = False
+
+    # Dictionary of sample complete HTTP header key/value pairs, including
+    # multiline headers.
+    expectedHeaders = {b'Content-Length': b'10',
+                       b'X-Multiline' : b'line-0\tline-1',
+                       b'X-Multiline2' : b'line-2 line-3'}
+
+    def ourHandleHeader(self, key, val):
+        """
+        Dummy implementation of L{HTTPClient.handleHeader}.
+        """
+        self.handleHeaderCalled = True
+        self.assertEqual(val, self.expectedHeaders[key])
+
+
+    def ourHandleEndHeaders(self):
+        """
+        Dummy implementation of L{HTTPClient.handleEndHeaders}.
+        """
+        self.handleEndHeadersCalled = True
+
+
+    def test_extractHeader(self):
+        """
+        A header isn't processed by L{HTTPClient.extractHeader} until it is
+        confirmed in L{HTTPClient.lineReceived} that the header has been
+        received completely.
+        """
+        c = ClientDriver()
+        c.handleHeader = self.ourHandleHeader
+        c.handleEndHeaders = self.ourHandleEndHeaders
+
+        c.lineReceived(b'HTTP/1.0 201')
+        c.lineReceived(b'Content-Length: 10')
+        self.assertIdentical(c.length, None)
+        self.assertFalse(self.handleHeaderCalled)
+        self.assertFalse(self.handleEndHeadersCalled)
+
+        # Signal end of headers.
+        c.lineReceived(b'')
+        self.assertTrue(self.handleHeaderCalled)
+        self.assertTrue(self.handleEndHeadersCalled)
+
+        self.assertEqual(c.length, 10)
+
+
+    def test_noHeaders(self):
+        """
+        An HTTP request with no headers will not cause any calls to
+        L{handleHeader} but will cause L{handleEndHeaders} to be called on
+        L{HTTPClient} subclasses.
+        """
+        c = ClientDriver()
+        c.handleHeader = self.ourHandleHeader
+        c.handleEndHeaders = self.ourHandleEndHeaders
+        c.lineReceived(b'HTTP/1.0 201')
+
+        # Signal end of headers.
+        c.lineReceived(b'')
+        self.assertFalse(self.handleHeaderCalled)
+        self.assertTrue(self.handleEndHeadersCalled)
+
+        self.assertEqual(c.version, b'HTTP/1.0')
+        self.assertEqual(c.status, b'201')
+
+
+    def test_multilineHeaders(self):
+        """
+        L{HTTPClient} parses multiline headers by buffering header lines until
+        an empty line or a line that does not start with whitespace hits
+        lineReceived, confirming that the header has been received completely.
+        """
+        c = ClientDriver()
+        c.handleHeader = self.ourHandleHeader
+        c.handleEndHeaders = self.ourHandleEndHeaders
+
+        c.lineReceived(b'HTTP/1.0 201')
+        c.lineReceived(b'X-Multiline: line-0')
+        self.assertFalse(self.handleHeaderCalled)
+        # Start continuing line with a tab.
+        c.lineReceived(b'\tline-1')
+        c.lineReceived(b'X-Multiline2: line-2')
+        # The previous header must be complete, so now it can be processed.
+        self.assertTrue(self.handleHeaderCalled)
+        # Start continuing line with a space.
+        c.lineReceived(b' line-3')
+        c.lineReceived(b'Content-Length: 10')
+
+        # Signal end of headers.
+        c.lineReceived(b'')
+        self.assertTrue(self.handleEndHeadersCalled)
+
+        self.assertEqual(c.version, b'HTTP/1.0')
+        self.assertEqual(c.status, b'201')
+        self.assertEqual(c.length, 10)
+
+
+
+class Expect100ContinueServerTests(unittest.TestCase, ResponseTestMixin):
+    """
+    Test that the HTTP server handles 'Expect: 100-continue' header correctly.
+
+    The tests in this class all assume a simplistic behavior where user code
+    cannot choose to deny a request. Once ticket #288 is implemented and user
+    code can run before the body of a POST is processed this should be
+    extended to support overriding this behavior.
     """
 
-    def checkParsed(self, input, expected, beExtremelyLenient=1):
+    def test_HTTP10(self):
         """
-        Check that C{input}, when parsed, produces a DOM where the XML
-        of the document element is equal to C{expected}.
+        HTTP/1.0 requests do not get 100-continue returned, even if 'Expect:
+        100-continue' is included (RFC 2616 10.1.1).
         """
-        output = microdom.parseString(input,
-                                      beExtremelyLenient=beExtremelyLenient)
-        self.assertEqual(output.documentElement.toxml(), expected)
+        transport = StringTransport()
+        channel = http.HTTPChannel()
+        channel.requestFactory = DummyHTTPHandlerProxy
+        channel.makeConnection(transport)
+        channel.dataReceived(b"GET / HTTP/1.0\r\n")
+        channel.dataReceived(b"Host: www.example.com\r\n")
+        channel.dataReceived(b"Content-Length: 3\r\n")
+        channel.dataReceived(b"Expect: 100-continue\r\n")
+        channel.dataReceived(b"\r\n")
+        self.assertEqual(transport.value(), b"")
+        channel.dataReceived(b"abc")
+        self.assertResponseEquals(
+            transport.value(),
+            [(b"HTTP/1.0 200 OK",
+              b"Command: GET",
+              b"Content-Length: 13",
+              b"Version: HTTP/1.0",
+              b"Request: /",
+              b"'''\n3\nabc'''\n")])
 
 
-    def test_brokenAttributeName(self):
+    def test_expect100ContinueHeader(self):
         """
-        Check that microdom does its best to handle broken attribute names.
-        The important thing is that it doesn't raise an exception.
+        If a HTTP/1.1 client sends a 'Expect: 100-continue' header, the server
+        responds with a 100 response code before handling the request body, if
+        any. The normal resource rendering code will then be called, which
+        will send an additional response code.
         """
-        input = '<body><h1><div al!\n ign="center">Foo</div></h1></body>'
-        expected = ('<body><h1><div al="True" ign="center">'
-                    'Foo</div></h1></body>')
-        self.checkParsed(input, expected)
-
-
-    def test_brokenAttributeValue(self):
-        """
-        Check that microdom encompasses broken attribute values.
-        """
-        input = '<body><h1><div align="cen!\n ter">Foo</div></h1></body>'
-        expected = '<body><h1><div align="cen!\n ter">Foo</div></h1></body>'
-        self.checkParsed(input, expected)
-
-
-    def test_brokenOpeningTag(self):
-        """
-        Check that microdom does its best to handle broken opening tags.
-        The important thing is that it doesn't raise an exception.
-        """
-        input = '<body><h1><sp!\n an>Hello World!</span></h1></body>'
-        expected = '<body><h1><sp an="True">Hello World!</sp></h1></body>'
-        self.checkParsed(input, expected)
-
-
-    def test_brokenSelfClosingTag(self):
-        """
-        Check that microdom does its best to handle broken self-closing tags
-        The important thing is that it doesn't raise an exception.
-        """
-        self.checkParsed('<body><span /!\n></body>',
-                         '<body><span></span></body>')
-        self.checkParsed('<span!\n />', '<span></span>')
-
-
-    def test_brokenClosingTag(self):
-        """
-        Check that microdom does its best to handle broken closing tags.
-        The important thing is that it doesn't raise an exception.
-        """
-        input = '<body><h1><span>Hello World!</sp!\nan></h1></body>'
-        expected = '<body><h1><span>Hello World!</span></h1></body>'
-        self.checkParsed(input, expected)
-        input = '<body><h1><span>Hello World!</!\nspan></h1></body>'
-        self.checkParsed(input, expected)
-        input = '<body><h1><span>Hello World!</span!\n></h1></body>'
-        self.checkParsed(input, expected)
-        input = '<body><h1><span>Hello World!<!\n/span></h1></body>'
-        expected = '<body><h1><span>Hello World!<!></!></span></h1></body>'
-        self.checkParsed(input, expected)
-
-
-
-class NodeTests(TestCase):
-    """
-    Tests for L{Node}.
-    """
-    def test_isNodeEqualTo(self):
-        """
-        L{Node.isEqualToNode} returns C{True} if and only if passed a L{Node}
-        with the same children.
-        """
-        # A node is equal to itself
-        node = microdom.Node(object())
-        self.assertTrue(node.isEqualToNode(node))
-        another = microdom.Node(object())
-        # Two nodes with no children are equal
-        self.assertTrue(node.isEqualToNode(another))
-        node.appendChild(microdom.Node(object()))
-        # A node with no children is not equal to a node with a child
-        self.assertFalse(node.isEqualToNode(another))
-        another.appendChild(microdom.Node(object()))
-        # A node with a child and no grandchildren is equal to another node
-        # with a child and no grandchildren.
-        self.assertTrue(node.isEqualToNode(another))
-        # A node with a child and a grandchild is not equal to another node
-        # with a child and no grandchildren.
-        node.firstChild().appendChild(microdom.Node(object()))
-        self.assertFalse(node.isEqualToNode(another))
-        # A node with a child and a grandchild is equal to another node with a
-        # child and a grandchild.
-        another.firstChild().appendChild(microdom.Node(object()))
-        self.assertTrue(node.isEqualToNode(another))
-
-
-    def test_validChildInstance(self):
-        """
-        Children of L{Node} instances must also be L{Node} instances.
-        """
-        node = microdom.Node()
-        child = microdom.Node()
-        # Node.appendChild() only accepts Node instances.
-        node.appendChild(child)
-        self.assertRaises(TypeError, node.appendChild, None)
-        # Node.insertBefore() only accepts Node instances.
-        self.assertRaises(TypeError, node.insertBefore, child, None)
-        self.assertRaises(TypeError, node.insertBefore, None, child)
-        self.assertRaises(TypeError, node.insertBefore, None, None)
-        # Node.removeChild() only accepts Node instances.
-        node.removeChild(child)
-        self.assertRaises(TypeError, node.removeChild, None)
-        # Node.replaceChild() only accepts Node instances.
-        self.assertRaises(TypeError, node.replaceChild, child, None)
-        self.assertRaises(TypeError, node.replaceChild, None, child)
-        self.assertRaises(TypeError, node.replaceChild, None, None)
-
-
-
-class DocumentTests(TestCase):
-    """
-    Tests for L{Document}.
-    """
-    doctype = 'foo PUBLIC "baz" "http://www.example.com/example.dtd"'
-
-    def test_isEqualToNode(self):
-        """
-        L{Document.isEqualToNode} returns C{True} if and only if passed a
-        L{Document} with the same C{doctype} and C{documentElement}.
-        """
-        # A document is equal to itself
-        document = microdom.Document()
-        self.assertTrue(document.isEqualToNode(document))
-        # A document without a doctype or documentElement is equal to another
-        # document without a doctype or documentElement.
-        another = microdom.Document()
-        self.assertTrue(document.isEqualToNode(another))
-        # A document with a doctype is not equal to a document without a
-        # doctype.
-        document.doctype = self.doctype
-        self.assertFalse(document.isEqualToNode(another))
-        # Two documents with the same doctype are equal
-        another.doctype = self.doctype
-        self.assertTrue(document.isEqualToNode(another))
-        # A document with a documentElement is not equal to a document without
-        # a documentElement
-        document.appendChild(microdom.Node(object()))
-        self.assertFalse(document.isEqualToNode(another))
-        # Two documents with equal documentElements are equal.
-        another.appendChild(microdom.Node(object()))
-        self.assertTrue(document.isEqualToNode(another))
-        # Two documents with documentElements which are not equal are not
-        # equal.
-        document.documentElement.appendChild(microdom.Node(object()))
-        self.assertFalse(document.isEqualToNode(another))
-
-
-    def test_childRestriction(self):
-        """
-        L{Document.appendChild} raises L{ValueError} if the document already
-        has a child.
-        """
-        document = microdom.Document()
-        child = microdom.Node()
-        another = microdom.Node()
-        document.appendChild(child)
-        self.assertRaises(ValueError, document.appendChild, another)
-
-
-
-class EntityReferenceTests(TestCase):
-    """
-    Tests for L{EntityReference}.
-    """
-    def test_isEqualToNode(self):
-        """
-        L{EntityReference.isEqualToNode} returns C{True} if and only if passed
-        a L{EntityReference} with the same C{eref}.
-        """
+        transport = StringTransport()
+        channel = http.HTTPChannel()
+        channel.requestFactory = DummyHTTPHandlerProxy
+        channel.makeConnection(transport)
+        channel.dataReceived(b"GET / HTTP/1.1\r\n")
+        channel.dataReceived(b"Host: www.example.com\r\n")
+        channel.dataReceived(b"Expect: 100-continue\r\n")
+        channel.dataReceived(b"Content-Length: 3\r\n")
+        # The 100 continue response is not sent until all headers are
+        # received:
+        self.assertEqual(transport.value(), b"")
+        channel.dataReceived(b"\r\n")
+        # The 100 continue response is sent *before* the body is even
+        # received:
+        self.assertEqual(transport.value(), b"HTTP/1.1 100 Continue\r\n\r\n")
+        channel.dataReceived(b"abc")
+        response = transport.value()
         self.assertTrue(
-            microdom.EntityReference('quot').isEqualToNode(
-                microdom.EntityReference('quot')))
-        self.assertFalse(
-            microdom.EntityReference('quot').isEqualToNode(
-                microdom.EntityReference('apos')))
+            response.startswith(b"HTTP/1.1 100 Continue\r\n\r\n"))
+        response = response[len(b"HTTP/1.1 100 Continue\r\n\r\n"):]
+        self.assertResponseEquals(
+            response,
+            [(b"HTTP/1.1 200 OK",
+              b"Command: GET",
+              b"Content-Length: 13",
+              b"Version: HTTP/1.1",
+              b"Request: /",
+              b"'''\n3\nabc'''\n")])
 
 
 
-class CharacterDataTests(TestCase):
+def sub(keys, d):
     """
-    Tests for L{CharacterData}.
+    Create a new dict containing only a subset of the items of an existing
+    dict.
+
+    @param keys: An iterable of the keys which will be added (with values from
+        C{d}) to the result.
+
+    @param d: The existing L{dict} from which to copy items.
+
+    @return: The new L{dict} with keys given by C{keys} and values given by the
+        corresponding values in C{d}.
+    @rtype: L{dict}
     """
-    def test_isEqualToNode(self):
-        """
-        L{CharacterData.isEqualToNode} returns C{True} if and only if passed a
-        L{CharacterData} with the same value.
-        """
-        self.assertTrue(
-            microdom.CharacterData('foo').isEqualToNode(
-                microdom.CharacterData('foo')))
-        self.assertFalse(
-            microdom.CharacterData('foo').isEqualToNode(
-                microdom.CharacterData('bar')))
+    return dict([(k, d[k]) for k in keys])
 
 
 
-class CommentTests(TestCase):
+class DeprecatedRequestAttributesTests(unittest.TestCase):
     """
-    Tests for L{Comment}.
+    Tests for deprecated attributes of L{twisted.web.http.Request}.
     """
-    def test_isEqualToNode(self):
+
+    def test_getClientIP(self):
         """
-        L{Comment.isEqualToNode} returns C{True} if and only if passed a
-        L{Comment} with the same value.
+        L{Request.getClientIP} is deprecated in favor of
+        L{Request.getClientAddress}.
         """
-        self.assertTrue(
-            microdom.Comment('foo').isEqualToNode(
-                microdom.Comment('foo')))
-        self.assertFalse(
-            microdom.Comment('foo').isEqualToNode(
-                microdom.Comment('bar')))
+        request = http.Request(
+            DummyChannel(peer=address.IPv6Address("TCP", "127.0.0.1", 12345)))
+        request.gotLength(0)
+        request.requestReceived(b"GET", b"/", b"HTTP/1.1")
+        request.getClientIP()
+
+        warnings = self.flushWarnings(
+            offendingFunctions=[self.test_getClientIP])
+
+        self.assertEqual(1, len(warnings))
+        self.assertEqual({
+                "category": DeprecationWarning,
+                "message": (
+                    "twisted.web.http.Request.getClientIP was deprecated "
+                    "in Twisted 18.4.0; please use getClientAddress instead")},
+                         sub(["category", "message"], warnings[0]))
+
+
+    def test_noLongerQueued(self):
+        """
+        L{Request.noLongerQueued} is deprecated, as we no longer process
+        requests simultaneously.
+        """
+        channel = DummyChannel()
+        request = http.Request(channel)
+        request.noLongerQueued()
+
+        warnings = self.flushWarnings(
+            offendingFunctions=[self.test_noLongerQueued])
+
+        self.assertEqual(1, len(warnings))
+        self.assertEqual({
+                "category": DeprecationWarning,
+                "message": (
+                    "twisted.web.http.Request.noLongerQueued was deprecated "
+                    "in Twisted 16.3.0")},
+                         sub(["category", "message"], warnings[0]))
 
 
 
-class TextTests(TestCase):
+class ChannelProductionTests(unittest.TestCase):
     """
-    Tests for L{Text}.
+    Tests for the way HTTPChannel manages backpressure.
     """
-    def test_isEqualToNode(self):
+    request = (
+        b'GET / HTTP/1.1\r\n'
+        b'Host: localhost\r\n'
+        b'\r\n'
+    )
+
+
+    def buildChannelAndTransport(self, transport, requestFactory):
         """
-        L{Text.isEqualToNode} returns C{True} if and only if passed a L{Text}
-        which represents the same data.
+        Setup a L{HTTPChannel} and a transport and associate them.
+
+        @param transport: A transport to back the L{HTTPChannel}
+        @param requestFactory: An object that can construct L{Request} objects.
+        @return: A tuple of the channel and the transport.
         """
-        self.assertTrue(
-            microdom.Text('foo', raw=True).isEqualToNode(
-                microdom.Text('foo', raw=True)))
-        self.assertFalse(
-            microdom.Text('foo', raw=True).isEqualToNode(
-                microdom.Text('foo', raw=False)))
-        self.assertFalse(
-            microdom.Text('foo', raw=True).isEqualToNode(
-                microdom.Text('bar', raw=True)))
+        transport = transport
+        channel = http.HTTPChannel()
+        channel.requestFactory = _makeRequestProxyFactory(requestFactory)
+        channel.makeConnection(transport)
+
+        return channel, transport
+
+
+    def test_HTTPChannelIsAProducer(self):
+        """
+        L{HTTPChannel} registers itself as a producer with its transport when a
+        connection is made.
+        """
+        channel, transport = self.buildChannelAndTransport(
+            StringTransport(), DummyHTTPHandler
+        )
+
+        self.assertEqual(transport.producer, channel)
+        self.assertTrue(transport.streaming)
+
+
+    def test_HTTPChannelUnregistersSelfWhenCallingLoseConnection(self):
+        """
+        L{HTTPChannel} unregisters itself when it has loseConnection called.
+        """
+        channel, transport = self.buildChannelAndTransport(
+            StringTransport(), DummyHTTPHandler
+        )
+        channel.loseConnection()
+
+        self.assertIs(transport.producer, None)
+        self.assertIs(transport.streaming, None)
+
+
+    def test_HTTPChannelRejectsMultipleProducers(self):
+        """
+        If two producers are registered on a L{HTTPChannel} without the first
+        being unregistered, a L{RuntimeError} is thrown.
+        """
+        channel, transport = self.buildChannelAndTransport(
+            StringTransport(), DummyHTTPHandler
+        )
+
+        channel.registerProducer(DummyProducer(), True)
+        self.assertRaises(
+            RuntimeError, channel.registerProducer, DummyProducer(), True
+        )
+
+
+    def test_HTTPChannelCanUnregisterWithNoProducer(self):
+        """
+        If there is no producer, the L{HTTPChannel} can still have
+        C{unregisterProducer} called.
+        """
+        channel, transport = self.buildChannelAndTransport(
+            StringTransport(), DummyHTTPHandler
+        )
+
+        channel.unregisterProducer()
+        self.assertIs(channel._requestProducer, None)
+
+
+    def test_HTTPChannelStopWithNoRequestOutstanding(self):
+        """
+        If there is no request producer currently registered, C{stopProducing}
+        does nothing.
+        """
+        channel, transport = self.buildChannelAndTransport(
+            StringTransport(), DummyHTTPHandler
+        )
+
+        channel.unregisterProducer()
+        self.assertIs(channel._requestProducer, None)
+
+
+    def test_HTTPChannelStopRequestProducer(self):
+        """
+        If there is a request producer registered with L{HTTPChannel}, calling
+        C{stopProducing} causes that producer to be stopped as well.
+        """
+        channel, transport = self.buildChannelAndTransport(
+            StringTransport(), DelayedHTTPHandler
+        )
+
+        # Feed a request in to spawn a Request object, then grab it.
+        channel.dataReceived(self.request)
+        request = channel.requests[0].original
+
+        # Register a dummy producer.
+        producer = DummyProducer()
+        request.registerProducer(producer, True)
+
+        # The dummy producer is currently unpaused.
+        self.assertEqual(producer.events, [])
+
+        # The transport now stops production. This stops the request producer.
+        channel.stopProducing()
+        self.assertEqual(producer.events, ['stop'])
+
+
+    def test_HTTPChannelPropagatesProducingFromTransportToTransport(self):
+        """
+        When L{HTTPChannel} has C{pauseProducing} called on it by the transport
+        it will call C{pauseProducing} on the transport. When unpaused, the
+        L{HTTPChannel} will call C{resumeProducing} on its transport.
+        """
+        channel, transport = self.buildChannelAndTransport(
+            StringTransport(), DummyHTTPHandler
+        )
+
+        # The transport starts in producing state.
+        self.assertEqual(transport.producerState, 'producing')
+
+        # Pause producing. The transport should now be paused as well.
+        channel.pauseProducing()
+        self.assertEqual(transport.producerState, 'paused')
+
+        # Resume producing. The transport should be unpaused.
+        channel.resumeProducing()
+        self.assertEqual(transport.producerState, 'producing')
+
+
+    def test_HTTPChannelPropagatesPausedProductionToRequest(self):
+        """
+        If a L{Request} object has registered itself as a producer with a
+        L{HTTPChannel} object, and the L{HTTPChannel} object is paused, both
+        the transport and L{Request} objects get paused.
+        """
+        channel, transport = self.buildChannelAndTransport(
+            StringTransport(), DelayedHTTPHandler
+        )
+        channel._optimisticEagerReadSize = 0
+
+        # Feed a request in to spawn a Request object, then grab it.
+        channel.dataReceived(self.request)
+        # A little extra data to pause the transport.
+        channel.dataReceived(b'123')
+        request = channel.requests[0].original
+
+        # Register a dummy producer.
+        producer = DummyProducer()
+        request.registerProducer(producer, True)
+
+        # Note that the transport is paused while it waits for a response.
+        # The dummy producer, however, is unpaused.
+        self.assertEqual(transport.producerState, 'paused')
+        self.assertEqual(producer.events, [])
+
+        # The transport now pauses production. This causes the producer to be
+        # paused. The transport stays paused.
+        channel.pauseProducing()
+        self.assertEqual(transport.producerState, 'paused')
+        self.assertEqual(producer.events, ['pause'])
+
+        # The transport has become unblocked and resumes production. This
+        # unblocks the dummy producer, but leaves the transport blocked.
+        channel.resumeProducing()
+        self.assertEqual(transport.producerState, 'paused')
+        self.assertEqual(producer.events, ['pause', 'resume'])
+
+        # Unregister the producer and then complete the response. Because the
+        # channel is not paused, the transport now gets unpaused.
+        request.unregisterProducer()
+        request.delayedProcess()
+        self.assertEqual(transport.producerState, 'producing')
+
+
+    def test_HTTPChannelStaysPausedWhenRequestCompletes(self):
+        """
+        If a L{Request} object completes its response while the transport is
+        paused, the L{HTTPChannel} does not resume the transport.
+        """
+        channel, transport = self.buildChannelAndTransport(
+            StringTransport(), DelayedHTTPHandler
+        )
+
+        channel._optimisticEagerReadSize = 0
+
+        # Feed a request in to spawn a Request object, then grab it.
+        channel.dataReceived(self.request)
+        channel.dataReceived(b'extra') # exceed buffer size to pause the
+                                       # transport.
+        request = channel.requests[0].original
+
+        # Register a dummy producer.
+        producer = DummyProducer()
+        request.registerProducer(producer, True)
+
+        # Note that the transport is paused while it waits for a response.
+        # The dummy producer, however, is unpaused.
+        self.assertEqual(transport.producerState, 'paused')
+        self.assertEqual(producer.events, [])
+
+        # The transport now pauses production. This causes the producer to be
+        # paused. The transport stays paused.
+        channel.pauseProducing()
+        self.assertEqual(transport.producerState, 'paused')
+        self.assertEqual(producer.events, ['pause'])
+
+        # Unregister the producer and then complete the response. Because the
+        # channel is still paused, the transport stays paused
+        request.unregisterProducer()
+        request.delayedProcess()
+        self.assertEqual(transport.producerState, 'paused')
+
+        # At this point the channel is resumed, and so is the transport.
+        channel.resumeProducing()
+        self.assertEqual(transport.producerState, 'producing')
+
+
+    def test_HTTPChannelToleratesDataWhenTransportPaused(self):
+        """
+        If the L{HTTPChannel} has paused the transport, it still tolerates
+        receiving data, and does not attempt to pause the transport again.
+        """
+        class NoDoublePauseTransport(StringTransport):
+            """
+            A version of L{StringTransport} that fails tests if it is paused
+            while already paused.
+            """
+            def pauseProducing(self):
+                if self.producerState == 'paused':
+                    raise RuntimeError("Transport was paused twice!")
+                StringTransport.pauseProducing(self)
+
+        # Confirm that pausing a NoDoublePauseTransport twice fails.
+        transport = NoDoublePauseTransport()
+        transport.pauseProducing()
+        self.assertRaises(RuntimeError, transport.pauseProducing)
+
+        channel, transport = self.buildChannelAndTransport(
+            NoDoublePauseTransport(), DummyHTTPHandler
+        )
+
+        # The transport starts in producing state.
+        self.assertEqual(transport.producerState, 'producing')
+
+        # Pause producing. The transport should now be paused as well.
+        channel.pauseProducing()
+        self.assertEqual(transport.producerState, 'paused')
+
+        # Write in a request, even though the transport is paused.
+        channel.dataReceived(self.request)
+
+        # The transport is still paused, but we have tried to write the
+        # response out.
+        self.assertEqual(transport.producerState, 'paused')
+        self.assertTrue(transport.value().startswith(b'HTTP/1.1 200 OK\r\n'))
+
+        # Resume producing. The transport should be unpaused.
+        channel.resumeProducing()
+        self.assertEqual(transport.producerState, 'producing')
+
+
+    def test_HTTPChannelToleratesPullProducers(self):
+        """
+        If the L{HTTPChannel} has a L{IPullProducer} registered with it it can
+        adapt that producer into an L{IPushProducer}.
+        """
+        channel, transport = self.buildChannelAndTransport(
+            StringTransport(), DummyPullProducerHandler
+        )
+        transport = StringTransport()
+        channel = http.HTTPChannel()
+        channel.requestFactory = DummyPullProducerHandlerProxy
+        channel.makeConnection(transport)
+
+        channel.dataReceived(self.request)
+        request = channel.requests[0].original
+        responseComplete = request._actualProducer.result
+
+        def validate(ign):
+            responseBody = transport.value().split(b'\r\n\r\n', 1)[1]
+            expectedResponseBody = (
+                b'1\r\n0\r\n'
+                b'1\r\n1\r\n'
+                b'1\r\n2\r\n'
+                b'1\r\n3\r\n'
+                b'1\r\n4\r\n'
+                b'1\r\n5\r\n'
+                b'1\r\n6\r\n'
+                b'1\r\n7\r\n'
+                b'1\r\n8\r\n'
+                b'1\r\n9\r\n'
+            )
+            self.assertEqual(responseBody, expectedResponseBody)
+
+        return responseComplete.addCallback(validate)
+
+
+    def test_HTTPChannelUnregistersSelfWhenTimingOut(self):
+        """
+        L{HTTPChannel} unregisters itself when it times out a connection.
+        """
+        clock = Clock()
+        transport = StringTransport()
+        channel = http.HTTPChannel()
+
+        # Patch the channel's callLater method.
+        channel.timeOut = 100
+        channel.callLater = clock.callLater
+        channel.makeConnection(transport)
+
+        # Tick the clock forward almost to the timeout.
+        clock.advance(99)
+        self.assertIs(transport.producer, channel)
+        self.assertIs(transport.streaming, True)
+
+        # Fire the timeout.
+        clock.advance(1)
+        self.assertIs(transport.producer, None)
+        self.assertIs(transport.streaming, None)
 
 
 
-class CDATASectionTests(TestCase):
+class HTTPChannelSanitizationTests(unittest.SynchronousTestCase):
     """
-    Tests for L{CDATASection}.
+    Test that L{HTTPChannel} sanitizes its output.
     """
-    def test_isEqualToNode(self):
+
+    def test_writeHeadersSanitizesLinearWhitespace(self):
         """
-        L{CDATASection.isEqualToNode} returns C{True} if and only if passed a
-        L{CDATASection} which represents the same data.
+        L{HTTPChannel.writeHeaders} removes linear whitespace from the
+        list of header names and values it receives.
         """
-        self.assertTrue(
-            microdom.CDATASection('foo').isEqualToNode(
-                microdom.CDATASection('foo')))
-        self.assertFalse(
-            microdom.CDATASection('foo').isEqualToNode(
-                microdom.CDATASection('bar')))
+        for component in bytesLinearWhitespaceComponents:
+            transport = StringTransport()
+            channel = http.HTTPChannel()
+            channel.makeConnection(transport)
+
+            channel.writeHeaders(
+                version=b"HTTP/1.1",
+                code=b"200",
+                reason=b"OK",
+                headers=[(component, component)])
+
+            sanitizedHeaderLine = b": ".join([
+                sanitizedBytes, sanitizedBytes,
+            ]) + b'\r\n'
+
+            self.assertEqual(
+                transport.value(),
+                b"\r\n".join([
+                    b"HTTP/1.1 200 OK",
+                    sanitizedHeaderLine,
+                    b'',
+                ]))
 
 
 
-class ElementTests(TestCase):
+class HTTPClientSanitizationTests(unittest.SynchronousTestCase):
     """
-    Tests for L{Element}.
+    Test that L{http.HTTPClient} sanitizes its output.
     """
-    def test_isEqualToNode(self):
+
+    def test_sendHeaderSanitizesLinearWhitespace(self):
         """
-        L{Element.isEqualToNode} returns C{True} if and only if passed a
-        L{Element} with the same C{nodeName}, C{namespace}, C{childNodes}, and
-        C{attributes}.
+        L{HTTPClient.sendHeader} replaces linear whitespace in its
+        header keys and values with a single space.
         """
-        self.assertTrue(
-            microdom.Element(
-                'foo', {'a': 'b'}, object(), namespace='bar').isEqualToNode(
-                microdom.Element(
-                    'foo', {'a': 'b'}, object(), namespace='bar')))
-
-        # Elements with different nodeName values do not compare equal.
-        self.assertFalse(
-            microdom.Element(
-                'foo', {'a': 'b'}, object(), namespace='bar').isEqualToNode(
-                microdom.Element(
-                    'bar', {'a': 'b'}, object(), namespace='bar')))
-
-        # Elements with different namespaces do not compare equal.
-        self.assertFalse(
-            microdom.Element(
-                'foo', {'a': 'b'}, object(), namespace='bar').isEqualToNode(
-                microdom.Element(
-                    'foo', {'a': 'b'}, object(), namespace='baz')))
-
-        # Elements with different childNodes do not compare equal.
-        one = microdom.Element('foo', {'a': 'b'}, object(), namespace='bar')
-        two = microdom.Element('foo', {'a': 'b'}, object(), namespace='bar')
-        two.appendChild(microdom.Node(object()))
-        self.assertFalse(one.isEqualToNode(two))
-
-        # Elements with different attributes do not compare equal.
-        self.assertFalse(
-            microdom.Element(
-                'foo', {'a': 'b'}, object(), namespace='bar').isEqualToNode(
-                microdom.Element(
-                    'foo', {'a': 'c'}, object(), namespace='bar')))
+        for component in bytesLinearWhitespaceComponents:
+            transport = StringTransport()
+            client = http.HTTPClient()
+            client.makeConnection(transport)
+            client.sendHeader(component, component)
+            self.assertEqual(
+                transport.value().splitlines(),
+                [b": ".join([sanitizedBytes, sanitizedBytes])]
+            )

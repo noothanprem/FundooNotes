@@ -1,1 +1,1 @@
-Îe>venv/lib/python3.6/site-packages/chardet/codingstatemachine.py 2pyXYh
+Îe6venv/lib/python3.6/site-packages/chardet/utf8prober.py 2pyXSh

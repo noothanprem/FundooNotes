@@ -1,1 +1,1 @@
-À²Pvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/fields/__init__.py 2pyX&h
+À²Nvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/fields/common.py 2pyXbh

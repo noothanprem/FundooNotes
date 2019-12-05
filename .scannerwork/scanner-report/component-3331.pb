@@ -1,1 +1,1 @@
-É1venv/lib/python3.6/site-packages/redis/_compat.py 2pyXæh
+É&venv/lib/python3.6/site-packages/redis :ÇÑÖÜáèëí

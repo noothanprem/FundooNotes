@@ -1,138 +1,73 @@
 #
-# Python Imaging Library
+# The Python Imaging Library
 # $Id$
 #
-# stuff to read (and render) GIMP gradient files
+# GRIB stub adapter
 #
-# History:
-#       97-08-23 fl     Created
-#
-# Copyright (c) Secret Labs AB 1997.
-# Copyright (c) Fredrik Lundh 1997.
+# Copyright (c) 1996-2003 by Fredrik Lundh
 #
 # See the README file for information on usage and redistribution.
 #
 
-from math import pi, log, sin, sqrt
-from ._binary import o8
+from . import Image, ImageFile
+from ._binary import i8
+
+_handler = None
+
+
+def register_handler(handler):
+    """
+    Install application-specific GRIB image handler.
+
+    :param handler: Handler object.
+    """
+    global _handler
+    _handler = handler
+
 
 # --------------------------------------------------------------------
-# Stuff to translate curve segments to palette values (derived from
-# the corresponding code in GIMP, written by Federico Mena Quintero.
-# See the GIMP distribution for more information.)
-#
+# Image adapter
 
-EPSILON = 1e-10
+def _accept(prefix):
+    return prefix[0:4] == b"GRIB" and i8(prefix[7]) == 1
 
 
-def linear(middle, pos):
-    if pos <= middle:
-        if middle < EPSILON:
-            return 0.0
-        else:
-            return 0.5 * pos / middle
-    else:
-        pos = pos - middle
-        middle = 1.0 - middle
-        if middle < EPSILON:
-            return 1.0
-        else:
-            return 0.5 + 0.5 * pos / middle
+class GribStubImageFile(ImageFile.StubImageFile):
+
+    format = "GRIB"
+    format_description = "GRIB"
+
+    def _open(self):
+
+        offset = self.fp.tell()
+
+        if not _accept(self.fp.read(8)):
+            raise SyntaxError("Not a GRIB file")
+
+        self.fp.seek(offset)
+
+        # make something up
+        self.mode = "F"
+        self.size = 1, 1
+
+        loader = self._load()
+        if loader:
+            loader.open(self)
+
+    def _load(self):
+        return _handler
 
 
-def curved(middle, pos):
-    return pos ** (log(0.5) / log(max(middle, EPSILON)))
+def _save(im, fp, filename):
+    if _handler is None or not hasattr("_handler", "save"):
+        raise IOError("GRIB save handler not installed")
+    _handler.save(im, fp, filename)
 
 
-def sine(middle, pos):
-    return (sin((-pi / 2.0) + pi * linear(middle, pos)) + 1.0) / 2.0
+# --------------------------------------------------------------------
+# Registry
 
+Image.register_open(GribStubImageFile.format, GribStubImageFile, _accept)
+Image.register_save(GribStubImageFile.format, _save)
 
-def sphere_increasing(middle, pos):
-    return sqrt(1.0 - (linear(middle, pos) - 1.0) ** 2)
-
-
-def sphere_decreasing(middle, pos):
-    return 1.0 - sqrt(1.0 - linear(middle, pos) ** 2)
-
-
-SEGMENTS = [linear, curved, sine, sphere_increasing, sphere_decreasing]
-
-
-class GradientFile(object):
-
-    gradient = None
-
-    def getpalette(self, entries=256):
-
-        palette = []
-
-        ix = 0
-        x0, x1, xm, rgb0, rgb1, segment = self.gradient[ix]
-
-        for i in range(entries):
-
-            x = i / float(entries-1)
-
-            while x1 < x:
-                ix += 1
-                x0, x1, xm, rgb0, rgb1, segment = self.gradient[ix]
-
-            w = x1 - x0
-
-            if w < EPSILON:
-                scale = segment(0.5, 0.5)
-            else:
-                scale = segment((xm - x0) / w, (x - x0) / w)
-
-            # expand to RGBA
-            r = o8(int(255 * ((rgb1[0] - rgb0[0]) * scale + rgb0[0]) + 0.5))
-            g = o8(int(255 * ((rgb1[1] - rgb0[1]) * scale + rgb0[1]) + 0.5))
-            b = o8(int(255 * ((rgb1[2] - rgb0[2]) * scale + rgb0[2]) + 0.5))
-            a = o8(int(255 * ((rgb1[3] - rgb0[3]) * scale + rgb0[3]) + 0.5))
-
-            # add to palette
-            palette.append(r + g + b + a)
-
-        return b"".join(palette), "RGBA"
-
-
-##
-# File handler for GIMP's gradient format.
-
-class GimpGradientFile(GradientFile):
-
-    def __init__(self, fp):
-
-        if fp.readline()[:13] != b"GIMP Gradient":
-            raise SyntaxError("not a GIMP gradient file")
-
-        line = fp.readline()
-
-        # GIMP 1.2 gradient files don't contain a name, but GIMP 1.3 files do
-        if line.startswith(b"Name: "):
-            line = fp.readline().strip()
-
-        count = int(line)
-
-        gradient = []
-
-        for i in range(count):
-
-            s = fp.readline().split()
-            w = [float(x) for x in s[:11]]
-
-            x0, x1 = w[0], w[2]
-            xm = w[1]
-            rgb0 = w[3:7]
-            rgb1 = w[7:11]
-
-            segment = SEGMENTS[int(s[11])]
-            cspace = int(s[12])
-
-            if cspace != 0:
-                raise IOError("cannot handle HSV colour space")
-
-            gradient.append((x0, x1, xm, rgb0, rgb1, segment))
-
-        self.gradient = gradient
+Image.register_extension(GribStubImageFile.format, ".grib")

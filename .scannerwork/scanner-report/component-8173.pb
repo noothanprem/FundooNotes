@@ -1,1 +1,0 @@
-í?<venv/lib/python3.6/site-packages/django/core/checks/security :ì?î?ï?ð?

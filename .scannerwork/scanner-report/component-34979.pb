@@ -1,1 +1,1 @@
-£‘8venv/lib64/python3.6/site-packages/django/conf/locale/gl :¢‘¤‘
+£‘8venv/lib64/python3.6/site-packages/django/conf/locale/gl :¡‘¤‘

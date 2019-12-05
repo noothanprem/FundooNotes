@@ -1,1 +1,1 @@
-î‡<venv/lib64/python3.6/site-packages/django_extensions/logging :í‡ñ‡
+î‡<venv/lib64/python3.6/site-packages/django_extensions/logging :ë‡ñ‡

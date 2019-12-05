@@ -1,1 +1,1 @@
-Äb9venv/lib/python3.6/site-packages/docutils/languages/de.py 2pyX;h
+Äb9venv/lib/python3.6/site-packages/docutils/languages/it.py 2pyX;h

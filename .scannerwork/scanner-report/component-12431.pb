@@ -1,1 +1,1 @@
-èa9venv/lib/python3.6/site-packages/docutils/writers/odf_odt :éaêa
+èa9venv/lib/python3.6/site-packages/docutils/writers/odf_odt :éaía

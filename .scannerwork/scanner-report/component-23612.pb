@@ -1,1 +1,1 @@
-¼¸Bvenv/lib/python3.6/site-packages/social_core/tests/test_partial.py 2pyXyh
+¼¸Ivenv/lib/python3.6/site-packages/social_core/tests/backends/test_utils.py 2pyX1h

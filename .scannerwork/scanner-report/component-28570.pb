@@ -1,1 +1,1 @@
-öﬂ4venv/lib64/python3.6/site-packages/openid/extensions :	ôﬂõﬂßﬂ
+öﬂ4venv/lib64/python3.6/site-packages/openid/extensions :	ôﬂõﬂ®ﬂ

@@ -1,1 +1,2 @@
-´,Ivenv/lib/python3.6/site-packages/django/contrib/gis/utils/layermapping.py 2pyXøh
+´,9venv/lib/python3.6/site-packages/django/contrib/gis/utils :
+³,µ,¶,·,¼,

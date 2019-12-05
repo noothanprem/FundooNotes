@@ -1,1 +1,1 @@
- ý:venv/lib64/python3.6/site-packages/django_nine/__init__.py 2pyXh
+ ý6venv/lib64/python3.6/site-packages/django_nine/user.py 2pyX4h

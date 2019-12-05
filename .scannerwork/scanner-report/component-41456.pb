@@ -1,1 +1,1 @@
-ПцAvenv/lib64/python3.6/site-packages/awscli/customizations/mturk.py 2pyXh
+Пц8venv/lib64/python3.6/site-packages/awscli/customizations :└НцОцЯцРцСцТцЪц▄д█д▌д÷д═д║д╒д╞д╟д╠д╡дЁдадбдддедфдгдхдядтдЕдФд▒е©еюеаебецедеуеЧеЪе─ф│ф┌ф÷ф

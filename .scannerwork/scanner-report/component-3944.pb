@@ -1,1 +1,1 @@
-èEvenv/lib/python3.6/site-packages/django/db/backends/ddl_references.py 2pyXÂh
+è3venv/lib/python3.6/site-packages/django/db/backends :ç˜Âö

@@ -1,1 +1,1 @@
-„»=venv/lib/python3.6/site-packages/social_core/backends/xing.py 2pyXGh
+„»Bvenv/lib/python3.6/site-packages/social_core/backends/mailchimp.py 2pyX!h

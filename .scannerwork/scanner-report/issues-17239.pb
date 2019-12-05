@@ -1,2 +1,2 @@
-9
-pythonS125Remove this commented out code. 2 "
+n
+pythonS1542QRename function "assertIs" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 

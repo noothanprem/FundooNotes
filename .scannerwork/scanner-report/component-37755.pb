@@ -1,1 +1,0 @@
-û¦Jvenv/lib64/python3.6/site-packages/faker/providers/lorem/el_GR/__init__.py 2pyXLh

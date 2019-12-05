@@ -1,1 +1,0 @@
-È@Lvenv/lib/python3.6/site-packages/django/core/management/commands/sqlflush.py 2pyXh

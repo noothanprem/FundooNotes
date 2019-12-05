@@ -2,449 +2,502 @@
 # See LICENSE for details.
 
 """
-Tests for L{twisted.internet.base}.
+Tests for the inotify wrapper in L{twisted.internet.inotify}.
 """
+import sys
 
-import socket
-try:
-    from Queue import Queue
-except ImportError:
-    from queue import Queue
+from twisted.internet import defer, reactor
+from twisted.python import filepath, runtime
+from twisted.python.reflect import requireModule
+from twisted.trial import unittest
 
-from zope.interface import implementer
-
-from twisted.python.threadpool import ThreadPool
-from twisted.internet.interfaces import (IReactorTime, IReactorThreads,
-                                         IResolverSimple)
-from twisted.internet.error import DNSLookupError
-from twisted.internet._resolver import FirstOneWins
-from twisted.internet.defer import Deferred
-from twisted.internet.base import ThreadedResolver, DelayedCall, ReactorBase
-from twisted.internet.task import Clock
-from twisted.trial.unittest import TestCase, SkipTest
+if requireModule('twisted.python._inotify') is not None:
+    from twisted.internet import inotify
+else:
+    inotify = None
 
 
-@implementer(IReactorTime, IReactorThreads)
-class FakeReactor(object):
+
+class INotifyTests(unittest.TestCase):
     """
-    A fake reactor implementation which just supports enough reactor APIs for
-    L{ThreadedResolver}.
+    Define all the tests for the basic functionality exposed by
+    L{inotify.INotify}.
     """
+    if not runtime.platform.supportsINotify():
+        skip = "This platform doesn't support INotify."
 
-    def __init__(self):
-        self._clock = Clock()
-        self.callLater = self._clock.callLater
-
-        self._threadpool = ThreadPool()
-        self._threadpool.start()
-        self.getThreadPool = lambda: self._threadpool
-
-        self._threadCalls = Queue()
-
-
-    def callFromThread(self, f, *args, **kwargs):
-        self._threadCalls.put((f, args, kwargs))
+    def setUp(self):
+        self.dirname = filepath.FilePath(self.mktemp())
+        self.dirname.createDirectory()
+        self.inotify = inotify.INotify()
+        self.inotify.startReading()
+        self.addCleanup(self.inotify.loseConnection)
 
 
-    def _runThreadCalls(self):
-        f, args, kwargs = self._threadCalls.get()
-        f(*args, **kwargs)
-
-
-    def _stop(self):
-        self._threadpool.stop()
-
-
-
-class ThreadedResolverTests(TestCase):
-    """
-    Tests for L{ThreadedResolver}.
-    """
-    def test_success(self):
+    def test_initializationErrors(self):
         """
-        L{ThreadedResolver.getHostByName} returns a L{Deferred} which fires
-        with the value returned by the call to L{socket.gethostbyname} in the
-        threadpool of the reactor passed to L{ThreadedResolver.__init__}.
+        L{inotify.INotify} emits a C{RuntimeError} when initialized
+        in an environment that doesn't support inotify as we expect it.
+
+        We just try to raise an exception for every possible case in
+        the for loop in L{inotify.INotify._inotify__init__}.
         """
-        ip = "10.0.0.17"
-        name = "foo.bar.example.com"
-        timeout = 30
-
-        reactor = FakeReactor()
-        self.addCleanup(reactor._stop)
-
-        lookedUp = []
-        resolvedTo = []
-        def fakeGetHostByName(name):
-            lookedUp.append(name)
-            return ip
-
-        self.patch(socket, 'gethostbyname', fakeGetHostByName)
-
-        resolver = ThreadedResolver(reactor)
-        d = resolver.getHostByName(name, (timeout,))
-        d.addCallback(resolvedTo.append)
-
-        reactor._runThreadCalls()
-
-        self.assertEqual(lookedUp, [name])
-        self.assertEqual(resolvedTo, [ip])
-
-        # Make sure that any timeout-related stuff gets cleaned up.
-        reactor._clock.advance(timeout + 1)
-        self.assertEqual(reactor._clock.calls, [])
+        class FakeINotify:
+            def init(self):
+                raise inotify.INotifyError()
+        self.patch(inotify.INotify, '_inotify', FakeINotify())
+        self.assertRaises(inotify.INotifyError, inotify.INotify)
 
 
-    def test_failure(self):
+    def _notificationTest(self, mask, operation, expectedPath=None):
         """
-        L{ThreadedResolver.getHostByName} returns a L{Deferred} which fires a
-        L{Failure} if the call to L{socket.gethostbyname} raises an exception.
+        Test notification from some filesystem operation.
+
+        @param mask: The event mask to use when setting up the watch.
+
+        @param operation: A function which will be called with the
+            name of a file in the watched directory and which should
+            trigger the event.
+
+        @param expectedPath: Optionally, the name of the path which is
+            expected to come back in the notification event; this will
+            also be passed to C{operation} (primarily useful when the
+            operation is being done to the directory itself, not a
+            file in it).
+
+        @return: A L{Deferred} which fires successfully when the
+            expected event has been received or fails otherwise.
         """
-        timeout = 30
+        if expectedPath is None:
+            expectedPath = self.dirname.child("foo.bar")
+        notified = defer.Deferred()
+        def cbNotified(result):
+            (watch, filename, events) = result
+            self.assertEqual(filename.asBytesMode(), expectedPath.asBytesMode())
+            self.assertTrue(events & mask)
+        notified.addCallback(cbNotified)
 
-        reactor = FakeReactor()
-        self.addCleanup(reactor._stop)
-
-        def fakeGetHostByName(name):
-            raise IOError("ENOBUFS (this is a funny joke)")
-
-        self.patch(socket, 'gethostbyname', fakeGetHostByName)
-
-        failedWith = []
-        resolver = ThreadedResolver(reactor)
-        d = resolver.getHostByName("some.name", (timeout,))
-        self.assertFailure(d, DNSLookupError)
-        d.addCallback(failedWith.append)
-
-        reactor._runThreadCalls()
-
-        self.assertEqual(len(failedWith), 1)
-
-        # Make sure that any timeout-related stuff gets cleaned up.
-        reactor._clock.advance(timeout + 1)
-        self.assertEqual(reactor._clock.calls, [])
+        self.inotify.watch(
+            self.dirname, mask=mask,
+            callbacks=[lambda *args: notified.callback(args)])
+        operation(expectedPath)
+        return notified
 
 
-    def test_timeout(self):
+    def test_access(self):
         """
-        If L{socket.gethostbyname} does not complete before the specified
-        timeout elapsed, the L{Deferred} returned by
-        L{ThreadedResolver.getHostByName} fails with L{DNSLookupError}.
+        Reading from a file in a monitored directory sends an
+        C{inotify.IN_ACCESS} event to the callback.
         """
-        timeout = 10
+        def operation(path):
+            path.setContent(b"foo")
+            path.getContent()
 
-        reactor = FakeReactor()
-        self.addCleanup(reactor._stop)
-
-        result = Queue()
-        def fakeGetHostByName(name):
-            raise result.get()
-
-        self.patch(socket, 'gethostbyname', fakeGetHostByName)
-
-        failedWith = []
-        resolver = ThreadedResolver(reactor)
-        d = resolver.getHostByName("some.name", (timeout,))
-        self.assertFailure(d, DNSLookupError)
-        d.addCallback(failedWith.append)
-
-        reactor._clock.advance(timeout - 1)
-        self.assertEqual(failedWith, [])
-        reactor._clock.advance(1)
-        self.assertEqual(len(failedWith), 1)
-
-        # Eventually the socket.gethostbyname does finish - in this case, with
-        # an exception.  Nobody cares, though.
-        result.put(IOError("The I/O was errorful"))
+        return self._notificationTest(inotify.IN_ACCESS, operation)
 
 
-    def test_resolverGivenStr(self):
+    def test_modify(self):
         """
-        L{ThreadedResolver.getHostByName} is passed L{str}, encoded using IDNA
-        if required.
+        Writing to a file in a monitored directory sends an
+        C{inotify.IN_MODIFY} event to the callback.
+        """
+        def operation(path):
+            with path.open("w") as fObj:
+                fObj.write(b'foo')
+
+        return self._notificationTest(inotify.IN_MODIFY, operation)
+
+
+    def test_attrib(self):
+        """
+        Changing the metadata of a file in a monitored directory
+        sends an C{inotify.IN_ATTRIB} event to the callback.
+        """
+        def operation(path):
+            path.touch()
+            path.touch()
+
+        return self._notificationTest(inotify.IN_ATTRIB, operation)
+
+
+    def test_closeWrite(self):
+        """
+        Closing a file which was open for writing in a monitored
+        directory sends an C{inotify.IN_CLOSE_WRITE} event to the
+        callback.
+        """
+        def operation(path):
+            path.open("w").close()
+
+        return self._notificationTest(inotify.IN_CLOSE_WRITE, operation)
+
+
+    def test_closeNoWrite(self):
+        """
+        Closing a file which was open for reading but not writing in a
+        monitored directory sends an C{inotify.IN_CLOSE_NOWRITE} event
+        to the callback.
+        """
+        def operation(path):
+            path.touch()
+            path.open("r").close()
+
+        return self._notificationTest(inotify.IN_CLOSE_NOWRITE, operation)
+
+
+    def test_open(self):
+        """
+        Opening a file in a monitored directory sends an
+        C{inotify.IN_OPEN} event to the callback.
+        """
+        def operation(path):
+            path.open("w").close()
+
+        return self._notificationTest(inotify.IN_OPEN, operation)
+
+
+    def test_movedFrom(self):
+        """
+        Moving a file out of a monitored directory sends an
+        C{inotify.IN_MOVED_FROM} event to the callback.
+        """
+        def operation(path):
+            path.open("w").close()
+            path.moveTo(filepath.FilePath(self.mktemp()))
+
+        return self._notificationTest(inotify.IN_MOVED_FROM, operation)
+
+
+    def test_movedTo(self):
+        """
+        Moving a file into a monitored directory sends an
+        C{inotify.IN_MOVED_TO} event to the callback.
+        """
+        def operation(path):
+            p = filepath.FilePath(self.mktemp())
+            p.touch()
+            p.moveTo(path)
+
+        return self._notificationTest(inotify.IN_MOVED_TO, operation)
+
+
+    def test_create(self):
+        """
+        Creating a file in a monitored directory sends an
+        C{inotify.IN_CREATE} event to the callback.
+        """
+        def operation(path):
+            path.open("w").close()
+
+        return self._notificationTest(inotify.IN_CREATE, operation)
+
+
+    def test_delete(self):
+        """
+        Deleting a file in a monitored directory sends an
+        C{inotify.IN_DELETE} event to the callback.
+        """
+        def operation(path):
+            path.touch()
+            path.remove()
+
+        return self._notificationTest(inotify.IN_DELETE, operation)
+
+
+    def test_deleteSelf(self):
+        """
+        Deleting the monitored directory itself sends an
+        C{inotify.IN_DELETE_SELF} event to the callback.
+        """
+        def operation(path):
+            path.remove()
+
+        return self._notificationTest(
+            inotify.IN_DELETE_SELF, operation, expectedPath=self.dirname)
+
+
+    def test_moveSelf(self):
+        """
+        Renaming the monitored directory itself sends an
+        C{inotify.IN_MOVE_SELF} event to the callback.
+        """
+        def operation(path):
+            path.moveTo(filepath.FilePath(self.mktemp()))
+
+        return self._notificationTest(
+            inotify.IN_MOVE_SELF, operation, expectedPath=self.dirname)
+
+
+    def test_simpleSubdirectoryAutoAdd(self):
+        """
+        L{inotify.INotify} when initialized with autoAdd==True adds
+        also adds the created subdirectories to the watchlist.
+        """
+        def _callback(wp, filename, mask):
+            # We are notified before we actually process new
+            # directories, so we need to defer this check.
+            def _():
+                try:
+                    self.assertTrue(self.inotify._isWatched(subdir))
+                    d.callback(None)
+                except Exception:
+                    d.errback()
+            reactor.callLater(0, _)
+
+        checkMask = inotify.IN_ISDIR | inotify.IN_CREATE
+        self.inotify.watch(
+            self.dirname, mask=checkMask, autoAdd=True,
+            callbacks=[_callback])
+        subdir = self.dirname.child('test')
+        d = defer.Deferred()
+        subdir.createDirectory()
+        return d
+
+
+    def test_simpleDeleteDirectory(self):
+        """
+        L{inotify.INotify} removes a directory from the watchlist when
+        it's removed from the filesystem.
         """
         calls = []
+        def _callback(wp, filename, mask):
+            # We are notified before we actually process new
+            # directories, so we need to defer this check.
+            def _():
+                try:
+                    self.assertTrue(self.inotify._isWatched(subdir))
+                    subdir.remove()
+                except Exception:
+                    d.errback()
+            def _eb():
+                # second call, we have just removed the subdir
+                try:
+                    self.assertFalse(self.inotify._isWatched(subdir))
+                    d.callback(None)
+                except Exception:
+                    d.errback()
 
-        @implementer(IResolverSimple)
-        class FakeResolver(object):
-            def getHostByName(self, name, timeouts=()):
-                calls.append(name)
-                return Deferred()
+            if not calls:
+                # first call, it's the create subdir
+                calls.append(filename)
+                reactor.callLater(0, _)
 
-        class JustEnoughReactor(ReactorBase):
-            def installWaker(self):
-                pass
+            else:
+                reactor.callLater(0, _eb)
 
-        fake = FakeResolver()
-        reactor = JustEnoughReactor()
-        reactor.installResolver(fake)
-        rec = FirstOneWins(Deferred())
-        reactor.nameResolver.resolveHostName(
-            rec, u"example.example")
-        reactor.nameResolver.resolveHostName(
-            rec, "example.example")
-        reactor.nameResolver.resolveHostName(
-            rec, u"v\xe4\xe4ntynyt.example")
-        reactor.nameResolver.resolveHostName(
-            rec, u"\u0440\u0444.example")
-        reactor.nameResolver.resolveHostName(
-            rec, "xn----7sbb4ac0ad0be6cf.xn--p1ai")
-
-        self.assertEqual(len(calls), 5)
-        self.assertEqual(list(map(type, calls)), [str]*5)
-        self.assertEqual("example.example", calls[0])
-        self.assertEqual("example.example", calls[1])
-        self.assertEqual("xn--vntynyt-5waa.example", calls[2])
-        self.assertEqual("xn--p1ai.example", calls[3])
-        self.assertEqual("xn----7sbb4ac0ad0be6cf.xn--p1ai", calls[4])
-
-
-
-def nothing():
-    """
-    Function used by L{DelayedCallTests.test_str}.
-    """
+        checkMask = inotify.IN_ISDIR | inotify.IN_CREATE
+        self.inotify.watch(
+            self.dirname, mask=checkMask, autoAdd=True,
+            callbacks=[_callback])
+        subdir = self.dirname.child('test')
+        d = defer.Deferred()
+        subdir.createDirectory()
+        return d
 
 
-
-class DelayedCallMixin(object):
-    """
-    L{DelayedCall}
-    """
-    def _getDelayedCallAt(self, time):
+    def test_ignoreDirectory(self):
         """
-        Get a L{DelayedCall} instance at a given C{time}.
-
-        @param time: The absolute time at which the returned L{DelayedCall}
-            will be scheduled.
+        L{inotify.INotify.ignore} removes a directory from the watchlist
         """
-        def noop(call):
-            pass
-        return DelayedCall(time, lambda: None, (), {}, noop, noop, None)
+        self.inotify.watch(self.dirname, autoAdd=True)
+        self.assertTrue(self.inotify._isWatched(self.dirname))
+        self.inotify.ignore(self.dirname)
+        self.assertFalse(self.inotify._isWatched(self.dirname))
 
 
-    def setUp(self):
+    def test_humanReadableMask(self):
         """
-        Create two L{DelayedCall} instanced scheduled to run at different
-        times.
+        L{inotify.humaReadableMask} translates all the possible event
+        masks to a human readable string.
         """
-        self.zero = self._getDelayedCallAt(0)
-        self.one = self._getDelayedCallAt(1)
+        for mask, value in inotify._FLAG_TO_HUMAN:
+            self.assertEqual(inotify.humanReadableMask(mask)[0], value)
 
-
-    def test_str(self):
-        """
-        The string representation of a L{DelayedCall} instance, as returned by
-        L{str}, includes the unsigned id of the instance, as well as its state,
-        the function to be called, and the function arguments.
-        """
-        dc = DelayedCall(12, nothing, (3, ), {"A": 5}, None, None, lambda: 1.5)
+        checkMask = (
+            inotify.IN_CLOSE_WRITE | inotify.IN_ACCESS | inotify.IN_OPEN)
         self.assertEqual(
-            str(dc),
-            "<DelayedCall 0x%x [10.5s] called=0 cancelled=0 nothing(3, A=5)>"
-            % (id(dc),),
-        )
+            set(inotify.humanReadableMask(checkMask)),
+            set(['close_write', 'access', 'open']))
 
 
-    def test_repr(self):
+    def test_recursiveWatch(self):
         """
-        The string representation of a L{DelayedCall} instance, as returned by
-        {repr}, is identical to that returned by L{str}.
+        L{inotify.INotify.watch} with recursive==True will add all the
+        subdirectories under the given path to the watchlist.
         """
-        dc = DelayedCall(13, nothing, (6, ), {"A": 9}, None, None, lambda: 1.6)
-        self.assertEqual(str(dc), repr(dc))
+        subdir = self.dirname.child('test')
+        subdir2 = subdir.child('test2')
+        subdir3 = subdir2.child('test3')
+        subdir3.makedirs()
+        dirs = [subdir, subdir2, subdir3]
+        self.inotify.watch(self.dirname, recursive=True)
+        # let's even call this twice so that we test that nothing breaks
+        self.inotify.watch(self.dirname, recursive=True)
+        for d in dirs:
+            self.assertTrue(self.inotify._isWatched(d))
 
 
-    def test_lt(self):
+    def test_connectionLostError(self):
         """
-        For two instances of L{DelayedCall} C{a} and C{b}, C{a < b} is true
-        if and only if C{a} is scheduled to run before C{b}.
+        L{inotify.INotify.connectionLost} if there's a problem while closing
+        the fd shouldn't raise the exception but should log the error
         """
-        zero, one = self.zero, self.one
-        self.assertTrue(zero < one)
-        self.assertFalse(one < zero)
-        self.assertFalse(zero < zero)
-        self.assertFalse(one < one)
+        import os
+        in_ = inotify.INotify()
+        os.close(in_._fd)
+        in_.loseConnection()
+        self.flushLoggedErrors()
 
-
-    def test_le(self):
+    def test_noAutoAddSubdirectory(self):
         """
-        For two instances of L{DelayedCall} C{a} and C{b}, C{a <= b} is true
-        if and only if C{a} is scheduled to run before C{b} or at the same
-        time as C{b}.
+        L{inotify.INotify.watch} with autoAdd==False will stop inotify
+        from watching subdirectories created under the watched one.
         """
-        zero, one = self.zero, self.one
-        self.assertTrue(zero <= one)
-        self.assertFalse(one <= zero)
-        self.assertTrue(zero <= zero)
-        self.assertTrue(one <= one)
+        def _callback(wp, fp, mask):
+            # We are notified before we actually process new
+            # directories, so we need to defer this check.
+            def _():
+                try:
+                    self.assertFalse(self.inotify._isWatched(subdir))
+                    d.callback(None)
+                except Exception:
+                    d.errback()
+            reactor.callLater(0, _)
+
+        checkMask = inotify.IN_ISDIR | inotify.IN_CREATE
+        self.inotify.watch(
+            self.dirname, mask=checkMask, autoAdd=False,
+            callbacks=[_callback])
+        subdir = self.dirname.child('test')
+        d = defer.Deferred()
+        subdir.createDirectory()
+        return d
 
 
-    def test_gt(self):
+    def test_seriesOfWatchAndIgnore(self):
         """
-        For two instances of L{DelayedCall} C{a} and C{b}, C{a > b} is true
-        if and only if C{a} is scheduled to run after C{b}.
+        L{inotify.INotify} will watch a filepath for events even if the same
+        path is repeatedly added/removed/re-added to the watchpoints.
         """
-        zero, one = self.zero, self.one
-        self.assertTrue(one > zero)
-        self.assertFalse(zero > one)
-        self.assertFalse(zero > zero)
-        self.assertFalse(one > one)
+        expectedPath = self.dirname.child("foo.bar2")
+        expectedPath.touch()
+
+        notified = defer.Deferred()
+        def cbNotified(result):
+            (ignored, filename, events) = result
+            self.assertEqual(filename.asBytesMode(), expectedPath.asBytesMode())
+            self.assertTrue(events & inotify.IN_DELETE_SELF)
+
+        def callIt(*args):
+            notified.callback(args)
+
+        # Watch, ignore, watch again to get into the state being tested.
+        self.assertTrue(self.inotify.watch(expectedPath, callbacks=[callIt]))
+        self.inotify.ignore(expectedPath)
+        self.assertTrue(
+            self.inotify.watch(
+                expectedPath, mask=inotify.IN_DELETE_SELF, callbacks=[callIt]))
+
+        notified.addCallback(cbNotified)
+
+        # Apparently in kernel version < 2.6.25, inofify has a bug in the way
+        # similar events are coalesced.  So, be sure to generate a different
+        # event here than the touch() at the top of this method might have
+        # generated.
+        expectedPath.remove()
+
+        return notified
 
 
-    def test_ge(self):
+    def test_ignoreFilePath(self):
         """
-        For two instances of L{DelayedCall} C{a} and C{b}, C{a > b} is true
-        if and only if C{a} is scheduled to run after C{b} or at the same
-        time as C{b}.
+        L{inotify.INotify} will ignore a filepath after it has been removed from
+        the watch list.
         """
-        zero, one = self.zero, self.one
-        self.assertTrue(one >= zero)
-        self.assertFalse(zero >= one)
-        self.assertTrue(zero >= zero)
-        self.assertTrue(one >= one)
+        expectedPath = self.dirname.child("foo.bar2")
+        expectedPath.touch()
+        expectedPath2 = self.dirname.child("foo.bar3")
+        expectedPath2.touch()
+
+        notified = defer.Deferred()
+        def cbNotified(result):
+            (ignored, filename, events) = result
+            self.assertEqual(filename.asBytesMode(), expectedPath2.asBytesMode())
+            self.assertTrue(events & inotify.IN_DELETE_SELF)
+
+        def callIt(*args):
+            notified.callback(args)
+
+        self.assertTrue(
+            self.inotify.watch(
+                expectedPath, inotify.IN_DELETE_SELF, callbacks=[callIt]))
+        notified.addCallback(cbNotified)
+
+        self.assertTrue(
+            self.inotify.watch(
+                expectedPath2, inotify.IN_DELETE_SELF, callbacks=[callIt]))
+
+        self.inotify.ignore(expectedPath)
+
+        expectedPath.remove()
+        expectedPath2.remove()
+
+        return notified
 
 
-    def test_eq(self):
+    def test_ignoreNonWatchedFile(self):
         """
-        A L{DelayedCall} instance is only equal to itself.
+        L{inotify.INotify} will raise KeyError if a non-watched filepath is
+        ignored.
         """
-        # Explicitly use == here, instead of assertEqual, to be more
-        # confident __eq__ is being tested.
-        self.assertFalse(self.zero == self.one)
-        self.assertTrue(self.zero == self.zero)
-        self.assertTrue(self.one == self.one)
+        expectedPath = self.dirname.child("foo.ignored")
+        expectedPath.touch()
+
+        self.assertRaises(KeyError, self.inotify.ignore, expectedPath)
 
 
-    def test_ne(self):
+    def test_complexSubdirectoryAutoAdd(self):
         """
-        A L{DelayedCall} instance is not equal to any other object.
+        L{inotify.INotify} with autoAdd==True for a watched path
+        generates events for every file or directory already present
+        in a newly created subdirectory under the watched one.
+
+        This tests that we solve a race condition in inotify even though
+        we may generate duplicate events.
         """
-        # Explicitly use != here, instead of assertEqual, to be more
-        # confident __ne__ is being tested.
-        self.assertTrue(self.zero != self.one)
-        self.assertFalse(self.zero != self.zero)
-        self.assertFalse(self.one != self.one)
+        calls = set()
+        def _callback(wp, filename, mask):
+            calls.add(filename)
+            if len(calls) == 6:
+                try:
+                    self.assertTrue(self.inotify._isWatched(subdir))
+                    self.assertTrue(self.inotify._isWatched(subdir2))
+                    self.assertTrue(self.inotify._isWatched(subdir3))
+                    created = someFiles + [subdir, subdir2, subdir3]
+                    created = {f.asBytesMode() for f in created}
+                    self.assertEqual(len(calls), len(created))
+                    self.assertEqual(calls, created)
+                except Exception:
+                    d.errback()
+                else:
+                    d.callback(None)
 
+        checkMask = inotify.IN_ISDIR | inotify.IN_CREATE
+        self.inotify.watch(
+            self.dirname, mask=checkMask, autoAdd=True,
+            callbacks=[_callback])
+        subdir = self.dirname.child('test')
+        subdir2 = subdir.child('test2')
+        subdir3 = subdir2.child('test3')
+        d = defer.Deferred()
+        subdir3.makedirs()
 
-
-class DelayedCallNoDebugTests(DelayedCallMixin, TestCase):
-    """
-    L{DelayedCall}
-    """
-    def setUp(self):
-        """
-        Turn debug off.
-        """
-        self.patch(DelayedCall, 'debug', False)
-        DelayedCallMixin.setUp(self)
-
-
-    def test_str(self):
-        """
-        The string representation of a L{DelayedCall} instance, as returned by
-        L{str}, includes the unsigned id of the instance, as well as its state,
-        the function to be called, and the function arguments.
-        """
-        dc = DelayedCall(12, nothing, (3, ), {"A": 5}, None, None, lambda: 1.5)
-        expected = (
-            "<DelayedCall 0x{:x} [10.5s] called=0 cancelled=0 "
-            "nothing(3, A=5)>".format(id(dc)))
-        self.assertEqual(str(dc), expected)
-
-
-
-class DelayedCallDebugTests(DelayedCallMixin, TestCase):
-    """
-    L{DelayedCall}
-    """
-    def setUp(self):
-        """
-        Turn debug on.
-        """
-        self.patch(DelayedCall, 'debug', True)
-        DelayedCallMixin.setUp(self)
-
-
-    def test_str(self):
-        """
-        The string representation of a L{DelayedCall} instance, as returned by
-        L{str}, includes the unsigned id of the instance, as well as its state,
-        the function to be called, and the function arguments.
-        """
-        dc = DelayedCall(12, nothing, (3, ), {"A": 5}, None, None, lambda: 1.5)
-        expectedRegexp = (
-            "<DelayedCall 0x{:x} \\[10.5s\\] called=0 cancelled=0 "
-            "nothing\\(3, A=5\\)\n\n"
-            "traceback at creation:".format(id(dc)))
-        self.assertRegex(
-            str(dc), expectedRegexp)
-
-
-
-class TestSpySignalCapturingReactor(ReactorBase):
-
-    """
-    Subclass of ReactorBase to capture signals delivered to the
-    reactor for inspection.
-    """
-
-    def installWaker(self):
-        """
-        Required method, unused.
-        """
-
-
-
-class ReactorBaseSignalTests(TestCase):
-
-    """
-    Tests to exercise ReactorBase's signal exit reporting path.
-    """
-
-    def test_exitSignalDefaultsToNone(self):
-        """
-        The default value of the _exitSignal attribute is None.
-        """
-        reactor = TestSpySignalCapturingReactor()
-        self.assertIs(None, reactor._exitSignal)
-
-
-    def test_captureSIGINT(self):
-        """
-        ReactorBase's SIGINT handler saves the value of SIGINT to the
-        _exitSignal attribute.
-        """
-        reactor = TestSpySignalCapturingReactor()
-        reactor.sigInt(signal.SIGINT, None)
-        self.assertEquals(signal.SIGINT, reactor._exitSignal)
-
-
-    def test_captureSIGTERM(self):
-        """
-        ReactorBase's SIGTERM handler saves the value of SIGTERM to the
-        _exitSignal attribute.
-        """
-        reactor = TestSpySignalCapturingReactor()
-        reactor.sigTerm(signal.SIGTERM, None)
-        self.assertEquals(signal.SIGTERM, reactor._exitSignal)
-
-
-    def test_captureSIGBREAK(self):
-        """
-        ReactorBase's SIGBREAK handler saves the value of SIGBREAK to the
-        _exitSignal attribute.
-        """
-        if not hasattr(signal, "SIGBREAK"):
-            raise SkipTest("signal module does not have SIGBREAK")
-
-        reactor = TestSpySignalCapturingReactor()
-        reactor.sigBreak(signal.SIGBREAK, None)
-        self.assertEquals(signal.SIGBREAK, reactor._exitSignal)
-
-
-
-try:
-    import signal
-except ImportError:
-    ReactorBaseSignalTests.skip = "signal module not available"
+        someFiles = [subdir.child('file1.dat'),
+                     subdir2.child('file2.dat'),
+                     subdir3.child('file3.dat')]
+        # Add some files in pretty much all the directories so that we
+        # see that we process all of them.
+        for i, filename in enumerate(someFiles):
+            filename.setContent(
+                filename.path.encode(sys.getfilesystemencoding()))
+        return d

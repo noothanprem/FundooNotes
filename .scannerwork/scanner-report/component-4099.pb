@@ -1,1 +1,1 @@
-ƒ Qvenv/lib/python3.6/site-packages/django/contrib/humanize/templatetags/__init__.py 2pyXh
+ƒ 6venv/lib/python3.6/site-packages/django/apps/config.py 2pyXÙh

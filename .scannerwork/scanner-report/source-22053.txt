@@ -2,326 +2,362 @@
 # See LICENSE for details.
 
 """
-Tests for L{twisted.test.iosim}.
+Tests for L{twisted.internet.defer.deferredGenerator} and related APIs.
 """
 
-from __future__ import absolute_import, division
+from __future__ import division, absolute_import
 
-from zope.interface import implementer
+from twisted.internet import reactor
 
-from twisted.internet.interfaces import IPushProducer
-from twisted.internet.protocol import Protocol
+from twisted.trial import unittest
 
-from twisted.test.iosim import FakeTransport, connect
-from twisted.trial.unittest import TestCase
+from twisted.internet.defer import waitForDeferred, deferredGenerator, Deferred
+from twisted.internet.defer import inlineCallbacks, returnValue
+from twisted.internet import defer
+from twisted.trial.util import suppress as SUPPRESS
+from twisted.python.util import runWithWarningsSuppressed
 
 
-class FakeTransportTests(TestCase):
+def getThing():
+    d = Deferred()
+    reactor.callLater(0, d.callback, "hi")
+    return d
+
+def getOwie():
+    d = Deferred()
+    def CRAP():
+        d.errback(ZeroDivisionError('OMG'))
+    reactor.callLater(0, CRAP)
+    return d
+
+# NOTE: most of the tests in DeferredGeneratorTests are duplicated
+# with slightly different syntax for the InlineCallbacksTests below.
+
+class TerminalException(Exception):
+    pass
+
+class BaseDefgenTests:
     """
-    Tests for L{FakeTransport}.
+    This class sets up a bunch of test cases which will test both
+    deferredGenerator and inlineCallbacks based generators. The subclasses
+    DeferredGeneratorTests and InlineCallbacksTests each provide the actual
+    generator implementations tested.
     """
 
-    def test_connectionSerial(self):
+    def testBasics(self):
         """
-        Each L{FakeTransport} receives a serial number that uniquely identifies
-        it.
+        Test that a normal deferredGenerator works.  Tests yielding a
+        deferred which callbacks, as well as a deferred errbacks. Also
+        ensures returning a final value works.
         """
-        a = FakeTransport(object(), True)
-        b = FakeTransport(object(), False)
-        self.assertIsInstance(a.serial, int)
-        self.assertIsInstance(b.serial, int)
-        self.assertNotEqual(a.serial, b.serial)
 
+        return self._genBasics().addCallback(self.assertEqual, 'WOOSH')
 
-    def test_writeSequence(self):
+    def testBuggy(self):
         """
-        L{FakeTransport.writeSequence} will write a sequence of L{bytes} to the
-        transport.
+        Ensure that a buggy generator properly signals a Failure
+        condition on result deferred.
         """
-        a = FakeTransport(object(), False)
+        return self.assertFailure(self._genBuggy(), ZeroDivisionError)
 
-        a.write(b"a")
-        a.writeSequence([b"b", b"c", b"d"])
+    def testNothing(self):
+        """Test that a generator which never yields results in None."""
 
-        self.assertEqual(b"".join(a.stream), b"abcd")
+        return self._genNothing().addCallback(self.assertEqual, None)
 
-
-    def test_writeAfterClose(self):
+    def testHandledTerminalFailure(self):
         """
-        L{FakeTransport.write} will accept writes after transport was closed,
-        but the data will be silently discarded.
+        Create a Deferred Generator which yields a Deferred which fails and
+        handles the exception which results.  Assert that the Deferred
+        Generator does not errback its Deferred.
         """
-        a = FakeTransport(object(), False)
-        a.write(b"before")
-        a.loseConnection()
-        a.write(b"after")
+        return self._genHandledTerminalFailure().addCallback(self.assertEqual, None)
 
-        self.assertEqual(b"".join(a.stream), b"before")
+    def testHandledTerminalAsyncFailure(self):
+        """
+        Just like testHandledTerminalFailure, only with a Deferred which fires
+        asynchronously with an error.
+        """
+        d = defer.Deferred()
+        deferredGeneratorResultDeferred = self._genHandledTerminalAsyncFailure(d)
+        d.errback(TerminalException("Handled Terminal Failure"))
+        return deferredGeneratorResultDeferred.addCallback(
+            self.assertEqual, None)
+
+    def testStackUsage(self):
+        """
+        Make sure we don't blow the stack when yielding immediately
+        available deferreds.
+        """
+        return self._genStackUsage().addCallback(self.assertEqual, 0)
+
+    def testStackUsage2(self):
+        """
+        Make sure we don't blow the stack when yielding immediately
+        available values.
+        """
+        return self._genStackUsage2().addCallback(self.assertEqual, 0)
 
 
 
-@implementer(IPushProducer)
-class StrictPushProducer(object):
+def deprecatedDeferredGenerator(f):
     """
-    An L{IPushProducer} implementation which produces nothing but enforces
-    preconditions on its state transition methods.
+    Calls L{deferredGenerator} while suppressing the deprecation warning.
+
+    @param f: Function to call
+    @return: Return value of function.
     """
-    _state = u"running"
-
-    def stopProducing(self):
-        if self._state == u"stopped":
-            raise ValueError(u"Cannot stop already-stopped IPushProducer")
-        self._state = u"stopped"
-
-
-    def pauseProducing(self):
-        if self._state != u"running":
-            raise ValueError(
-                u"Cannot pause {} IPushProducer".format(self._state)
-            )
-        self._state = u"paused"
-
-
-    def resumeProducing(self):
-        if self._state != u"paused":
-            raise ValueError(
-                u"Cannot resume {} IPushProducer".format(self._state)
-            )
-        self._state = u"running"
+    return runWithWarningsSuppressed(
+        [ SUPPRESS(message="twisted.internet.defer.deferredGenerator was "
+                          "deprecated") ],
+        deferredGenerator, f)
 
 
 
-class StrictPushProducerTests(TestCase):
+class DeferredGeneratorTests(BaseDefgenTests, unittest.TestCase):
+
+    # First provide all the generator impls necessary for BaseDefgenTests
+    @deprecatedDeferredGenerator
+    def _genBasics(self):
+
+        x = waitForDeferred(getThing())
+        yield x
+        x = x.getResult()
+
+        self.assertEqual(x, "hi")
+
+        ow = waitForDeferred(getOwie())
+        yield ow
+        try:
+            ow.getResult()
+        except ZeroDivisionError as e:
+            self.assertEqual(str(e), 'OMG')
+        yield "WOOSH"
+        return
+
+
+    @deprecatedDeferredGenerator
+    def _genBuggy(self):
+        yield waitForDeferred(getThing())
+        1//0
+
+
+    @deprecatedDeferredGenerator
+    def _genNothing(self):
+        if 0: yield 1
+
+
+    @deprecatedDeferredGenerator
+    def _genHandledTerminalFailure(self):
+        x = waitForDeferred(defer.fail(TerminalException("Handled Terminal Failure")))
+        yield x
+        try:
+            x.getResult()
+        except TerminalException:
+            pass
+
+
+    @deprecatedDeferredGenerator
+    def _genHandledTerminalAsyncFailure(self, d):
+        x = waitForDeferred(d)
+        yield x
+        try:
+            x.getResult()
+        except TerminalException:
+            pass
+
+
+    def _genStackUsage(self):
+        for x in range(5000):
+            # Test with yielding a deferred
+            x = waitForDeferred(defer.succeed(1))
+            yield x
+            x = x.getResult()
+        yield 0
+    _genStackUsage = deprecatedDeferredGenerator(_genStackUsage)
+
+    def _genStackUsage2(self):
+        for x in range(5000):
+            # Test with yielding a random value
+            yield 1
+        yield 0
+    _genStackUsage2 = deprecatedDeferredGenerator(_genStackUsage2)
+
+    # Tests unique to deferredGenerator
+
+    def testDeferredYielding(self):
+        """
+        Ensure that yielding a Deferred directly is trapped as an
+        error.
+        """
+        # See the comment _deferGenerator about d.callback(Deferred).
+        def _genDeferred():
+            yield getThing()
+        _genDeferred = deprecatedDeferredGenerator(_genDeferred)
+
+        return self.assertFailure(_genDeferred(), TypeError)
+
+    suppress = [
+            SUPPRESS(message='twisted.internet.defer.waitForDeferred was '
+                             'deprecated')
+            ]
+
+class InlineCallbacksTests(BaseDefgenTests, unittest.TestCase):
+    # First provide all the generator impls necessary for BaseDefgenTests
+
+    def _genBasics(self):
+
+        x = yield getThing()
+
+        self.assertEqual(x, "hi")
+
+        try:
+            yield getOwie()
+        except ZeroDivisionError as e:
+            self.assertEqual(str(e), 'OMG')
+        returnValue("WOOSH")
+    _genBasics = inlineCallbacks(_genBasics)
+
+    def _genBuggy(self):
+        yield getThing()
+        1/0
+    _genBuggy = inlineCallbacks(_genBuggy)
+
+
+    def _genNothing(self):
+        if 0: yield 1
+    _genNothing = inlineCallbacks(_genNothing)
+
+
+    def _genHandledTerminalFailure(self):
+        try:
+            yield defer.fail(TerminalException("Handled Terminal Failure"))
+        except TerminalException:
+            pass
+    _genHandledTerminalFailure = inlineCallbacks(_genHandledTerminalFailure)
+
+
+    def _genHandledTerminalAsyncFailure(self, d):
+        try:
+            yield d
+        except TerminalException:
+            pass
+    _genHandledTerminalAsyncFailure = inlineCallbacks(
+        _genHandledTerminalAsyncFailure)
+
+
+    def _genStackUsage(self):
+        for x in range(5000):
+            # Test with yielding a deferred
+            yield defer.succeed(1)
+        returnValue(0)
+    _genStackUsage = inlineCallbacks(_genStackUsage)
+
+    def _genStackUsage2(self):
+        for x in range(5000):
+            # Test with yielding a random value
+            yield 1
+        returnValue(0)
+    _genStackUsage2 = inlineCallbacks(_genStackUsage2)
+
+    # Tests unique to inlineCallbacks
+
+    def testYieldNonDeferred(self):
+        """
+        Ensure that yielding a non-deferred passes it back as the
+        result of the yield expression.
+
+        @return: A L{twisted.internet.defer.Deferred}
+        @rtype: L{twisted.internet.defer.Deferred}
+        """
+        def _test():
+            yield 5
+            returnValue(5)
+        _test = inlineCallbacks(_test)
+
+        return _test().addCallback(self.assertEqual, 5)
+
+    def testReturnNoValue(self):
+        """Ensure a standard python return results in a None result."""
+        def _noReturn():
+            yield 5
+            return
+        _noReturn = inlineCallbacks(_noReturn)
+
+        return _noReturn().addCallback(self.assertEqual, None)
+
+    def testReturnValue(self):
+        """Ensure that returnValue works."""
+        def _return():
+            yield 5
+            returnValue(6)
+        _return = inlineCallbacks(_return)
+
+        return _return().addCallback(self.assertEqual, 6)
+
+
+    def test_nonGeneratorReturn(self):
+        """
+        Ensure that C{TypeError} with a message about L{inlineCallbacks} is
+        raised when a non-generator returns something other than a generator.
+        """
+        def _noYield():
+            return 5
+        _noYield = inlineCallbacks(_noYield)
+
+        self.assertIn("inlineCallbacks",
+            str(self.assertRaises(TypeError, _noYield)))
+
+
+    def test_nonGeneratorReturnValue(self):
+        """
+        Ensure that C{TypeError} with a message about L{inlineCallbacks} is
+        raised when a non-generator calls L{returnValue}.
+        """
+        def _noYield():
+            returnValue(5)
+        _noYield = inlineCallbacks(_noYield)
+
+        self.assertIn("inlineCallbacks",
+            str(self.assertRaises(TypeError, _noYield)))
+
+
+
+class DeprecateDeferredGeneratorTests(unittest.SynchronousTestCase):
     """
-    Tests for L{StrictPushProducer}.
+    Tests that L{DeferredGeneratorTests} and L{waitForDeferred} are
+    deprecated.
     """
-    def _initial(self):
+
+    def test_deferredGeneratorDeprecated(self):
         """
-        @return: A new L{StrictPushProducer} which has not been through any state
-            changes.
+        L{deferredGenerator} is deprecated.
         """
-        return StrictPushProducer()
+        @deferredGenerator
+        def decoratedFunction():
+            yield None
 
+        warnings = self.flushWarnings([self.test_deferredGeneratorDeprecated])
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0]['category'], DeprecationWarning)
+        self.assertEqual(
+            warnings[0]['message'],
+            "twisted.internet.defer.deferredGenerator was deprecated in "
+            "Twisted 15.0.0; please use "
+            "twisted.internet.defer.inlineCallbacks instead")
 
-    def _stopped(self):
+    def test_waitForDeferredDeprecated(self):
         """
-        @return: A new, stopped L{StrictPushProducer}.
+        L{waitForDeferred} is deprecated.
         """
-        producer = StrictPushProducer()
-        producer.stopProducing()
-        return producer
+        d = Deferred()
+        waitForDeferred(d)
 
-
-    def _paused(self):
-        """
-        @return: A new, paused L{StrictPushProducer}.
-        """
-        producer = StrictPushProducer()
-        producer.pauseProducing()
-        return producer
-
-
-    def _resumed(self):
-        """
-        @return: A new L{StrictPushProducer} which has been paused and resumed.
-        """
-        producer = StrictPushProducer()
-        producer.pauseProducing()
-        producer.resumeProducing()
-        return producer
-
-
-    def assertStopped(self, producer):
-        """
-        Assert that the given producer is in the stopped state.
-
-        @param producer: The producer to verify.
-        @type producer: L{StrictPushProducer}
-        """
-        self.assertEqual(producer._state, u"stopped")
-
-
-    def assertPaused(self, producer):
-        """
-        Assert that the given producer is in the paused state.
-
-        @param producer: The producer to verify.
-        @type producer: L{StrictPushProducer}
-        """
-        self.assertEqual(producer._state, u"paused")
-
-
-    def assertRunning(self, producer):
-        """
-        Assert that the given producer is in the running state.
-
-        @param producer: The producer to verify.
-        @type producer: L{StrictPushProducer}
-        """
-        self.assertEqual(producer._state, u"running")
-
-
-    def test_stopThenStop(self):
-        """
-        L{StrictPushProducer.stopProducing} raises L{ValueError} if called when
-        the producer is stopped.
-        """
-        self.assertRaises(ValueError, self._stopped().stopProducing)
-
-
-    def test_stopThenPause(self):
-        """
-        L{StrictPushProducer.pauseProducing} raises L{ValueError} if called when
-        the producer is stopped.
-        """
-        self.assertRaises(ValueError, self._stopped().pauseProducing)
-
-
-    def test_stopThenResume(self):
-        """
-        L{StrictPushProducer.resumeProducing} raises L{ValueError} if called when
-        the producer is stopped.
-        """
-        self.assertRaises(ValueError, self._stopped().resumeProducing)
-
-
-    def test_pauseThenStop(self):
-        """
-        L{StrictPushProducer} is stopped if C{stopProducing} is called on a paused
-        producer.
-        """
-        producer = self._paused()
-        producer.stopProducing()
-        self.assertStopped(producer)
-
-
-    def test_pauseThenPause(self):
-        """
-        L{StrictPushProducer.pauseProducing} raises L{ValueError} if called on a
-        paused producer.
-        """
-        producer = self._paused()
-        self.assertRaises(ValueError, producer.pauseProducing)
-
-
-    def test_pauseThenResume(self):
-        """
-        L{StrictPushProducer} is resumed if C{resumeProducing} is called on a
-        paused producer.
-        """
-        producer = self._paused()
-        producer.resumeProducing()
-        self.assertRunning(producer)
-
-
-    def test_resumeThenStop(self):
-        """
-        L{StrictPushProducer} is stopped if C{stopProducing} is called on a
-        resumed producer.
-        """
-        producer = self._resumed()
-        producer.stopProducing()
-        self.assertStopped(producer)
-
-
-    def test_resumeThenPause(self):
-        """
-        L{StrictPushProducer} is paused if C{pauseProducing} is called on a
-        resumed producer.
-        """
-        producer = self._resumed()
-        producer.pauseProducing()
-        self.assertPaused(producer)
-
-
-    def test_resumeThenResume(self):
-        """
-        L{StrictPushProducer.resumeProducing} raises L{ValueError} if called on a
-        resumed producer.
-        """
-        producer = self._resumed()
-        self.assertRaises(ValueError, producer.resumeProducing)
-
-
-    def test_stop(self):
-        """
-        L{StrictPushProducer} is stopped if C{stopProducing} is called in the
-        initial state.
-        """
-        producer = self._initial()
-        producer.stopProducing()
-        self.assertStopped(producer)
-
-
-    def test_pause(self):
-        """
-        L{StrictPushProducer} is paused if C{pauseProducing} is called in the
-        initial state.
-        """
-        producer = self._initial()
-        producer.pauseProducing()
-        self.assertPaused(producer)
-
-
-    def test_resume(self):
-        """
-        L{StrictPushProducer} raises L{ValueError} if C{resumeProducing} is called
-        in the initial state.
-        """
-        producer = self._initial()
-        self.assertRaises(ValueError, producer.resumeProducing)
-
-
-
-class IOPumpTests(TestCase):
-    """
-    Tests for L{IOPump}.
-    """
-    def _testStreamingProducer(self, mode):
-        """
-        Connect a couple protocol/transport pairs to an L{IOPump} and then pump
-        it.  Verify that a streaming producer registered with one of the
-        transports does not receive invalid L{IPushProducer} method calls and
-        ends in the right state.
-
-        @param mode: C{u"server"} to test a producer registered with the
-            server transport.  C{u"client"} to test a producer registered with
-            the client transport.
-        """
-        serverProto = Protocol()
-        serverTransport = FakeTransport(serverProto, isServer=True)
-
-        clientProto = Protocol()
-        clientTransport = FakeTransport(clientProto, isServer=False)
-
-        pump = connect(
-            serverProto, serverTransport,
-            clientProto, clientTransport,
-            greet=False,
-        )
-
-        producer = StrictPushProducer()
-        victim = {
-            u"server": serverTransport,
-            u"client": clientTransport,
-        }[mode]
-        victim.registerProducer(producer, streaming=True)
-
-        pump.pump()
-        self.assertEqual(u"running", producer._state)
-
-
-    def test_serverStreamingProducer(self):
-        """
-        L{IOPump.pump} does not call C{resumeProducing} on a L{IPushProducer}
-        (stream producer) registered with the server transport.
-        """
-        self._testStreamingProducer(mode=u"server")
-
-
-    def test_clientStreamingProducer(self):
-        """
-        L{IOPump.pump} does not call C{resumeProducing} on a L{IPushProducer}
-        (stream producer) registered with the client transport.
-        """
-        self._testStreamingProducer(mode=u"client")
+        warnings = self.flushWarnings([self.test_waitForDeferredDeprecated])
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0]['category'], DeprecationWarning)
+        self.assertEqual(
+            warnings[0]['message'],
+            "twisted.internet.defer.waitForDeferred was deprecated in "
+            "Twisted 15.0.0; please use "
+            "twisted.internet.defer.inlineCallbacks instead")

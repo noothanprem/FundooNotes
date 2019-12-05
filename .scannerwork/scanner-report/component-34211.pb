@@ -1,1 +1,1 @@
-£‹Fvenv/lib64/python3.6/site-packages/django/core/checks/security/csrf.py 2pyX)h
+£‹>venv/lib64/python3.6/site-packages/django/core/checks/security :¢‹¤‹¥‹¦‹

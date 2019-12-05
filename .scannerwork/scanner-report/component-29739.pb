@@ -1,1 +1,1 @@
-«èDvenv/lib64/python3.6/site-packages/django/middleware/clickjacking.py 2pyX.h
+«è@venv/lib64/python3.6/site-packages/django/middleware/__init__.py 2pyXh

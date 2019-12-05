@@ -2,41 +2,34 @@
 # Distributed under the terms of the Modified BSD License.
 
 
-from random import Random
-import time
-from unittest import TestCase
-
 import zmq
 
-from zmq.tests import BaseZMQTestCase, have_gevent, GreenTest
+
+from zmq.tests import BaseZMQTestCase, SkipTest, have_gevent, GreenTest
 
 
-class TestPubSub(BaseZMQTestCase):
+class TestMultipart(BaseZMQTestCase):
 
-    pass
+    def test_router_dealer(self):
+        router, dealer = self.create_bound_pair(zmq.ROUTER, zmq.DEALER)
 
-    # We are disabling this test while an issue is being resolved.
-    def test_basic(self):
-        s1, s2 = self.create_bound_pair(zmq.PUB, zmq.SUB)
-        s2.setsockopt(zmq.SUBSCRIBE, b'')
-        time.sleep(0.1)
-        msg1 = b'message'
-        s1.send(msg1)
-        msg2 = s2.recv()  # This is blocking!
+        msg1 = b'message1'
+        dealer.send(msg1)
+        ident = self.recv(router)
+        more = router.rcvmore
+        self.assertEqual(more, True)
+        msg2 = self.recv(router)
         self.assertEqual(msg1, msg2)
-
-    def test_topic(self):
-        s1, s2 = self.create_bound_pair(zmq.PUB, zmq.SUB)
-        s2.setsockopt(zmq.SUBSCRIBE, b'x')
-        time.sleep(0.1)
-        msg1 = b'message'
-        s1.send(msg1)
-        self.assertRaisesErrno(zmq.EAGAIN, s2.recv, zmq.NOBLOCK)
-        msg1 = b'xmessage'
-        s1.send(msg1)
-        msg2 = s2.recv()
-        self.assertEqual(msg1, msg2)
+        more = router.rcvmore
+        self.assertEqual(more, False)
+    
+    def test_basic_multipart(self):
+        a,b = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
+        msg = [ b'hi', b'there', b'b']
+        a.send_multipart(msg)
+        recvd = b.recv_multipart()
+        self.assertEqual(msg, recvd)
 
 if have_gevent:
-    class TestPubSubGreen(GreenTest, TestPubSub):
+    class TestMultipartGreen(GreenTest, TestMultipart):
         pass

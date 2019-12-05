@@ -1,62 +1,77 @@
-import functools
+"""Functions for use in URLsconfs."""
+from functools import partial
 from importlib import import_module
 
-from django.core.exceptions import ViewDoesNotExist
-from django.utils.module_loading import module_has_submodule
+from django.core.exceptions import ImproperlyConfigured
+
+from .resolvers import (
+    LocalePrefixPattern, RegexPattern, RoutePattern, URLPattern, URLResolver,
+)
 
 
-@functools.lru_cache(maxsize=None)
-def get_callable(lookup_view):
-    """
-    Return a callable corresponding to lookup_view.
-    * If lookup_view is already a callable, return it.
-    * If lookup_view is a string import path that can be resolved to a callable,
-      import that callable and return it, otherwise raise an exception
-      (ImportError or ViewDoesNotExist).
-    """
-    if callable(lookup_view):
-        return lookup_view
-
-    if not isinstance(lookup_view, str):
-        raise ViewDoesNotExist("'%s' is not a callable or a dot-notation path" % lookup_view)
-
-    mod_name, func_name = get_mod_func(lookup_view)
-    if not func_name:  # No '.' in lookup_view
-        raise ImportError("Could not import '%s'. The path must be fully qualified." % lookup_view)
-
-    try:
-        mod = import_module(mod_name)
-    except ImportError:
-        parentmod, submod = get_mod_func(mod_name)
-        if submod and not module_has_submodule(import_module(parentmod), submod):
-            raise ViewDoesNotExist(
-                "Could not import '%s'. Parent module %s does not exist." %
-                (lookup_view, mod_name)
-            )
-        else:
-            raise
-    else:
+def include(arg, namespace=None):
+    app_name = None
+    if isinstance(arg, tuple):
+        # Callable returning a namespace hint.
         try:
-            view_func = getattr(mod, func_name)
-        except AttributeError:
-            raise ViewDoesNotExist(
-                "Could not import '%s'. View does not exist in module %s." %
-                (lookup_view, mod_name)
-            )
-        else:
-            if not callable(view_func):
-                raise ViewDoesNotExist(
-                    "Could not import '%s.%s'. View is not callable." %
-                    (mod_name, func_name)
+            urlconf_module, app_name = arg
+        except ValueError:
+            if namespace:
+                raise ImproperlyConfigured(
+                    'Cannot override the namespace for a dynamic module that '
+                    'provides a namespace.'
                 )
-            return view_func
+            raise ImproperlyConfigured(
+                'Passing a %d-tuple to include() is not supported. Pass a '
+                '2-tuple containing the list of patterns and app_name, and '
+                'provide the namespace argument to include() instead.' % len(arg)
+            )
+    else:
+        # No namespace hint - use manually provided namespace.
+        urlconf_module = arg
+
+    if isinstance(urlconf_module, str):
+        urlconf_module = import_module(urlconf_module)
+    patterns = getattr(urlconf_module, 'urlpatterns', urlconf_module)
+    app_name = getattr(urlconf_module, 'app_name', app_name)
+    if namespace and not app_name:
+        raise ImproperlyConfigured(
+            'Specifying a namespace in include() without providing an app_name '
+            'is not supported. Set the app_name attribute in the included '
+            'module, or pass a 2-tuple containing the list of patterns and '
+            'app_name instead.',
+        )
+    namespace = namespace or app_name
+    # Make sure the patterns can be iterated through (without this, some
+    # testcases will break).
+    if isinstance(patterns, (list, tuple)):
+        for url_pattern in patterns:
+            pattern = getattr(url_pattern, 'pattern', None)
+            if isinstance(pattern, LocalePrefixPattern):
+                raise ImproperlyConfigured(
+                    'Using i18n_patterns in an included URLconf is not allowed.'
+                )
+    return (urlconf_module, app_name, namespace)
 
 
-def get_mod_func(callback):
-    # Convert 'django.views.news.stories.story_detail' to
-    # ['django.views.news.stories', 'story_detail']
-    try:
-        dot = callback.rindex('.')
-    except ValueError:
-        return callback, ''
-    return callback[:dot], callback[dot + 1:]
+def _path(route, view, kwargs=None, name=None, Pattern=None):
+    if isinstance(view, (list, tuple)):
+        # For include(...) processing.
+        pattern = Pattern(route, is_endpoint=False)
+        urlconf_module, app_name, namespace = view
+        return URLResolver(
+            pattern,
+            urlconf_module,
+            kwargs,
+            app_name=app_name,
+            namespace=namespace,
+        )
+    elif callable(view):
+        pattern = Pattern(route, name=name, is_endpoint=True)
+        return URLPattern(pattern, view, kwargs, name)
+    else:
+        raise TypeError('view must be a callable or a list/tuple in the case of include().')
+
+
+path = partial(_path, Pattern=RoutePattern)
+re_path = partial(_path, Pattern=RegexPattern)

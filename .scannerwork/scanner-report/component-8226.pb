@@ -1,1 +1,1 @@
-¢@Ivenv/lib/python3.6/site-packages/django/core/management/commands/flush.py 2pyXSh
+¢@Lvenv/lib/python3.6/site-packages/django/core/management/commands/startapp.py 2pyXh

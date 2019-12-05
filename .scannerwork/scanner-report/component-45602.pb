@@ -1,1 +1,1 @@
-¢äVvenv/lib64/python3.6/site-packages/social_django/migrations/0005_auto_20160727_2333.py 2pyXh
+¢äTvenv/lib64/python3.6/site-packages/social_django/migrations/0002_add_related_name.py 2pyX!h

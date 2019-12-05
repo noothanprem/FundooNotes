@@ -1,1 +1,1 @@
-ôšTvenv/lib/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/migrations :óšõšöš÷šøšùšúš…›
+ôšKvenv/lib/python3.6/site-packages/rest_framework_simplejwt/authentication.py 2pyX…h

@@ -1,1 +1,1 @@
-¿»?venv/lib/python3.6/site-packages/django_crontab/app_settings.py 2pyX0h
+¿»5venv/lib/python3.6/site-packages/social_core/utils.py 2pyX¸h

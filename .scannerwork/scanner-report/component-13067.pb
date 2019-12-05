@@ -1,1 +1,1 @@
-‹f8venv/lib/python3.6/site-packages/chardet/hebrewprober.py 2pyX¥h
+‹f<venv/lib/python3.6/site-packages/chardet/chardistribution.py 2pyXêh

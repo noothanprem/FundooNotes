@@ -1,1 +1,1 @@
-ˆ	1venv/lib/python3.6/site-packages/screen/compat.py 2pyX0h
+ˆ	'venv/lib/python3.6/site-packages/screen :‡	Ž	¡	

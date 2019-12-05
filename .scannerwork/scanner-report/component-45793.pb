@@ -1,1 +1,0 @@
-беBvenv/lib64/python3.6/site-packages/hamcrest/core/selfdescribing.py 2pyXh

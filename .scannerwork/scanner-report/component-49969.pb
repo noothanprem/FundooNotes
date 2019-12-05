@@ -1,1 +1,1 @@
-±†Avenv/lib64/python3.6/site-packages/social_core/backends/amazon.py 2pyX.h
+±†Bvenv/lib64/python3.6/site-packages/social_core/backends/azuread.py 2pyXh

@@ -1,1 +1,1 @@
-су6venv/lib64/python3.6/site-packages/twisted/trial/_dist :рутуууфухуцучушу“ф
+суBvenv/lib64/python3.6/site-packages/twisted/trial/_dist/__init__.py 2pyX0h

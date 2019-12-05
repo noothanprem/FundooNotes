@@ -1,1 +1,1 @@
-큈?venv/lib/python3.6/site-packages/faker/providers/internet/bs_BA :쿟
+큈9venv/lib/python3.6/site-packages/faker/providers/internet :쿟

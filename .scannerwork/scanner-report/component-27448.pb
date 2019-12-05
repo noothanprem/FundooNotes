@@ -1,1 +1,1 @@
-¸Ö4venv/lib64/python3.6/site-packages/future/moves/http :·Ö¹Ö¿ÖÁÖÂÖ
+¸Ö4venv/lib64/python3.6/site-packages/future/moves/http :·Ö¹ÖÀÖÂÖÃÖ

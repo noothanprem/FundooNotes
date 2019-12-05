@@ -1,1 +1,1 @@
-þ<Pvenv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/inlines.js 2jsX«h
+þ<Uvenv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/autocomplete.js 2jsX&h

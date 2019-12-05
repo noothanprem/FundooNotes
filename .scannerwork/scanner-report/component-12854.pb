@@ -1,1 +1,1 @@
-¶d;venv/lib/python3.6/site-packages/macaroonbakery/__init__.py 2pyXh
+¶dCvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_utils.py 2pyXah

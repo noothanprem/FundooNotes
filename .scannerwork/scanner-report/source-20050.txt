@@ -1,55 +1,31 @@
-# coding: utf-8
-"""Mixin for mapping set/getattr to self.set/get"""
+"""Deprecated Stopwatch implementation"""
 
-# Copyright (C) PyZMQ Developers
+# Copyright (c) PyZMQ Development Team.
 # Distributed under the terms of the Modified BSD License.
 
+class Stopwatch(object):
+    """Deprecated zmq.Stopwatch implementation
 
-from . import constants
-
-class AttributeSetter(object):
-
-    def __setattr__(self, key, value):
-        """set zmq options by attribute"""
-
-        if key in self.__dict__:
-            object.__setattr__(self, key, value)
-            return
-        # regular setattr only allowed for class-defined attributes
-        for obj in self.__class__.mro():
-            if key in obj.__dict__:
-                object.__setattr__(self, key, value)
-                return
-
-        upper_key = key.upper()
+    You can use Python's builtin timers (time.monotonic, etc.).
+    """
+    def __init__(self):
+        import warnings
+        warnings.warn("zmq.Stopwatch is deprecated. Use stdlib time.monotonic and friends instead",
+            DeprecationWarning, stacklevel=2,
+        )
+        self._start = 0
+        import time
         try:
-            opt = getattr(constants, upper_key)
+            self._monotonic = time.monotonic
         except AttributeError:
-            raise AttributeError("%s has no such option: %s" % (
-                self.__class__.__name__, upper_key)
-            )
-        else:
-            self._set_attr_opt(upper_key, opt, value)
+            self._monotonic = time.time
 
-    def _set_attr_opt(self, name, opt, value):
-        """override if setattr should do something other than call self.set"""
-        self.set(opt, value)
+    def start(self):
+        """Start the counter"""
+        self._start = self._monotonic()
 
-    def __getattr__(self, key):
-        """get zmq options by attribute"""
-        upper_key = key.upper()
-        try:
-            opt = getattr(constants, upper_key)
-        except AttributeError:
-            raise AttributeError("%s has no such option: %s" % (
-                self.__class__.__name__, upper_key)
-            )
-        else:
-            return self._get_attr_opt(upper_key, opt)
+    def stop(self):
+        """Return time since start in microseconds"""
+        stop = self._monotonic()
+        return int(1e6 * (stop - self._start))
 
-    def _get_attr_opt(self, name, opt):
-        """override if getattr should do something other than call self.get"""
-        return self.get(opt)
-
-
-__all__ = ['AttributeSetter']

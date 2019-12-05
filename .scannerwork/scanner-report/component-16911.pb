@@ -1,1 +1,1 @@
-„;venv/lib/python3.6/site-packages/text_unidecode/__init__.py 2pyXh
+„/venv/lib/python3.6/site-packages/text_unidecode :„

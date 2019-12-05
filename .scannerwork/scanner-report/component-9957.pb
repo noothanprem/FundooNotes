@@ -1,1 +1,1 @@
-ÂMDvenv/lib/python3.6/site-packages/autobahn/websocket/utf8validator.py 2pyXÓh
+ÂM@venv/lib/python3.6/site-packages/autobahn/websocket/xormasker.py 2pyXåh

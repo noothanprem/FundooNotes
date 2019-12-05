@@ -1,1 +1,1 @@
-¼5Lvenv/lib/python3.6/site-packages/django/contrib/sites/migrations/__init__.py 2pyXh
+¼5\venv/lib/python3.6/site-packages/django/contrib/sites/migrations/0002_alter_domain_unique.py 2pyXh

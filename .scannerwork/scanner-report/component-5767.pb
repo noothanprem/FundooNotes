@@ -1,1 +1,1 @@
-‡-Tvenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/spatialite/schema.py 2pyX¦h
+‡-Vvenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/spatialite/__init__.py 2pyXh

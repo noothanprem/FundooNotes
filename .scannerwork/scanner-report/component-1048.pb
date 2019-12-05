@@ -1,1 +1,1 @@
-˜3venv/lib/python3.6/site-packages/urllib3/request.py 2pyX¬h
+˜(venv/lib/python3.6/site-packages/urllib3 :—™š›œµ¶·¸Ú

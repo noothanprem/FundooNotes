@@ -1,14 +1,13 @@
 ######################## BEGIN LICENSE BLOCK ########################
-# The Original Code is Mozilla Universal charset detector code.
+# The Original Code is Mozilla Communicator client code.
 #
 # The Initial Developer of the Original Code is
 # Netscape Communications Corporation.
-# Portions created by the Initial Developer are Copyright (C) 2001
+# Portions created by the Initial Developer are Copyright (C) 1998
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
 #   Mark Pilgrim - port to Python
-#   Shy Shalom - original C code
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -26,145 +25,207 @@
 # 02110-1301  USA
 ######################### END LICENSE BLOCK #########################
 
-from . import constants
-import sys
-import codecs
-from .latin1prober import Latin1Prober  # windows-1252
-from .mbcsgroupprober import MBCSGroupProber  # multi-byte character sets
-from .sbcsgroupprober import SBCSGroupProber  # single-byte character sets
-from .escprober import EscCharSetProber  # ISO-2122, etc.
-import re
+from .euctwfreq import (EUCTWCharToFreqOrder, EUCTW_TABLE_SIZE,
+                        EUCTW_TYPICAL_DISTRIBUTION_RATIO)
+from .euckrfreq import (EUCKRCharToFreqOrder, EUCKR_TABLE_SIZE,
+                        EUCKR_TYPICAL_DISTRIBUTION_RATIO)
+from .gb2312freq import (GB2312CharToFreqOrder, GB2312_TABLE_SIZE,
+                         GB2312_TYPICAL_DISTRIBUTION_RATIO)
+from .big5freq import (Big5CharToFreqOrder, BIG5_TABLE_SIZE,
+                       BIG5_TYPICAL_DISTRIBUTION_RATIO)
+from .jisfreq import (JISCharToFreqOrder, JIS_TABLE_SIZE,
+                      JIS_TYPICAL_DISTRIBUTION_RATIO)
+from .compat import wrap_ord
 
-MINIMUM_THRESHOLD = 0.20
-ePureAscii = 0
-eEscAscii = 1
-eHighbyte = 2
+ENOUGH_DATA_THRESHOLD = 1024
+SURE_YES = 0.99
+SURE_NO = 0.01
+MINIMUM_DATA_THRESHOLD = 3
 
 
-class UniversalDetector:
+class CharDistributionAnalysis:
     def __init__(self):
-        self._highBitDetector = re.compile(b'[\x80-\xFF]')
-        self._escDetector = re.compile(b'(\033|~{)')
-        self._mEscCharSetProber = None
-        self._mCharSetProbers = []
+        # Mapping table to get frequency order from char order (get from
+        # GetOrder())
+        self._mCharToFreqOrder = None
+        self._mTableSize = None  # Size of above table
+        # This is a constant value which varies from language to language,
+        # used in calculating confidence.  See
+        # http://www.mozilla.org/projects/intl/UniversalCharsetDetection.html
+        # for further detail.
+        self._mTypicalDistributionRatio = None
         self.reset()
 
     def reset(self):
-        self.result = {'encoding': None, 'confidence': 0.0}
-        self.done = False
-        self._mStart = True
-        self._mGotData = False
-        self._mInputState = ePureAscii
-        self._mLastChar = b''
-        if self._mEscCharSetProber:
-            self._mEscCharSetProber.reset()
-        for prober in self._mCharSetProbers:
-            prober.reset()
+        """reset analyser, clear any state"""
+        # If this flag is set to True, detection is done and conclusion has
+        # been made
+        self._mDone = False
+        self._mTotalChars = 0  # Total characters encountered
+        # The number of characters whose frequency order is less than 512
+        self._mFreqChars = 0
 
-    def feed(self, aBuf):
-        if self.done:
-            return
+    def feed(self, aBuf, aCharLen):
+        """feed a character with known length"""
+        if aCharLen == 2:
+            # we only care about 2-bytes character in our distribution analysis
+            order = self.get_order(aBuf)
+        else:
+            order = -1
+        if order >= 0:
+            self._mTotalChars += 1
+            # order is valid
+            if order < self._mTableSize:
+                if 512 > self._mCharToFreqOrder[order]:
+                    self._mFreqChars += 1
 
-        aLen = len(aBuf)
-        if not aLen:
-            return
+    def get_confidence(self):
+        """return confidence based on existing data"""
+        # if we didn't receive any character in our consideration range,
+        # return negative answer
+        if self._mTotalChars <= 0 or self._mFreqChars <= MINIMUM_DATA_THRESHOLD:
+            return SURE_NO
 
-        if not self._mGotData:
-            # If the data starts with BOM, we know it is UTF
-            if aBuf[:3] == codecs.BOM_UTF8:
-                # EF BB BF  UTF-8 with BOM
-                self.result = {'encoding': "UTF-8-SIG", 'confidence': 1.0}
-            elif aBuf[:4] == codecs.BOM_UTF32_LE:
-                # FF FE 00 00  UTF-32, little-endian BOM
-                self.result = {'encoding': "UTF-32LE", 'confidence': 1.0}
-            elif aBuf[:4] == codecs.BOM_UTF32_BE:
-                # 00 00 FE FF  UTF-32, big-endian BOM
-                self.result = {'encoding': "UTF-32BE", 'confidence': 1.0}
-            elif aBuf[:4] == b'\xFE\xFF\x00\x00':
-                # FE FF 00 00  UCS-4, unusual octet order BOM (3412)
-                self.result = {
-                    'encoding': "X-ISO-10646-UCS-4-3412",
-                    'confidence': 1.0
-                }
-            elif aBuf[:4] == b'\x00\x00\xFF\xFE':
-                # 00 00 FF FE  UCS-4, unusual octet order BOM (2143)
-                self.result = {
-                    'encoding': "X-ISO-10646-UCS-4-2143",
-                    'confidence': 1.0
-                }
-            elif aBuf[:2] == codecs.BOM_LE:
-                # FF FE  UTF-16, little endian BOM
-                self.result = {'encoding': "UTF-16LE", 'confidence': 1.0}
-            elif aBuf[:2] == codecs.BOM_BE:
-                # FE FF  UTF-16, big endian BOM
-                self.result = {'encoding': "UTF-16BE", 'confidence': 1.0}
+        if self._mTotalChars != self._mFreqChars:
+            r = (self._mFreqChars / ((self._mTotalChars - self._mFreqChars)
+                 * self._mTypicalDistributionRatio))
+            if r < SURE_YES:
+                return r
 
-        self._mGotData = True
-        if self.result['encoding'] and (self.result['confidence'] > 0.0):
-            self.done = True
-            return
+        # normalize confidence (we don't want to be 100% sure)
+        return SURE_YES
 
-        if self._mInputState == ePureAscii:
-            if self._highBitDetector.search(aBuf):
-                self._mInputState = eHighbyte
-            elif ((self._mInputState == ePureAscii) and
-                    self._escDetector.search(self._mLastChar + aBuf)):
-                self._mInputState = eEscAscii
+    def got_enough_data(self):
+        # It is not necessary to receive all data to draw conclusion.
+        # For charset detection, certain amount of data is enough
+        return self._mTotalChars > ENOUGH_DATA_THRESHOLD
 
-        self._mLastChar = aBuf[-1:]
+    def get_order(self, aBuf):
+        # We do not handle characters based on the original encoding string,
+        # but convert this encoding string to a number, here called order.
+        # This allows multiple encodings of a language to share one frequency
+        # table.
+        return -1
 
-        if self._mInputState == eEscAscii:
-            if not self._mEscCharSetProber:
-                self._mEscCharSetProber = EscCharSetProber()
-            if self._mEscCharSetProber.feed(aBuf) == constants.eFoundIt:
-                self.result = {'encoding': self._mEscCharSetProber.get_charset_name(),
-                               'confidence': self._mEscCharSetProber.get_confidence()}
-                self.done = True
-        elif self._mInputState == eHighbyte:
-            if not self._mCharSetProbers:
-                self._mCharSetProbers = [MBCSGroupProber(), SBCSGroupProber(),
-                                         Latin1Prober()]
-            for prober in self._mCharSetProbers:
-                if prober.feed(aBuf) == constants.eFoundIt:
-                    self.result = {'encoding': prober.get_charset_name(),
-                                   'confidence': prober.get_confidence()}
-                    self.done = True
-                    break
 
-    def close(self):
-        if self.done:
-            return
-        if not self._mGotData:
-            if constants._debug:
-                sys.stderr.write('no data received!\n')
-            return
-        self.done = True
+class EUCTWDistributionAnalysis(CharDistributionAnalysis):
+    def __init__(self):
+        CharDistributionAnalysis.__init__(self)
+        self._mCharToFreqOrder = EUCTWCharToFreqOrder
+        self._mTableSize = EUCTW_TABLE_SIZE
+        self._mTypicalDistributionRatio = EUCTW_TYPICAL_DISTRIBUTION_RATIO
 
-        if self._mInputState == ePureAscii:
-            self.result = {'encoding': 'ascii', 'confidence': 1.0}
-            return self.result
+    def get_order(self, aBuf):
+        # for euc-TW encoding, we are interested
+        #   first  byte range: 0xc4 -- 0xfe
+        #   second byte range: 0xa1 -- 0xfe
+        # no validation needed here. State machine has done that
+        first_char = wrap_ord(aBuf[0])
+        if first_char >= 0xC4:
+            return 94 * (first_char - 0xC4) + wrap_ord(aBuf[1]) - 0xA1
+        else:
+            return -1
 
-        if self._mInputState == eHighbyte:
-            proberConfidence = None
-            maxProberConfidence = 0.0
-            maxProber = None
-            for prober in self._mCharSetProbers:
-                if not prober:
-                    continue
-                proberConfidence = prober.get_confidence()
-                if proberConfidence > maxProberConfidence:
-                    maxProberConfidence = proberConfidence
-                    maxProber = prober
-            if maxProber and (maxProberConfidence > MINIMUM_THRESHOLD):
-                self.result = {'encoding': maxProber.get_charset_name(),
-                               'confidence': maxProber.get_confidence()}
-                return self.result
 
-        if constants._debug:
-            sys.stderr.write('no probers hit minimum threshhold\n')
-            for prober in self._mCharSetProbers[0].mProbers:
-                if not prober:
-                    continue
-                sys.stderr.write('%s confidence = %s\n' %
-                                 (prober.get_charset_name(),
-                                  prober.get_confidence()))
+class EUCKRDistributionAnalysis(CharDistributionAnalysis):
+    def __init__(self):
+        CharDistributionAnalysis.__init__(self)
+        self._mCharToFreqOrder = EUCKRCharToFreqOrder
+        self._mTableSize = EUCKR_TABLE_SIZE
+        self._mTypicalDistributionRatio = EUCKR_TYPICAL_DISTRIBUTION_RATIO
+
+    def get_order(self, aBuf):
+        # for euc-KR encoding, we are interested
+        #   first  byte range: 0xb0 -- 0xfe
+        #   second byte range: 0xa1 -- 0xfe
+        # no validation needed here. State machine has done that
+        first_char = wrap_ord(aBuf[0])
+        if first_char >= 0xB0:
+            return 94 * (first_char - 0xB0) + wrap_ord(aBuf[1]) - 0xA1
+        else:
+            return -1
+
+
+class GB2312DistributionAnalysis(CharDistributionAnalysis):
+    def __init__(self):
+        CharDistributionAnalysis.__init__(self)
+        self._mCharToFreqOrder = GB2312CharToFreqOrder
+        self._mTableSize = GB2312_TABLE_SIZE
+        self._mTypicalDistributionRatio = GB2312_TYPICAL_DISTRIBUTION_RATIO
+
+    def get_order(self, aBuf):
+        # for GB2312 encoding, we are interested
+        #  first  byte range: 0xb0 -- 0xfe
+        #  second byte range: 0xa1 -- 0xfe
+        # no validation needed here. State machine has done that
+        first_char, second_char = wrap_ord(aBuf[0]), wrap_ord(aBuf[1])
+        if (first_char >= 0xB0) and (second_char >= 0xA1):
+            return 94 * (first_char - 0xB0) + second_char - 0xA1
+        else:
+            return -1
+
+
+class Big5DistributionAnalysis(CharDistributionAnalysis):
+    def __init__(self):
+        CharDistributionAnalysis.__init__(self)
+        self._mCharToFreqOrder = Big5CharToFreqOrder
+        self._mTableSize = BIG5_TABLE_SIZE
+        self._mTypicalDistributionRatio = BIG5_TYPICAL_DISTRIBUTION_RATIO
+
+    def get_order(self, aBuf):
+        # for big5 encoding, we are interested
+        #   first  byte range: 0xa4 -- 0xfe
+        #   second byte range: 0x40 -- 0x7e , 0xa1 -- 0xfe
+        # no validation needed here. State machine has done that
+        first_char, second_char = wrap_ord(aBuf[0]), wrap_ord(aBuf[1])
+        if first_char >= 0xA4:
+            if second_char >= 0xA1:
+                return 157 * (first_char - 0xA4) + second_char - 0xA1 + 63
+            else:
+                return 157 * (first_char - 0xA4) + second_char - 0x40
+        else:
+            return -1
+
+
+class SJISDistributionAnalysis(CharDistributionAnalysis):
+    def __init__(self):
+        CharDistributionAnalysis.__init__(self)
+        self._mCharToFreqOrder = JISCharToFreqOrder
+        self._mTableSize = JIS_TABLE_SIZE
+        self._mTypicalDistributionRatio = JIS_TYPICAL_DISTRIBUTION_RATIO
+
+    def get_order(self, aBuf):
+        # for sjis encoding, we are interested
+        #   first  byte range: 0x81 -- 0x9f , 0xe0 -- 0xfe
+        #   second byte range: 0x40 -- 0x7e,  0x81 -- oxfe
+        # no validation needed here. State machine has done that
+        first_char, second_char = wrap_ord(aBuf[0]), wrap_ord(aBuf[1])
+        if (first_char >= 0x81) and (first_char <= 0x9F):
+            order = 188 * (first_char - 0x81)
+        elif (first_char >= 0xE0) and (first_char <= 0xEF):
+            order = 188 * (first_char - 0xE0 + 31)
+        else:
+            return -1
+        order = order + second_char - 0x40
+        if second_char > 0x7F:
+            order = -1
+        return order
+
+
+class EUCJPDistributionAnalysis(CharDistributionAnalysis):
+    def __init__(self):
+        CharDistributionAnalysis.__init__(self)
+        self._mCharToFreqOrder = JISCharToFreqOrder
+        self._mTableSize = JIS_TABLE_SIZE
+        self._mTypicalDistributionRatio = JIS_TYPICAL_DISTRIBUTION_RATIO
+
+    def get_order(self, aBuf):
+        # for euc-JP encoding, we are interested
+        #   first  byte range: 0xa0 -- 0xfe
+        #   second byte range: 0xa1 -- 0xfe
+        # no validation needed here. State machine has done that
+        char = wrap_ord(aBuf[0])
+        if char >= 0xA0:
+            return 94 * (char - 0xA1) + wrap_ord(aBuf[1]) - 0xa1
+        else:
+            return -1

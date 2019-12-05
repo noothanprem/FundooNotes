@@ -1,1 +1,1 @@
-¾³5venv/lib/python3.6/site-packages/rest_framework/utils :'½³¿³À³Á³Â³Ã³Ä³Å³Æ³Ç³Õ³×³Ø³
+¾³5venv/lib/python3.6/site-packages/rest_framework/utils :'½³¿³À³Á³Â³Ã³Ä³Å³Æ³Ç³Ö³×³Ù³

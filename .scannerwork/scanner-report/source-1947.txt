@@ -10,355 +10,729 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-import copy
+import random
+import time
+import functools
+import math
+import os
+import socket
+import stat
+import string
 import logging
+import threading
+import io
+from collections import defaultdict
 
-from s3transfer.utils import get_callbacks
+from botocore.exceptions import IncompleteReadError
+from botocore.exceptions import ReadTimeoutError
+
+from s3transfer.compat import SOCKET_ERROR
+from s3transfer.compat import rename_file
+from s3transfer.compat import seekable
+from s3transfer.compat import fallocate
 
 
+MAX_PARTS = 10000
+# The maximum file size you can upload via S3 per request.
+# See: http://docs.aws.amazon.com/AmazonS3/latest/dev/UploadingObjects.html
+# and: http://docs.aws.amazon.com/AmazonS3/latest/dev/qfacts.html
+MAX_SINGLE_UPLOAD_SIZE = 5 * (1024 ** 3)
+MIN_UPLOAD_CHUNKSIZE = 5 * (1024 ** 2)
 logger = logging.getLogger(__name__)
 
 
-class Task(object):
-    """A task associated to a TransferFuture request
+S3_RETRYABLE_DOWNLOAD_ERRORS = (
+    socket.timeout, SOCKET_ERROR, ReadTimeoutError, IncompleteReadError
+)
 
-    This is a base class for other classes to subclass from. All subclassed
-    classes must implement the main() method.
+
+def random_file_extension(num_digits=8):
+    return ''.join(random.choice(string.hexdigits) for _ in range(num_digits))
+
+
+def signal_not_transferring(request, operation_name, **kwargs):
+    if operation_name in ['PutObject', 'UploadPart'] and \
+            hasattr(request.body, 'signal_not_transferring'):
+        request.body.signal_not_transferring()
+
+
+def signal_transferring(request, operation_name, **kwargs):
+    if operation_name in ['PutObject', 'UploadPart'] and \
+            hasattr(request.body, 'signal_transferring'):
+        request.body.signal_transferring()
+
+
+def calculate_num_parts(size, part_size):
+    return int(math.ceil(size / float(part_size)))
+
+
+def calculate_range_parameter(part_size, part_index, num_parts,
+                              total_size=None):
+    """Calculate the range parameter for multipart downloads/copies
+
+    :type part_size: int
+    :param part_size: The size of the part
+
+    :type part_index: int
+    :param part_index: The index for which this parts starts. This index starts
+        at zero
+
+    :type num_parts: int
+    :param num_parts: The total number of parts in the transfer
+
+    :returns: The value to use for Range parameter on downloads or
+        the CopySourceRange parameter for copies
     """
-    def __init__(self, transfer_coordinator, main_kwargs=None,
-                 pending_main_kwargs=None, done_callbacks=None,
-                 is_final=False):
+    # Used to calculate the Range parameter
+    start_range = part_index * part_size
+    if part_index == num_parts - 1:
+        end_range = ''
+        if total_size is not None:
+            end_range = str(total_size - 1)
+    else:
+        end_range = start_range + part_size - 1
+    range_param = 'bytes=%s-%s' % (start_range, end_range)
+    return range_param
+
+
+def get_callbacks(transfer_future, callback_type):
+    """Retrieves callbacks from a subscriber
+
+    :type transfer_future: s3transfer.futures.TransferFuture
+    :param transfer_future: The transfer future the subscriber is associated
+        to.
+
+    :type callback_type: str
+    :param callback_type: The type of callback to retrieve from the subscriber.
+        Valid types include:
+            * 'queued'
+            * 'progress'
+            * 'done'
+
+    :returns: A list of callbacks for the type specified. All callbacks are
+        preinjected with the transfer future.
+    """
+    callbacks = []
+    for subscriber in transfer_future.meta.call_args.subscribers:
+        callback_name = 'on_' + callback_type
+        if hasattr(subscriber, callback_name):
+            callbacks.append(
+                functools.partial(
+                    getattr(subscriber, callback_name),
+                    future=transfer_future
+                )
+            )
+    return callbacks
+
+
+def invoke_progress_callbacks(callbacks, bytes_transferred):
+    """Calls all progress callbacks
+
+    :param callbacks: A list of progress callbacks to invoke
+    :param bytes_transferred: The number of bytes transferred. This is passed
+        to the callbacks. If no bytes were transferred the callbacks will not
+        be invoked because no progress was achieved. It is also possible
+        to receive a negative amount which comes from retrying a transfer
+        request.
+    """
+    # Only invoke the callbacks if bytes were actually transferred.
+    if bytes_transferred:
+        for callback in callbacks:
+            callback(bytes_transferred=bytes_transferred)
+
+
+def get_filtered_dict(original_dict, whitelisted_keys):
+    """Gets a dictionary filtered by whitelisted keys
+
+    :param original_dict: The original dictionary of arguments to source keys
+        and values.
+    :param whitelisted_key: A list of keys to include in the filtered
+        dictionary.
+
+    :returns: A dictionary containing key/values from the original dictionary
+        whose key was included in the whitelist
+    """
+    filtered_dict = {}
+    for key, value in original_dict.items():
+        if key in whitelisted_keys:
+            filtered_dict[key] = value
+    return filtered_dict
+
+
+class CallArgs(object):
+    def __init__(self, **kwargs):
+        """A class that records call arguments
+
+        The call arguments must be passed as keyword arguments. It will set
+        each keyword argument as an attribute of the object along with its
+        associated value.
         """
-        :type transfer_coordinator: s3transfer.futures.TransferCoordinator
-        :param transfer_coordinator: The context associated to the
-            TransferFuture for which this Task is associated with.
+        for arg, value in kwargs.items():
+            setattr(self, arg, value)
 
-        :type main_kwargs: dict
-        :param main_kwargs: The keyword args that can be immediately supplied
-            to the _main() method of the task
 
-        :type pending_main_kwargs: dict
-        :param pending_main_kwargs: The keyword args that are depended upon
-            by the result from a dependent future(s). The result returned by
-            the future(s) will be used as the value for the keyword argument
-            when _main() is called. The values for each key can be:
-                * a single future - Once completed, its value will be the
-                  result of that single future
-                * a list of futures - Once all of the futures complete, the
-                  value used will be a list of each completed future result
-                  value in order of when they were originally supplied.
+class FunctionContainer(object):
+    """An object that contains a function and any args or kwargs to call it
 
-        :type done_callbacks: list of callbacks
-        :param done_callbacks: A list of callbacks to call once the task is
-            done completing. Each callback will be called with no arguments
-            and will be called no matter if the task succeeds or an exception
-            is raised.
-
-        :type is_final: boolean
-        :param is_final: True, to indicate that this task is the final task
-            for the TransferFuture request. By setting this value to True, it
-            will set the result of the entire TransferFuture to the result
-            returned by this task's main() method.
-        """
-        self._transfer_coordinator = transfer_coordinator
-
-        self._main_kwargs = main_kwargs
-        if self._main_kwargs is None:
-            self._main_kwargs = {}
-
-        self._pending_main_kwargs = pending_main_kwargs
-        if pending_main_kwargs is None:
-            self._pending_main_kwargs = {}
-
-        self._done_callbacks = done_callbacks
-        if self._done_callbacks is None:
-            self._done_callbacks = []
-
-        self._is_final = is_final
+    When called the provided function will be called with provided args
+    and kwargs.
+    """
+    def __init__(self, func, *args, **kwargs):
+        self._func = func
+        self._args = args
+        self._kwargs = kwargs
 
     def __repr__(self):
-        # These are the general main_kwarg parameters that we want to
-        # display in the repr.
-        params_to_display = [
-            'bucket', 'key', 'part_number', 'final_filename',
-            'transfer_future', 'offset', 'extra_args'
-        ]
-        main_kwargs_to_display = self._get_kwargs_with_params_to_include(
-            self._main_kwargs, params_to_display)
-        return '%s(transfer_id=%s, %s)' % (
-            self.__class__.__name__, self._transfer_coordinator.transfer_id,
-            main_kwargs_to_display)
-
-    @property
-    def transfer_id(self):
-        """The id for the transfer request that the task belongs to"""
-        return self._transfer_coordinator.transfer_id
-
-    def _get_kwargs_with_params_to_include(self, kwargs, include):
-        filtered_kwargs = {}
-        for param in include:
-            if param in kwargs:
-                filtered_kwargs[param] = kwargs[param]
-        return filtered_kwargs
-
-    def _get_kwargs_with_params_to_exclude(self, kwargs, exclude):
-        filtered_kwargs = {}
-        for param, value in kwargs.items():
-            if param in exclude:
-                continue
-            filtered_kwargs[param] = value
-        return filtered_kwargs
+        return 'Function: %s with args %s and kwargs %s' % (
+            self._func, self._args, self._kwargs)
 
     def __call__(self):
-        """The callable to use when submitting a Task to an executor"""
-        try:
-            # Wait for all of futures this task depends on.
-            self._wait_on_dependent_futures()
-            # Gather up all of the main keyword arguments for main().
-            # This includes the immediately provided main_kwargs and
-            # the values for pending_main_kwargs that source from the return
-            # values from the task's depenent futures.
-            kwargs = self._get_all_main_kwargs()
-            # If the task is not done (really only if some other related
-            # task to the TransferFuture had failed) then execute the task's
-            # main() method.
-            if not self._transfer_coordinator.done():
-                return self._execute_main(kwargs)
-        except Exception as e:
-            self._log_and_set_exception(e)
-        finally:
-            # Run any done callbacks associated to the task no matter what.
-            for done_callback in self._done_callbacks:
-                done_callback()
-
-            if self._is_final:
-                # If this is the final task announce that it is done if results
-                # are waiting on its completion.
-                self._transfer_coordinator.announce_done()
-
-    def _execute_main(self, kwargs):
-        # Do not display keyword args that should not be printed, especially
-        # if they are going to make the logs hard to follow.
-        params_to_exclude = ['data']
-        kwargs_to_display = self._get_kwargs_with_params_to_exclude(
-            kwargs, params_to_exclude)
-        # Log what is about to be executed.
-        logger.debug(
-            "Executing task %s with kwargs %s" % (self, kwargs_to_display)
-        )
-
-        return_value = self._main(**kwargs)
-        # If the task is the final task, then set the TransferFuture's
-        # value to the return value from main().
-        if self._is_final:
-            self._transfer_coordinator.set_result(return_value)
-        return return_value
-
-    def _log_and_set_exception(self, exception):
-        # If an exception is ever thrown than set the exception for the
-        # entire TransferFuture.
-        logger.debug("Exception raised.", exc_info=True)
-        self._transfer_coordinator.set_exception(exception)
-
-    def _main(self, **kwargs):
-        """The method that will be ran in the executor
-
-        This method must be implemented by subclasses from Task. main() can
-        be implemented with any arguments decided upon by the subclass.
-        """
-        raise NotImplementedError('_main() must be implemented')
-
-    def _wait_on_dependent_futures(self):
-        # Gather all of the futures into that main() depends on.
-        futures_to_wait_on = []
-        for _, future in self._pending_main_kwargs.items():
-            # If the pending main keyword arg is a list then extend the list.
-            if isinstance(future, list):
-                futures_to_wait_on.extend(future)
-            # If the pending main keword arg is a future append it to the list.
-            else:
-                futures_to_wait_on.append(future)
-        # Now wait for all of the futures to complete.
-        self._wait_until_all_complete(futures_to_wait_on)
-
-    def _wait_until_all_complete(self, futures):
-        # This is a basic implementation of the concurrent.futures.wait()
-        #
-        # concurrent.futures.wait() is not used instead because of this
-        # reported issue: https://bugs.python.org/issue20319.
-        # The issue would occassionally cause multipart uploads to hang
-        # when wait() was called. With this approach, it avoids the
-        # concurrency bug by removing any association with concurrent.futures
-        # implementation of waiters.
-        logger.debug(
-            '%s about to wait for the following futures %s', self, futures)
-        for future in futures:
-            try:
-                logger.debug('%s about to wait for %s', self, future)
-                future.result()
-            except Exception:
-                # result() can also produce exceptions. We want to ignore
-                # these to be deffered to error handling down the road.
-                pass
-        logger.debug('%s done waiting for dependent futures', self)
-
-    def _get_all_main_kwargs(self):
-        # Copy over all of the kwargs that we know is available.
-        kwargs = copy.copy(self._main_kwargs)
-
-        # Iterate through the kwargs whose values are pending on the result
-        # of a future.
-        for key, pending_value in self._pending_main_kwargs.items():
-            # If the value is a list of futures, iterate though the list
-            # appending on the result from each future.
-            if isinstance(pending_value, list):
-                result = []
-                for future in pending_value:
-                    result.append(future.result())
-            # Otherwise if the pending_value is a future, just wait for it.
-            else:
-                result = pending_value.result()
-            # Add the retrieved value to the kwargs to be sent to the
-            # main() call.
-            kwargs[key] = result
-        return kwargs
+        return self._func(*self._args, **self._kwargs)
 
 
-class SubmissionTask(Task):
-    """A base class for any submission task
+class CountCallbackInvoker(object):
+    """An abstraction to invoke a callback when a shared count reaches zero
 
-    Submission tasks are the top-level task used to submit a series of tasks
-    to execute a particular transfer.
+    :param callback: Callback invoke when finalized count reaches zero
     """
-    def _main(self, transfer_future, **kwargs):
-        """
-        :type transfer_future: s3transfer.futures.TransferFuture
-        :param transfer_future: The transfer future associated with the
-            transfer request that tasks are being submitted for
+    def __init__(self, callback):
+        self._lock = threading.Lock()
+        self._callback = callback
+        self._count = 0
+        self._is_finalized = False
 
-        :param kwargs: Any additional kwargs that you may want to pass
-            to the _submit() method
+    @property
+    def current_count(self):
+        with self._lock:
+            return self._count
+
+    def increment(self):
+        """Increment the count by one"""
+        with self._lock:
+            if self._is_finalized:
+                raise RuntimeError(
+                    'Counter has been finalized it can no longer be '
+                    'incremented.'
+                )
+            self._count += 1
+
+    def decrement(self):
+        """Decrement the count by one"""
+        with self._lock:
+            if self._count == 0:
+                raise RuntimeError(
+                    'Counter is at zero. It cannot dip below zero')
+            self._count -= 1
+            if self._is_finalized and self._count == 0:
+                self._callback()
+
+    def finalize(self):
+        """Finalize the counter
+
+        Once finalized, the counter never be incremented and the callback
+        can be invoked once the count reaches zero
         """
+        with self._lock:
+            self._is_finalized = True
+            if self._count == 0:
+                self._callback()
+
+
+class OSUtils(object):
+    def get_file_size(self, filename):
+        return os.path.getsize(filename)
+
+    def open_file_chunk_reader(self, filename, start_byte, size, callbacks):
+        return ReadFileChunk.from_filename(filename, start_byte,
+                                           size, callbacks,
+                                           enable_callbacks=False)
+
+    def open_file_chunk_reader_from_fileobj(self, fileobj, chunk_size,
+                                            full_file_size, callbacks,
+                                            close_callbacks=None):
+        return ReadFileChunk(
+            fileobj, chunk_size, full_file_size,
+            callbacks=callbacks, enable_callbacks=False,
+            close_callbacks=close_callbacks)
+
+    def open(self, filename, mode):
+        return open(filename, mode)
+
+    def remove_file(self, filename):
+        """Remove a file, noop if file does not exist."""
+        # Unlike os.remove, if the file does not exist,
+        # then this method does nothing.
         try:
-            self._transfer_coordinator.set_status_to_queued()
+            os.remove(filename)
+        except OSError:
+            pass
 
-            # Before submitting any tasks, run all of the on_queued callbacks
-            on_queued_callbacks = get_callbacks(transfer_future, 'queued')
-            for on_queued_callback in on_queued_callbacks:
-                on_queued_callback()
+    def rename_file(self, current_filename, new_filename):
+        rename_file(current_filename, new_filename)
 
-            # Once callbacks have been ran set the status to running.
-            self._transfer_coordinator.set_status_to_running()
+    def is_special_file(cls, filename):
+        """Checks to see if a file is a special UNIX file.
 
-            # Call the submit method to start submitting tasks to execute the
-            # transfer.
-            self._submit(transfer_future=transfer_future, **kwargs)
-        except BaseException as e:
-            # If there was an exception raised during the submission of task
-            # there is a chance that the final task that signals if a transfer
-            # is done and too run the cleanup may never have been submitted in
-            # the first place so we need to account accordingly.
-            #
-            # Note that BaseException is caught, instead of Exception, because
-            # for some implmentations of executors, specifically the serial
-            # implementation, the SubmissionTask is directly exposed to
-            # KeyboardInterupts and so needs to cleanup and signal done
-            # for those as well.
+        It checks if the file is a character special device, block special
+        device, FIFO, or socket.
 
-            # Set the exception, that caused the process to fail.
-            self._log_and_set_exception(e)
+        :param filename: Name of the file
 
-            # Wait for all possibly associated futures that may have spawned
-            # from this submission task have finished before we anounce the
-            # transfer done.
-            self._wait_for_all_submitted_futures_to_complete()
-
-            # Announce the transfer as done, which will run any cleanups
-            # and done callbacks as well.
-            self._transfer_coordinator.announce_done()
-
-    def _submit(self, transfer_future, **kwargs):
-        """The submition method to be implemented
-
-        :type transfer_future: s3transfer.futures.TransferFuture
-        :param transfer_future: The transfer future associated with the
-            transfer request that tasks are being submitted for
-
-        :param kwargs: Any additional keyword arguments you want to be passed
-            in
+        :returns: True if the file is a special file. False, if is not.
         """
-        raise NotImplementedError('_submit() must be implemented')
+        # If it does not exist, it must be a new file so it cannot be
+        # a special file.
+        if not os.path.exists(filename):
+            return False
+        mode = os.stat(filename).st_mode
+        # Character special device.
+        if stat.S_ISCHR(mode):
+            return True
+        # Block special device
+        if stat.S_ISBLK(mode):
+            return True
+        # Named pipe / FIFO
+        if stat.S_ISFIFO(mode):
+            return True
+        # Socket.
+        if stat.S_ISSOCK(mode):
+            return True
+        return False
 
-    def _wait_for_all_submitted_futures_to_complete(self):
-        # We want to wait for all futures that were submitted to
-        # complete as we do not want the cleanup callbacks or done callbacks
-        # to be called to early. The main problem is any task that was
-        # submitted may have submitted even more during its process and so
-        # we need to account accordingly.
+    def get_temp_filename(self, filename):
+        return filename + os.extsep + random_file_extension()
 
-        # First get all of the futures that were submitted up to this point.
-        submitted_futures = self._transfer_coordinator.associated_futures
-        while submitted_futures:
-            # Wait for those futures to complete.
-            self._wait_until_all_complete(submitted_futures)
-            # However, more futures may have been submitted as we waited so
-            # we need to check again for any more associated futures.
-            possibly_more_submitted_futures = \
-                self._transfer_coordinator.associated_futures
-            # If the current list of submitted futures is equal to the
-            # the list of associated futures for when after the wait completes,
-            # we can ensure no more futures were submitted in waiting on
-            # the current list of futures to complete ultimately meaning all
-            # futures that may have spawned from the original submission task
-            # have completed.
-            if submitted_futures == possibly_more_submitted_futures:
-                break
-            submitted_futures = possibly_more_submitted_futures
+    def allocate(self, filename, size):
+        try:
+            with self.open(filename, 'wb') as f:
+                fallocate(f, size)
+        except (OSError, IOError):
+            self.remove_file(filename)
+            raise
 
 
-class CreateMultipartUploadTask(Task):
-    """Task to initiate a multipart upload"""
-    def _main(self, client, bucket, key, extra_args):
+class DeferredOpenFile(object):
+    def __init__(self, filename, start_byte=0, mode='rb', open_function=open):
+        """A class that defers the opening of a file till needed
+
+        This is useful for deferring opening of a file till it is needed
+        in a separate thread, as there is a limit of how many open files
+        there can be in a single thread for most operating systems. The
+        file gets opened in the following methods: ``read()``, ``seek()``,
+        and ``__enter__()``
+
+        :type filename: str
+        :param filename: The name of the file to open
+
+        :type start_byte: int
+        :param start_byte: The byte to seek to when the file is opened.
+
+        :type mode: str
+        :param mode: The mode to use to open the file
+
+        :type open_function: function
+        :param open_function: The function to use to open the file
         """
-        :param client: The client to use when calling CreateMultipartUpload
-        :param bucket: The name of the bucket to upload to
-        :param key: The name of the key to upload to
-        :param extra_args: A dictionary of any extra arguments that may be
-            used in the intialization.
+        self._filename = filename
+        self._fileobj = None
+        self._start_byte = start_byte
+        self._mode = mode
+        self._open_function = open_function
 
-        :returns: The upload id of the multipart upload
+    def _open_if_needed(self):
+        if self._fileobj is None:
+            self._fileobj = self._open_function(self._filename, self._mode)
+            if self._start_byte != 0:
+                self._fileobj.seek(self._start_byte)
+
+    @property
+    def name(self):
+        return self._filename
+
+    def read(self, amount=None):
+        self._open_if_needed()
+        return self._fileobj.read(amount)
+
+    def write(self, data):
+        self._open_if_needed()
+        self._fileobj.write(data)
+
+    def seek(self, where):
+        self._open_if_needed()
+        self._fileobj.seek(where)
+
+    def tell(self):
+        if self._fileobj is None:
+            return self._start_byte
+        return self._fileobj.tell()
+
+    def close(self):
+        if self._fileobj:
+            self._fileobj.close()
+
+    def __enter__(self):
+        self._open_if_needed()
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.close()
+
+
+class ReadFileChunk(object):
+    def __init__(self, fileobj, chunk_size, full_file_size,
+                 callbacks=None, enable_callbacks=True, close_callbacks=None):
         """
-        # Create the multipart upload.
-        response = client.create_multipart_upload(
-            Bucket=bucket, Key=key, **extra_args)
-        upload_id = response['UploadId']
 
-        # Add a cleanup if the multipart upload fails at any point.
-        self._transfer_coordinator.add_failure_cleanup(
-            client.abort_multipart_upload, Bucket=bucket, Key=key,
-            UploadId=upload_id
-        )
-        return upload_id
+        Given a file object shown below::
 
+            |___________________________________________________|
+            0          |                 |                 full_file_size
+                       |----chunk_size---|
+                    f.tell()
 
-class CompleteMultipartUploadTask(Task):
-    """Task to complete a multipart upload"""
-    def _main(self, client, bucket, key, upload_id, parts, extra_args):
+        :type fileobj: file
+        :param fileobj: File like object
+
+        :type chunk_size: int
+        :param chunk_size: The max chunk size to read.  Trying to read
+            pass the end of the chunk size will behave like you've
+            reached the end of the file.
+
+        :type full_file_size: int
+        :param full_file_size: The entire content length associated
+            with ``fileobj``.
+
+        :type callbacks: A list of function(amount_read)
+        :param callbacks: Called whenever data is read from this object in the
+            order provided.
+
+        :type enable_callbacks: boolean
+        :param enable_callbacks: True if to run callbacks. Otherwise, do not
+            run callbacks
+
+        :type close_callbacks: A list of function()
+        :param close_callbacks: Called when close is called. The function
+            should take no arguments.
         """
-        :param client: The client to use when calling CompleteMultipartUpload
-        :param bucket: The name of the bucket to upload to
-        :param key: The name of the key to upload to
-        :param upload_id: The id of the upload
-        :param parts: A list of parts to use to complete the multipart upload::
+        self._fileobj = fileobj
+        self._start_byte = self._fileobj.tell()
+        self._size = self._calculate_file_size(
+            self._fileobj, requested_size=chunk_size,
+            start_byte=self._start_byte, actual_file_size=full_file_size)
+        self._amount_read = 0
+        self._callbacks = callbacks
+        if callbacks is None:
+            self._callbacks = []
+        self._callbacks_enabled = enable_callbacks
+        self._close_callbacks = close_callbacks
+        if close_callbacks is None:
+            self._close_callbacks = close_callbacks
 
-            [{'Etag': etag_value, 'PartNumber': part_number}, ...]
+    @classmethod
+    def from_filename(cls, filename, start_byte, chunk_size, callbacks=None,
+                      enable_callbacks=True):
+        """Convenience factory function to create from a filename.
 
-            Each element in the list consists of a return value from
-            ``UploadPartTask.main()``.
-        :param extra_args:  A dictionary of any extra arguments that may be
-            used in completing the multipart transfer.
+        :type start_byte: int
+        :param start_byte: The first byte from which to start reading.
+
+        :type chunk_size: int
+        :param chunk_size: The max chunk size to read.  Trying to read
+            pass the end of the chunk size will behave like you've
+            reached the end of the file.
+
+        :type full_file_size: int
+        :param full_file_size: The entire content length associated
+            with ``fileobj``.
+
+        :type callbacks: function(amount_read)
+        :param callbacks: Called whenever data is read from this object.
+
+        :type enable_callbacks: bool
+        :param enable_callbacks: Indicate whether to invoke callback
+            during read() calls.
+
+        :rtype: ``ReadFileChunk``
+        :return: A new instance of ``ReadFileChunk``
+
         """
-        client.complete_multipart_upload(
-            Bucket=bucket, Key=key, UploadId=upload_id,
-            MultipartUpload={'Parts': parts},
-            **extra_args)
+        f = open(filename, 'rb')
+        f.seek(start_byte)
+        file_size = os.fstat(f.fileno()).st_size
+        return cls(f, chunk_size, file_size, callbacks, enable_callbacks)
+
+    def _calculate_file_size(self, fileobj, requested_size, start_byte,
+                             actual_file_size):
+        max_chunk_size = actual_file_size - start_byte
+        return min(max_chunk_size, requested_size)
+
+    def read(self, amount=None):
+        if amount is None:
+            amount_to_read = self._size - self._amount_read
+        else:
+            amount_to_read = min(self._size - self._amount_read, amount)
+        data = self._fileobj.read(amount_to_read)
+        self._amount_read += len(data)
+        if self._callbacks is not None and self._callbacks_enabled:
+            invoke_progress_callbacks(self._callbacks, len(data))
+        return data
+
+    def signal_transferring(self):
+        self.enable_callback()
+        if hasattr(self._fileobj, 'signal_transferring'):
+            self._fileobj.signal_transferring()
+
+    def signal_not_transferring(self):
+        self.disable_callback()
+        if hasattr(self._fileobj, 'signal_not_transferring'):
+            self._fileobj.signal_not_transferring()
+
+    def enable_callback(self):
+        self._callbacks_enabled = True
+
+    def disable_callback(self):
+        self._callbacks_enabled = False
+
+    def seek(self, where):
+        self._fileobj.seek(self._start_byte + where)
+        if self._callbacks is not None and self._callbacks_enabled:
+            # To also rewind the callback() for an accurate progress report
+            invoke_progress_callbacks(
+                self._callbacks, bytes_transferred=where - self._amount_read)
+        self._amount_read = where
+
+    def close(self):
+        if self._close_callbacks is not None and self._callbacks_enabled:
+            for callback in self._close_callbacks:
+                callback()
+        self._fileobj.close()
+
+    def tell(self):
+        return self._amount_read
+
+    def __len__(self):
+        # __len__ is defined because requests will try to determine the length
+        # of the stream to set a content length.  In the normal case
+        # of the file it will just stat the file, but we need to change that
+        # behavior.  By providing a __len__, requests will use that instead
+        # of stat'ing the file.
+        return self._size
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.close()
+
+    def __iter__(self):
+        # This is a workaround for http://bugs.python.org/issue17575
+        # Basically httplib will try to iterate over the contents, even
+        # if its a file like object.  This wasn't noticed because we've
+        # already exhausted the stream so iterating over the file immediately
+        # stops, which is what we're simulating here.
+        return iter([])
+
+
+class StreamReaderProgress(object):
+    """Wrapper for a read only stream that adds progress callbacks."""
+    def __init__(self, stream, callbacks=None):
+        self._stream = stream
+        self._callbacks = callbacks
+        if callbacks is None:
+            self._callbacks = []
+
+    def read(self, *args, **kwargs):
+        value = self._stream.read(*args, **kwargs)
+        invoke_progress_callbacks(self._callbacks, len(value))
+        return value
+
+
+class NoResourcesAvailable(Exception):
+    pass
+
+
+class TaskSemaphore(object):
+    def __init__(self, count):
+        """A semaphore for the purpose of limiting the number of tasks
+
+        :param count: The size of semaphore
+        """
+        self._semaphore = threading.Semaphore(count)
+
+    def acquire(self, tag, blocking=True):
+        """Acquire the semaphore
+
+        :param tag: A tag identifying what is acquiring the semaphore. Note
+            that this is not really needed to directly use this class but is
+            needed for API compatibility with the SlidingWindowSemaphore
+            implementation.
+        :param block: If True, block until it can be acquired. If False,
+            do not block and raise an exception if cannot be aquired.
+
+        :returns: A token (can be None) to use when releasing the semaphore
+        """
+        logger.debug("Acquiring %s", tag)
+        if not self._semaphore.acquire(blocking):
+            raise NoResourcesAvailable("Cannot acquire tag '%s'" % tag)
+
+    def release(self, tag, acquire_token):
+        """Release the semaphore
+
+        :param tag: A tag identifying what is releasing the semaphore
+        :param acquire_token:  The token returned from when the semaphore was
+            acquired. Note that this is not really needed to directly use this
+            class but is needed for API compatibility with the
+            SlidingWindowSemaphore implementation.
+        """
+        logger.debug("Releasing acquire %s/%s" % (tag, acquire_token))
+        self._semaphore.release()
+
+
+class SlidingWindowSemaphore(TaskSemaphore):
+    """A semaphore used to coordinate sequential resource access.
+
+    This class is similar to the stdlib BoundedSemaphore:
+
+    * It's initialized with a count.
+    * Each call to ``acquire()`` decrements the counter.
+    * If the count is at zero, then ``acquire()`` will either block until the
+      count increases, or if ``blocking=False``, then it will raise
+      a NoResourcesAvailable exception indicating that it failed to acquire the
+      semaphore.
+
+    The main difference is that this semaphore is used to limit
+    access to a resource that requires sequential access.  For example,
+    if I want to access resource R that has 20 subresources R_0 - R_19,
+    this semaphore can also enforce that you only have a max range of
+    10 at any given point in time.  You must also specify a tag name
+    when you acquire the semaphore.  The sliding window semantics apply
+    on a per tag basis.  The internal count will only be incremented
+    when the minimum sequence number for a tag is released.
+
+    """
+    def __init__(self, count):
+        self._count = count
+        # Dict[tag, next_sequence_number].
+        self._tag_sequences = defaultdict(int)
+        self._lowest_sequence = {}
+        self._lock = threading.Lock()
+        self._condition = threading.Condition(self._lock)
+        # Dict[tag, List[sequence_number]]
+        self._pending_release = {}
+
+    def current_count(self):
+        with self._lock:
+            return self._count
+
+    def acquire(self, tag, blocking=True):
+        logger.debug("Acquiring %s", tag)
+        self._condition.acquire()
+        try:
+            if self._count == 0:
+                if not blocking:
+                    raise NoResourcesAvailable("Cannot acquire tag '%s'" % tag)
+                else:
+                    while self._count == 0:
+                        self._condition.wait()
+            # self._count is no longer zero.
+            # First, check if this is the first time we're seeing this tag.
+            sequence_number = self._tag_sequences[tag]
+            if sequence_number == 0:
+                # First time seeing the tag, so record we're at 0.
+                self._lowest_sequence[tag] = sequence_number
+            self._tag_sequences[tag] += 1
+            self._count -= 1
+            return sequence_number
+        finally:
+            self._condition.release()
+
+    def release(self, tag, acquire_token):
+        sequence_number = acquire_token
+        logger.debug("Releasing acquire %s/%s", tag, sequence_number)
+        self._condition.acquire()
+        try:
+            if tag not in self._tag_sequences:
+                raise ValueError("Attempted to release unknown tag: %s" % tag)
+            max_sequence = self._tag_sequences[tag]
+            if self._lowest_sequence[tag] == sequence_number:
+                # We can immediately process this request and free up
+                # resources.
+                self._lowest_sequence[tag] += 1
+                self._count += 1
+                self._condition.notify()
+                queued = self._pending_release.get(tag, [])
+                while queued:
+                    if self._lowest_sequence[tag] == queued[-1]:
+                        queued.pop()
+                        self._lowest_sequence[tag] += 1
+                        self._count += 1
+                    else:
+                        break
+            elif self._lowest_sequence[tag] < sequence_number < max_sequence:
+                # We can't do anything right now because we're still waiting
+                # for the min sequence for the tag to be released.  We have
+                # to queue this for pending release.
+                self._pending_release.setdefault(
+                    tag, []).append(sequence_number)
+                self._pending_release[tag].sort(reverse=True)
+            else:
+                raise ValueError(
+                    "Attempted to release unknown sequence number "
+                    "%s for tag: %s" % (sequence_number, tag))
+        finally:
+            self._condition.release()
+
+
+class ChunksizeAdjuster(object):
+    def __init__(self, max_size=MAX_SINGLE_UPLOAD_SIZE,
+                 min_size=MIN_UPLOAD_CHUNKSIZE, max_parts=MAX_PARTS):
+        self.max_size = max_size
+        self.min_size = min_size
+        self.max_parts = max_parts
+
+    def adjust_chunksize(self, current_chunksize, file_size=None):
+        """Get a chunksize close to current that fits within all S3 limits.
+
+        :type current_chunksize: int
+        :param current_chunksize: The currently configured chunksize.
+
+        :type file_size: int or None
+        :param file_size: The size of the file to upload. This might be None
+            if the object being transferred has an unknown size.
+
+        :returns: A valid chunksize that fits within configured limits.
+        """
+        chunksize = current_chunksize
+        if file_size is not None:
+            chunksize = self._adjust_for_max_parts(chunksize, file_size)
+        return self._adjust_for_chunksize_limits(chunksize)
+
+    def _adjust_for_chunksize_limits(self, current_chunksize):
+        if current_chunksize > self.max_size:
+            logger.debug(
+                "Chunksize greater than maximum chunksize. "
+                "Setting to %s from %s." % (self.max_size, current_chunksize))
+            return self.max_size
+        elif current_chunksize < self.min_size:
+            logger.debug(
+                "Chunksize less than minimum chunksize. "
+                "Setting to %s from %s." % (self.min_size, current_chunksize))
+            return self.min_size
+        else:
+            return current_chunksize
+
+    def _adjust_for_max_parts(self, current_chunksize, file_size):
+        chunksize = current_chunksize
+        num_parts = int(math.ceil(file_size / float(chunksize)))
+
+        while num_parts > self.max_parts:
+            chunksize *= 2
+            num_parts = int(math.ceil(file_size / float(chunksize)))
+
+        if chunksize != current_chunksize:
+            logger.debug(
+                "Chunksize would result in the number of parts exceeding the "
+                "maximum. Setting to %s from %s." %
+                (chunksize, current_chunksize))
+
+        return chunksize

@@ -1,1 +1,1 @@
-á@1venv/lib/python3.6/site-packages/django/core/mail :Ü@ú@ù@
+á@Bvenv/lib/python3.6/site-packages/django/core/serializers/python.py 2pyXùh

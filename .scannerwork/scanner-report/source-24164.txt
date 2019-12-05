@@ -1,113 +1,140 @@
 # -*- coding: utf-8 -*-
-import inspect
-import os
-import re
+import logging
 
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
+from django.db.backends.base.creation import TEST_DATABASE_PREFIX
+from six.moves import input
 
-from django.apps import apps
-from django.core.management import color
-from django.core.management import BaseCommand
-from django.utils import termcolors
-from django.utils.encoding import smart_text
-
-from django_extensions.compat import load_tag_library
-from django_extensions.management.color import _dummy_style_func
+from django_extensions.management.mysql import parse_mysql_cnf
 from django_extensions.management.utils import signalcommand
 
 
-def no_style():
-    style = color.no_style()
-    for role in ('FILTER', 'MODULE_NAME', 'TAG', 'TAGLIB'):
-        setattr(style, role, _dummy_style_func)
-    return style
-
-
-def color_style():
-    style = color.color_style()
-    style.FILTER = termcolors.make_style(fg='yellow', opts=('bold',))
-    style.MODULE_NAME = termcolors.make_style(fg='green', opts=('bold',))
-    style.TAG = termcolors.make_style(fg='red', opts=('bold',))
-    style.TAGLIB = termcolors.make_style(fg='blue', opts=('bold',))
-    return style
-
-
-def format_block(block, nlspaces=0):
-    """
-    Format the given block of text, trimming leading/trailing
-    empty lines and any leading whitespace that is common to all lines.
-    The purpose is to let us list a code block as a multiline,
-    triple-quoted Python string, taking care of
-    indentation concerns.
-    http://code.activestate.com/recipes/145672/
-    """
-    # separate block into lines
-    lines = smart_text(block).split('\n')
-
-    # remove leading/trailing empty lines
-    while lines and not lines[0]:
-        del lines[0]
-    while lines and not lines[-1]:
-        del lines[-1]
-
-    # look at first line to see how much indentation to trim
-    ws = re.match(r'\s*', lines[0]).group(0)
-    if ws:
-        lines = map(lambda x: x.replace(ws, '', 1), lines)
-
-    # remove leading/trailing blank lines (after leading ws removal)
-    # we do this again in case there were pure-whitespace lines
-    while lines and not lines[0]:
-        del lines[0]
-    while lines and not lines[-1]:
-        del lines[-1]
-
-    # account for user-specified leading spaces
-    flines = ['%s%s' % (' ' * nlspaces, line) for line in lines]
-
-    return '\n'.join(flines) + '\n'
-
-
 class Command(BaseCommand):
-    help = "Displays template tags and filters available in the current project."
-    results = ""
+    help = "Drops test database for this project."
 
-    def add_result(self, s, depth=0):
-        self.results += '%s\n' % s.rjust(depth * 4 + len(s))
+    def add_arguments(self, parser):
+        super(Command, self).add_arguments(parser)
+        parser.add_argument(
+            '--noinput', action='store_false', dest='interactive',
+            default=True, help='Tells Django to NOT prompt the user for input of any kind.'
+        )
+        parser.add_argument(
+            '-U', '--user', action='store', dest='user', default=None,
+            help='Use another user for the database then defined in settings.py'
+        )
+        parser.add_argument(
+            '-P', '--password', action='store', dest='password', default=None,
+            help='Use another password for the database then defined in settings.py'
+        )
+        parser.add_argument(
+            '-D', '--dbname', action='store', dest='dbname', default=None,
+            help='Use another database name then defined in settings.py'
+        )
+        parser.add_argument(
+            '-R', '--router', action='store', dest='router', default='default',
+            help='Use this router-database other then defined in settings.py'
+        )
 
     @signalcommand
     def handle(self, *args, **options):
-        if options['no_color']:
-            style = no_style()
+        """Drop test database for this project."""
+        router = options['router']
+        dbinfo = settings.DATABASES.get(router)
+        if dbinfo is None:
+            raise CommandError("Unknown database router %s" % router)
+
+        engine = dbinfo.get('ENGINE').split('.')[-1]
+
+        user = password = database_name = database_host = database_port = ''
+        if engine == 'mysql':
+            (user, password, database_name, database_host, database_port) = parse_mysql_cnf(dbinfo)
+
+        user = options['user'] or dbinfo.get('USER') or user
+        password = options['password'] or dbinfo.get('PASSWORD') or password
+
+        try:
+            database_name = dbinfo['TEST']['NAME']
+        except KeyError:
+            database_name = None
+
+        if database_name is None:
+            database_name = TEST_DATABASE_PREFIX + (options['dbname'] or dbinfo.get('NAME'))
+
+        if database_name is None or database_name == '':
+            raise CommandError("You need to specify DATABASE_NAME in your Django settings file.")
+
+        database_host = dbinfo.get('HOST') or database_host
+        database_port = dbinfo.get('PORT') or database_port
+
+        verbosity = options["verbosity"]
+        if options['interactive']:
+            confirm = input("""
+You have requested to drop the test database.
+This will IRREVERSIBLY DESTROY
+ALL data in the database "%s".
+Are you sure you want to do this?
+
+Type 'yes' to continue, or 'no' to cancel: """ % (database_name,))
         else:
-            style = color_style()
+            confirm = 'yes'
 
-        for app_config in apps.get_app_configs():
-            app = app_config.name
+        if confirm != 'yes':
+            print("Reset cancelled.")
+            return
+
+        if engine in ('sqlite3', 'spatialite'):
+            import os
             try:
-                templatetag_mod = __import__(app + '.templatetags', {}, {}, [''])
-            except ImportError:
-                continue
-            mod_path = inspect.getabsfile(templatetag_mod)
-            mod_files = os.listdir(os.path.dirname(mod_path))
-            tag_files = [i.rstrip('.py') for i in mod_files if i.endswith('.py') and i[0] != '_']
-            app_labeled = False
-            for taglib in tag_files:
-                lib = load_tag_library(taglib)
-                if lib is None:
-                    continue
+                logging.info("Unlinking %s database" % engine)
+                if os.path.isfile(database_name):
+                    os.unlink(database_name)
+            except OSError:
+                return
+        elif engine in ('mysql',):
+            import MySQLdb as Database
+            kwargs = {
+                'user': user,
+                'passwd': password,
+            }
+            if database_host.startswith('/'):
+                kwargs['unix_socket'] = database_host
+            else:
+                kwargs['host'] = database_host
 
-                if not app_labeled:
-                    self.add_result('App: %s' % style.MODULE_NAME(app))
-                    app_labeled = True
-                self.add_result('load: %s' % style.TAGLIB(taglib), 1)
-                libstuff = [
-                    (lib.tags, 'Tag:', style.TAG),
-                    (lib.filters, 'Filter:', style.FILTER)
-                ]
-                for items, label, style_func in libstuff:
-                    for item in items:
-                        self.add_result('%s %s' % (label, style_func(item)), 2)
-                        doc = inspect.getdoc(items[item])
-                        if doc:
-                            self.add_result(format_block(doc, 12))
-        return self.results
+            if database_port:
+                kwargs['port'] = int(database_port)
+
+            connection = Database.connect(**kwargs)
+            drop_query = 'DROP DATABASE IF EXISTS `%s`' % database_name
+            logging.info('Executing: "' + drop_query + '"')
+            connection.query(drop_query)
+        elif engine in ('postgresql', 'postgresql_psycopg2', 'postgis'):
+            import psycopg2 as Database  # NOQA
+
+            conn_params = {'database': 'template1'}
+            if user:
+                conn_params['user'] = user
+            if password:
+                conn_params['password'] = password
+            if database_host:
+                conn_params['host'] = database_host
+            if database_port:
+                conn_params['port'] = database_port
+
+            connection = Database.connect(**conn_params)
+            connection.set_isolation_level(0)  # autocommit false
+            cursor = connection.cursor()
+            drop_query = "DROP DATABASE IF EXISTS \"%s\";" % database_name
+            logging.info('Executing: "' + drop_query + '"')
+
+            try:
+                cursor.execute(drop_query)
+            except Database.ProgrammingError as e:
+                logging.exception("Error: %s" % str(e))
+                return
+        else:
+            raise CommandError("Unknown database engine %s" % engine)
+
+        if verbosity >= 2 or options['interactive']:
+            print("Reset successful.")

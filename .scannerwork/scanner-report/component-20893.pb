@@ -1,1 +1,1 @@
-ù£.venv/lib/python3.6/site-packages/twisted/names :-ú£û£ü£†£°£¢£££§£•£¶£ß£ÿ£Ÿ£⁄£€£
+ù£3venv/lib/python3.6/site-packages/twisted/tap/ftp.py 2pyXFh

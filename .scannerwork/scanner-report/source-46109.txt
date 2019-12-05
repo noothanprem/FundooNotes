@@ -2,43 +2,34 @@
 # Distributed under the terms of the Modified BSD License.
 
 
-from unittest import TestCase
 import zmq
-from zmq.sugar import version
 
 
-class TestVersion(TestCase):
+from zmq.tests import BaseZMQTestCase, SkipTest, have_gevent, GreenTest
 
-    def test_pyzmq_version(self):
-        vs = zmq.pyzmq_version()
-        vs2 = zmq.__version__
-        self.assertTrue(isinstance(vs, str))
-        if zmq.__revision__:
-            self.assertEqual(vs, '@'.join(vs2, zmq.__revision__))
-        else:
-            self.assertEqual(vs, vs2)
-        if version.VERSION_EXTRA:
-            self.assertTrue(version.VERSION_EXTRA in vs)
-            self.assertTrue(version.VERSION_EXTRA in vs2)
 
-    def test_pyzmq_version_info(self):
-        info = zmq.pyzmq_version_info()
-        self.assertTrue(isinstance(info, tuple))
-        for n in info[:3]:
-            self.assertTrue(isinstance(n, int))
-        if version.VERSION_EXTRA:
-            self.assertEqual(len(info), 4)
-            self.assertEqual(info[-1], float('inf'))
-        else:
-            self.assertEqual(len(info), 3)
+class TestMultipart(BaseZMQTestCase):
 
-    def test_zmq_version_info(self):
-        info = zmq.zmq_version_info()
-        self.assertTrue(isinstance(info, tuple))
-        for n in info[:3]:
-            self.assertTrue(isinstance(n, int))
+    def test_router_dealer(self):
+        router, dealer = self.create_bound_pair(zmq.ROUTER, zmq.DEALER)
 
-    def test_zmq_version(self):
-        v = zmq.zmq_version()
-        self.assertTrue(isinstance(v, str))
+        msg1 = b'message1'
+        dealer.send(msg1)
+        ident = self.recv(router)
+        more = router.rcvmore
+        self.assertEqual(more, True)
+        msg2 = self.recv(router)
+        self.assertEqual(msg1, msg2)
+        more = router.rcvmore
+        self.assertEqual(more, False)
+    
+    def test_basic_multipart(self):
+        a,b = self.create_bound_pair(zmq.PAIR, zmq.PAIR)
+        msg = [ b'hi', b'there', b'b']
+        a.send_multipart(msg)
+        recvd = b.recv_multipart()
+        self.assertEqual(msg, recvd)
 
+if have_gevent:
+    class TestMultipartGreen(GreenTest, TestMultipart):
+        pass

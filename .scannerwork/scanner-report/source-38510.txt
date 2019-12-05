@@ -1,5 +1,5 @@
-# $Id: sk.py 7119 2011-09-02 13:00:23Z milde $
-# Author: Miroslav Vasko <zemiak@zoznam.sk>
+# Author: Meir Kriheli
+# Id: $Id: he.py 7119 2011-09-02 13:00:23Z milde $
 # Copyright: This module has been placed in the public domain.
 
 # New language mappings are welcome.  Before doing a new translation, please
@@ -8,7 +8,7 @@
 # docutils/parsers/rst/languages.
 
 """
-Slovak-language mappings for language-dependent features of
+English-language mappings for language-dependent features of
 reStructuredText.
 """
 
@@ -16,80 +16,93 @@ __docformat__ = 'reStructuredText'
 
 
 directives = {
-      'pozor': 'attention',
-      'opatrne': 'caution',
+      # language-dependent: fixed
+      '\u05ea\u05e9\u05d5\u05de\u05ea \u05dc\u05d1': 'attention',
+      '\u05d6\u05d4\u05d9\u05e8\u05d5\u05ea': 'caution',
       'code (translation required)': 'code',
-      'nebezpe\xe8enstvo': 'danger',
-      'chyba': 'error',
-      'rada': 'hint',
-      'd\xf4le\x9eit\xe9': 'important',
-      'pozn\xe1mka': 'note',
-      'tip (translation required)': 'tip',
-      'varovanie': 'warning',
-      'admonition (translation required)': 'admonition',
-      'sidebar (translation required)': 'sidebar',
-      't\xe9ma': 'topic',
-      'blok-riadkov': 'line-block',
+      '\u05e1\u05db\u05e0\u05d4': 'danger',
+      '\u05e9\u05d2\u05d9\u05d0\u05d4' : 'error',
+      '\u05e8\u05de\u05d6': 'hint',
+      '\u05d7\u05e9\u05d5\u05d1': 'important',
+      '\u05d4\u05e2\u05e8\u05d4': 'note',
+      '\u05d8\u05d9\u05e4': 'tip',
+      '\u05d0\u05d6\u05d4\u05e8\u05d4': 'warning',
+      'admonition': 'admonition',
+      'sidebar': 'sidebar',
+      'topic': 'topic',
+      'line-block': 'line-block',
       'parsed-literal': 'parsed-literal',
-      'rubric (translation required)': 'rubric',
-      'epigraph (translation required)': 'epigraph',
-      'highlights (translation required)': 'highlights',
-      'pull-quote (translation required)': 'pull-quote',
-      'compound (translation required)': 'compound',
-      'container (translation required)': 'container',
-      #u'questions': 'questions',
-      #u'qa': 'questions',
-      #u'faq': 'questions',
-      'table (translation required)': 'table',
-      'csv-table (translation required)': 'csv-table',
-      'list-table (translation required)': 'list-table',
+      'rubric': 'rubric',
+      'epigraph': 'epigraph',
+      'highlights': 'highlights',
+      'pull-quote': 'pull-quote',
+      'compound': 'compound',
+      'container': 'container',
+      #'questions': 'questions',
+      'table': 'table',
+      'csv-table': 'csv-table',
+      'list-table': 'list-table',
+      #'qa': 'questions',
+      #'faq': 'questions',
       'meta': 'meta',
       'math (translation required)': 'math',
-      #u'imagemap': 'imagemap',
-      'obr\xe1zok': 'image',
-      'tvar': 'figure',
-      'vlo\x9ei\x9d': 'include',
-      'raw (translation required)': 'raw',
-      'nahradi\x9d': 'replace',
+      #'imagemap': 'imagemap',
+      '\u05ea\u05de\u05d5\u05e0\u05d4': 'image',
+      'figure': 'figure',
+      'include': 'include',
+      'raw': 'raw',
+      'replace': 'replace',
       'unicode': 'unicode',
-      'd\u00E1tum': 'date',
-      'class (translation required)': 'class',
-      'role (translation required)': 'role',
-      'default-role (translation required)': 'default-role',
-      'title (translation required)': 'title',
-      'obsah': 'contents',
-      '\xe8as\x9d': 'sectnum',
-      '\xe8as\x9d-\xe8\xedslovanie': 'sectnum',
-      'cie\xbeov\xe9-pozn\xe1mky': 'target-notes',
-      'header (translation required)': 'header',
-      'footer (translation required)': 'footer',
-      #u'footnotes': 'footnotes',
-      #u'citations': 'citations',
-      }
-"""Slovak name to registered (in directives/__init__.py) directive name
+      'date': 'date',
+       '\u05e1\u05d2\u05e0\u05d5\u05df': 'class',
+      'role': 'role',
+      'default-role': 'default-role',
+      'title': 'title',
+      '\u05ea\u05d5\u05db\u05df': 'contents',
+      'sectnum': 'sectnum',
+      'section-numbering': 'sectnum',
+      'header': 'header',
+      'footer': 'footer',
+      #'footnotes': 'footnotes',
+      #'citations': 'citations',
+      'target-notes': 'target-notes',
+      'restructuredtext-test-directive': 'restructuredtext-test-directive'}
+"""English name to registered (in directives/__init__.py) directive name
 mapping."""
 
 roles = {
-      'abbreviation (translation required)': 'abbreviation',
-      'acronym (translation required)': 'acronym',
-      'code (translation required)': 'code',
-      'index (translation required)': 'index',
-      'subscript (translation required)': 'subscript',
-      'superscript (translation required)': 'superscript',
-      'title-reference (translation required)': 'title-reference',
-      'pep-reference (translation required)': 'pep-reference',
-      'rfc-reference (translation required)': 'rfc-reference',
-      'emphasis (translation required)': 'emphasis',
-      'strong (translation required)': 'strong',
-      'literal (translation required)': 'literal',
+    # language-dependent: fixed
+    'abbreviation': 'abbreviation',
+    'ab': 'abbreviation',
+    'acronym': 'acronym',
+    'ac': 'acronym',
+    'code (translation required)': 'code',
+    'index': 'index',
+    'i': 'index',
+    '\u05ea\u05d7\u05ea\u05d9': 'subscript',
+    'sub': 'subscript',
+    '\u05e2\u05d9\u05dc\u05d9': 'superscript',
+    'sup': 'superscript',
+    'title-reference': 'title-reference',
+    'title': 'title-reference',
+    't': 'title-reference',
+    'pep-reference': 'pep-reference',
+    'pep': 'pep-reference',
+    'rfc-reference': 'rfc-reference',
+    'rfc': 'rfc-reference',
+    'emphasis': 'emphasis',
+    'strong': 'strong',
+    'literal': 'literal',
     'math (translation required)': 'math',
-      'named-reference (translation required)': 'named-reference',
-      'anonymous-reference (translation required)': 'anonymous-reference',
-      'footnote-reference (translation required)': 'footnote-reference',
-      'citation-reference (translation required)': 'citation-reference',
-      'substitution-reference (translation required)': 'substitution-reference',
-      'target (translation required)': 'target',
-      'uri-reference (translation required)': 'uri-reference',
-      'raw (translation required)': 'raw',}
-"""Mapping of Slovak role names to canonical role names for interpreted text.
+    'named-reference': 'named-reference',
+    'anonymous-reference': 'anonymous-reference',
+    'footnote-reference': 'footnote-reference',
+    'citation-reference': 'citation-reference',
+    'substitution-reference': 'substitution-reference',
+    'target': 'target',
+    'uri-reference': 'uri-reference',
+    'uri': 'uri-reference',
+    'url': 'uri-reference',
+    'raw': 'raw',}
+"""Mapping of English role names to canonical role names for interpreted text.
 """

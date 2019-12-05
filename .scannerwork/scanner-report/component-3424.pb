@@ -1,1 +1,1 @@
-à3venv/lib/python3.6/site-packages/rest_framework_jwt :ßâãäáñòóô
+àBvenv/lib/python3.6/site-packages/rest_framework_jwt/serializers.py 2pyX¬h

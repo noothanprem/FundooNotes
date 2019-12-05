@@ -1,1 +1,1 @@
-Ü_9venv/lib/python3.6/site-packages/PIL/Jpeg2KImagePlugin.py 2pyXïh
+Ü_6venv/lib/python3.6/site-packages/PIL/IcoImagePlugin.py 2pyXùh

@@ -1,1 +1,1 @@
-ž^7venv/lib/python3.6/site-packages/locust/static/chart.js 2jsXgh
+ž^Dvenv/lib/python3.6/site-packages/locust/static/echarts.common.min.js 2jsXh

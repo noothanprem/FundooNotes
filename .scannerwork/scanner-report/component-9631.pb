@@ -1,1 +1,1 @@
-ŸKEvenv/lib/python3.6/site-packages/libpasteurize/fixes/fix_metaclass.py 2pyXOh
+ŸKFvenv/lib/python3.6/site-packages/libpasteurize/fixes/fix_memoryview.py 2pyXh

@@ -1,1 +1,0 @@
-½;venv/lib/python3.6/site-packages/reportlab/lib/geomutils.py 2pyX!h

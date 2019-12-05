@@ -1,1 +1,1 @@
-Ö_6venv/lib/python3.6/site-packages/PIL/IcoImagePlugin.py 2pyXùh
+Ö_1venv/lib/python3.6/site-packages/PIL/ImageFont.py 2pyXÿh

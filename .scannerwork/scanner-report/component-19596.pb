@@ -1,1 +1,1 @@
-Œ™8venv/lib/python3.6/site-packages/social_django/fields.py 2pyXHh
+Œ™:venv/lib/python3.6/site-packages/social_django/strategy.py 2pyX h

@@ -1,1 +1,0 @@
-õ€7venv/lib64/python3.6/site-packages/django/contrib/sites :ô€÷€ø€ù€ú€û€•ƒ–ƒ—ƒ

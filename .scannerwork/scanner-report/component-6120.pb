@@ -1,1 +1,1 @@
-è/Avenv/lib/python3.6/site-packages/django/contrib/gis/geos/point.py 2pyXžh
+è/8venv/lib/python3.6/site-packages/django/contrib/gis/geos :ç/é/ê/ë/ì/í/î/†0‡0ˆ0‰0—0š0œ0

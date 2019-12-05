@@ -1,1 +1,1 @@
-¦@Svenv/lib/python3.6/site-packages/django/core/management/commands/compilemessages.py 2pyX”h
+¦@Lvenv/lib/python3.6/site-packages/django/core/management/commands/dumpdata.py 2pyXÃh

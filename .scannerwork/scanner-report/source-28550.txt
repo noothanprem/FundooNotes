@@ -1,123 +1,137 @@
-# -*- test-case-name: openid.test.test_xrires -*-
-"""XRI resolution.
+"""Functions for generating and parsing HTTP Accept: headers for
+supporting server-directed content negotiation.
 """
 
-from urllib.parse import urlencode
-from openid import fetchers
-from openid.yadis import etxrd
-from openid.yadis.xri import toURINormal
-from openid.yadis.services import iterServices
 
-DEFAULT_PROXY = 'http://proxy.xri.net/'
+def generateAcceptHeader(*elements):
+    """Generate an accept header value
 
-
-class ProxyResolver(object):
-    """Python interface to a remote XRI proxy resolver.
+    [str or (str, float)] -> str
     """
-
-    def __init__(self, proxy_url=DEFAULT_PROXY):
-        self.proxy_url = proxy_url
-
-    def queryURL(self, xri, service_type=None):
-        """Build a URL to query the proxy resolver.
-
-        @param xri: An XRI to resolve.
-        @type xri: unicode
-
-        @param service_type: The service type to resolve, if you desire
-            service endpoint selection.  A service type is a URI.
-        @type service_type: str
-
-        @returns: a URL
-        @returntype: str
-        """
-        # Trim off the xri:// prefix.  The proxy resolver didn't accept it
-        # when this code was written, but that may (or may not) change for
-        # XRI Resolution 2.0 Working Draft 11.
-        qxri = toURINormal(xri)[6:]
-        hxri = self.proxy_url + qxri
-        args = {
-            # XXX: If the proxy resolver will ensure that it doesn't return
-            # bogus CanonicalIDs (as per Steve's message of 15 Aug 2006
-            # 11:13:42), then we could ask for application/xrd+xml instead,
-            # which would give us a bit less to process.
-            '_xrd_r': 'application/xrds+xml',
-        }
-        if service_type:
-            args['_xrd_t'] = service_type
+    parts = []
+    for element in elements:
+        if type(element) is str:
+            qs = "1.0"
+            mtype = element
         else:
-            # Don't perform service endpoint selection.
-            args['_xrd_r'] += ';sep=false'
-        query = _appendArgs(hxri, args)
-        return query
+            mtype, q = element
+            q = float(q)
+            if q > 1 or q <= 0:
+                raise ValueError('Invalid preference factor: %r' % q)
 
-    def query(self, xri, service_types):
-        """Resolve some services for an XRI.
+            qs = '%0.1f' % (q, )
 
-        Note: I don't implement any service endpoint selection beyond what
-        the resolver I'm querying does, so the Services I return may well
-        include Services that were not of the types you asked for.
+        parts.append((qs, mtype))
 
-        May raise fetchers.HTTPFetchingError or L{etxrd.XRDSError} if
-        the fetching or parsing don't go so well.
+    parts.sort()
+    chunks = []
+    for q, mtype in parts:
+        if q == '1.0':
+            chunks.append(mtype)
+        else:
+            chunks.append('%s; q=%s' % (mtype, q))
 
-        @param xri: An XRI to resolve.
-        @type xri: unicode
-
-        @param service_types: A list of services types to query for.  Service
-            types are URIs.
-        @type service_types: list of str
-
-        @returns: tuple of (CanonicalID, Service elements)
-        @returntype: (unicode, list of C{ElementTree.Element}s)
-        """
-        # FIXME: No test coverage!
-        services = []
-        # Make a seperate request to the proxy resolver for each service
-        # type, as, if it is following Refs, it could return a different
-        # XRDS for each.
-
-        canonicalID = None
-
-        for service_type in service_types:
-            url = self.queryURL(xri, service_type)
-            response = fetchers.fetch(url)
-            if response.status not in (200, 206):
-                # XXX: sucks to fail silently.
-                # print "response not OK:", response
-                continue
-            et = etxrd.parseXRDS(response.body)
-            canonicalID = etxrd.getCanonicalID(xri, et)
-            some_services = list(iterServices(et))
-            services.extend(some_services)
-        # TODO:
-        #  * If we do get hits for multiple service_types, we're almost
-        #    certainly going to have duplicated service entries and
-        #    broken priority ordering.
-        return canonicalID, services
+    return ', '.join(chunks)
 
 
-def _appendArgs(url, args):
-    """Append some arguments to an HTTP query.
+def parseAcceptHeader(value):
+    """Parse an accept header, ignoring any accept-extensions
+
+    returns a list of tuples containing main MIME type, MIME subtype,
+    and quality markdown.
+
+    str -> [(str, str, float)]
     """
-    # to be merged with oidutil.appendArgs when we combine the projects.
-    if hasattr(args, 'items'):
-        args = list(args.items())
-        args.sort()
+    chunks = [chunk.strip() for chunk in value.split(',')]
+    accept = []
+    for chunk in chunks:
+        parts = [s.strip() for s in chunk.split(';')]
 
-    if len(args) == 0:
-        return url
+        mtype = parts.pop(0)
+        if '/' not in mtype:
+            # This is not a MIME type, so ignore the bad data
+            continue
 
-    # According to XRI Resolution section "QXRI query parameters":
-    #
-    # """If the original QXRI had a null query component (only a leading
-    #    question mark), or a query component consisting of only question
-    #    marks, one additional leading question mark MUST be added when
-    #    adding any XRI resolution parameters."""
+        main, sub = mtype.split('/', 1)
 
-    if '?' in url.rstrip('?'):
-        sep = '&'
+        for ext in parts:
+            if '=' in ext:
+                k, v = ext.split('=', 1)
+                if k == 'q':
+                    try:
+                        q = float(v)
+                        break
+                    except ValueError:
+                        # Ignore poorly formed q-values
+                        pass
+        else:
+            q = 1.0
+
+        accept.append((q, main, sub))
+
+    accept.sort()
+    accept.reverse()
+    return [(main, sub, q) for (q, main, sub) in accept]
+
+
+def matchTypes(accept_types, have_types):
+    """Given the result of parsing an Accept: header, and the
+    available MIME types, return the acceptable types with their
+    quality markdowns.
+
+    For example:
+
+    >>> acceptable = parseAcceptHeader('text/html, text/plain; q=0.5')
+    >>> matchTypes(acceptable, ['text/plain', 'text/html', 'image/jpeg'])
+    [('text/html', 1.0), ('text/plain', 0.5)]
+
+
+    Type signature: ([(str, str, float)], [str]) -> [(str, float)]
+    """
+    if not accept_types:
+        # Accept all of them
+        default = 1
     else:
-        sep = '?'
+        default = 0
 
-    return '%s%s%s' % (url, sep, urlencode(args))
+    match_main = {}
+    match_sub = {}
+    for (main, sub, q) in accept_types:
+        if main == '*':
+            default = max(default, q)
+            continue
+        elif sub == '*':
+            match_main[main] = max(match_main.get(main, 0), q)
+        else:
+            match_sub[(main, sub)] = max(match_sub.get((main, sub), 0), q)
+
+    accepted_list = []
+    order_maintainer = 0
+    for mtype in have_types:
+        main, sub = mtype.split('/')
+        if (main, sub) in match_sub:
+            q = match_sub[(main, sub)]
+        else:
+            q = match_main.get(main, default)
+
+        if q:
+            accepted_list.append((1 - q, order_maintainer, q, mtype))
+            order_maintainer += 1
+
+    accepted_list.sort()
+    return [(mtype, q) for (_, _, q, mtype) in accepted_list]
+
+
+def getAcceptable(accept_header, have_types):
+    """Parse the accept header and return a list of available types in
+    preferred order. If a type is unacceptable, it will not be in the
+    resulting list.
+
+    This is a convenience wrapper around matchTypes and
+    parseAcceptHeader.
+
+    (str, [str]) -> [str]
+    """
+    accepted = parseAcceptHeader(accept_header)
+    preferred = matchTypes(accepted, have_types)
+    return [mtype for (mtype, _) in preferred]

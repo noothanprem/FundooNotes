@@ -8,24 +8,17 @@
   </resources>
 
   <resource_type id="service-root">
-    <method name="POST" id="service-root-operation">
-      <request>
-          <representation mediaType="multipart/form-data">
-            <param style="plain" name="text_field" required="true" />
-            <param style="plain" name="optional_field" />
-            <param style="plain" name="binary_field" type="binary"
-                   required="true" />
-          </representation>
-      </request>
+    <method name="GET" id="service-root-get">
+      <response>
+        <representation href="#service-root-json"/>
+      </response>
     </method>
-
-    <method name="POST" id="mystery-operation">
-      <request>
-          <representation mediaType="text/unknown">
-            <param style="plain" name="field" required="true" />
-          </representation>
-      </request>
-    </method>
-
   </resource_type>
+
+  <representation id="service-root-json" mediaType="application/json">
+    <param style="plain" required="true" type="xsd:date"
+           path="$['a_date']" name="a_date" />
+    <param style="plain" required="true" type="xsd:dateTime"
+           path="$['a_datetime']" name="a_datetime" />
+  </representation>
 </application>

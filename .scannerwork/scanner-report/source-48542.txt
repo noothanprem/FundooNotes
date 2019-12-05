@@ -1,663 +1,330 @@
-from __future__ import with_statement, division
+from .ecdsa import (Private_key, Public_key, Signature,
+                    curve_192, generator_192,
+                    digest_integer, ellipticcurve, point_is_valid)
+from six import print_
+import random
 
-import unittest
-import os
-import time
-import shutil
-import subprocess
-from binascii import hexlify, unhexlify
-from hashlib import sha1, sha256, sha512
-
-from .six import b, print_, binary_type
-from .keys import SigningKey, VerifyingKey
-from .keys import BadSignatureError
-from . import util
-from .util import sigencode_der, sigencode_strings
-from .util import sigdecode_der, sigdecode_strings
-from .curves import Curve, UnknownCurveError
-from .curves import NIST192p, NIST224p, NIST256p, NIST384p, NIST521p, SECP256k1
-from .ellipticcurve import Point
-from . import der
-from . import rfc6979
-
-class SubprocessError(Exception):
+def test_ecdsa():
+  class TestFailure(Exception):
     pass
 
-def run_openssl(cmd):
-    OPENSSL = "openssl"
-    p = subprocess.Popen([OPENSSL] + cmd.split(),
-                         stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT)
-    stdout, ignored = p.communicate()
-    if p.returncode != 0:
-        raise SubprocessError("cmd '%s %s' failed: rc=%s, stdout/err was %s" %
-                              (OPENSSL, cmd, p.returncode, stdout))
-    return stdout.decode()
-
-BENCH = False
-
-class ECDSA(unittest.TestCase):
-    def test_basic(self):
-        priv = SigningKey.generate()
-        pub = priv.get_verifying_key()
-
-        data = b("blahblah")
-        sig = priv.sign(data)
-
-        self.assertTrue(pub.verify(sig, data))
-        self.assertRaises(BadSignatureError, pub.verify, sig, data+b("bad"))
-
-        pub2 = VerifyingKey.from_string(pub.to_string())
-        self.assertTrue(pub2.verify(sig, data))
-
-    def test_deterministic(self):
-        data = b("blahblah")
-        secexp = int("9d0219792467d7d37b4d43298a7d0c05", 16)
-
-        priv = SigningKey.from_secret_exponent(secexp, SECP256k1, sha256)
-        pub = priv.get_verifying_key()
-
-        k = rfc6979.generate_k(
-            SECP256k1.generator.order(), secexp, sha256, sha256(data).digest())
-
-        sig1 = priv.sign(data, k=k)
-        self.assertTrue(pub.verify(sig1, data))
-
-        sig2 = priv.sign(data, k=k)
-        self.assertTrue(pub.verify(sig2, data))
-
-        sig3 = priv.sign_deterministic(data, sha256)
-        self.assertTrue(pub.verify(sig3, data))
-
-        self.assertEqual(sig1, sig2)
-        self.assertEqual(sig1, sig3)
-
-    def test_bad_usage(self):
-        # sk=SigningKey() is wrong
-        self.assertRaises(TypeError, SigningKey)
-        self.assertRaises(TypeError, VerifyingKey)
-
-    def test_lengths(self):
-        default = NIST192p
-        priv = SigningKey.generate()
-        pub = priv.get_verifying_key()
-        self.assertEqual(len(pub.to_string()), default.verifying_key_length)
-        sig = priv.sign(b("data"))
-        self.assertEqual(len(sig), default.signature_length)
-        if BENCH:
-            print_()
-        for curve in (NIST192p, NIST224p, NIST256p, NIST384p, NIST521p):
-            start = time.time()
-            priv = SigningKey.generate(curve=curve)
-            pub1 = priv.get_verifying_key()
-            keygen_time = time.time() - start
-            pub2 = VerifyingKey.from_string(pub1.to_string(), curve)
-            self.assertEqual(pub1.to_string(), pub2.to_string())
-            self.assertEqual(len(pub1.to_string()),
-                                 curve.verifying_key_length)
-            start = time.time()
-            sig = priv.sign(b("data"))
-            sign_time = time.time() - start
-            self.assertEqual(len(sig), curve.signature_length)
-            if BENCH:
-                start = time.time()
-                pub1.verify(sig, b("data"))
-                verify_time = time.time() - start
-                print_("%s: siglen=%d, keygen=%0.3fs, sign=%0.3f, verify=%0.3f" \
-                      % (curve.name, curve.signature_length,
-                         keygen_time, sign_time, verify_time))
-
-    def test_serialize(self):
-        seed = b("secret")
-        curve = NIST192p
-        secexp1 = util.randrange_from_seed__trytryagain(seed, curve.order)
-        secexp2 = util.randrange_from_seed__trytryagain(seed, curve.order)
-        self.assertEqual(secexp1, secexp2)
-        priv1 = SigningKey.from_secret_exponent(secexp1, curve)
-        priv2 = SigningKey.from_secret_exponent(secexp2, curve)
-        self.assertEqual(hexlify(priv1.to_string()),
-                             hexlify(priv2.to_string()))
-        self.assertEqual(priv1.to_pem(), priv2.to_pem())
-        pub1 = priv1.get_verifying_key()
-        pub2 = priv2.get_verifying_key()
-        data = b("data")
-        sig1 = priv1.sign(data)
-        sig2 = priv2.sign(data)
-        self.assertTrue(pub1.verify(sig1, data))
-        self.assertTrue(pub2.verify(sig1, data))
-        self.assertTrue(pub1.verify(sig2, data))
-        self.assertTrue(pub2.verify(sig2, data))
-        self.assertEqual(hexlify(pub1.to_string()),
-                             hexlify(pub2.to_string()))
-
-    def test_nonrandom(self):
-        s = b("all the entropy in the entire world, compressed into one line")
-        def not_much_entropy(numbytes):
-            return s[:numbytes]
-        # we control the entropy source, these two keys should be identical:
-        priv1 = SigningKey.generate(entropy=not_much_entropy)
-        priv2 = SigningKey.generate(entropy=not_much_entropy)
-        self.assertEqual(hexlify(priv1.get_verifying_key().to_string()),
-                             hexlify(priv2.get_verifying_key().to_string()))
-        # likewise, signatures should be identical. Obviously you'd never
-        # want to do this with keys you care about, because the secrecy of
-        # the private key depends upon using different random numbers for
-        # each signature
-        sig1 = priv1.sign(b("data"), entropy=not_much_entropy)
-        sig2 = priv2.sign(b("data"), entropy=not_much_entropy)
-        self.assertEqual(hexlify(sig1), hexlify(sig2))
-
-    def assertTruePrivkeysEqual(self, priv1, priv2):
-        self.assertEqual(priv1.privkey.secret_multiplier,
-                             priv2.privkey.secret_multiplier)
-        self.assertEqual(priv1.privkey.public_key.generator,
-                             priv2.privkey.public_key.generator)
-
-    def failIfPrivkeysEqual(self, priv1, priv2):
-        self.failIfEqual(priv1.privkey.secret_multiplier,
-                         priv2.privkey.secret_multiplier)
-
-    def test_privkey_creation(self):
-        s = b("all the entropy in the entire world, compressed into one line")
-        def not_much_entropy(numbytes):
-            return s[:numbytes]
-        priv1 = SigningKey.generate()
-        self.assertEqual(priv1.baselen, NIST192p.baselen)
-
-        priv1 = SigningKey.generate(curve=NIST224p)
-        self.assertEqual(priv1.baselen, NIST224p.baselen)
-
-        priv1 = SigningKey.generate(entropy=not_much_entropy)
-        self.assertEqual(priv1.baselen, NIST192p.baselen)
-        priv2 = SigningKey.generate(entropy=not_much_entropy)
-        self.assertEqual(priv2.baselen, NIST192p.baselen)
-        self.assertTruePrivkeysEqual(priv1, priv2)
-
-        priv1 = SigningKey.from_secret_exponent(secexp=3)
-        self.assertEqual(priv1.baselen, NIST192p.baselen)
-        priv2 = SigningKey.from_secret_exponent(secexp=3)
-        self.assertTruePrivkeysEqual(priv1, priv2)
-
-        priv1 = SigningKey.from_secret_exponent(secexp=4, curve=NIST224p)
-        self.assertEqual(priv1.baselen, NIST224p.baselen)
-
-    def test_privkey_strings(self):
-        priv1 = SigningKey.generate()
-        s1 = priv1.to_string()
-        self.assertEqual(type(s1), binary_type)
-        self.assertEqual(len(s1), NIST192p.baselen)
-        priv2 = SigningKey.from_string(s1)
-        self.assertTruePrivkeysEqual(priv1, priv2)
-
-        s1 = priv1.to_pem()
-        self.assertEqual(type(s1), binary_type)
-        self.assertTrue(s1.startswith(b("-----BEGIN EC PRIVATE KEY-----")))
-        self.assertTrue(s1.strip().endswith(b("-----END EC PRIVATE KEY-----")))
-        priv2 = SigningKey.from_pem(s1)
-        self.assertTruePrivkeysEqual(priv1, priv2)
-
-        s1 = priv1.to_der()
-        self.assertEqual(type(s1), binary_type)
-        priv2 = SigningKey.from_der(s1)
-        self.assertTruePrivkeysEqual(priv1, priv2)
-
-        priv1 = SigningKey.generate(curve=NIST256p)
-        s1 = priv1.to_pem()
-        self.assertEqual(type(s1), binary_type)
-        self.assertTrue(s1.startswith(b("-----BEGIN EC PRIVATE KEY-----")))
-        self.assertTrue(s1.strip().endswith(b("-----END EC PRIVATE KEY-----")))
-        priv2 = SigningKey.from_pem(s1)
-        self.assertTruePrivkeysEqual(priv1, priv2)
-
-        s1 = priv1.to_der()
-        self.assertEqual(type(s1), binary_type)
-        priv2 = SigningKey.from_der(s1)
-        self.assertTruePrivkeysEqual(priv1, priv2)
-
-    def assertTruePubkeysEqual(self, pub1, pub2):
-        self.assertEqual(pub1.pubkey.point, pub2.pubkey.point)
-        self.assertEqual(pub1.pubkey.generator, pub2.pubkey.generator)
-        self.assertEqual(pub1.curve, pub2.curve)
-
-    def test_pubkey_strings(self):
-        priv1 = SigningKey.generate()
-        pub1 = priv1.get_verifying_key()
-        s1 = pub1.to_string()
-        self.assertEqual(type(s1), binary_type)
-        self.assertEqual(len(s1), NIST192p.verifying_key_length)
-        pub2 = VerifyingKey.from_string(s1)
-        self.assertTruePubkeysEqual(pub1, pub2)
-
-        priv1 = SigningKey.generate(curve=NIST256p)
-        pub1 = priv1.get_verifying_key()
-        s1 = pub1.to_string()
-        self.assertEqual(type(s1), binary_type)
-        self.assertEqual(len(s1), NIST256p.verifying_key_length)
-        pub2 = VerifyingKey.from_string(s1, curve=NIST256p)
-        self.assertTruePubkeysEqual(pub1, pub2)
-
-        pub1_der = pub1.to_der()
-        self.assertEqual(type(pub1_der), binary_type)
-        pub2 = VerifyingKey.from_der(pub1_der)
-        self.assertTruePubkeysEqual(pub1, pub2)
-
-        self.assertRaises(der.UnexpectedDER,
-                              VerifyingKey.from_der, pub1_der+b("junk"))
-        badpub = VerifyingKey.from_der(pub1_der)
-        class FakeGenerator:
-            def order(self): return 123456789
-        badcurve = Curve("unknown", None, FakeGenerator(), (1,2,3,4,5,6), None)
-        badpub.curve = badcurve
-        badder = badpub.to_der()
-        self.assertRaises(UnknownCurveError, VerifyingKey.from_der, badder)
-
-        pem = pub1.to_pem()
-        self.assertEqual(type(pem), binary_type)
-        self.assertTrue(pem.startswith(b("-----BEGIN PUBLIC KEY-----")), pem)
-        self.assertTrue(pem.strip().endswith(b("-----END PUBLIC KEY-----")), pem)
-        pub2 = VerifyingKey.from_pem(pem)
-        self.assertTruePubkeysEqual(pub1, pub2)
-
-    def test_signature_strings(self):
-        priv1 = SigningKey.generate()
-        pub1 = priv1.get_verifying_key()
-        data = b("data")
-
-        sig = priv1.sign(data)
-        self.assertEqual(type(sig), binary_type)
-        self.assertEqual(len(sig), NIST192p.signature_length)
-        self.assertTrue(pub1.verify(sig, data))
-
-        sig = priv1.sign(data, sigencode=sigencode_strings)
-        self.assertEqual(type(sig), tuple)
-        self.assertEqual(len(sig), 2)
-        self.assertEqual(type(sig[0]), binary_type)
-        self.assertEqual(type(sig[1]), binary_type)
-        self.assertEqual(len(sig[0]), NIST192p.baselen)
-        self.assertEqual(len(sig[1]), NIST192p.baselen)
-        self.assertTrue(pub1.verify(sig, data, sigdecode=sigdecode_strings))
-
-        sig_der = priv1.sign(data, sigencode=sigencode_der)
-        self.assertEqual(type(sig_der), binary_type)
-        self.assertTrue(pub1.verify(sig_der, data, sigdecode=sigdecode_der))
-
-    def test_hashfunc(self):
-        sk = SigningKey.generate(curve=NIST256p, hashfunc=sha256)
-        data = b("security level is 128 bits")
-        sig = sk.sign(data)
-        vk = VerifyingKey.from_string(sk.get_verifying_key().to_string(),
-                                      curve=NIST256p, hashfunc=sha256)
-        self.assertTrue(vk.verify(sig, data))
-
-        sk2 = SigningKey.generate(curve=NIST256p)
-        sig2 = sk2.sign(data, hashfunc=sha256)
-        vk2 = VerifyingKey.from_string(sk2.get_verifying_key().to_string(),
-                                       curve=NIST256p, hashfunc=sha256)
-        self.assertTrue(vk2.verify(sig2, data))
-
-        vk3 = VerifyingKey.from_string(sk.get_verifying_key().to_string(),
-                                       curve=NIST256p)
-        self.assertTrue(vk3.verify(sig, data, hashfunc=sha256))
-
-
-class OpenSSL(unittest.TestCase):
-    # test interoperability with OpenSSL tools. Note that openssl's ECDSA
-    # sign/verify arguments changed between 0.9.8 and 1.0.0: the early
-    # versions require "-ecdsa-with-SHA1", the later versions want just
-    # "-SHA1" (or to leave out that argument entirely, which means the
-    # signature will use some default digest algorithm, probably determined
-    # by the key, probably always SHA1).
-    #
-    # openssl ecparam -name secp224r1 -genkey -out privkey.pem
-    # openssl ec -in privkey.pem -text -noout # get the priv/pub keys
-    # openssl dgst -ecdsa-with-SHA1 -sign privkey.pem -out data.sig data.txt
-    # openssl asn1parse -in data.sig -inform DER
-    #  data.sig is 64 bytes, probably 56b plus ASN1 overhead
-    # openssl dgst -ecdsa-with-SHA1 -prverify privkey.pem -signature data.sig data.txt ; echo $?
-    # openssl ec -in privkey.pem -pubout -out pubkey.pem
-    # openssl ec -in privkey.pem -pubout -outform DER -out pubkey.der
-
-    def get_openssl_messagedigest_arg(self):
-        v = run_openssl("version")
-        # e.g. "OpenSSL 1.0.0 29 Mar 2010", or "OpenSSL 1.0.0a 1 Jun 2010",
-        # or "OpenSSL 0.9.8o 01 Jun 2010"
-        vs = v.split()[1].split(".")
-        if vs >= ["1","0","0"]:
-            return "-SHA1"
-        else:
-            return "-ecdsa-with-SHA1"
-
-    # sk: 1:OpenSSL->python  2:python->OpenSSL
-    # vk: 3:OpenSSL->python  4:python->OpenSSL
-    # sig: 5:OpenSSL->python 6:python->OpenSSL
-
-    def test_from_openssl_nist192p(self):
-        return self.do_test_from_openssl(NIST192p)
-    def test_from_openssl_nist224p(self):
-        return self.do_test_from_openssl(NIST224p)
-    def test_from_openssl_nist256p(self):
-        return self.do_test_from_openssl(NIST256p)
-    def test_from_openssl_nist384p(self):
-        return self.do_test_from_openssl(NIST384p)
-    def test_from_openssl_nist521p(self):
-        return self.do_test_from_openssl(NIST521p)
-    def test_from_openssl_secp256k1(self):
-        return self.do_test_from_openssl(SECP256k1)
-
-    def do_test_from_openssl(self, curve):
-        curvename = curve.openssl_name
-        assert curvename
-        # OpenSSL: create sk, vk, sign.
-        # Python: read vk(3), checksig(5), read sk(1), sign, check
-        mdarg = self.get_openssl_messagedigest_arg()
-        if os.path.isdir("t"):
-            shutil.rmtree("t")
-        os.mkdir("t")
-        run_openssl("ecparam -name %s -genkey -out t/privkey.pem" % curvename)
-        run_openssl("ec -in t/privkey.pem -pubout -out t/pubkey.pem")
-        data = b("data")
-        with open("t/data.txt","wb") as e: e.write(data)
-        run_openssl("dgst %s -sign t/privkey.pem -out t/data.sig t/data.txt" % mdarg)
-        run_openssl("dgst %s -verify t/pubkey.pem -signature t/data.sig t/data.txt" % mdarg)
-        with open("t/pubkey.pem","rb") as e: pubkey_pem = e.read()
-        vk = VerifyingKey.from_pem(pubkey_pem) # 3
-        with open("t/data.sig","rb") as e: sig_der = e.read()
-        self.assertTrue(vk.verify(sig_der, data, # 5
-                                  hashfunc=sha1, sigdecode=sigdecode_der))
-
-        with open("t/privkey.pem") as e: fp = e.read()
-        sk = SigningKey.from_pem(fp) # 1
-        sig = sk.sign(data)
-        self.assertTrue(vk.verify(sig, data))
-
-    def test_to_openssl_nist192p(self):
-        self.do_test_to_openssl(NIST192p)
-    def test_to_openssl_nist224p(self):
-        self.do_test_to_openssl(NIST224p)
-    def test_to_openssl_nist256p(self):
-        self.do_test_to_openssl(NIST256p)
-    def test_to_openssl_nist384p(self):
-        self.do_test_to_openssl(NIST384p)
-    def test_to_openssl_nist521p(self):
-        self.do_test_to_openssl(NIST521p)
-    def test_to_openssl_secp256k1(self):
-        self.do_test_to_openssl(SECP256k1)
-
-    def do_test_to_openssl(self, curve):
-        curvename = curve.openssl_name
-        assert curvename
-        # Python: create sk, vk, sign.
-        # OpenSSL: read vk(4), checksig(6), read sk(2), sign, check
-        mdarg = self.get_openssl_messagedigest_arg()
-        if os.path.isdir("t"):
-            shutil.rmtree("t")
-        os.mkdir("t")
-        sk = SigningKey.generate(curve=curve)
-        vk = sk.get_verifying_key()
-        data = b("data")
-        with open("t/pubkey.der","wb") as e: e.write(vk.to_der()) # 4
-        with open("t/pubkey.pem","wb") as e: e.write(vk.to_pem()) # 4
-        sig_der = sk.sign(data, hashfunc=sha1, sigencode=sigencode_der)
-
-        with open("t/data.sig","wb") as e: e.write(sig_der) # 6
-        with open("t/data.txt","wb") as e: e.write(data)
-        with open("t/baddata.txt","wb") as e: e.write(data+b("corrupt"))
-
-        self.assertRaises(SubprocessError, run_openssl,
-                              "dgst %s -verify t/pubkey.der -keyform DER -signature t/data.sig t/baddata.txt" % mdarg)
-        run_openssl("dgst %s -verify t/pubkey.der -keyform DER -signature t/data.sig t/data.txt" % mdarg)
-
-        with open("t/privkey.pem","wb") as e: e.write(sk.to_pem()) # 2
-        run_openssl("dgst %s -sign t/privkey.pem -out t/data.sig2 t/data.txt" % mdarg)
-        run_openssl("dgst %s -verify t/pubkey.pem -signature t/data.sig2 t/data.txt" % mdarg)
-
-class DER(unittest.TestCase):
-    def test_oids(self):
-        oid_ecPublicKey = der.encode_oid(1, 2, 840, 10045, 2, 1)
-        self.assertEqual(hexlify(oid_ecPublicKey), b("06072a8648ce3d0201"))
-        self.assertEqual(hexlify(NIST224p.encoded_oid), b("06052b81040021"))
-        self.assertEqual(hexlify(NIST256p.encoded_oid),
-                             b("06082a8648ce3d030107"))
-        x = oid_ecPublicKey + b("more")
-        x1, rest = der.remove_object(x)
-        self.assertEqual(x1, (1, 2, 840, 10045, 2, 1))
-        self.assertEqual(rest, b("more"))
-
-    def test_integer(self):
-        self.assertEqual(der.encode_integer(0), b("\x02\x01\x00"))
-        self.assertEqual(der.encode_integer(1), b("\x02\x01\x01"))
-        self.assertEqual(der.encode_integer(127), b("\x02\x01\x7f"))
-        self.assertEqual(der.encode_integer(128), b("\x02\x02\x00\x80"))
-        self.assertEqual(der.encode_integer(256), b("\x02\x02\x01\x00"))
-        #self.assertEqual(der.encode_integer(-1), b("\x02\x01\xff"))
-
-        def s(n): return der.remove_integer(der.encode_integer(n) + b("junk"))
-        self.assertEqual(s(0), (0, b("junk")))
-        self.assertEqual(s(1), (1, b("junk")))
-        self.assertEqual(s(127), (127, b("junk")))
-        self.assertEqual(s(128), (128, b("junk")))
-        self.assertEqual(s(256), (256, b("junk")))
-        self.assertEqual(s(1234567890123456789012345678901234567890),
-                             (1234567890123456789012345678901234567890,b("junk")))
-
-    def test_number(self):
-        self.assertEqual(der.encode_number(0), b("\x00"))
-        self.assertEqual(der.encode_number(127), b("\x7f"))
-        self.assertEqual(der.encode_number(128), b("\x81\x00"))
-        self.assertEqual(der.encode_number(3*128+7), b("\x83\x07"))
-        #self.assertEqual(der.read_number("\x81\x9b"+"more"), (155, 2))
-        #self.assertEqual(der.encode_number(155), b("\x81\x9b"))
-        for n in (0, 1, 2, 127, 128, 3*128+7, 840, 10045): #, 155):
-            x = der.encode_number(n) + b("more")
-            n1, llen = der.read_number(x)
-            self.assertEqual(n1, n)
-            self.assertEqual(x[llen:], b("more"))
-
-    def test_length(self):
-        self.assertEqual(der.encode_length(0), b("\x00"))
-        self.assertEqual(der.encode_length(127), b("\x7f"))
-        self.assertEqual(der.encode_length(128), b("\x81\x80"))
-        self.assertEqual(der.encode_length(255), b("\x81\xff"))
-        self.assertEqual(der.encode_length(256), b("\x82\x01\x00"))
-        self.assertEqual(der.encode_length(3*256+7), b("\x82\x03\x07"))
-        self.assertEqual(der.read_length(b("\x81\x9b")+b("more")), (155, 2))
-        self.assertEqual(der.encode_length(155), b("\x81\x9b"))
-        for n in (0, 1, 2, 127, 128, 255, 256, 3*256+7, 155):
-            x = der.encode_length(n) + b("more")
-            n1, llen = der.read_length(x)
-            self.assertEqual(n1, n)
-            self.assertEqual(x[llen:], b("more"))
-
-    def test_sequence(self):
-        x = der.encode_sequence(b("ABC"), b("DEF")) + b("GHI")
-        self.assertEqual(x, b("\x30\x06ABCDEFGHI"))
-        x1, rest = der.remove_sequence(x)
-        self.assertEqual(x1, b("ABCDEF"))
-        self.assertEqual(rest, b("GHI"))
-
-    def test_constructed(self):
-        x = der.encode_constructed(0, NIST224p.encoded_oid)
-        self.assertEqual(hexlify(x), b("a007") + b("06052b81040021"))
-        x = der.encode_constructed(1, unhexlify(b("0102030a0b0c")))
-        self.assertEqual(hexlify(x), b("a106") + b("0102030a0b0c"))
-
-class Util(unittest.TestCase):
-    def test_trytryagain(self):
-        tta = util.randrange_from_seed__trytryagain
-        for i in range(1000):
-            seed = "seed-%d" % i
-            for order in (2**8-2, 2**8-1, 2**8, 2**8+1, 2**8+2,
-                          2**16-1, 2**16+1):
-                n = tta(seed, order)
-                self.assertTrue(1 <= n < order, (1, n, order))
-        # this trytryagain *does* provide long-term stability
-        self.assertEqual(("%x"%(tta("seed", NIST224p.order))).encode(),
-                             b("6fa59d73bf0446ae8743cf748fc5ac11d5585a90356417e97155c3bc"))
-
-    def test_randrange(self):
-        # util.randrange does not provide long-term stability: we might
-        # change the algorithm in the future.
-        for i in range(1000):
-            entropy = util.PRNG("seed-%d" % i)
-            for order in (2**8-2, 2**8-1, 2**8,
-                          2**16-1, 2**16+1,
-                          ):
-                # that oddball 2**16+1 takes half our runtime
-                n = util.randrange(order, entropy=entropy)
-                self.assertTrue(1 <= n < order, (1, n, order))
-
-    def OFF_test_prove_uniformity(self):
-        order = 2**8-2
-        counts = dict([(i, 0) for i in range(1, order)])
-        assert 0 not in counts
-        assert order not in counts
-        for i in range(1000000):
-            seed = "seed-%d" % i
-            n = util.randrange_from_seed__trytryagain(seed, order)
-            counts[n] += 1
-        # this technique should use the full range
-        self.assertTrue(counts[order-1])
-        for i in range(1, order):
-            print_("%3d: %s" % (i, "*"*(counts[i]//100)))
-
-class RFC6979(unittest.TestCase):
-    # https://tools.ietf.org/html/rfc6979#appendix-A.1
-    def _do(self, generator, secexp, hsh, hash_func, expected):
-        actual = rfc6979.generate_k(generator.order(), secexp, hash_func, hsh)
-        self.assertEqual(expected, actual)
-
-    def test_SECP256k1(self):
-        '''RFC doesn't contain test vectors for SECP256k1 used in bitcoin.
-        This vector has been computed by Golang reference implementation instead.'''
-        self._do(
-            generator = SECP256k1.generator,
-            secexp = int("9d0219792467d7d37b4d43298a7d0c05", 16),
-            hsh = sha256(b("sample")).digest(),
-            hash_func = sha256,
-            expected = int("8fa1f95d514760e498f28957b824ee6ec39ed64826ff4fecc2b5739ec45b91cd", 16))
-
-    def test_SECP256k1_2(self):
-        self._do(
-            generator=SECP256k1.generator,
-            secexp=int("cca9fbcc1b41e5a95d369eaa6ddcff73b61a4efaa279cfc6567e8daa39cbaf50", 16),
-            hsh=sha256(b("sample")).digest(),
-            hash_func=sha256,
-            expected=int("2df40ca70e639d89528a6b670d9d48d9165fdc0febc0974056bdce192b8e16a3", 16))
-
-    def test_SECP256k1_3(self):
-        self._do(
-            generator=SECP256k1.generator,
-            secexp=0x1,
-            hsh=sha256(b("Satoshi Nakamoto")).digest(),
-            hash_func=sha256,
-            expected=0x8F8A276C19F4149656B280621E358CCE24F5F52542772691EE69063B74F15D15)
-
-    def test_SECP256k1_4(self):
-        self._do(
-            generator=SECP256k1.generator,
-            secexp=0x1,
-            hsh=sha256(b("All those moments will be lost in time, like tears in rain. Time to die...")).digest(),
-            hash_func=sha256,
-            expected=0x38AA22D72376B4DBC472E06C3BA403EE0A394DA63FC58D88686C611ABA98D6B3)
-
-    def test_SECP256k1_5(self):
-        self._do(
-            generator=SECP256k1.generator,
-            secexp=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140,
-            hsh=sha256(b("Satoshi Nakamoto")).digest(),
-            hash_func=sha256,
-            expected=0x33A19B60E25FB6F4435AF53A3D42D493644827367E6453928554F43E49AA6F90)
-
-    def test_SECP256k1_6(self):
-        self._do(
-            generator=SECP256k1.generator,
-            secexp=0xf8b8af8ce3c7cca5e300d33939540c10d45ce001b8f252bfbc57ba0342904181,
-            hsh=sha256(b("Alan Turing")).digest(),
-            hash_func=sha256,
-            expected=0x525A82B70E67874398067543FD84C83D30C175FDC45FDEEE082FE13B1D7CFDF1)
-
-    def test_1(self):
-        # Basic example of the RFC, it also tests 'try-try-again' from Step H of rfc6979
-        self._do(
-            generator = Point(None, 0, 0, int("4000000000000000000020108A2E0CC0D99F8A5EF", 16)),
-            secexp = int("09A4D6792295A7F730FC3F2B49CBC0F62E862272F", 16),
-            hsh = unhexlify(b("AF2BDBE1AA9B6EC1E2ADE1D694F41FC71A831D0268E9891562113D8A62ADD1BF")),
-            hash_func = sha256,
-            expected = int("23AF4074C90A02B3FE61D286D5C87F425E6BDD81B", 16))
-
-    def test_2(self):
-        self._do(
-            generator=NIST192p.generator,
-            secexp = int("6FAB034934E4C0FC9AE67F5B5659A9D7D1FEFD187EE09FD4", 16),
-            hsh = sha1(b("sample")).digest(),
-            hash_func = sha1,
-            expected = int("37D7CA00D2C7B0E5E412AC03BD44BA837FDD5B28CD3B0021", 16))
-
-    def test_3(self):
-        self._do(
-            generator=NIST192p.generator,
-            secexp = int("6FAB034934E4C0FC9AE67F5B5659A9D7D1FEFD187EE09FD4", 16),
-            hsh = sha256(b("sample")).digest(),
-            hash_func = sha256,
-            expected = int("32B1B6D7D42A05CB449065727A84804FB1A3E34D8F261496", 16))
-
-    def test_4(self):
-        self._do(
-            generator=NIST192p.generator,
-            secexp = int("6FAB034934E4C0FC9AE67F5B5659A9D7D1FEFD187EE09FD4", 16),
-            hsh = sha512(b("sample")).digest(),
-            hash_func = sha512,
-            expected = int("A2AC7AB055E4F20692D49209544C203A7D1F2C0BFBC75DB1", 16))
-
-    def test_5(self):
-        self._do(
-            generator=NIST192p.generator,
-            secexp = int("6FAB034934E4C0FC9AE67F5B5659A9D7D1FEFD187EE09FD4", 16),
-            hsh = sha1(b("test")).digest(),
-            hash_func = sha1,
-            expected = int("D9CF9C3D3297D3260773A1DA7418DB5537AB8DD93DE7FA25", 16))
-
-    def test_6(self):
-        self._do(
-            generator=NIST192p.generator,
-            secexp = int("6FAB034934E4C0FC9AE67F5B5659A9D7D1FEFD187EE09FD4", 16),
-            hsh = sha256(b("test")).digest(),
-            hash_func = sha256,
-            expected = int("5C4CE89CF56D9E7C77C8585339B006B97B5F0680B4306C6C", 16))
-
-    def test_7(self):
-        self._do(
-            generator=NIST192p.generator,
-            secexp = int("6FAB034934E4C0FC9AE67F5B5659A9D7D1FEFD187EE09FD4", 16),
-            hsh = sha512(b("test")).digest(),
-            hash_func = sha512,
-            expected = int("0758753A5254759C7CFBAD2E2D9B0792EEE44136C9480527", 16))
-
-    def test_8(self):
-        self._do(
-            generator=NIST521p.generator,
-            secexp = int("0FAD06DAA62BA3B25D2FB40133DA757205DE67F5BB0018FEE8C86E1B68C7E75CAA896EB32F1F47C70855836A6D16FCC1466F6D8FBEC67DB89EC0C08B0E996B83538", 16),
-            hsh = sha1(b("sample")).digest(),
-            hash_func = sha1,
-            expected = int("089C071B419E1C2820962321787258469511958E80582E95D8378E0C2CCDB3CB42BEDE42F50E3FA3C71F5A76724281D31D9C89F0F91FC1BE4918DB1C03A5838D0F9", 16))
-
-    def test_9(self):
-        self._do(
-            generator=NIST521p.generator,
-            secexp = int("0FAD06DAA62BA3B25D2FB40133DA757205DE67F5BB0018FEE8C86E1B68C7E75CAA896EB32F1F47C70855836A6D16FCC1466F6D8FBEC67DB89EC0C08B0E996B83538", 16),
-            hsh = sha256(b("sample")).digest(),
-            hash_func = sha256,
-            expected = int("0EDF38AFCAAECAB4383358B34D67C9F2216C8382AAEA44A3DAD5FDC9C32575761793FEF24EB0FC276DFC4F6E3EC476752F043CF01415387470BCBD8678ED2C7E1A0", 16))
-
-    def test_10(self):
-        self._do(
-            generator=NIST521p.generator,
-            secexp = int("0FAD06DAA62BA3B25D2FB40133DA757205DE67F5BB0018FEE8C86E1B68C7E75CAA896EB32F1F47C70855836A6D16FCC1466F6D8FBEC67DB89EC0C08B0E996B83538", 16),
-            hsh = sha512(b("test")).digest(),
-            hash_func = sha512,
-            expected = int("16200813020EC986863BEDFC1B121F605C1215645018AEA1A7B215A564DE9EB1B38A67AA1128B80CE391C4FB71187654AAA3431027BFC7F395766CA988C964DC56D", 16))
-
-def __main__():
-    unittest.main()
-if __name__ == "__main__":
-    __main__()
+  def test_point_validity(generator, x, y, expected):
+    """generator defines the curve; is (x,y) a point on
+       this curve? "expected" is True if the right answer is Yes."""
+    if point_is_valid(generator, x, y) == expected:
+      print_("Point validity tested as expected.")
+    else:
+      raise TestFailure("*** Point validity test gave wrong result.")
+
+  def test_signature_validity(Msg, Qx, Qy, R, S, expected):
+    """Msg = message, Qx and Qy represent the base point on
+       elliptic curve c192, R and S are the signature, and
+       "expected" is True iff the signature is expected to be valid."""
+    pubk = Public_key(generator_192,
+                      ellipticcurve.Point(curve_192, Qx, Qy))
+    got = pubk.verifies(digest_integer(Msg), Signature(R, S))
+    if got == expected:
+      print_("Signature tested as expected: got %s, expected %s." % \
+             (got, expected))
+    else:
+      raise TestFailure("*** Signature test failed: got %s, expected %s." % \
+                        (got, expected))
+
+  def test_pk_recovery(Msg, R, S, Qx, Qy):
+    
+    sign = Signature(R,S)
+    pks = sign.recover_public_keys(digest_integer(Msg), generator_192)
+
+    print_("Test pk recover")
+
+    if pks:
+
+      # Test if the signature is valid for all found public keys
+      for pk in pks:
+        q = pk.point
+        print_("Recovered q: %s" % q)
+        test_signature_validity(Msg, q.x(), q.y(), R, S, True)
+
+      # Test if the original public key is in the set of found keys
+      original_q = ellipticcurve.Point(curve_192, Qx, Qy)
+      points = [pk.point for pk in pks]
+      if original_q in points:
+        print_("Original q was found")
+      else:
+        raise TestFailure("Original q is not in the list of recovered public keys")
+
+    else:
+      raise TestFailure("*** NO valid public key returned")
+
+
+  print_("NIST Curve P-192:")
+
+  p192 = generator_192
+
+  # From X9.62:
+
+  d = 651056770906015076056810763456358567190100156695615665659
+  Q = d * p192
+  if Q.x() != 0x62B12D60690CDCF330BABAB6E69763B471F994DD702D16A5:
+    raise TestFailure("*** p192 * d came out wrong.")
+  else:
+    print_("p192 * d came out right.")
+
+  k = 6140507067065001063065065565667405560006161556565665656654
+  R = k * p192
+  if R.x() != 0x885052380FF147B734C330C43D39B2C4A89F29B0F749FEAD \
+     or R.y() != 0x9CF9FA1CBEFEFB917747A3BB29C072B9289C2547884FD835:
+    raise TestFailure("*** k * p192 came out wrong.")
+  else:
+    print_("k * p192 came out right.")
+
+  u1 = 2563697409189434185194736134579731015366492496392189760599
+  u2 = 6266643813348617967186477710235785849136406323338782220568
+  temp = u1 * p192 + u2 * Q
+  if temp.x() != 0x885052380FF147B734C330C43D39B2C4A89F29B0F749FEAD \
+     or temp.y() != 0x9CF9FA1CBEFEFB917747A3BB29C072B9289C2547884FD835:
+    raise TestFailure("*** u1 * p192 + u2 * Q came out wrong.")
+  else:
+    print_("u1 * p192 + u2 * Q came out right.")
+
+  e = 968236873715988614170569073515315707566766479517
+  pubk = Public_key(generator_192, generator_192 * d)
+  privk = Private_key(pubk, d)
+  sig = privk.sign(e, k)
+  r, s = sig.r, sig.s
+  if r != 3342403536405981729393488334694600415596881826869351677613 \
+     or s != 5735822328888155254683894997897571951568553642892029982342:
+    raise TestFailure("*** r or s came out wrong.")
+  else:
+    print_("r and s came out right.")
+
+  valid = pubk.verifies(e, sig)
+  if valid:
+    print_("Signature verified OK.")
+  else:
+    raise TestFailure("*** Signature failed verification.")
+
+  valid = pubk.verifies(e - 1, sig)
+  if not valid:
+    print_("Forgery was correctly rejected.")
+  else:
+    raise TestFailure("*** Forgery was erroneously accepted.")
+
+  print_("Testing point validity, as per ECDSAVS.pdf B.2.2:")
+
+  test_point_validity( \
+    p192, \
+    0xcd6d0f029a023e9aaca429615b8f577abee685d8257cc83a, \
+    0x00019c410987680e9fb6c0b6ecc01d9a2647c8bae27721bacdfc, \
+    False)
+
+  test_point_validity(
+    p192, \
+    0x00017f2fce203639e9eaf9fb50b81fc32776b30e3b02af16c73b, \
+    0x95da95c5e72dd48e229d4748d4eee658a9a54111b23b2adb, \
+    False)
+
+  test_point_validity(
+    p192, \
+    0x4f77f8bc7fccbadd5760f4938746d5f253ee2168c1cf2792, \
+    0x000147156ff824d131629739817edb197717c41aab5c2a70f0f6, \
+    False)
+
+  test_point_validity(
+    p192, \
+    0xc58d61f88d905293bcd4cd0080bcb1b7f811f2ffa41979f6, \
+    0x8804dc7a7c4c7f8b5d437f5156f3312ca7d6de8a0e11867f, \
+    True)
+
+  test_point_validity(
+    p192, \
+    0xcdf56c1aa3d8afc53c521adf3ffb96734a6a630a4a5b5a70, \
+    0x97c1c44a5fb229007b5ec5d25f7413d170068ffd023caa4e, \
+    True)
+
+  test_point_validity(
+    p192, \
+    0x89009c0dc361c81e99280c8e91df578df88cdf4b0cdedced, \
+    0x27be44a529b7513e727251f128b34262a0fd4d8ec82377b9, \
+    True)
+
+  test_point_validity(
+    p192, \
+    0x6a223d00bd22c52833409a163e057e5b5da1def2a197dd15, \
+    0x7b482604199367f1f303f9ef627f922f97023e90eae08abf, \
+    True)
+
+  test_point_validity(
+    p192, \
+    0x6dccbde75c0948c98dab32ea0bc59fe125cf0fb1a3798eda, \
+    0x0001171a3e0fa60cf3096f4e116b556198de430e1fbd330c8835, \
+    False)
+
+  test_point_validity(
+    p192, \
+    0xd266b39e1f491fc4acbbbc7d098430931cfa66d55015af12, \
+    0x193782eb909e391a3148b7764e6b234aa94e48d30a16dbb2, \
+    False)
+
+  test_point_validity(
+    p192, \
+    0x9d6ddbcd439baa0c6b80a654091680e462a7d1d3f1ffeb43, \
+    0x6ad8efc4d133ccf167c44eb4691c80abffb9f82b932b8caa, \
+    False)
+
+  test_point_validity(
+    p192, \
+    0x146479d944e6bda87e5b35818aa666a4c998a71f4e95edbc, \
+    0xa86d6fe62bc8fbd88139693f842635f687f132255858e7f6, \
+    False)
+
+  test_point_validity(
+    p192, \
+    0xe594d4a598046f3598243f50fd2c7bd7d380edb055802253, \
+    0x509014c0c4d6b536e3ca750ec09066af39b4c8616a53a923, \
+    False)
+
+  print_("Trying signature-verification tests from ECDSAVS.pdf B.2.4:")
+  print_("P-192:")
+  Msg = 0x84ce72aa8699df436059f052ac51b6398d2511e49631bcb7e71f89c499b9ee425dfbc13a5f6d408471b054f2655617cbbaf7937b7c80cd8865cf02c8487d30d2b0fbd8b2c4e102e16d828374bbc47b93852f212d5043c3ea720f086178ff798cc4f63f787b9c2e419efa033e7644ea7936f54462dc21a6c4580725f7f0e7d158
+  Qx = 0xd9dbfb332aa8e5ff091e8ce535857c37c73f6250ffb2e7ac
+  Qy = 0x282102e364feded3ad15ddf968f88d8321aa268dd483ebc4
+  R = 0x64dca58a20787c488d11d6dd96313f1b766f2d8efe122916
+  S = 0x1ecba28141e84ab4ecad92f56720e2cc83eb3d22dec72479
+  test_signature_validity(Msg, Qx, Qy, R, S, True)
+  test_pk_recovery(Msg, R, S, Qx, Qy)
+
+  Msg = 0x94bb5bacd5f8ea765810024db87f4224ad71362a3c28284b2b9f39fab86db12e8beb94aae899768229be8fdb6c4f12f28912bb604703a79ccff769c1607f5a91450f30ba0460d359d9126cbd6296be6d9c4bb96c0ee74cbb44197c207f6db326ab6f5a659113a9034e54be7b041ced9dcf6458d7fb9cbfb2744d999f7dfd63f4
+  Qx = 0x3e53ef8d3112af3285c0e74842090712cd324832d4277ae7
+  Qy = 0xcc75f8952d30aec2cbb719fc6aa9934590b5d0ff5a83adb7
+  R = 0x8285261607283ba18f335026130bab31840dcfd9c3e555af
+  S = 0x356d89e1b04541afc9704a45e9c535ce4a50929e33d7e06c
+  test_signature_validity(Msg, Qx, Qy, R, S, True)
+  test_pk_recovery(Msg, R, S, Qx, Qy)
+
+  Msg = 0xf6227a8eeb34afed1621dcc89a91d72ea212cb2f476839d9b4243c66877911b37b4ad6f4448792a7bbba76c63bdd63414b6facab7dc71c3396a73bd7ee14cdd41a659c61c99b779cecf07bc51ab391aa3252386242b9853ea7da67fd768d303f1b9b513d401565b6f1eb722dfdb96b519fe4f9bd5de67ae131e64b40e78c42dd
+  Qx = 0x16335dbe95f8e8254a4e04575d736befb258b8657f773cb7
+  Qy = 0x421b13379c59bc9dce38a1099ca79bbd06d647c7f6242336
+  R = 0x4141bd5d64ea36c5b0bd21ef28c02da216ed9d04522b1e91
+  S = 0x159a6aa852bcc579e821b7bb0994c0861fb08280c38daa09
+  test_signature_validity(Msg, Qx, Qy, R, S, False)
+
+  Msg = 0x16b5f93afd0d02246f662761ed8e0dd9504681ed02a253006eb36736b563097ba39f81c8e1bce7a16c1339e345efabbc6baa3efb0612948ae51103382a8ee8bc448e3ef71e9f6f7a9676694831d7f5dd0db5446f179bcb737d4a526367a447bfe2c857521c7f40b6d7d7e01a180d92431fb0bbd29c04a0c420a57b3ed26ccd8a
+  Qx = 0xfd14cdf1607f5efb7b1793037b15bdf4baa6f7c16341ab0b
+  Qy = 0x83fa0795cc6c4795b9016dac928fd6bac32f3229a96312c4
+  R = 0x8dfdb832951e0167c5d762a473c0416c5c15bc1195667dc1
+  S = 0x1720288a2dc13fa1ec78f763f8fe2ff7354a7e6fdde44520
+  test_signature_validity(Msg, Qx, Qy, R, S, False)
+
+  Msg = 0x08a2024b61b79d260e3bb43ef15659aec89e5b560199bc82cf7c65c77d39192e03b9a895d766655105edd9188242b91fbde4167f7862d4ddd61e5d4ab55196683d4f13ceb90d87aea6e07eb50a874e33086c4a7cb0273a8e1c4408f4b846bceae1ebaac1b2b2ea851a9b09de322efe34cebe601653efd6ddc876ce8c2f2072fb
+  Qx = 0x674f941dc1a1f8b763c9334d726172d527b90ca324db8828
+  Qy = 0x65adfa32e8b236cb33a3e84cf59bfb9417ae7e8ede57a7ff
+  R = 0x9508b9fdd7daf0d8126f9e2bc5a35e4c6d800b5b804d7796
+  S = 0x36f2bf6b21b987c77b53bb801b3435a577e3d493744bfab0
+  test_signature_validity(Msg, Qx, Qy, R, S, False)
+
+  Msg = 0x1843aba74b0789d4ac6b0b8923848023a644a7b70afa23b1191829bbe4397ce15b629bf21a8838298653ed0c19222b95fa4f7390d1b4c844d96e645537e0aae98afb5c0ac3bd0e4c37f8daaff25556c64e98c319c52687c904c4de7240a1cc55cd9756b7edaef184e6e23b385726e9ffcba8001b8f574987c1a3fedaaa83ca6d
+  Qx = 0x10ecca1aad7220b56a62008b35170bfd5e35885c4014a19f
+  Qy = 0x04eb61984c6c12ade3bc47f3c629ece7aa0a033b9948d686
+  R = 0x82bfa4e82c0dfe9274169b86694e76ce993fd83b5c60f325
+  S = 0xa97685676c59a65dbde002fe9d613431fb183e8006d05633
+  test_signature_validity(Msg, Qx, Qy, R, S, False)
+
+  Msg = 0x5a478f4084ddd1a7fea038aa9732a822106385797d02311aeef4d0264f824f698df7a48cfb6b578cf3da416bc0799425bb491be5b5ecc37995b85b03420a98f2c4dc5c31a69a379e9e322fbe706bbcaf0f77175e05cbb4fa162e0da82010a278461e3e974d137bc746d1880d6eb02aa95216014b37480d84b87f717bb13f76e1
+  Qx = 0x6636653cb5b894ca65c448277b29da3ad101c4c2300f7c04
+  Qy = 0xfdf1cbb3fc3fd6a4f890b59e554544175fa77dbdbeb656c1
+  R = 0xeac2ddecddfb79931a9c3d49c08de0645c783a24cb365e1c
+  S = 0x3549fee3cfa7e5f93bc47d92d8ba100e881a2a93c22f8d50
+  test_signature_validity(Msg, Qx, Qy, R, S, False)
+
+  Msg = 0xc598774259a058fa65212ac57eaa4f52240e629ef4c310722088292d1d4af6c39b49ce06ba77e4247b20637174d0bd67c9723feb57b5ead232b47ea452d5d7a089f17c00b8b6767e434a5e16c231ba0efa718a340bf41d67ea2d295812ff1b9277daacb8bc27b50ea5e6443bcf95ef4e9f5468fe78485236313d53d1c68f6ba2
+  Qx = 0xa82bd718d01d354001148cd5f69b9ebf38ff6f21898f8aaa
+  Qy = 0xe67ceede07fc2ebfafd62462a51e4b6c6b3d5b537b7caf3e
+  R = 0x4d292486c620c3de20856e57d3bb72fcde4a73ad26376955
+  S = 0xa85289591a6081d5728825520e62ff1c64f94235c04c7f95
+  test_signature_validity(Msg, Qx, Qy, R, S, False)
+
+  Msg = 0xca98ed9db081a07b7557f24ced6c7b9891269a95d2026747add9e9eb80638a961cf9c71a1b9f2c29744180bd4c3d3db60f2243c5c0b7cc8a8d40a3f9a7fc910250f2187136ee6413ffc67f1a25e1c4c204fa9635312252ac0e0481d89b6d53808f0c496ba87631803f6c572c1f61fa049737fdacce4adff757afed4f05beb658
+  Qx = 0x7d3b016b57758b160c4fca73d48df07ae3b6b30225126c2f
+  Qy = 0x4af3790d9775742bde46f8da876711be1b65244b2b39e7ec
+  R = 0x95f778f5f656511a5ab49a5d69ddd0929563c29cbc3a9e62
+  S = 0x75c87fc358c251b4c83d2dd979faad496b539f9f2ee7a289
+  test_signature_validity(Msg, Qx, Qy, R, S, False)
+
+  Msg = 0x31dd9a54c8338bea06b87eca813d555ad1850fac9742ef0bbe40dad400e10288acc9c11ea7dac79eb16378ebea9490e09536099f1b993e2653cd50240014c90a9c987f64545abc6a536b9bd2435eb5e911fdfde2f13be96ea36ad38df4ae9ea387b29cced599af777338af2794820c9cce43b51d2112380a35802ab7e396c97a
+  Qx = 0x9362f28c4ef96453d8a2f849f21e881cd7566887da8beb4a
+  Qy = 0xe64d26d8d74c48a024ae85d982ee74cd16046f4ee5333905
+  R = 0xf3923476a296c88287e8de914b0b324ad5a963319a4fe73b
+  S = 0xf0baeed7624ed00d15244d8ba2aede085517dbdec8ac65f5
+  test_signature_validity(Msg, Qx, Qy, R, S, True)
+
+  Msg = 0xb2b94e4432267c92f9fdb9dc6040c95ffa477652761290d3c7de312283f6450d89cc4aabe748554dfb6056b2d8e99c7aeaad9cdddebdee9dbc099839562d9064e68e7bb5f3a6bba0749ca9a538181fc785553a4000785d73cc207922f63e8ce1112768cb1de7b673aed83a1e4a74592f1268d8e2a4e9e63d414b5d442bd0456d
+  Qx = 0xcc6fc032a846aaac25533eb033522824f94e670fa997ecef
+  Qy = 0xe25463ef77a029eccda8b294fd63dd694e38d223d30862f1
+  R = 0x066b1d07f3a40e679b620eda7f550842a35c18b80c5ebe06
+  S = 0xa0b0fb201e8f2df65e2c4508ef303bdc90d934016f16b2dc
+  test_signature_validity(Msg, Qx, Qy, R, S, False)
+
+  Msg = 0x4366fcadf10d30d086911de30143da6f579527036937007b337f7282460eae5678b15cccda853193ea5fc4bc0a6b9d7a31128f27e1214988592827520b214eed5052f7775b750b0c6b15f145453ba3fee24a085d65287e10509eb5d5f602c440341376b95c24e5c4727d4b859bfe1483d20538acdd92c7997fa9c614f0f839d7
+  Qx = 0x955c908fe900a996f7e2089bee2f6376830f76a19135e753
+  Qy = 0xba0c42a91d3847de4a592a46dc3fdaf45a7cc709b90de520
+  R = 0x1f58ad77fc04c782815a1405b0925e72095d906cbf52a668
+  S = 0xf2e93758b3af75edf784f05a6761c9b9a6043c66b845b599
+  test_signature_validity(Msg, Qx, Qy, R, S, False)
+
+  Msg = 0x543f8af57d750e33aa8565e0cae92bfa7a1ff78833093421c2942cadf9986670a5ff3244c02a8225e790fbf30ea84c74720abf99cfd10d02d34377c3d3b41269bea763384f372bb786b5846f58932defa68023136cd571863b304886e95e52e7877f445b9364b3f06f3c28da12707673fecb4b8071de06b6e0a3c87da160cef3
+  Qx = 0x31f7fa05576d78a949b24812d4383107a9a45bb5fccdd835
+  Qy = 0x8dc0eb65994a90f02b5e19bd18b32d61150746c09107e76b
+  R = 0xbe26d59e4e883dde7c286614a767b31e49ad88789d3a78ff
+  S = 0x8762ca831c1ce42df77893c9b03119428e7a9b819b619068
+  test_signature_validity(Msg, Qx, Qy, R, S, False)
+
+  Msg = 0xd2e8454143ce281e609a9d748014dcebb9d0bc53adb02443a6aac2ffe6cb009f387c346ecb051791404f79e902ee333ad65e5c8cb38dc0d1d39a8dc90add5023572720e5b94b190d43dd0d7873397504c0c7aef2727e628eb6a74411f2e400c65670716cb4a815dc91cbbfeb7cfe8c929e93184c938af2c078584da045e8f8d1
+  Qx = 0x66aa8edbbdb5cf8e28ceb51b5bda891cae2df84819fe25c0
+  Qy = 0x0c6bc2f69030a7ce58d4a00e3b3349844784a13b8936f8da
+  R = 0xa4661e69b1734f4a71b788410a464b71e7ffe42334484f23
+  S = 0x738421cf5e049159d69c57a915143e226cac8355e149afe9
+  test_signature_validity(Msg, Qx, Qy, R, S, False)
+
+  Msg = 0x6660717144040f3e2f95a4e25b08a7079c702a8b29babad5a19a87654bc5c5afa261512a11b998a4fb36b5d8fe8bd942792ff0324b108120de86d63f65855e5461184fc96a0a8ffd2ce6d5dfb0230cbbdd98f8543e361b3205f5da3d500fdc8bac6db377d75ebef3cb8f4d1ff738071ad0938917889250b41dd1d98896ca06fb
+  Qx = 0xbcfacf45139b6f5f690a4c35a5fffa498794136a2353fc77
+  Qy = 0x6f4a6c906316a6afc6d98fe1f0399d056f128fe0270b0f22
+  R = 0x9db679a3dafe48f7ccad122933acfe9da0970b71c94c21c1
+  S = 0x984c2db99827576c0a41a5da41e07d8cc768bc82f18c9da9
+  test_signature_validity(Msg, Qx, Qy, R, S, False)
+
+  print_("Testing the example code:")
+
+  # Building a public/private key pair from the NIST Curve P-192:
+
+  g = generator_192
+  n = g.order()
+
+  # (random.SystemRandom is supposed to provide
+  # crypto-quality random numbers, but as Debian recently
+  # illustrated, a systems programmer can accidentally
+  # demolish this security, so in serious applications
+  # further precautions are appropriate.)
+
+  randrange = random.SystemRandom().randrange
+
+  secret = randrange(1, n)
+  pubkey = Public_key(g, g * secret)
+  privkey = Private_key(pubkey, secret)
+
+  # Signing a hash value:
+
+  hash = randrange(1, n)
+  signature = privkey.sign(hash, randrange(1, n))
+
+  # Verifying a signature for a hash value:
+
+  if pubkey.verifies(hash, signature):
+    print_("Demo verification succeeded.")
+  else:
+    raise TestFailure("*** Demo verification failed.")
+
+  if pubkey.verifies(hash - 1, signature):
+    raise TestFailure("**** Demo verification failed to reject tampered hash.")
+  else:
+    print_("Demo verification correctly rejected tampered hash.")

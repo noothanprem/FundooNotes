@@ -1,1 +1,1 @@
-ù‹Ivenv/lib/python3.6/site-packages/rest_framework_social_oauth2/settings.py 2pyXh
+ù‹=venv/lib/python3.6/site-packages/rest_framework_social_oauth2 :÷‹ú‹ø‹û‹ü‹ý‹þ‹‰ŒŠŒ

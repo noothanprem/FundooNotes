@@ -1,108 +1,124 @@
-import sys
+from __future__ import absolute_import, print_function
+
 import gevent.testing as greentest
-import gevent
-from gevent.hub import get_hub
+from gevent import config
+from gevent.testing.sysinfo import CFFI_BACKEND
 
-def raise_(ex):
-    raise ex
-
-
-MSG = 'should be re-raised and caught'
+from gevent.core import READ # pylint:disable=no-name-in-module
+from gevent.core import WRITE # pylint:disable=no-name-in-module
 
 
 class Test(greentest.TestCase):
-    x = None
-    error_fatal = False
 
-    def start(self, *args):
-        raise NotImplementedError
+    __timeout__ = None
 
     def setUp(self):
-        self.x = None
-
-    def test_sys_exit(self):
-        self.start(sys.exit, MSG)
-
-        try:
-            gevent.sleep(0.001)
-        except SystemExit as ex:
-            assert str(ex) == MSG, repr(str(ex))
-        else:
-            raise AssertionError('must raise SystemExit')
-
-    def test_keyboard_interrupt(self):
-        self.start(raise_, KeyboardInterrupt)
-
-        try:
-            gevent.sleep(0.001)
-        except KeyboardInterrupt:
-            pass
-        else:
-            raise AssertionError('must raise KeyboardInterrupt')
-
-    def test_keyboard_interrupt_stderr_patched(self):
-        from gevent import monkey
-        monkey.patch_sys(stdin=False, stdout=False, stderr=True)
-        try:
-            try:
-                self.start(raise_, KeyboardInterrupt)
-                while True:
-                    gevent.sleep(0.1)
-            except KeyboardInterrupt:
-                pass # expected
-        finally:
-            sys.stderr = monkey.get_original('sys', 'stderr')
-
-    def test_system_error(self):
-        self.start(raise_, SystemError(MSG))
-
-        with self.assertRaisesRegex(SystemError,
-                                    MSG):
-            gevent.sleep(0.002)
-
-    def test_exception(self):
-        self.start(raise_, Exception('regular exception must not kill the program'))
-        gevent.sleep(0.001)
-
-
-class TestCallback(Test):
+        super(Test, self).setUp()
+        self.loop = config.loop(default=False)
+        self.timer = self.loop.timer(0.01)
 
     def tearDown(self):
-        if self.x is not None:
-            # libuv: See the notes in libuv/loop.py:loop._start_callback_timer
-            # If that's broken, test_exception can fail sporadically.
-            # If the issue is the same, then adding `gevent.sleep(0)` here
-            # will solve it. There's also a race condition for the first loop,
-            # so we sleep twice.
-            assert not self.x.pending, self.x
+        if self.timer is not None:
+            self.timer.close()
+        if self.loop is not None:
+            self.loop.destroy()
+        self.loop = self.timer = None
+        super(Test, self).tearDown()
 
-    def start(self, *args):
-        self.x = get_hub().loop.run_callback(*args)
+    def test_non_callable_to_start(self):
+        # test that cannot pass non-callable thing to start()
+        self.assertRaises(TypeError, self.timer.start, None)
+        self.assertRaises(TypeError, self.timer.start, 5)
 
-    if greentest.LIBUV:
-        def test_exception(self):
-            # This call will enter the loop for the very first time (if we're running
-            # standalone). On libuv, where timers run first, that means that depending on the
-            # amount of time that elapses between the call to uv_timer_start and uv_run,
-            # this timer might fire before our check or prepare watchers, and hence callbacks,
-            # run.
-            # We make this call now so that the call in the super class is guaranteed to be
-            # somewhere in the loop and not subject to that race condition.
-            gevent.sleep(0.001)
-            super(TestCallback, self).test_exception()
-
-class TestSpawn(Test):
-
-    def tearDown(self):
-        gevent.sleep(0.0001)
-        if self.x is not None:
-            assert self.x.dead, self.x
-
-    def start(self, *args):
-        self.x = gevent.spawn(*args)
+    def test_non_callable_after_start(self):
+        # test that cannot set 'callback' to non-callable thing later either
+        lst = []
+        timer = self.timer
+        timer.start(lst.append)
 
 
-del Test
+        with self.assertRaises(TypeError):
+            timer.callback = False
+
+        with self.assertRaises(TypeError):
+            timer.callback = 5
+
+    def test_args_can_be_changed_after_start(self):
+        lst = []
+        timer = self.timer
+        self.timer.start(lst.append)
+        self.assertEqual(timer.args, ())
+        timer.args = (1, 2, 3)
+        self.assertEqual(timer.args, (1, 2, 3))
+
+        # Only tuple can be args
+        with self.assertRaises(TypeError):
+            timer.args = 5
+        with self.assertRaises(TypeError):
+            timer.args = [4, 5]
+
+        self.assertEqual(timer.args, (1, 2, 3))
+
+        # None also works, means empty tuple
+        # XXX why?
+        timer.args = None
+        self.assertEqual(timer.args, None)
+
+
+    def test_run(self):
+        loop = self.loop
+        lst = []
+
+        self.timer.start(lambda *args: lst.append(args))
+
+        loop.run()
+        loop.update_now()
+
+        self.assertEqual(lst, [()])
+
+        # Even if we lose all references to it, the ref in the callback
+        # keeps it alive
+        self.timer.start(reset, self.timer, lst)
+        self.timer = None
+        loop.run()
+        self.assertEqual(lst, [(), 25])
+
+    def test_invalid_fd(self):
+        loop = self.loop
+
+        # Negative case caught everywhere. ValueError
+        # on POSIX, OSError on Windows Py3, IOError on Windows Py2
+        with self.assertRaises((ValueError, OSError, IOError)):
+            loop.io(-1, READ)
+
+
+    @greentest.skipOnWindows("Stdout can't be watched on Win32")
+    def test_reuse_io(self):
+        loop = self.loop
+
+        # Watchers aren't reused once all outstanding
+        # refs go away BUT THEY MUST BE CLOSED
+        tty_watcher = loop.io(1, WRITE)
+        watcher_handle = tty_watcher._watcher if CFFI_BACKEND else tty_watcher
+        tty_watcher.close()
+        del tty_watcher
+        # XXX: Note there is a cycle in the CFFI code
+        # from watcher_handle._handle -> watcher_handle.
+        # So it doesn't go away until a GC runs.
+        import gc
+        gc.collect()
+
+        tty_watcher = loop.io(1, WRITE)
+        self.assertIsNot(tty_watcher._watcher if CFFI_BACKEND else tty_watcher, watcher_handle)
+        tty_watcher.close()
+
+
+def reset(watcher, lst):
+    watcher.args = None
+    watcher.callback = lambda: None
+    lst.append(25)
+    watcher.close()
+
 
 if __name__ == '__main__':
     greentest.main()

@@ -1,1 +1,1 @@
-”*venv/lib/python3.6/site-packages/hyperlink :“›
+”*venv/lib/python3.6/site-packages/hyperlink :“•

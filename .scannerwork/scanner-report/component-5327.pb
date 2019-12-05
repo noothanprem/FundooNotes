@@ -1,1 +1,1 @@
-Ï)Hvenv/lib/python3.6/site-packages/django/contrib/staticfiles/templatetags :Î)Ð)
+Ï)Fvenv/lib/python3.6/site-packages/django/contrib/staticfiles/storage.py 2pyXöh

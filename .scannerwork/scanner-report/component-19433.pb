@@ -1,1 +1,1 @@
-é—6venv/lib/python3.6/site-packages/isort/pylama_isort.py 2pyXh
+é—.venv/lib/python3.6/site-packages/isort/main.py 2pyX’h

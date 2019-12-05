@@ -1,47 +1,47 @@
 """
-Trello OAuth1 backend, docs at:
-    https://python-social-auth.readthedocs.io/en/latest/backends/trello.html
+Steam OpenId backend, docs at:
+    https://python-social-auth.readthedocs.io/en/latest/backends/steam.html
 """
-from .oauth import BaseOAuth1
+from .open_id import OpenIdAuth
+from ..exceptions import AuthFailed
 
 
-class TrelloOAuth(BaseOAuth1):
+USER_INFO = 'http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?'
 
-    """Trello OAuth authentication backend"""
-    name = 'trello'
-    ID_KEY = 'username'
-    AUTHORIZATION_URL = 'https://trello.com/1/OAuthAuthorizeToken'
-    REQUEST_TOKEN_URL = 'https://trello.com/1/OAuthGetRequestToken'
-    ACCESS_TOKEN_URL = 'https://trello.com/1/OAuthGetAccessToken'
 
-    EXTRA_DATA = [
-        ('username', 'username'),
-        ('email', 'email'),
-        ('fullName', 'fullName')
-    ]
+class SteamOpenId(OpenIdAuth):
+    name = 'steam'
+    URL = 'https://steamcommunity.com/openid'
+
+    def get_user_id(self, details, response):
+        """Return user unique id provided by service"""
+        return self._user_id(response)
 
     def get_user_details(self, response):
-        """Return user details from Trello account"""
-        fullname, first_name, last_name = self.get_user_names(
-            response.get('fullName')
-        )
-        return {'username': response.get('username'),
-                'email': response.get('email'),
-                'fullname': fullname,
-                'first_name': first_name,
-                'last_name': last_name}
+        player = self.get_json(USER_INFO, params={
+            'key': self.setting('API_KEY'),
+            'steamids': self._user_id(response)
+        })
+        if len(player['response']['players']) > 0:
+            player = player['response']['players'][0]
+            details = {'username': player.get('personaname'),
+                       'email': '',
+                       'fullname': '',
+                       'first_name': '',
+                       'last_name': '',
+                       'player': player}
+        else:
+            details = {}
+        return details
 
-    def user_data(self, access_token):
-        """Return user data provided"""
-        url = 'https://trello.com/1/members/me'
-        try:
-            return self.get_json(url, auth=self.oauth_auth(access_token))
-        except ValueError:
-            return None
+    def consumer(self):
+        # Steam seems to support stateless mode only, ignore store
+        if not hasattr(self, '_consumer'):
+            self._consumer = self.create_consumer()
+        return self._consumer
 
-    def auth_extra_arguments(self):
-        return {
-            'name': self.setting('APP_NAME', ''),
-            # trello default expiration is '30days'
-            'expiration': self.setting('EXPIRATION', 'never')
-        }
+    def _user_id(self, response):
+        user_id = response.identity_url.rsplit('/', 1)[-1]
+        if not user_id.isdigit():
+            raise AuthFailed(self, 'Missing Steam Id')
+        return user_id

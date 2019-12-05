@@ -1,1 +1,1 @@
-òÑ6venv/lib64/python3.6/site-packages/gunicorn/instrument :ñÑöÑ
+òÑ6venv/lib64/python3.6/site-packages/gunicorn/instrument :ñÑ÷Ñ

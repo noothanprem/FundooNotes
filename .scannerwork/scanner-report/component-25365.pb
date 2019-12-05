@@ -1,1 +1,1 @@
-ï∆Bvenv/lib/python3.6/site-packages/django_common/management/commands :	î∆ñ∆õ∆
+ï∆Bvenv/lib/python3.6/site-packages/django_common/management/commands :	î∆ñ∆ö∆

@@ -8,29 +8,29 @@ javascriptS2259FTypeError can be thrown as "instance" might be null or undefi
 
 javascriptS2814CRename "S2" as this name is already used in declaration at line 28. 2 :
 Ì< 
-_
-
-javascriptUnusedVariable3Remove the declaration of the unused 'id' variable. 2
-Æ
-Æ
- 
-`
-
-javascriptUnusedVariable4Remove the declaration of the unused 'tag' variable. 2
-˜˜ a
+a
 
 javascriptUnusedVariable5Remove the declaration of the unused 'self' variable. 2
 ’’ e
 
 javascriptUnusedVariable9Remove the declaration of the unused 'instance' variable. 2
-ê1ê1 c
+ê1ê1 `
+
+javascriptUnusedVariable4Remove the declaration of the unused 'tag' variable. 2
+˜˜ c
 
 javascriptUnusedVariable7Remove the declaration of the unused '$label' variable. 2
 ÌÌ
  d
 
 javascriptUnusedVariable8Remove the declaration of the unused 'matches' variable. 2
-ææ \
+ææ _
+
+javascriptUnusedVariable3Remove the declaration of the unused 'id' variable. 2
+Æ
+Æ
+ 
+\
 
 javascriptS18549Remove this useless assignment to local variable "$label" 2
 ÌÌ

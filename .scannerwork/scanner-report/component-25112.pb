@@ -1,1 +1,1 @@
-˜ÄIvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_internal/utils :3—Ä™ÄšÄ›ÄœÄÄÄŸÄ Ä¡Ä¢Ä£Ä¤Ä·Ä¸Ä¹ÄºÄ
+˜ÄUvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_internal/utils/encoding.py 2pyX(h

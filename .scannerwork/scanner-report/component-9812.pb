@@ -1,1 +1,1 @@
-ÔLKvenv/lib/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/Registered.py 2pyX'h
+ÔLKvenv/lib/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/Subscribed.py 2pyX'h

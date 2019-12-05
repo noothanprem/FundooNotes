@@ -1,1 +1,0 @@
-¾Z>venv/lib/python3.6/site-packages/faker/providers/company/fi_FI :½Z

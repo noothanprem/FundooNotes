@@ -1,1 +1,1 @@
-Á	6venv/lib/python3.6/site-packages/future/backports/html :¿	À	·
+Á	6venv/lib/python3.6/site-packages/future/backports/html :À	Ã	Ý	

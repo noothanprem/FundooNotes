@@ -1,1 +1,1 @@
-ƒ»Bvenv/lib/python3.6/site-packages/social_core/backends/mailchimp.py 2pyX!h
+ƒ»@venv/lib/python3.6/site-packages/social_core/backends/quizlet.py 2pyXh

@@ -1,316 +1,314 @@
-from . import Image, ImageFile, _webp
-from io import BytesIO
+#
+# The Python Imaging Library.
+#
+# SPIDER image file handling
+#
+# History:
+# 2004-08-02    Created BB
+# 2006-03-02    added save method
+# 2006-03-13    added support for stack images
+#
+# Copyright (c) 2004 by Health Research Inc. (HRI) RENSSELAER, NY 12144.
+# Copyright (c) 2004 by William Baxter.
+# Copyright (c) 2004 by Secret Labs AB.
+# Copyright (c) 2004 by Fredrik Lundh.
+#
+
+##
+# Image plugin for the Spider image format.  This format is is used
+# by the SPIDER software, in processing image data from electron
+# microscopy and tomography.
+##
+
+#
+# SpiderImagePlugin.py
+#
+# The Spider image format is used by SPIDER software, in processing
+# image data from electron microscopy and tomography.
+#
+# Spider home page:
+# https://spider.wadsworth.org/spider_doc/spider/docs/spider.html
+#
+# Details about the Spider image format:
+# https://spider.wadsworth.org/spider_doc/spider/docs/image_doc.html
+#
+
+from __future__ import print_function
+
+from PIL import Image, ImageFile
+import os
+import struct
+import sys
 
 
-_VALID_WEBP_MODES = {
-    "RGBX": True,
-    "RGBA": True,
-    }
-
-_VALID_WEBP_LEGACY_MODES = {
-    "RGB": True,
-    "RGBA": True,
-    }
-
-_VP8_MODES_BY_IDENTIFIER = {
-    b"VP8 ": "RGB",
-    b"VP8X": "RGBA",
-    b"VP8L": "RGBA",  # lossless
-    }
+def isInt(f):
+    try:
+        i = int(f)
+        if f-i == 0:
+            return 1
+        else:
+            return 0
+    except (ValueError, OverflowError):
+        return 0
 
 
-def _accept(prefix):
-    is_riff_file_format = prefix[:4] == b"RIFF"
-    is_webp_file = prefix[8:12] == b"WEBP"
-    is_valid_vp8_mode = prefix[12:16] in _VP8_MODES_BY_IDENTIFIER
-
-    return is_riff_file_format and is_webp_file and is_valid_vp8_mode
+iforms = [1, 3, -11, -12, -21, -22]
 
 
-class WebPImageFile(ImageFile.ImageFile):
+# There is no magic number to identify Spider files, so just check a
+# series of header locations to see if they have reasonable values.
+# Returns no. of bytes in the header, if it is a valid Spider header,
+# otherwise returns 0
 
-    format = "WEBP"
-    format_description = "WebP image"
+def isSpiderHeader(t):
+    h = (99,) + t   # add 1 value so can use spider header index start=1
+    # header values 1,2,5,12,13,22,23 should be integers
+    for i in [1, 2, 5, 12, 13, 22, 23]:
+        if not isInt(h[i]):
+            return 0
+    # check iform
+    iform = int(h[5])
+    if iform not in iforms:
+        return 0
+    # check other header values
+    labrec = int(h[13])   # no. records in file header
+    labbyt = int(h[22])   # total no. of bytes in header
+    lenbyt = int(h[23])   # record length in bytes
+    # print("labrec = %d, labbyt = %d, lenbyt = %d" % (labrec,labbyt,lenbyt))
+    if labbyt != (labrec * lenbyt):
+        return 0
+    # looks like a valid header
+    return labbyt
+
+
+def isSpiderImage(filename):
+    with open(filename, 'rb') as fp:
+        f = fp.read(92)   # read 23 * 4 bytes
+    t = struct.unpack('>23f', f)  # try big-endian first
+    hdrlen = isSpiderHeader(t)
+    if hdrlen == 0:
+        t = struct.unpack('<23f', f)  # little-endian
+        hdrlen = isSpiderHeader(t)
+    return hdrlen
+
+
+class SpiderImageFile(ImageFile.ImageFile):
+
+    format = "SPIDER"
+    format_description = "Spider 2D image"
+    _close_exclusive_fp_after_loading = False
 
     def _open(self):
-        if not _webp.HAVE_WEBPANIM:
-            # Legacy mode
-            data, width, height, self.mode, icc_profile, exif = \
-                _webp.WebPDecode(self.fp.read())
-            if icc_profile:
-                self.info["icc_profile"] = icc_profile
-            if exif:
-                self.info["exif"] = exif
-            self.size = width, height
-            self.fp = BytesIO(data)
-            self.tile = [("raw", (0, 0) + self.size, 0, self.mode)]
-            self._n_frames = 1
-            return
+        # check header
+        n = 27 * 4  # read 27 float values
+        f = self.fp.read(n)
 
-        # Use the newer AnimDecoder API to parse the (possibly) animated file,
-        # and access muxed chunks like ICC/EXIF/XMP.
-        self._decoder = _webp.WebPAnimDecoder(self.fp.read())
+        try:
+            self.bigendian = 1
+            t = struct.unpack('>27f', f)  # try big-endian first
+            hdrlen = isSpiderHeader(t)
+            if hdrlen == 0:
+                self.bigendian = 0
+                t = struct.unpack('<27f', f)  # little-endian
+                hdrlen = isSpiderHeader(t)
+            if hdrlen == 0:
+                raise SyntaxError("not a valid Spider file")
+        except struct.error:
+            raise SyntaxError("not a valid Spider file")
 
-        # Get info from decoder
-        width, height, loop_count, bgcolor, frame_count, mode = \
-            self._decoder.get_info()
-        self.size = width, height
-        self.info["loop"] = loop_count
-        bg_a, bg_r, bg_g, bg_b = \
-            (bgcolor >> 24) & 0xFF, \
-            (bgcolor >> 16) & 0xFF, \
-            (bgcolor >> 8) & 0xFF, \
-            bgcolor & 0xFF
-        self.info["background"] = (bg_r, bg_g, bg_b, bg_a)
-        self._n_frames = frame_count
-        self.mode = mode
-        self.tile = []
+        h = (99,) + t   # add 1 value : spider header index starts at 1
+        iform = int(h[5])
+        if iform != 1:
+            raise SyntaxError("not a Spider 2D image")
 
-        # Attempt to read ICC / EXIF / XMP chunks from file
-        icc_profile = self._decoder.get_chunk("ICCP")
-        exif = self._decoder.get_chunk("EXIF")
-        xmp = self._decoder.get_chunk("XMP ")
-        if icc_profile:
-            self.info["icc_profile"] = icc_profile
-        if exif:
-            self.info["exif"] = exif
-        if xmp:
-            self.info["xmp"] = xmp
+        self.size = int(h[12]), int(h[2])  # size in pixels (width, height)
+        self.istack = int(h[24])
+        self.imgnumber = int(h[27])
 
-        # Initialize seek state
-        self._reset(reset=False)
-        self.seek(0)
+        if self.istack == 0 and self.imgnumber == 0:
+            # stk=0, img=0: a regular 2D image
+            offset = hdrlen
+            self._nimages = 1
+        elif self.istack > 0 and self.imgnumber == 0:
+            # stk>0, img=0: Opening the stack for the first time
+            self.imgbytes = int(h[12]) * int(h[2]) * 4
+            self.hdrlen = hdrlen
+            self._nimages = int(h[26])
+            # Point to the first image in the stack
+            offset = hdrlen * 2
+            self.imgnumber = 1
+        elif self.istack == 0 and self.imgnumber > 0:
+            # stk=0, img>0: an image within the stack
+            offset = hdrlen + self.stkoffset
+            self.istack = 2  # So Image knows it's still a stack
+        else:
+            raise SyntaxError("inconsistent stack header values")
 
-    def _getexif(self):
-        from .JpegImagePlugin import _getexif
-        return _getexif(self)
+        if self.bigendian:
+            self.rawmode = "F;32BF"
+        else:
+            self.rawmode = "F;32F"
+        self.mode = "F"
+
+        self.tile = [
+            ("raw", (0, 0) + self.size, offset,
+                (self.rawmode, 0, 1))]
+        self.__fp = self.fp  # FIXME: hack
 
     @property
     def n_frames(self):
-        return self._n_frames
+        return self._nimages
 
     @property
     def is_animated(self):
-        return self._n_frames > 1
+        return self._nimages > 1
+
+    # 1st image index is zero (although SPIDER imgnumber starts at 1)
+    def tell(self):
+        if self.imgnumber < 1:
+            return 0
+        else:
+            return self.imgnumber - 1
 
     def seek(self, frame):
-        if not _webp.HAVE_WEBPANIM:
-            return super(WebPImageFile, self).seek(frame)
+        if self.istack == 0:
+            raise EOFError("attempt to seek in a non-stack file")
+        if not self._seek_check(frame):
+            return
+        self.stkoffset = self.hdrlen + frame * (self.hdrlen + self.imgbytes)
+        self.fp = self.__fp
+        self.fp.seek(self.stkoffset)
+        self._open()
 
-        # Perform some simple checks first
-        if frame >= self._n_frames:
-            raise EOFError("attempted to seek beyond end of sequence")
-        if frame < 0:
-            raise EOFError("negative frame index is not valid")
+    # returns a byte image after rescaling to 0..255
+    def convert2byte(self, depth=255):
+        (minimum, maximum) = self.getextrema()
+        m = 1
+        if maximum != minimum:
+            m = depth / (maximum-minimum)
+        b = -m * minimum
+        return self.point(lambda i, m=m, b=b: i * m + b).convert("L")
 
-        # Set logical frame to requested position
-        self.__logical_frame = frame
-
-    def _reset(self, reset=True):
-        if reset:
-            self._decoder.reset()
-        self.__physical_frame = 0
-        self.__loaded = -1
-        self.__timestamp = 0
-
-    def _get_next(self):
-        # Get next frame
-        ret = self._decoder.get_next()
-        self.__physical_frame += 1
-
-        # Check if an error occurred
-        if ret is None:
-            self._reset()   # Reset just to be safe
-            self.seek(0)
-            raise EOFError("failed to decode next frame in WebP file")
-
-        # Compute duration
-        data, timestamp = ret
-        duration = timestamp - self.__timestamp
-        self.__timestamp = timestamp
-
-        # libwebp gives frame end, adjust to start of frame
-        timestamp -= duration
-        return data, timestamp, duration
-
-    def _seek(self, frame):
-        if self.__physical_frame == frame:
-            return              # Nothing to do
-        if frame < self.__physical_frame:
-            self._reset()       # Rewind to beginning
-        while self.__physical_frame < frame:
-            self._get_next()    # Advance to the requested frame
-
-    def load(self):
-        if _webp.HAVE_WEBPANIM:
-            if self.__loaded != self.__logical_frame:
-                self._seek(self.__logical_frame)
-
-                # We need to load the image data for this frame
-                data, timestamp, duration = self._get_next()
-                self.info["timestamp"] = timestamp
-                self.info["duration"] = duration
-                self.__loaded = self.__logical_frame
-
-                # Set tile
-                self.fp = BytesIO(data)
-                self.tile = [("raw", (0, 0) + self.size, 0, self.mode)]
-
-        return super(WebPImageFile, self).load()
-
-    def tell(self):
-        if not _webp.HAVE_WEBPANIM:
-            return super(WebPImageFile, self).tell()
-
-        return self.__logical_frame
+    # returns a ImageTk.PhotoImage object, after rescaling to 0..255
+    def tkPhotoImage(self):
+        from PIL import ImageTk
+        return ImageTk.PhotoImage(self.convert2byte(), palette=256)
 
 
-def _save_all(im, fp, filename):
-    encoderinfo = im.encoderinfo.copy()
-    append_images = list(encoderinfo.get("append_images", []))
+# --------------------------------------------------------------------
+# Image series
 
-    # If total frame count is 1, then save using the legacy API, which
-    # will preserve non-alpha modes
-    total = 0
-    for ims in [im]+append_images:
-        total += 1 if not hasattr(ims, "n_frames") else ims.n_frames
-    if total == 1:
-        _save(im, fp, filename)
+# given a list of filenames, return a list of images
+def loadImageSeries(filelist=None):
+    """create a list of Image.images for use in montage"""
+    if filelist is None or len(filelist) < 1:
         return
 
-    background = encoderinfo.get("background", (0, 0, 0, 0))
-    duration = im.encoderinfo.get("duration", 0)
-    loop = im.encoderinfo.get("loop", 0)
-    minimize_size = im.encoderinfo.get("minimize_size", False)
-    kmin = im.encoderinfo.get("kmin", None)
-    kmax = im.encoderinfo.get("kmax", None)
-    allow_mixed = im.encoderinfo.get("allow_mixed", False)
-    verbose = False
-    lossless = im.encoderinfo.get("lossless", False)
-    quality = im.encoderinfo.get("quality", 80)
-    method = im.encoderinfo.get("method", 0)
-    icc_profile = im.encoderinfo.get("icc_profile", "")
-    exif = im.encoderinfo.get("exif", "")
-    xmp = im.encoderinfo.get("xmp", "")
-    if allow_mixed:
-        lossless = False
+    imglist = []
+    for img in filelist:
+        if not os.path.exists(img):
+            print("unable to find %s" % img)
+            continue
+        try:
+            im = Image.open(img).convert2byte()
+        except:
+            if not isSpiderImage(img):
+                print(img + " is not a Spider image file")
+            continue
+        im.info['filename'] = img
+        imglist.append(im)
+    return imglist
 
-    # Sensible keyframe defaults are from gif2webp.c script
-    if kmin is None:
-        kmin = 9 if lossless else 3
-    if kmax is None:
-        kmax = 17 if lossless else 5
 
-    # Validate background color
-    if (not isinstance(background, (list, tuple)) or len(background) != 4 or
-            not all(v >= 0 and v < 256 for v in background)):
-        raise IOError("Background color is not an RGBA tuple clamped "
-                      "to (0-255): %s" % str(background))
+# --------------------------------------------------------------------
+# For saving images in Spider format
 
-    # Convert to packed uint
-    bg_r, bg_g, bg_b, bg_a = background
-    background = (bg_a << 24) | (bg_r << 16) | (bg_g << 8) | (bg_b << 0)
+def makeSpiderHeader(im):
+    nsam, nrow = im.size
+    lenbyt = nsam * 4  # There are labrec records in the header
+    labrec = 1024 / lenbyt
+    if 1024 % lenbyt != 0:
+        labrec += 1
+    labbyt = labrec * lenbyt
+    hdr = []
+    nvalues = int(labbyt / 4)
+    for i in range(nvalues):
+        hdr.append(0.0)
 
-    # Setup the WebP animation encoder
-    enc = _webp.WebPAnimEncoder(
-        im.size[0], im.size[1],
-        background,
-        loop,
-        minimize_size,
-        kmin, kmax,
-        allow_mixed,
-        verbose
-    )
+    if len(hdr) < 23:
+        return []
 
-    # Add each frame
-    frame_idx = 0
-    timestamp = 0
-    cur_idx = im.tell()
-    try:
-        for ims in [im]+append_images:
-            # Get # of frames in this image
-            if not hasattr(ims, "n_frames"):
-                nfr = 1
-            else:
-                nfr = ims.n_frames
+    # NB these are Fortran indices
+    hdr[1] = 1.0             # nslice (=1 for an image)
+    hdr[2] = float(nrow)     # number of rows per slice
+    hdr[5] = 1.0             # iform for 2D image
+    hdr[12] = float(nsam)    # number of pixels per line
+    hdr[13] = float(labrec)  # number of records in file header
+    hdr[22] = float(labbyt)  # total number of bytes in header
+    hdr[23] = float(lenbyt)  # record length in bytes
 
-            for idx in range(nfr):
-                ims.seek(idx)
-                ims.load()
-
-                # Make sure image mode is supported
-                frame = ims
-                if ims.mode not in _VALID_WEBP_MODES:
-                    alpha = ims.mode == 'P' and 'A' in ims.im.getpalettemode()
-                    frame = ims.convert('RGBA' if alpha else 'RGBX')
-
-                # Append the frame to the animation encoder
-                enc.add(
-                    frame.tobytes(),
-                    timestamp,
-                    frame.size[0], frame.size[1],
-                    frame.mode,
-                    lossless,
-                    quality,
-                    method
-                )
-
-                # Update timestamp and frame index
-                if isinstance(duration, (list, tuple)):
-                    timestamp += duration[frame_idx]
-                else:
-                    timestamp += duration
-                frame_idx += 1
-
-    finally:
-        im.seek(cur_idx)
-
-    # Force encoder to flush frames
-    enc.add(
-        None,
-        timestamp,
-        0, 0, "", lossless, quality, 0
-    )
-
-    # Get the final output from the encoder
-    data = enc.assemble(icc_profile, exif, xmp)
-    if data is None:
-        raise IOError("cannot write file as WebP (encoder returned None)")
-
-    fp.write(data)
+    # adjust for Fortran indexing
+    hdr = hdr[1:]
+    hdr.append(0.0)
+    # pack binary data into a string
+    hdrstr = []
+    for v in hdr:
+        hdrstr.append(struct.pack('f', v))
+    return hdrstr
 
 
 def _save(im, fp, filename):
-    lossless = im.encoderinfo.get("lossless", False)
-    quality = im.encoderinfo.get("quality", 80)
-    icc_profile = im.encoderinfo.get("icc_profile", "")
-    exif = im.encoderinfo.get("exif", "")
-    xmp = im.encoderinfo.get("xmp", "")
+    if im.mode[0] != "F":
+        im = im.convert('F')
 
-    if im.mode not in _VALID_WEBP_LEGACY_MODES:
-        alpha = im.mode == 'P' and 'A' in im.im.getpalettemode()
-        im = im.convert('RGBA' if alpha else 'RGB')
+    hdr = makeSpiderHeader(im)
+    if len(hdr) < 256:
+        raise IOError("Error creating Spider header")
 
-    data = _webp.WebPEncode(
-        im.tobytes(),
-        im.size[0],
-        im.size[1],
-        lossless,
-        float(quality),
-        im.mode,
-        icc_profile,
-        exif,
-        xmp
-    )
-    if data is None:
-        raise IOError("cannot write file as WebP (encoder returned None)")
+    # write the SPIDER header
+    fp.writelines(hdr)
 
-    fp.write(data)
+    rawmode = "F;32NF"  # 32-bit native floating point
+    ImageFile._save(im, fp, [("raw", (0, 0)+im.size, 0, (rawmode, 0, 1))])
 
 
-Image.register_open(WebPImageFile.format, WebPImageFile, _accept)
-Image.register_save(WebPImageFile.format, _save)
-if _webp.HAVE_WEBPANIM:
-    Image.register_save_all(WebPImageFile.format, _save_all)
-Image.register_extension(WebPImageFile.format, ".webp")
-Image.register_mime(WebPImageFile.format, "image/webp")
+def _save_spider(im, fp, filename):
+    # get the filename extension and register it with Image
+    ext = os.path.splitext(filename)[1]
+    Image.register_extension(SpiderImageFile.format, ext)
+    _save(im, fp, filename)
+
+# --------------------------------------------------------------------
+
+
+Image.register_open(SpiderImageFile.format, SpiderImageFile)
+Image.register_save(SpiderImageFile.format, _save_spider)
+
+if __name__ == "__main__":
+
+    if len(sys.argv) < 2:
+        print("Syntax: python SpiderImagePlugin.py [infile] [outfile]")
+        sys.exit()
+
+    filename = sys.argv[1]
+    if not isSpiderImage(filename):
+        print("input image must be in Spider format")
+        sys.exit()
+
+    im = Image.open(filename)
+    print("image: " + str(im))
+    print("format: " + str(im.format))
+    print("size: " + str(im.size))
+    print("mode: " + str(im.mode))
+    print("max, min: ", end=' ')
+    print(im.getextrema())
+
+    if len(sys.argv) > 2:
+        outfile = sys.argv[2]
+
+        # perform some image operation
+        im = im.transpose(Image.FLIP_LEFT_RIGHT)
+        print(
+            "saving a flipped version of %s as %s " %
+            (os.path.basename(filename), outfile))
+        im.save(outfile, SpiderImageFile.format)

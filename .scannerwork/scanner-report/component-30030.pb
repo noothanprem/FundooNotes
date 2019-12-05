@@ -1,1 +1,1 @@
-ќкIvenv/lib64/python3.6/site-packages/django/db/backends/sqlite3/creation.py 2pyXch
+ќк=venv/lib64/python3.6/site-packages/django/db/backends/sqlite3 :Ќкѕк–к—к“к”кёкяк

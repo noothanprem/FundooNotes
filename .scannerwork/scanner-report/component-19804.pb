@@ -1,1 +1,1 @@
-ܚEvenv/lib/python3.6/site-packages/rest_framework_simplejwt/settings.py 2pyXKh
+ܚHvenv/lib/python3.6/site-packages/rest_framework_simplejwt/serializers.py 2pyX�h

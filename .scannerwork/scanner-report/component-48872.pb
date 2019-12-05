@@ -1,1 +1,1 @@
-èýSvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/management/commands :çýéý
+èýSvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/management/commands :çýæý

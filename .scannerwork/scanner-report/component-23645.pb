@@ -1,1 +1,1 @@
-ݸAvenv/lib/python3.6/site-packages/social_core/backends/appsfuel.py 2pyX+h
+ݸ;venv/lib/python3.6/site-packages/social_core/backends/vk.py 2pyX�h

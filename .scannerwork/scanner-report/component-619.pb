@@ -1,1 +1,1 @@
-ë3venv/lib/python3.6/site-packages/celery/bin/beat.py 2pyX‡h
+ë3venv/lib/python3.6/site-packages/celery/bin/list.py 2pyX/h

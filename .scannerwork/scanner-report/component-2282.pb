@@ -1,1 +1,0 @@
-êAvenv/lib/python3.6/site-packages/reportlab/platypus/paraparser.py 2pyXÃh

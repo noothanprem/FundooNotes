@@ -1,1 +1,1 @@
-ŻNvenv/lib/python3.6/site-packages/django_crontab/management/commands/crontab.py 2pyX h
+ŻCvenv/lib/python3.6/site-packages/django_crontab/management/commands :Ļƻ

@@ -1,1 +1,1 @@
-¢—2venv/lib/python3.6/site-packages/jwt/algorithms.py 2pyX”h
+¢—2venv/lib/python3.6/site-packages/jwt/exceptions.py 2pyX<h

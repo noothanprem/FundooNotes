@@ -14,9 +14,9 @@
 pythonS1481(Remove the unused local variable "soup". 2
 ÒÒ G
 pythonS1481(Remove the unused local variable "soup". 2
-ùù G
-pythonS1481(Remove the unused local variable "soup". 2
 ññ G
+pythonS1481(Remove the unused local variable "soup". 2
+ùù G
 pythonS1481(Remove the unused local variable "soup". 2
 þþ G
 pythonS1481(Remove the unused local variable "soup". 2

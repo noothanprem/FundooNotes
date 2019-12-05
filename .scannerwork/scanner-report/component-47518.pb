@@ -1,1 +1,1 @@
-žó@venv/lib64/python3.6/site-packages/twisted/protocols/stateful.py 2pyX2h
+žóGvenv/lib64/python3.6/site-packages/twisted/protocols/haproxy/_parser.py 2pyXHh

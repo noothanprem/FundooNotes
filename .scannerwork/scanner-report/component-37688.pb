@@ -1,1 +1,1 @@
-¸¦@venv/lib64/python3.6/site-packages/faker/providers/company/pt_BR :·¦
+¸¦@venv/lib64/python3.6/site-packages/faker/providers/company/pt_BR :¶¦

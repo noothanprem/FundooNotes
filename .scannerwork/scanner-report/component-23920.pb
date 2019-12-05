@@ -1,1 +1,1 @@
-ðºDvenv/lib/python3.6/site-packages/social_core/backends/dailymotion.py 2pyXh
+ðº>venv/lib/python3.6/site-packages/social_core/backends/vimeo.py 2pyXPh

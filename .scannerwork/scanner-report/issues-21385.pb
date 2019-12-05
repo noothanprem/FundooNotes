@@ -1,7 +1,10 @@
-t
-pythonS1542WRename function "setNonBlocking" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 q
-pythonS1542TRename function "setBlocking" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 u
-pythonS1542XRename function "_setCloseOnExec" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2,, w
-pythonS1542ZRename function "_unsetCloseOnExec" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 255 p
-pythonS1542SRename function "readFromFD" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2>> o
-pythonS1542RRename function "writeToFD" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2aa 
+q
+pythonS117URename this parameter "tupleList" to match the regular expression ^[_a-z][a-z0-9_]*$. 2KK q
+pythonS117URename this parameter "tupleList" to match the regular expression ^[_a-z][a-z0-9_]*$. 2SS "w
+pythonS1542ZRename function "deferToThreadPool" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 n
+pythonS1542QRename function "onResult" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2// s
+pythonS1542VRename function "deferToThread" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2:: r
+pythonS1542URename function "_runMultiple" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2KK z
+pythonS1542]Rename function "callMultipleInThread" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2SS |
+pythonS1542_Rename function "blockingCallFromThread" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2]] u
+pythonS1542XRename function "_callFromThread" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2tt 

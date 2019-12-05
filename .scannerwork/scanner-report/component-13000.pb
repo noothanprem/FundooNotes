@@ -1,1 +1,1 @@
-Èe:venv/lib/python3.6/site-packages/chardet/cli/chardetect.py 2pyXVh
+Èe2venv/lib/python3.6/site-packages/chardet/jpcntx.py 2pyXêh

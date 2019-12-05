@@ -1,292 +1,190 @@
-"""Consul Transport.
+"""`librabbitmq`_ transport.
 
-It uses Consul.io's Key/Value store to transport messages in Queues
-
-It uses python-consul for talking to Consul's HTTP API
+.. _`librabbitmq`: https://pypi.org/project/librabbitmq/
 """
 from __future__ import absolute_import, unicode_literals
 
-import uuid
+import os
 import socket
+import warnings
 
-from collections import defaultdict
-from contextlib import contextmanager
+import librabbitmq as amqp
+from librabbitmq import ChannelError, ConnectionError
 
-from kombu.exceptions import ChannelError
-from kombu.five import Empty, monotonic
-from kombu.log import get_logger
-from kombu.utils.json import loads, dumps
-from kombu.utils.objects import cached_property
+from kombu.five import items, values
+from kombu.utils.amq_manager import get_manager
+from kombu.utils.text import version_string_as_tuple
 
-from . import virtual
+from . import base
+from .base import to_rabbitmq_queue_arguments
 
-try:
-    import consul
-except ImportError:
-    consul = None
+W_VERSION = """
+    librabbitmq version too old to detect RabbitMQ version information
+    so make sure you are using librabbitmq 1.5 when using rabbitmq > 3.3
+"""
+DEFAULT_PORT = 5672
+DEFAULT_SSL_PORT = 5671
 
-logger = get_logger('kombu.transport.consul')
-
-DEFAULT_PORT = 8500
-DEFAULT_HOST = 'localhost'
-
-
-class LockError(Exception):
-    """An error occurred while trying to acquire the lock."""
+NO_SSL_ERROR = """\
+ssl not supported by librabbitmq, please use pyamqp:// or stunnel\
+"""
 
 
-class Channel(virtual.Channel):
-    """Consul Channel class which talks to the Consul Key/Value store."""
+class Message(base.Message):
+    """AMQP Message (librabbitmq)."""
 
-    prefix = 'kombu'
-    index = None
-    timeout = '10s'
-    session_ttl = 30
-
-    def __init__(self, *args, **kwargs):
-        if consul is None:
-            raise ImportError('Missing python-consul library')
-
-        super(Channel, self).__init__(*args, **kwargs)
-
-        port = self.connection.client.port or self.connection.default_port
-        host = self.connection.client.hostname or DEFAULT_HOST
-
-        logger.debug('Host: %s Port: %s Timeout: %s', host, port, self.timeout)
-
-        self.queues = defaultdict(dict)
-
-        self.client = consul.Consul(host=host, port=int(port))
-
-    def _lock_key(self, queue):
-        return '{0}/{1}.lock'.format(self.prefix, queue)
-
-    def _key_prefix(self, queue):
-        return '{0}/{1}'.format(self.prefix, queue)
-
-    def _get_or_create_session(self, queue):
-        """Get or create consul session.
-
-        Try to renew the session if it exists, otherwise create a new
-        session in Consul.
-
-        This session is used to acquire a lock inside Consul so that we achieve
-        read-consistency between the nodes.
-
-        Arguments:
-            queue (str): The name of the Queue.
-
-        Returns:
-            str: The ID of the session.
-        """
-        try:
-            session_id = self.queues[queue]['session_id']
-        except KeyError:
-            session_id = None
-        return (self._renew_existing_session(session_id)
-                if session_id is not None else self._create_new_session())
-
-    def _renew_existing_session(self, session_id):
-        logger.debug('Trying to renew existing session %s', session_id)
-        session = self.client.session.renew(session_id=session_id)
-        return session.get('ID')
-
-    def _create_new_session(self):
-        logger.debug('Creating session %s with TTL %s',
-                     self.lock_name, self.session_ttl)
-        session_id = self.client.session.create(
-            name=self.lock_name, ttl=self.session_ttl)
-        logger.debug('Created session %s with id %s',
-                     self.lock_name, session_id)
-        return session_id
-
-    @contextmanager
-    def _queue_lock(self, queue, raising=LockError):
-        """Try to acquire a lock on the Queue.
-
-        It does so by creating a object called 'lock' which is locked by the
-        current session..
-
-        This way other nodes are not able to write to the lock object which
-        means that they have to wait before the lock is released.
-
-        Arguments:
-            queue (str): The name of the Queue.
-            raising (Exception): Set custom lock error class.
-
-        Raises:
-            LockError: if the lock cannot be acquired.
-
-        Returns:
-            bool: success?
-        """
-        self._acquire_lock(queue, raising=raising)
-        try:
-            yield
-        finally:
-            self._release_lock(queue)
-
-    def _acquire_lock(self, queue, raising=LockError):
-        session_id = self._get_or_create_session(queue)
-        lock_key = self._lock_key(queue)
-
-        logger.debug('Trying to create lock object %s with session %s',
-                     lock_key, session_id)
-
-        if self.client.kv.put(key=lock_key,
-                              acquire=session_id,
-                              value=self.lock_name):
-            self.queues[queue]['session_id'] = session_id
-            return
-        logger.info('Could not acquire lock on key %s', lock_key)
-        raise raising()
-
-    def _release_lock(self, queue):
-        """Try to release a lock.
-
-        It does so by simply removing the lock key in Consul.
-
-        Arguments:
-            queue (str): The name of the queue we want to release
-                the lock from.
-        """
-        logger.debug('Removing lock key %s', self._lock_key(queue))
-        self.client.kv.delete(key=self._lock_key(queue))
-
-    def _destroy_session(self, queue):
-        """Destroy a previously created Consul session.
-
-        Will release all locks it still might hold.
-
-        Arguments:
-            queue (str): The name of the Queue.
-        """
-        logger.debug('Destroying session %s', self.queues[queue]['session_id'])
-        self.client.session.destroy(self.queues[queue]['session_id'])
-
-    def _new_queue(self, queue, **_):
-        self.queues[queue] = {'session_id': None}
-        return self.client.kv.put(key=self._key_prefix(queue), value=None)
-
-    def _delete(self, queue, *args, **_):
-        self._destroy_session(queue)
-        self.queues.pop(queue, None)
-        self._purge(queue)
-
-    def _put(self, queue, payload, **_):
-        """Put `message` onto `queue`.
-
-        This simply writes a key to the K/V store of Consul
-        """
-        key = '{0}/msg/{1}_{2}'.format(
-            self._key_prefix(queue),
-            int(round(monotonic() * 1000)),
-            uuid.uuid4(),
-        )
-        if not self.client.kv.put(key=key, value=dumps(payload), cas=0):
-            raise ChannelError('Cannot add key {0!r} to consul'.format(key))
-
-    def _get(self, queue, timeout=None):
-        """Get the first available message from the queue.
-
-        Before it does so it acquires a lock on the Key/Value store so
-        only one node reads at the same time. This is for read consistency
-        """
-        with self._queue_lock(queue, raising=Empty):
-            key = '{0}/msg/'.format(self._key_prefix(queue))
-            logger.debug('Fetching key %s with index %s', key, self.index)
-            self.index, data = self.client.kv.get(
-                key=key, recurse=True,
-                index=self.index, wait=self.timeout,
-            )
-
-            try:
-                if data is None:
-                    raise Empty()
-
-                logger.debug('Removing key %s with modifyindex %s',
-                             data[0]['Key'], data[0]['ModifyIndex'])
-
-                self.client.kv.delete(key=data[0]['Key'],
-                                      cas=data[0]['ModifyIndex'])
-
-                return loads(data[0]['Value'])
-            except TypeError:
-                pass
-
-        raise Empty()
-
-    def _purge(self, queue):
-        self._destroy_session(queue)
-        return self.client.kv.delete(
-            key='{0}/msg/'.format(self._key_prefix(queue)),
-            recurse=True,
-        )
-
-    def _size(self, queue):
-        size = 0
-        try:
-            key = '{0}/msg/'.format(self._key_prefix(queue))
-            logger.debug('Fetching key recursively %s with index %s',
-                         key, self.index)
-            self.index, data = self.client.kv.get(
-                key=key, recurse=True,
-                index=self.index, wait=self.timeout,
-            )
-            size = len(data)
-        except TypeError:
-            pass
-
-        logger.debug('Found %s keys under %s with index %s',
-                     size, key, self.index)
-        return size
-
-    @cached_property
-    def lock_name(self):
-        return '{0}'.format(socket.gethostname())
+    def __init__(self, channel, props, info, body):
+        super(Message, self).__init__(
+            channel=channel,
+            body=body,
+            delivery_info=info,
+            properties=props,
+            delivery_tag=info.get('delivery_tag'),
+            content_type=props.get('content_type'),
+            content_encoding=props.get('content_encoding'),
+            headers=props.get('headers'))
 
 
-class Transport(virtual.Transport):
-    """Consul K/V storage Transport for Kombu."""
+class Channel(amqp.Channel, base.StdChannel):
+    """AMQP Channel (librabbitmq)."""
+
+    Message = Message
+
+    def prepare_message(self, body, priority=None,
+                        content_type=None, content_encoding=None,
+                        headers=None, properties=None):
+        """Encapsulate data into a AMQP message."""
+        properties = properties if properties is not None else {}
+        properties.update({'content_type': content_type,
+                           'content_encoding': content_encoding,
+                           'headers': headers})
+        # Don't include priority if it's not an integer.
+        # If that's the case librabbitmq will fail
+        # and raise an exception.
+        if priority is not None:
+            properties['priority'] = priority
+        return body, properties
+
+    def prepare_queue_arguments(self, arguments, **kwargs):
+        arguments = to_rabbitmq_queue_arguments(arguments, **kwargs)
+        return {k.encode('utf8'): v for k, v in items(arguments)}
+
+
+class Connection(amqp.Connection):
+    """AMQP Connection (librabbitmq)."""
 
     Channel = Channel
+    Message = Message
+
+
+class Transport(base.Transport):
+    """AMQP Transport (librabbitmq)."""
+
+    Connection = Connection
 
     default_port = DEFAULT_PORT
-    driver_type = 'consul'
-    driver_name = 'consul'
+    default_ssl_port = DEFAULT_SSL_PORT
 
-    def __init__(self, *args, **kwargs):
-        if consul is None:
-            raise ImportError('Missing python-consul library')
+    connection_errors = (
+        base.Transport.connection_errors + (
+            ConnectionError, socket.error, IOError, OSError)
+    )
+    channel_errors = (
+        base.Transport.channel_errors + (ChannelError,)
+    )
+    driver_type = 'amqp'
+    driver_name = 'librabbitmq'
 
-        super(Transport, self).__init__(*args, **kwargs)
+    implements = base.Transport.implements.extend(
+        asynchronous=True,
+        heartbeats=False,
+    )
 
-        self.connection_errors = (
-            virtual.Transport.connection_errors + (
-                consul.ConsulException, consul.base.ConsulException
-            )
-        )
-
-        self.channel_errors = (
-            virtual.Transport.channel_errors + (
-                consul.ConsulException, consul.base.ConsulException
-            )
-        )
-
-    def verify_connection(self, connection):
-        port = connection.client.port or self.default_port
-        host = connection.client.hostname or DEFAULT_HOST
-
-        logger.debug('Verify Consul connection to %s:%s', host, port)
-
-        try:
-            client = consul.Consul(host=host, port=int(port))
-            client.agent.self()
-            return True
-        except ValueError:
-            pass
-
-        return False
+    def __init__(self, client, **kwargs):
+        self.client = client
+        self.default_port = kwargs.get('default_port') or self.default_port
+        self.default_ssl_port = (kwargs.get('default_ssl_port') or
+                                 self.default_ssl_port)
+        self.__reader = None
 
     def driver_version(self):
-        return consul.__version__
+        return amqp.__version__
+
+    def create_channel(self, connection):
+        return connection.channel()
+
+    def drain_events(self, connection, **kwargs):
+        return connection.drain_events(**kwargs)
+
+    def establish_connection(self):
+        """Establish connection to the AMQP broker."""
+        conninfo = self.client
+        for name, default_value in items(self.default_connection_params):
+            if not getattr(conninfo, name, None):
+                setattr(conninfo, name, default_value)
+        if conninfo.ssl:
+            raise NotImplementedError(NO_SSL_ERROR)
+        opts = dict({
+            'host': conninfo.host,
+            'userid': conninfo.userid,
+            'password': conninfo.password,
+            'virtual_host': conninfo.virtual_host,
+            'login_method': conninfo.login_method,
+            'insist': conninfo.insist,
+            'ssl': conninfo.ssl,
+            'connect_timeout': conninfo.connect_timeout,
+        }, **conninfo.transport_options or {})
+        conn = self.Connection(**opts)
+        conn.client = self.client
+        self.client.drain_events = conn.drain_events
+        return conn
+
+    def close_connection(self, connection):
+        """Close the AMQP broker connection."""
+        self.client.drain_events = None
+        connection.close()
+
+    def _collect(self, connection):
+        if connection is not None:
+            for channel in values(connection.channels):
+                channel.connection = None
+            try:
+                os.close(connection.fileno())
+            except (OSError, ValueError):
+                pass
+            connection.channels.clear()
+            connection.callbacks.clear()
+        self.client.drain_events = None
+        self.client = None
+
+    def verify_connection(self, connection):
+        return connection.connected
+
+    def register_with_event_loop(self, connection, loop):
+        loop.add_reader(
+            connection.fileno(), self.on_readable, connection, loop,
+        )
+
+    def get_manager(self, *args, **kwargs):
+        return get_manager(self.client, *args, **kwargs)
+
+    def qos_semantics_matches_spec(self, connection):
+        try:
+            props = connection.server_properties
+        except AttributeError:
+            warnings.warn(UserWarning(W_VERSION))
+        else:
+            if props.get('product') == 'RabbitMQ':
+                return version_string_as_tuple(props['version']) < (3, 3)
+        return True
+
+    @property
+    def default_connection_params(self):
+        return {
+            'userid': 'guest',
+            'password': 'guest',
+            'port': (self.default_ssl_port if self.client.ssl
+                     else self.default_port),
+            'hostname': 'localhost',
+            'login_method': 'AMQPLAIN',
+        }

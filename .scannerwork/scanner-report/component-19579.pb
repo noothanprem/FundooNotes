@@ -1,1 +1,1 @@
-û˜9venv/lib/python3.6/site-packages/social_django/storage.py 2pyXÔh
+û˜.venv/lib/python3.6/site-packages/social_django :*ú˜ı˜ş˜ÿ˜€™™Œ™™™™™Ÿ™ ™¡™

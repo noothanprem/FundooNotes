@@ -1,1 +1,1 @@
-´¬3venv/lib64/python3.6/site-packages/docutils/writers :³¬²¬º¬½¬Ú¬Û¬
+´¬?venv/lib64/python3.6/site-packages/docutils/writers/__init__.py 2pyX’h

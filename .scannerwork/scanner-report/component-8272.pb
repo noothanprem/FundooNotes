@@ -1,1 +1,1 @@
-Ð@Dvenv/lib/python3.6/site-packages/django/core/management/templates.py 2pyXÏh
+Ð@Qvenv/lib/python3.6/site-packages/django/core/management/commands/sendtestemail.py 2pyX)h

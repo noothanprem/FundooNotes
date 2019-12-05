@@ -1,1 +1,1 @@
-¼„Bvenv/lib64/python3.6/site-packages/social_core/backends/discord.py 2pyXh
+¼„Dvenv/lib64/python3.6/site-packages/social_core/backends/openshift.py 2pyX(h

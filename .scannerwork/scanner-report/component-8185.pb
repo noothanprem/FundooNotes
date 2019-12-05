@@ -1,1 +1,1 @@
-ù?@venv/lib/python3.6/site-packages/django/core/serializers/json.py 2pyXih
+ù?Bvenv/lib/python3.6/site-packages/django/core/serializers/pyyaml.py 2pyXNh

@@ -1,1 +1,0 @@
-´‰>venv/lib/python3.6/site-packages/elasticsearch/helpers/test.py 2pyXAh

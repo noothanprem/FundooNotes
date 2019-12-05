@@ -1,1 +1,0 @@
-ÚšHvenv/lib/python3.6/site-packages/rest_framework_simplejwt/serializers.py 2pyX‘h

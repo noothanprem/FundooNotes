@@ -1,1 +1,0 @@
-¼_6venv/lib/python3.6/site-packages/PIL/ImtImagePlugin.py 2pyX`h

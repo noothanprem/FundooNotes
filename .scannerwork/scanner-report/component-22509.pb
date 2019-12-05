@@ -1,1 +1,1 @@
-í¯/venv/lib/python3.6/site-packages/ecdsa/ecdsa.py 2pyXÁh
+í¯2venv/lib/python3.6/site-packages/ecdsa/_version.py 2pyXh

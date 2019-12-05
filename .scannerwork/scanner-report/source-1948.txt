@@ -1,482 +1,364 @@
-#Copyright ReportLab Europe Ltd. 2000-2017
-#see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/pdfgen/textobject.py
-__version__='3.3.0'
-__doc__="""
-PDFTextObject is an efficient way to add text to a Canvas. Do not
-instantiate directly, obtain one from the Canvas instead.
+# Copyright 2016 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"). You
+# may not use this file except in compliance with the License. A copy of
+# the License is located at
+#
+# http://aws.amazon.com/apache2.0/
+#
+# or in the "license" file accompanying this file. This file is
+# distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+# ANY KIND, either express or implied. See the License for the specific
+# language governing permissions and limitations under the License.
+import copy
+import logging
 
-Progress Reports:
-8.83, 2000-01-13, gmcm: created from pdfgen.py
-"""
-import string
-from types import *
-from reportlab.lib.colors import Color, CMYKColor, CMYKColorSep, toColor, black, white, _CMYK_black, _CMYK_white
-from reportlab.lib.utils import isBytes, isStr, asUnicode
-from reportlab.lib.rl_accel import fp_str
-from reportlab.pdfbase import pdfmetrics
-from reportlab.rl_config import rtlSupport
+from s3transfer.utils import get_callbacks
 
-log2vis = None
-def fribidiText(text,direction):
-    return text
-if rtlSupport:
-    try:
-        from pyfribidi2 import log2vis, ON as DIR_ON, LTR as DIR_LTR, RTL as DIR_RTL
-        directionsMap = dict(LTR=DIR_LTR,RTL=DIR_RTL)
-        def fribidiText(text,direction):
-            return log2vis(text, directionsMap.get(direction,DIR_ON),clean=True) if direction in ('LTR','RTL') else text
-    except:
-        import warnings
-        warnings.warn('pyfribidi is not installed - RTL not supported')
 
-class _PDFColorSetter:
-    '''Abstracts the color setting operations; used in Canvas and Textobject
-    asseumes we have a _code object'''
-    def _checkSeparation(self,cmyk):
-        if isinstance(cmyk,CMYKColorSep):
-            name,sname = self._doc.addColor(cmyk)
-            if name not in self._colorsUsed:
-                self._colorsUsed[name] = sname
-            return name
+logger = logging.getLogger(__name__)
 
-    #if this is set to a callable(color) --> color it can be used to check color setting
-    #see eg _enforceCMYK/_enforceRGB
-    _enforceColorSpace = None
 
-    def setFillColorCMYK(self, c, m, y, k, alpha=None):
-         """set the fill color useing negative color values
-         (cyan, magenta, yellow and darkness value).
-         Takes 4 arguments between 0.0 and 1.0"""
-         self.setFillColor((c,m,y,k),alpha=alpha)
+class Task(object):
+    """A task associated to a TransferFuture request
 
-    def setStrokeColorCMYK(self, c, m, y, k, alpha=None):
-         """set the stroke color useing negative color values
-            (cyan, magenta, yellow and darkness value).
-            Takes 4 arguments between 0.0 and 1.0"""
-         self.setStrokeColor((c,m,y,k),alpha=alpha)
-
-    def setFillColorRGB(self, r, g, b, alpha=None):
-        """Set the fill color using positive color description
-           (Red,Green,Blue).  Takes 3 arguments between 0.0 and 1.0"""
-        self.setFillColor((r,g,b),alpha=alpha)
-
-    def setStrokeColorRGB(self, r, g, b, alpha=None):
-        """Set the stroke color using positive color description
-           (Red,Green,Blue).  Takes 3 arguments between 0.0 and 1.0"""
-        self.setStrokeColor((r,g,b),alpha=alpha)
-
-    def setFillColor(self, aColor, alpha=None):
-        """Takes a color object, allowing colors to be referred to by name"""
-        if self._enforceColorSpace:
-            aColor = self._enforceColorSpace(aColor)
-        if isinstance(aColor, CMYKColor):
-            d = aColor.density
-            c,m,y,k = (d*aColor.cyan, d*aColor.magenta, d*aColor.yellow, d*aColor.black)
-            self._fillColorObj = aColor
-            name = self._checkSeparation(aColor)
-            if name:
-                self._code.append('/%s cs %s scn' % (name,fp_str(d)))
-            else:
-                self._code.append('%s k' % fp_str(c, m, y, k))
-        elif isinstance(aColor, Color):
-            rgb = (aColor.red, aColor.green, aColor.blue)
-            self._fillColorObj = aColor
-            self._code.append('%s rg' % fp_str(rgb) )
-        elif isinstance(aColor,(tuple,list)):
-            l = len(aColor)
-            if l==3:
-                self._fillColorObj = aColor
-                self._code.append('%s rg' % fp_str(aColor) )
-            elif l==4:
-                self._fillColorObj = aColor
-                self._code.append('%s k' % fp_str(aColor))
-            else:
-                raise ValueError('Unknown color %r' % aColor)
-        elif isStr(aColor):
-            self.setFillColor(toColor(aColor))
-        else:
-            raise ValueError('Unknown color %r' % aColor)
-        if alpha is not None:
-            self.setFillAlpha(alpha)
-        elif getattr(aColor, 'alpha', None) is not None:
-            self.setFillAlpha(aColor.alpha)
-
-    def setStrokeColor(self, aColor, alpha=None):
-        """Takes a color object, allowing colors to be referred to by name"""
-        if self._enforceColorSpace:
-            aColor = self._enforceColorSpace(aColor)
-        if isinstance(aColor, CMYKColor):
-            d = aColor.density
-            c,m,y,k = (d*aColor.cyan, d*aColor.magenta, d*aColor.yellow, d*aColor.black)
-            self._strokeColorObj = aColor
-            name = self._checkSeparation(aColor)
-            if name:
-                self._code.append('/%s CS %s SCN' % (name,fp_str(d)))
-            else:
-                self._code.append('%s K' % fp_str(c, m, y, k))
-        elif isinstance(aColor, Color):
-            rgb = (aColor.red, aColor.green, aColor.blue)
-            self._strokeColorObj = aColor
-            self._code.append('%s RG' % fp_str(rgb) )
-        elif isinstance(aColor,(tuple,list)):
-            l = len(aColor)
-            if l==3:
-                self._strokeColorObj = aColor
-                self._code.append('%s RG' % fp_str(aColor) )
-            elif l==4:
-                self._strokeColorObj = aColor
-                self._code.append('%s K' % fp_str(aColor))
-            else:
-                raise ValueError('Unknown color %r' % aColor)
-        elif isStr(aColor):
-            self.setStrokeColor(toColor(aColor))
-        else:
-            raise ValueError('Unknown color %r' % aColor)
-        if alpha is not None:
-            self.setStrokeAlpha(alpha)
-        elif getattr(aColor, 'alpha', None) is not None:
-            self.setStrokeAlpha(aColor.alpha)
-
-    def setFillGray(self, gray, alpha=None):
-        """Sets the gray level; 0.0=black, 1.0=white"""
-        self._fillColorObj = (gray, gray, gray)
-        self._code.append('%s g' % fp_str(gray))
-        if alpha is not None:
-            self.setFillAlpha(alpha)
-
-    def setStrokeGray(self, gray, alpha=None):
-        """Sets the gray level; 0.0=black, 1.0=white"""
-        self._strokeColorObj = (gray, gray, gray)
-        self._code.append('%s G' % fp_str(gray))
-        if alpha is not None:
-            self.setFillAlpha(alpha)
-
-    def setStrokeAlpha(self,a):
-        if not (isinstance(a,(float,int)) and 0<=a<=1):
-            raise ValueError('setStrokeAlpha invalid value %r' % a)
-        getattr(self,'_setStrokeAlpha',lambda x: None)(a)
-
-    def setFillAlpha(self,a):
-        if not (isinstance(a,(float,int)) and 0<=a<=1):
-            raise ValueError('setFillAlpha invalid value %r' % a)
-        getattr(self,'_setFillAlpha',lambda x: None)(a)
-
-    def setStrokeOverprint(self,a):
-        getattr(self,'_setStrokeOverprint',lambda x: None)(a)
-
-    def setFillOverprint(self,a):
-        getattr(self,'_setFillOverprint',lambda x: None)(a)
-
-    def setOverprintMask(self,a):
-        getattr(self,'_setOverprintMask',lambda x: None)(a)
-
-class PDFTextObject(_PDFColorSetter):
-    """PDF logically separates text and graphics drawing; text
-    operations need to be bracketed between BT (Begin text) and
-    ET operators. This class ensures text operations are
-    properly encapusalted. Ask the canvas for a text object
-    with beginText(x, y).  Do not construct one directly.
-    Do not use multiple text objects in parallel; PDF is
-    not multi-threaded!
-
-    It keeps track of x and y coordinates relative to its origin."""
-
-    def __init__(self, canvas, x=0,y=0, direction=None):
-        self._code = ['BT']    #no point in [] then append RGB
-        self._canvas = canvas  #canvas sets this so it has access to size info
-        self._fontname = self._canvas._fontname
-        self._fontsize = self._canvas._fontsize
-        self._leading = self._canvas._leading
-        self._doc = self._canvas._doc
-        self._colorsUsed = self._canvas._colorsUsed
-        self._enforceColorSpace = getattr(canvas,'_enforceColorSpace',None)
-        font = pdfmetrics.getFont(self._fontname)
-        self._curSubset = -1
-        self.direction = direction
-        self.setTextOrigin(x, y)
-        self._textRenderMode = 0
-        self._clipping = 0
-
-    def getCode(self):
-        "pack onto one line; used internally"
-        self._code.append('ET')
-        if self._clipping:
-            self._code.append('%d Tr' % (self._textRenderMode^4))
-        return ' '.join(self._code)
-
-    def setTextOrigin(self, x, y):
-        if self._canvas.bottomup:
-            self._code.append('1 0 0 1 %s Tm' % fp_str(x, y)) #bottom up
-        else:
-            self._code.append('1 0 0 -1 %s Tm' % fp_str(x, y))  #top down
-
-        # The current cursor position is at the text origin
-        self._x0 = self._x = x
-        self._y0 = self._y = y
-
-    def setTextTransform(self, a, b, c, d, e, f):
-        "Like setTextOrigin, but does rotation, scaling etc."
-        if not self._canvas.bottomup:
-            c = -c    #reverse bottom row of the 2D Transform
-            d = -d
-        self._code.append('%s Tm' % fp_str(a, b, c, d, e, f))
-
-        # The current cursor position is at the text origin Note that
-        # we aren't keeping track of all the transform on these
-        # coordinates: they are relative to the rotations/sheers
-        # defined in the matrix.
-        self._x0 = self._x = e
-        self._y0 = self._y = f
-
-    def moveCursor(self, dx, dy):
-        """Starts a new line at an offset dx,dy from the start of the
-        current line. This does not move the cursor relative to the
-        current position, and it changes the current offset of every
-        future line drawn (i.e. if you next do a textLine() call, it
-        will move the cursor to a position one line lower than the
-        position specificied in this call.  """
-
-        # Check if we have a previous move cursor call, and combine
-        # them if possible.
-        if self._code and self._code[-1][-3:]==' Td':
-            L = self._code[-1].split()
-            if len(L)==3:
-                del self._code[-1]
-            else:
-                self._code[-1] = ''.join(L[:-4])
-
-            # Work out the last movement
-            lastDx = float(L[-3])
-            lastDy = float(L[-2])
-
-            # Combine the two movement
-            dx += lastDx
-            dy -= lastDy
-
-            # We will soon add the movement to the line origin, so if
-            # we've already done this for lastDx, lastDy, remove it
-            # first (so it will be right when added back again).
-            self._x0 -= lastDx
-            self._y0 -= lastDy
-
-        # Output the move text cursor call.
-        self._code.append('%s Td' % fp_str(dx, -dy))
-
-        # Keep track of the new line offsets and the cursor position
-        self._x0 += dx
-        self._y0 += dy
-        self._x = self._x0
-        self._y = self._y0
-
-    def setXPos(self, dx):
-        """Starts a new line dx away from the start of the
-        current line - NOT from the current point! So if
-        you call it in mid-sentence, watch out."""
-        self.moveCursor(dx,0)
-
-    def getCursor(self):
-        """Returns current text position relative to the last origin."""
-        return (self._x, self._y)
-
-    def getStartOfLine(self):
-        """Returns a tuple giving the text position of the start of the
-        current line."""
-        return (self._x0, self._y0)
-
-    def getX(self):
-        """Returns current x position relative to the last origin."""
-        return self._x
-
-    def getY(self):
-        """Returns current y position relative to the last origin."""
-        return self._y
-
-    def _setFont(self, psfontname, size):
-        """Sets the font and fontSize
-        Raises a readable exception if an illegal font
-        is supplied.  Font names are case-sensitive! Keeps track
-        of font anme and size for metrics."""
-        self._fontname = psfontname
-        self._fontsize = size
-        font = pdfmetrics.getFont(self._fontname)
-
-        if font._dynamicFont:
-            self._curSubset = -1
-        else:
-            pdffontname = self._canvas._doc.getInternalFontName(psfontname)
-            self._code.append('%s %s Tf' % (pdffontname, fp_str(size)))
-
-    def setFont(self, psfontname, size, leading = None):
-        """Sets the font.  If leading not specified, defaults to 1.2 x
-        font size. Raises a readable exception if an illegal font
-        is supplied.  Font names are case-sensitive! Keeps track
-        of font anme and size for metrics."""
-        self._fontname = psfontname
-        self._fontsize = size
-        if leading is None:
-            leading = size * 1.2
-        self._leading = leading
-        font = pdfmetrics.getFont(self._fontname)
-        if font._dynamicFont:
-            self._curSubset = -1
-        else:
-            pdffontname = self._canvas._doc.getInternalFontName(psfontname)
-            self._code.append('%s %s Tf %s TL' % (pdffontname, fp_str(size), fp_str(leading)))
-
-    def setCharSpace(self, charSpace):
-         """Adjusts inter-character spacing"""
-         self._charSpace = charSpace
-         self._code.append('%s Tc' % fp_str(charSpace))
-
-    def setWordSpace(self, wordSpace):
-        """Adjust inter-word spacing.  This can be used
-        to flush-justify text - you get the width of the
-        words, and add some space between them."""
-        self._wordSpace = wordSpace
-        self._code.append('%s Tw' % fp_str(wordSpace))
-
-    def setHorizScale(self, horizScale):
-        "Stretches text out horizontally"
-        self._horizScale = 100 + horizScale
-        self._code.append('%s Tz' % fp_str(horizScale))
-
-    def setLeading(self, leading):
-        "How far to move down at the end of a line."
-        self._leading = leading
-        self._code.append('%s TL' % fp_str(leading))
-
-    def setTextRenderMode(self, mode):
-        """Set the text rendering mode.
-
-        0 = Fill text
-        1 = Stroke text
-        2 = Fill then stroke
-        3 = Invisible
-        4 = Fill text and add to clipping path
-        5 = Stroke text and add to clipping path
-        6 = Fill then stroke and add to clipping path
-        7 = Add to clipping path
-
-        after we start clipping we mustn't change the mode back until after the ET
+    This is a base class for other classes to subclass from. All subclassed
+    classes must implement the main() method.
+    """
+    def __init__(self, transfer_coordinator, main_kwargs=None,
+                 pending_main_kwargs=None, done_callbacks=None,
+                 is_final=False):
         """
+        :type transfer_coordinator: s3transfer.futures.TransferCoordinator
+        :param transfer_coordinator: The context associated to the
+            TransferFuture for which this Task is associated with.
 
-        assert mode in (0,1,2,3,4,5,6,7), "mode must be in (0,1,2,3,4,5,6,7)"
-        if (mode & 4)!=self._clipping:
-            mode |= 4
-            self._clipping = mode & 4
-        if self._textRenderMode!=mode:
-            self._textRenderMode = mode
-            self._code.append('%d Tr' % mode)
+        :type main_kwargs: dict
+        :param main_kwargs: The keyword args that can be immediately supplied
+            to the _main() method of the task
 
-    def setRise(self, rise):
-        "Move text baseline up or down to allow superscript/subscripts"
-        self._rise = rise
-        self._y = self._y - rise    # + ?  _textLineMatrix?
-        self._code.append('%s Ts' % fp_str(rise))
+        :type pending_main_kwargs: dict
+        :param pending_main_kwargs: The keyword args that are depended upon
+            by the result from a dependent future(s). The result returned by
+            the future(s) will be used as the value for the keyword argument
+            when _main() is called. The values for each key can be:
+                * a single future - Once completed, its value will be the
+                  result of that single future
+                * a list of futures - Once all of the futures complete, the
+                  value used will be a list of each completed future result
+                  value in order of when they were originally supplied.
 
-    def _formatText(self, text):
-        "Generates PDF text output operator(s)"
-        if log2vis and self.direction in ('LTR','RTL'):
-            # Use pyfribidi to write the text in the correct visual order.
-            text = log2vis(text, directionsMap.get(self.direction,DIR_ON),clean=True)
-        canv = self._canvas
-        font = pdfmetrics.getFont(self._fontname)
-        R = []
-        if font._dynamicFont:
-            #it's a truetype font and should be utf8.  If an error is raised,
-            for subset, t in font.splitString(text, canv._doc):
-                if subset!=self._curSubset:
-                    pdffontname = font.getSubsetInternalName(subset, canv._doc)
-                    R.append("%s %s Tf %s TL" % (pdffontname, fp_str(self._fontsize), fp_str(self._leading)))
-                    self._curSubset = subset
-                R.append("(%s) Tj" % canv._escape(t))
-        elif font._multiByte:
-            #all the fonts should really work like this - let them know more about PDF...
-            R.append("%s %s Tf %s TL" % (
-                canv._doc.getInternalFontName(font.fontName),
-                fp_str(self._fontsize),
-                fp_str(self._leading)
-                ))
-            R.append("(%s) Tj" % font.formatForPdf(text))
-        else:
-            #convert to T1  coding
-            fc = font
-            if isBytes(text):
-                try:
-                    text = text.decode('utf8')
-                except UnicodeDecodeError as e:
-                    i,j = e.args[2:4]
-                    raise UnicodeDecodeError(*(e.args[:4]+('%s\n%s-->%s<--%s' % (e.args[4],text[max(i-10,0):i],text[i:j],text[j:j+10]),)))
+        :type done_callbacks: list of callbacks
+        :param done_callbacks: A list of callbacks to call once the task is
+            done completing. Each callback will be called with no arguments
+            and will be called no matter if the task succeeds or an exception
+            is raised.
 
-            for f, t in pdfmetrics.unicode2T1(text,[font]+font.substitutionFonts):
-                if f!=fc:
-                    R.append("%s %s Tf %s TL" % (canv._doc.getInternalFontName(f.fontName), fp_str(self._fontsize), fp_str(self._leading)))
-                    fc = f
-                R.append("(%s) Tj" % canv._escape(t))
-            if font!=fc:
-                R.append("%s %s Tf %s TL" % (canv._doc.getInternalFontName(self._fontname), fp_str(self._fontsize), fp_str(self._leading)))
-        return ' '.join(R)
+        :type is_final: boolean
+        :param is_final: True, to indicate that this task is the final task
+            for the TransferFuture request. By setting this value to True, it
+            will set the result of the entire TransferFuture to the result
+            returned by this task's main() method.
+        """
+        self._transfer_coordinator = transfer_coordinator
 
-    def _textOut(self, text, TStar=0):
-        "prints string at current point, ignores text cursor"
-        self._code.append('%s%s' % (self._formatText(text), (TStar and ' T*' or '')))
+        self._main_kwargs = main_kwargs
+        if self._main_kwargs is None:
+            self._main_kwargs = {}
 
-    def textOut(self, text):
-        """prints string at current point, text cursor moves across."""
-        self._x = self._x + self._canvas.stringWidth(text, self._fontname, self._fontsize)
-        self._code.append(self._formatText(text))
+        self._pending_main_kwargs = pending_main_kwargs
+        if pending_main_kwargs is None:
+            self._pending_main_kwargs = {}
 
-    def textLine(self, text=''):
-        """prints string at current point, text cursor moves down.
-        Can work with no argument to simply move the cursor down."""
-        # Update the coordinates of the cursor
-        self._x = self._x0
-        if self._canvas.bottomup:
-            self._y = self._y - self._leading
-        else:
-            self._y = self._y + self._leading
+        self._done_callbacks = done_callbacks
+        if self._done_callbacks is None:
+            self._done_callbacks = []
 
-        # Update the location of the start of the line
-        # self._x0 is unchanged
-        self._y0 = self._y
+        self._is_final = is_final
 
-        # Output the text followed by a PDF newline command
-        self._code.append('%s T*' % self._formatText(text))
+    def __repr__(self):
+        # These are the general main_kwarg parameters that we want to
+        # display in the repr.
+        params_to_display = [
+            'bucket', 'key', 'part_number', 'final_filename',
+            'transfer_future', 'offset', 'extra_args'
+        ]
+        main_kwargs_to_display = self._get_kwargs_with_params_to_include(
+            self._main_kwargs, params_to_display)
+        return '%s(transfer_id=%s, %s)' % (
+            self.__class__.__name__, self._transfer_coordinator.transfer_id,
+            main_kwargs_to_display)
 
-    def textLines(self, stuff, trim=1):
-        """prints multi-line or newlined strings, moving down.  One
-        comon use is to quote a multi-line block in your Python code;
-        since this may be indented, by default it trims whitespace
-        off each line and from the beginning; set trim=0 to preserve
-        whitespace."""
-        if isStr(stuff):
-            lines = asUnicode(stuff).strip().split(u'\n')
-            if trim==1:
-                lines = [s.strip() for s in lines]
-        elif isinstance(stuff,(tuple,list)):
-            lines = stuff
-        else:
-            assert 1==0, "argument to textlines must be string,, list or tuple"
+    @property
+    def transfer_id(self):
+        """The id for the transfer request that the task belongs to"""
+        return self._transfer_coordinator.transfer_id
 
-        # Output each line one at a time. This used to be a long-hand
-        # copy of the textLine code, now called as a method.
-        for line in lines:
-            self.textLine(line)
+    def _get_kwargs_with_params_to_include(self, kwargs, include):
+        filtered_kwargs = {}
+        for param in include:
+            if param in kwargs:
+                filtered_kwargs[param] = kwargs[param]
+        return filtered_kwargs
 
-    def __nonzero__(self):
-        'PDFTextObject is true if it has something done after the init'
-        return self._code != ['BT']
+    def _get_kwargs_with_params_to_exclude(self, kwargs, exclude):
+        filtered_kwargs = {}
+        for param, value in kwargs.items():
+            if param in exclude:
+                continue
+            filtered_kwargs[param] = value
+        return filtered_kwargs
 
-    def _setFillAlpha(self,v):
-        self._canvas._doc.ensureMinPdfVersion('transparency')
-        self._canvas._extgstate.set(self,'ca',v)
+    def __call__(self):
+        """The callable to use when submitting a Task to an executor"""
+        try:
+            # Wait for all of futures this task depends on.
+            self._wait_on_dependent_futures()
+            # Gather up all of the main keyword arguments for main().
+            # This includes the immediately provided main_kwargs and
+            # the values for pending_main_kwargs that source from the return
+            # values from the task's depenent futures.
+            kwargs = self._get_all_main_kwargs()
+            # If the task is not done (really only if some other related
+            # task to the TransferFuture had failed) then execute the task's
+            # main() method.
+            if not self._transfer_coordinator.done():
+                return self._execute_main(kwargs)
+        except Exception as e:
+            self._log_and_set_exception(e)
+        finally:
+            # Run any done callbacks associated to the task no matter what.
+            for done_callback in self._done_callbacks:
+                done_callback()
 
-    def _setStrokeOverprint(self,v):
-        self._canvas._extgstate.set(self,'OP',v)
+            if self._is_final:
+                # If this is the final task announce that it is done if results
+                # are waiting on its completion.
+                self._transfer_coordinator.announce_done()
 
-    def _setFillOverprint(self,v):
-        self._canvas._extgstate.set(self,'op',v)
+    def _execute_main(self, kwargs):
+        # Do not display keyword args that should not be printed, especially
+        # if they are going to make the logs hard to follow.
+        params_to_exclude = ['data']
+        kwargs_to_display = self._get_kwargs_with_params_to_exclude(
+            kwargs, params_to_exclude)
+        # Log what is about to be executed.
+        logger.debug(
+            "Executing task %s with kwargs %s" % (self, kwargs_to_display)
+        )
 
-    def _setOverprintMask(self,v):
-        self._canvas._extgstate.set(self,'OPM',v and 1 or 0)
+        return_value = self._main(**kwargs)
+        # If the task is the final task, then set the TransferFuture's
+        # value to the return value from main().
+        if self._is_final:
+            self._transfer_coordinator.set_result(return_value)
+        return return_value
+
+    def _log_and_set_exception(self, exception):
+        # If an exception is ever thrown than set the exception for the
+        # entire TransferFuture.
+        logger.debug("Exception raised.", exc_info=True)
+        self._transfer_coordinator.set_exception(exception)
+
+    def _main(self, **kwargs):
+        """The method that will be ran in the executor
+
+        This method must be implemented by subclasses from Task. main() can
+        be implemented with any arguments decided upon by the subclass.
+        """
+        raise NotImplementedError('_main() must be implemented')
+
+    def _wait_on_dependent_futures(self):
+        # Gather all of the futures into that main() depends on.
+        futures_to_wait_on = []
+        for _, future in self._pending_main_kwargs.items():
+            # If the pending main keyword arg is a list then extend the list.
+            if isinstance(future, list):
+                futures_to_wait_on.extend(future)
+            # If the pending main keword arg is a future append it to the list.
+            else:
+                futures_to_wait_on.append(future)
+        # Now wait for all of the futures to complete.
+        self._wait_until_all_complete(futures_to_wait_on)
+
+    def _wait_until_all_complete(self, futures):
+        # This is a basic implementation of the concurrent.futures.wait()
+        #
+        # concurrent.futures.wait() is not used instead because of this
+        # reported issue: https://bugs.python.org/issue20319.
+        # The issue would occassionally cause multipart uploads to hang
+        # when wait() was called. With this approach, it avoids the
+        # concurrency bug by removing any association with concurrent.futures
+        # implementation of waiters.
+        logger.debug(
+            '%s about to wait for the following futures %s', self, futures)
+        for future in futures:
+            try:
+                logger.debug('%s about to wait for %s', self, future)
+                future.result()
+            except Exception:
+                # result() can also produce exceptions. We want to ignore
+                # these to be deffered to error handling down the road.
+                pass
+        logger.debug('%s done waiting for dependent futures', self)
+
+    def _get_all_main_kwargs(self):
+        # Copy over all of the kwargs that we know is available.
+        kwargs = copy.copy(self._main_kwargs)
+
+        # Iterate through the kwargs whose values are pending on the result
+        # of a future.
+        for key, pending_value in self._pending_main_kwargs.items():
+            # If the value is a list of futures, iterate though the list
+            # appending on the result from each future.
+            if isinstance(pending_value, list):
+                result = []
+                for future in pending_value:
+                    result.append(future.result())
+            # Otherwise if the pending_value is a future, just wait for it.
+            else:
+                result = pending_value.result()
+            # Add the retrieved value to the kwargs to be sent to the
+            # main() call.
+            kwargs[key] = result
+        return kwargs
+
+
+class SubmissionTask(Task):
+    """A base class for any submission task
+
+    Submission tasks are the top-level task used to submit a series of tasks
+    to execute a particular transfer.
+    """
+    def _main(self, transfer_future, **kwargs):
+        """
+        :type transfer_future: s3transfer.futures.TransferFuture
+        :param transfer_future: The transfer future associated with the
+            transfer request that tasks are being submitted for
+
+        :param kwargs: Any additional kwargs that you may want to pass
+            to the _submit() method
+        """
+        try:
+            self._transfer_coordinator.set_status_to_queued()
+
+            # Before submitting any tasks, run all of the on_queued callbacks
+            on_queued_callbacks = get_callbacks(transfer_future, 'queued')
+            for on_queued_callback in on_queued_callbacks:
+                on_queued_callback()
+
+            # Once callbacks have been ran set the status to running.
+            self._transfer_coordinator.set_status_to_running()
+
+            # Call the submit method to start submitting tasks to execute the
+            # transfer.
+            self._submit(transfer_future=transfer_future, **kwargs)
+        except BaseException as e:
+            # If there was an exception raised during the submission of task
+            # there is a chance that the final task that signals if a transfer
+            # is done and too run the cleanup may never have been submitted in
+            # the first place so we need to account accordingly.
+            #
+            # Note that BaseException is caught, instead of Exception, because
+            # for some implmentations of executors, specifically the serial
+            # implementation, the SubmissionTask is directly exposed to
+            # KeyboardInterupts and so needs to cleanup and signal done
+            # for those as well.
+
+            # Set the exception, that caused the process to fail.
+            self._log_and_set_exception(e)
+
+            # Wait for all possibly associated futures that may have spawned
+            # from this submission task have finished before we anounce the
+            # transfer done.
+            self._wait_for_all_submitted_futures_to_complete()
+
+            # Announce the transfer as done, which will run any cleanups
+            # and done callbacks as well.
+            self._transfer_coordinator.announce_done()
+
+    def _submit(self, transfer_future, **kwargs):
+        """The submition method to be implemented
+
+        :type transfer_future: s3transfer.futures.TransferFuture
+        :param transfer_future: The transfer future associated with the
+            transfer request that tasks are being submitted for
+
+        :param kwargs: Any additional keyword arguments you want to be passed
+            in
+        """
+        raise NotImplementedError('_submit() must be implemented')
+
+    def _wait_for_all_submitted_futures_to_complete(self):
+        # We want to wait for all futures that were submitted to
+        # complete as we do not want the cleanup callbacks or done callbacks
+        # to be called to early. The main problem is any task that was
+        # submitted may have submitted even more during its process and so
+        # we need to account accordingly.
+
+        # First get all of the futures that were submitted up to this point.
+        submitted_futures = self._transfer_coordinator.associated_futures
+        while submitted_futures:
+            # Wait for those futures to complete.
+            self._wait_until_all_complete(submitted_futures)
+            # However, more futures may have been submitted as we waited so
+            # we need to check again for any more associated futures.
+            possibly_more_submitted_futures = \
+                self._transfer_coordinator.associated_futures
+            # If the current list of submitted futures is equal to the
+            # the list of associated futures for when after the wait completes,
+            # we can ensure no more futures were submitted in waiting on
+            # the current list of futures to complete ultimately meaning all
+            # futures that may have spawned from the original submission task
+            # have completed.
+            if submitted_futures == possibly_more_submitted_futures:
+                break
+            submitted_futures = possibly_more_submitted_futures
+
+
+class CreateMultipartUploadTask(Task):
+    """Task to initiate a multipart upload"""
+    def _main(self, client, bucket, key, extra_args):
+        """
+        :param client: The client to use when calling CreateMultipartUpload
+        :param bucket: The name of the bucket to upload to
+        :param key: The name of the key to upload to
+        :param extra_args: A dictionary of any extra arguments that may be
+            used in the intialization.
+
+        :returns: The upload id of the multipart upload
+        """
+        # Create the multipart upload.
+        response = client.create_multipart_upload(
+            Bucket=bucket, Key=key, **extra_args)
+        upload_id = response['UploadId']
+
+        # Add a cleanup if the multipart upload fails at any point.
+        self._transfer_coordinator.add_failure_cleanup(
+            client.abort_multipart_upload, Bucket=bucket, Key=key,
+            UploadId=upload_id
+        )
+        return upload_id
+
+
+class CompleteMultipartUploadTask(Task):
+    """Task to complete a multipart upload"""
+    def _main(self, client, bucket, key, upload_id, parts, extra_args):
+        """
+        :param client: The client to use when calling CompleteMultipartUpload
+        :param bucket: The name of the bucket to upload to
+        :param key: The name of the key to upload to
+        :param upload_id: The id of the upload
+        :param parts: A list of parts to use to complete the multipart upload::
+
+            [{'Etag': etag_value, 'PartNumber': part_number}, ...]
+
+            Each element in the list consists of a return value from
+            ``UploadPartTask.main()``.
+        :param extra_args:  A dictionary of any extra arguments that may be
+            used in completing the multipart transfer.
+        """
+        client.complete_multipart_upload(
+            Bucket=bucket, Key=key, UploadId=upload_id,
+            MultipartUpload={'Parts': parts},
+            **extra_args)

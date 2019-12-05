@@ -1,1 +1,1 @@
-‹<venv/lib/python3.6/site-packages/django/utils/deconstruct.py 2pyX8h
+‹8venv/lib/python3.6/site-packages/django/utils/version.py 2pyXih

@@ -1,1 +1,1 @@
-ß=venv/lib/python3.6/site-packages/django/views/generic/edit.py 2pyXòh
+ß5venv/lib/python3.6/site-packages/django/views/i18n.py 2pyXµh

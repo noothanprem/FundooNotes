@@ -1,1 +1,1 @@
-ÛFvenv/lib/python3.6/site-packages/django/db/backends/oracle/compiler.py 2pyX=h
+ÛIvenv/lib/python3.6/site-packages/django/db/backends/base/introspection.py 2pyX¬h

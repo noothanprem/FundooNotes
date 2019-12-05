@@ -1,1 +1,1 @@
-è{Ivenv/lib/python3.6/site-packages/pymacaroons/caveat_delegates/__init__.py 2pyXh
+è{Qvenv/lib/python3.6/site-packages/pymacaroons/caveat_delegates/base_first_party.py 2pyXh

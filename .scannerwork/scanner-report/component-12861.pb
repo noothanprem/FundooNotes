@@ -1,1 +1,1 @@
-½dLvenv/lib/python3.6/site-packages/macaroonbakery/bakery/_internal/__init__.py 2pyXh
+½dBvenv/lib/python3.6/site-packages/macaroonbakery/bakery/_checker.py 2pyX¢h

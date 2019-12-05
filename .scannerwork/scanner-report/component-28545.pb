@@ -1,1 +1,1 @@
-Åﬂ:venv/lib64/python3.6/site-packages/openid/yadis/manager.py 2pyXƒh
+Åﬂ/venv/lib64/python3.6/site-packages/openid/yadis :!ÄﬂÉﬂÑﬂÖﬂÜﬂáﬂàﬂâﬂäﬂóﬂòﬂ

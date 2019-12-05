@@ -1,276 +1,284 @@
 #
-# The Python Imaging Library
+# The Python Imaging Library.
 # $Id$
 #
-# JPEG2000 file handling
+# Windows Icon support for PIL
 #
 # History:
-# 2014-03-12 ajh  Created
+#       96-05-27 fl     Created
 #
-# Copyright (c) 2014 Coriolis Systems Limited
-# Copyright (c) 2014 Alastair Houghton
+# Copyright (c) Secret Labs AB 1997.
+# Copyright (c) Fredrik Lundh 1996.
 #
 # See the README file for information on usage and redistribution.
 #
-from . import Image, ImageFile
+
+# This plugin is a refactored version of Win32IconImagePlugin by Bryan Davis
+# <casadebender@gmail.com>.
+# https://code.google.com/archive/p/casadebender/wikis/Win32IconImagePlugin.wiki
+#
+# Icon format references:
+#   * https://en.wikipedia.org/wiki/ICO_(file_format)
+#   * https://msdn.microsoft.com/en-us/library/ms997538.aspx
+
+
 import struct
-import os
-import io
+from io import BytesIO
+
+from . import Image, ImageFile, BmpImagePlugin, PngImagePlugin
+from ._binary import i8, i16le as i16, i32le as i32
+from math import log, ceil
 
 __version__ = "0.1"
 
+#
+# --------------------------------------------------------------------
 
-def _parse_codestream(fp):
-    """Parse the JPEG 2000 codestream to extract the size and component
-    count from the SIZ marker segment, returning a PIL (size, mode) tuple."""
-
-    hdr = fp.read(2)
-    lsiz = struct.unpack('>H', hdr)[0]
-    siz = hdr + fp.read(lsiz - 2)
-    lsiz, rsiz, xsiz, ysiz, xosiz, yosiz, xtsiz, ytsiz, \
-        xtosiz, ytosiz, csiz \
-        = struct.unpack_from('>HHIIIIIIIIH', siz)
-    ssiz = [None]*csiz
-    xrsiz = [None]*csiz
-    yrsiz = [None]*csiz
-    for i in range(csiz):
-        ssiz[i], xrsiz[i], yrsiz[i] \
-            = struct.unpack_from('>BBB', siz, 36 + 3 * i)
-
-    size = (xsiz - xosiz, ysiz - yosiz)
-    if csiz == 1:
-        if (yrsiz[0] & 0x7f) > 8:
-            mode = 'I;16'
-        else:
-            mode = 'L'
-    elif csiz == 2:
-        mode = 'LA'
-    elif csiz == 3:
-        mode = 'RGB'
-    elif csiz == 4:
-        mode = 'RGBA'
-    else:
-        mode = None
-
-    return (size, mode)
+_MAGIC = b"\0\0\1\0"
 
 
-def _parse_jp2_header(fp):
-    """Parse the JP2 header box to extract size, component count and
-    color space information, returning a PIL (size, mode) tuple."""
+def _save(im, fp, filename):
+    fp.write(_MAGIC)  # (2+2)
+    sizes = im.encoderinfo.get("sizes",
+                               [(16, 16), (24, 24), (32, 32), (48, 48),
+                                (64, 64), (128, 128), (256, 256)])
+    width, height = im.size
+    sizes = filter(lambda x: False if (x[0] > width or x[1] > height or
+                                       x[0] > 256 or x[1] > 256) else True,
+                   sizes)
+    sizes = list(sizes)
+    fp.write(struct.pack("<H", len(sizes)))  # idCount(2)
+    offset = fp.tell() + len(sizes)*16
+    for size in sizes:
+        width, height = size
+        # 0 means 256
+        fp.write(struct.pack("B", width if width < 256 else 0))  # bWidth(1)
+        fp.write(struct.pack("B", height if height < 256 else 0))  # bHeight(1)
+        fp.write(b"\0")  # bColorCount(1)
+        fp.write(b"\0")  # bReserved(1)
+        fp.write(b"\0\0")  # wPlanes(2)
+        fp.write(struct.pack("<H", 32))  # wBitCount(2)
 
-    # Find the JP2 header box
-    header = None
-    while True:
-        lbox, tbox = struct.unpack('>I4s', fp.read(8))
-        if lbox == 1:
-            lbox = struct.unpack('>Q', fp.read(8))[0]
-            hlen = 16
-        else:
-            hlen = 8
-
-        if lbox < hlen:
-            raise SyntaxError('Invalid JP2 header length')
-
-        if tbox == b'jp2h':
-            header = fp.read(lbox - hlen)
-            break
-        else:
-            fp.seek(lbox - hlen, os.SEEK_CUR)
-
-    if header is None:
-        raise SyntaxError('could not find JP2 header')
-
-    size = None
-    mode = None
-    bpc = None
-    nc = None
-
-    hio = io.BytesIO(header)
-    while True:
-        lbox, tbox = struct.unpack('>I4s', hio.read(8))
-        if lbox == 1:
-            lbox = struct.unpack('>Q', hio.read(8))[0]
-            hlen = 16
-        else:
-            hlen = 8
-
-        content = hio.read(lbox - hlen)
-
-        if tbox == b'ihdr':
-            height, width, nc, bpc, c, unkc, ipr \
-                = struct.unpack('>IIHBBBB', content)
-            size = (width, height)
-            if unkc:
-                if nc == 1 and (bpc & 0x7f) > 8:
-                    mode = 'I;16'
-                elif nc == 1:
-                    mode = 'L'
-                elif nc == 2:
-                    mode = 'LA'
-                elif nc == 3:
-                    mode = 'RGB'
-                elif nc == 4:
-                    mode = 'RGBA'
-                break
-        elif tbox == b'colr':
-            meth, prec, approx = struct.unpack_from('>BBB', content)
-            if meth == 1:
-                cs = struct.unpack_from('>I', content, 3)[0]
-                if cs == 16:   # sRGB
-                    if nc == 1 and (bpc & 0x7f) > 8:
-                        mode = 'I;16'
-                    elif nc == 1:
-                        mode = 'L'
-                    elif nc == 3:
-                        mode = 'RGB'
-                    elif nc == 4:
-                        mode = 'RGBA'
-                    break
-                elif cs == 17:  # grayscale
-                    if nc == 1 and (bpc & 0x7f) > 8:
-                        mode = 'I;16'
-                    elif nc == 1:
-                        mode = 'L'
-                    elif nc == 2:
-                        mode = 'LA'
-                    break
-                elif cs == 18:  # sYCC
-                    if nc == 3:
-                        mode = 'RGB'
-                    elif nc == 4:
-                        mode = 'RGBA'
-                    break
-
-    if size is None or mode is None:
-        raise SyntaxError("Malformed jp2 header")
-
-    return (size, mode)
-
-##
-# Image plugin for JPEG2000 images.
-
-
-class Jpeg2KImageFile(ImageFile.ImageFile):
-    format = "JPEG2000"
-    format_description = "JPEG 2000 (ISO 15444)"
-
-    def _open(self):
-        sig = self.fp.read(4)
-        if sig == b'\xff\x4f\xff\x51':
-            self.codec = "j2k"
-            self.size, self.mode = _parse_codestream(self.fp)
-        else:
-            sig = sig + self.fp.read(8)
-
-            if sig == b'\x00\x00\x00\x0cjP  \x0d\x0a\x87\x0a':
-                self.codec = "jp2"
-                self.size, self.mode = _parse_jp2_header(self.fp)
-            else:
-                raise SyntaxError('not a JPEG 2000 file')
-
-        if self.size is None or self.mode is None:
-            raise SyntaxError('unable to determine size/mode')
-
-        self.reduce = 0
-        self.layers = 0
-
-        fd = -1
-        length = -1
-
-        try:
-            fd = self.fp.fileno()
-            length = os.fstat(fd).st_size
-        except:
-            fd = -1
-            try:
-                pos = self.fp.tell()
-                self.fp.seek(0, 2)
-                length = self.fp.tell()
-                self.fp.seek(pos, 0)
-            except:
-                length = -1
-
-        self.tile = [('jpeg2k', (0, 0) + self.size, 0,
-                      (self.codec, self.reduce, self.layers, fd, length))]
-
-    def load(self):
-        if self.reduce:
-            power = 1 << self.reduce
-            adjust = power >> 1
-            self.size = (int((self.size[0] + adjust) / power),
-                         int((self.size[1] + adjust) / power))
-
-        if self.tile:
-            # Update the reduce and layers settings
-            t = self.tile[0]
-            t3 = (t[3][0], self.reduce, self.layers, t[3][3], t[3][4])
-            self.tile = [(t[0], (0, 0) + self.size, t[2], t3)]
-
-        return ImageFile.ImageFile.load(self)
+        image_io = BytesIO()
+        tmp = im.copy()
+        tmp.thumbnail(size, Image.LANCZOS)
+        tmp.save(image_io, "png")
+        image_io.seek(0)
+        image_bytes = image_io.read()
+        bytes_len = len(image_bytes)
+        fp.write(struct.pack("<I", bytes_len))  # dwBytesInRes(4)
+        fp.write(struct.pack("<I", offset))  # dwImageOffset(4)
+        current = fp.tell()
+        fp.seek(offset)
+        fp.write(image_bytes)
+        offset = offset + bytes_len
+        fp.seek(current)
 
 
 def _accept(prefix):
-    return (prefix[:4] == b'\xff\x4f\xff\x51' or
-            prefix[:12] == b'\x00\x00\x00\x0cjP  \x0d\x0a\x87\x0a')
+    return prefix[:4] == _MAGIC
 
 
-# ------------------------------------------------------------
-# Save support
+class IcoFile(object):
+    def __init__(self, buf):
+        """
+        Parse image from file-like object containing ico file data
+        """
 
-def _save(im, fp, filename):
-    if filename.endswith('.j2k'):
-        kind = 'j2k'
-    else:
-        kind = 'jp2'
+        # check magic
+        s = buf.read(6)
+        if not _accept(s):
+            raise SyntaxError("not an ICO file")
 
-    # Get the keyword arguments
-    info = im.encoderinfo
+        self.buf = buf
+        self.entry = []
 
-    offset = info.get('offset', None)
-    tile_offset = info.get('tile_offset', None)
-    tile_size = info.get('tile_size', None)
-    quality_mode = info.get('quality_mode', 'rates')
-    quality_layers = info.get('quality_layers', None)
-    num_resolutions = info.get('num_resolutions', 0)
-    cblk_size = info.get('codeblock_size', None)
-    precinct_size = info.get('precinct_size', None)
-    irreversible = info.get('irreversible', False)
-    progression = info.get('progression', 'LRCP')
-    cinema_mode = info.get('cinema_mode', 'no')
-    fd = -1
+        # Number of items in file
+        self.nb_items = i16(s[4:])
 
-    if hasattr(fp, "fileno"):
-        try:
-            fd = fp.fileno()
-        except:
-            fd = -1
+        # Get headers for each item
+        for i in range(self.nb_items):
+            s = buf.read(16)
 
-    im.encoderconfig = (
-        offset,
-        tile_offset,
-        tile_size,
-        quality_mode,
-        quality_layers,
-        num_resolutions,
-        cblk_size,
-        precinct_size,
-        irreversible,
-        progression,
-        cinema_mode,
-        fd
-    )
+            icon_header = {
+                'width': i8(s[0]),
+                'height': i8(s[1]),
+                'nb_color': i8(s[2]),  # No. of colors in image (0 if >=8bpp)
+                'reserved': i8(s[3]),
+                'planes': i16(s[4:]),
+                'bpp': i16(s[6:]),
+                'size': i32(s[8:]),
+                'offset': i32(s[12:])
+            }
 
-    ImageFile._save(im, fp, [('jpeg2k', (0, 0)+im.size, 0, kind)])
+            # See Wikipedia
+            for j in ('width', 'height'):
+                if not icon_header[j]:
+                    icon_header[j] = 256
 
-# ------------------------------------------------------------
-# Registry stuff
+            # See Wikipedia notes about color depth.
+            # We need this just to differ images with equal sizes
+            icon_header['color_depth'] = (icon_header['bpp'] or
+                                          (icon_header['nb_color'] != 0 and
+                                           ceil(log(icon_header['nb_color'],
+                                                    2))) or 256)
+
+            icon_header['dim'] = (icon_header['width'], icon_header['height'])
+            icon_header['square'] = (icon_header['width'] *
+                                     icon_header['height'])
+
+            self.entry.append(icon_header)
+
+        self.entry = sorted(self.entry, key=lambda x: x['color_depth'])
+        # ICO images are usually squares
+        # self.entry = sorted(self.entry, key=lambda x: x['width'])
+        self.entry = sorted(self.entry, key=lambda x: x['square'])
+        self.entry.reverse()
+
+    def sizes(self):
+        """
+        Get a list of all available icon sizes and color depths.
+        """
+        return {(h['width'], h['height']) for h in self.entry}
+
+    def getimage(self, size, bpp=False):
+        """
+        Get an image from the icon
+        """
+        for (i, h) in enumerate(self.entry):
+            if size == h['dim'] and (bpp is False or bpp == h['color_depth']):
+                return self.frame(i)
+        return self.frame(0)
+
+    def frame(self, idx):
+        """
+        Get an image from frame idx
+        """
+
+        header = self.entry[idx]
+
+        self.buf.seek(header['offset'])
+        data = self.buf.read(8)
+        self.buf.seek(header['offset'])
+
+        if data[:8] == PngImagePlugin._MAGIC:
+            # png frame
+            im = PngImagePlugin.PngImageFile(self.buf)
+        else:
+            # XOR + AND mask bmp frame
+            im = BmpImagePlugin.DibImageFile(self.buf)
+
+            # change tile dimension to only encompass XOR image
+            im.size = (im.size[0], int(im.size[1] / 2))
+            d, e, o, a = im.tile[0]
+            im.tile[0] = d, (0, 0) + im.size, o, a
+
+            # figure out where AND mask image starts
+            mode = a[0]
+            bpp = 8
+            for k, v in BmpImagePlugin.BIT2MODE.items():
+                if mode == v[1]:
+                    bpp = k
+                    break
+
+            if 32 == bpp:
+                # 32-bit color depth icon image allows semitransparent areas
+                # PIL's DIB format ignores transparency bits, recover them.
+                # The DIB is packed in BGRX byte order where X is the alpha
+                # channel.
+
+                # Back up to start of bmp data
+                self.buf.seek(o)
+                # extract every 4th byte (eg. 3,7,11,15,...)
+                alpha_bytes = self.buf.read(im.size[0] * im.size[1] * 4)[3::4]
+
+                # convert to an 8bpp grayscale image
+                mask = Image.frombuffer(
+                    'L',            # 8bpp
+                    im.size,        # (w, h)
+                    alpha_bytes,    # source chars
+                    'raw',          # raw decoder
+                    ('L', 0, -1)    # 8bpp inverted, unpadded, reversed
+                )
+            else:
+                # get AND image from end of bitmap
+                w = im.size[0]
+                if (w % 32) > 0:
+                    # bitmap row data is aligned to word boundaries
+                    w += 32 - (im.size[0] % 32)
+
+                # the total mask data is
+                # padded row size * height / bits per char
+
+                and_mask_offset = o + int(im.size[0] * im.size[1] *
+                                          (bpp / 8.0))
+                total_bytes = int((w * im.size[1]) / 8)
+
+                self.buf.seek(and_mask_offset)
+                mask_data = self.buf.read(total_bytes)
+
+                # convert raw data to image
+                mask = Image.frombuffer(
+                    '1',            # 1 bpp
+                    im.size,        # (w, h)
+                    mask_data,      # source chars
+                    'raw',          # raw decoder
+                    ('1;I', int(w/8), -1)  # 1bpp inverted, padded, reversed
+                )
+
+                # now we have two images, im is XOR image and mask is AND image
+
+            # apply mask image as alpha channel
+            im = im.convert('RGBA')
+            im.putalpha(mask)
+
+        return im
 
 
-Image.register_open(Jpeg2KImageFile.format, Jpeg2KImageFile, _accept)
-Image.register_save(Jpeg2KImageFile.format, _save)
+##
+# Image plugin for Windows Icon files.
 
-Image.register_extensions(Jpeg2KImageFile.format, [".jp2", ".j2k", ".jpc", ".jpf", ".jpx", ".j2c"])
+class IcoImageFile(ImageFile.ImageFile):
+    """
+    PIL read-only image support for Microsoft Windows .ico files.
 
-Image.register_mime(Jpeg2KImageFile.format, 'image/jp2')
-Image.register_mime(Jpeg2KImageFile.format, 'image/jpx')
+    By default the largest resolution image in the file will be loaded. This
+    can be changed by altering the 'size' attribute before calling 'load'.
+
+    The info dictionary has a key 'sizes' that is a list of the sizes available
+    in the icon file.
+
+    Handles classic, XP and Vista icon formats.
+
+    This plugin is a refactored version of Win32IconImagePlugin by Bryan Davis
+    <casadebender@gmail.com>.
+    https://code.google.com/archive/p/casadebender/wikis/Win32IconImagePlugin.wiki
+    """
+    format = "ICO"
+    format_description = "Windows Icon"
+
+    def _open(self):
+        self.ico = IcoFile(self.fp)
+        self.info['sizes'] = self.ico.sizes()
+        self.size = self.ico.entry[0]['dim']
+        self.load()
+
+    def load(self):
+        im = self.ico.getimage(self.size)
+        # if tile is PNG, it won't really be loaded yet
+        im.load()
+        self.im = im.im
+        self.mode = im.mode
+        self.size = im.size
+
+    def load_seek(self):
+        # Flag the ImageFile.Parser so that it
+        # just does all the decode at the end.
+        pass
+#
+# --------------------------------------------------------------------
+
+
+Image.register_open(IcoImageFile.format, IcoImageFile, _accept)
+Image.register_save(IcoImageFile.format, _save)
+Image.register_extension(IcoImageFile.format, ".ico")

@@ -1,1 +1,1 @@
-ÙC6venv/lib/python3.6/site-packages/django/conf/locale/sl :ÛCıC
+ÙC6venv/lib/python3.6/site-packages/django/conf/locale/sl :ÚCıC

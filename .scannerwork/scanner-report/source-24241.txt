@@ -1,14 +1,53 @@
 # -*- coding: utf-8 -*-
+import sys
 
-from django.dispatch import Signal
+from django.core.management.base import BaseCommand
+from logging import getLogger
 
-run_minutely_jobs = Signal()
-run_quarter_hourly_jobs = Signal()
-run_hourly_jobs = Signal()
-run_daily_jobs = Signal()
-run_weekly_jobs = Signal()
-run_monthly_jobs = Signal()
-run_yearly_jobs = Signal()
+logger = getLogger('django.commands')
 
-pre_command = Signal(providing_args=["args", "kwargs"])
-post_command = Signal(providing_args=["args", "kwargs", "outcome"])
+
+class LoggingBaseCommand(BaseCommand):
+    """
+    A subclass of BaseCommand that logs run time errors to `django.commands`.
+    To use this, create a management command subclassing LoggingBaseCommand:
+
+        from django_extensions.management.base import LoggingBaseCommand
+
+        class Command(LoggingBaseCommand):
+            help = 'Test error'
+
+            def handle(self, *args, **options):
+                raise Exception
+
+
+    And then define a logging handler in settings.py:
+
+        LOGGING = {
+            ... # Other stuff here
+
+            'handlers': {
+                'mail_admins': {
+                    'level': 'ERROR',
+                    'filters': ['require_debug_false'],
+                    'class': 'django.utils.log.AdminEmailHandler'
+                },
+            },
+            'loggers': {
+                'django.commands': {
+                    'handlers': ['mail_admins'],
+                    'level': 'ERROR',
+                    'propagate': False,
+                },
+            }
+
+        }
+
+    """
+
+    def execute(self, *args, **options):
+        try:
+            super(LoggingBaseCommand, self).execute(*args, **options)
+        except Exception as e:
+            logger.error(e, exc_info=sys.exc_info(), extra={'status_code': 500})
+            raise

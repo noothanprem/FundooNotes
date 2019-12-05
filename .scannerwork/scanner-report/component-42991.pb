@@ -1,1 +1,1 @@
-ïÏ@venv/lib64/python3.6/site-packages/google/protobuf/descriptor.py 2pyXâh
+ïÏ@venv/lib64/python3.6/site-packages/google/protobuf/struct_pb2.py 2pyXšh

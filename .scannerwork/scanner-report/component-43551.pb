@@ -1,1 +1,1 @@
-÷т(venv/lib64/python3.6/site-packages/click :3·т═т║т╒тёт╓т╔т╕т╖т╗т╘т╙т╚т╬т©тютат
+÷т9venv/lib64/python3.6/site-packages/click/_bashcomplete.py 2pyX╕h

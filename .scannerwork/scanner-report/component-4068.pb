@@ -1,1 +1,1 @@
-äHvenv/lib/python3.6/site-packages/django/db/backends/oracle/validation.py 2pyXh
+äBvenv/lib/python3.6/site-packages/django/db/backends/oracle/base.py 2pyX h

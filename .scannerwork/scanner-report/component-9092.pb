@@ -1,1 +1,1 @@
-„G,venv/lib/python3.6/site-packages/django/urls :‚GƒG…G†G‡GG‘G
+„G8venv/lib/python3.6/site-packages/django/urls/__init__.py 2pyXh

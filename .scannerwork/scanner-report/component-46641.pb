@@ -1,1 +1,0 @@
-ฑ์Bvenv/lib64/python3.6/site-packages/requests_unixsocket/adapters.py 2pyX=h

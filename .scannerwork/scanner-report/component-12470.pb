@@ -1,1 +1,1 @@
-¶aEvenv/lib/python3.6/site-packages/docutils/parsers/rst/languages/pl.py 2pyXgh
+¶a?venv/lib/python3.6/site-packages/docutils/parsers/rst/languages :4µa·a¸a»a¼a½a¾a¿aÀaÁaÂaÃaÄaÅaÆaÇaÈaÉaÊaËaÌaÍaÎaÏaëaìa

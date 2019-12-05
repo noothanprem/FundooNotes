@@ -1,1 +1,0 @@
-аз@venv/lib/python3.6/site-packages/twisted/application/reactors.py 2pyXVh

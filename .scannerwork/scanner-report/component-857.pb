@@ -1,1 +1,1 @@
-Ù?venv/lib/python3.6/site-packages/celery/concurrency/eventlet.py 2pyX•h
+Ù;venv/lib/python3.6/site-packages/celery/concurrency/solo.py 2pyXh

@@ -1,1 +1,1 @@
-¾<Ovenv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/urlify.js 2jsXÄh
+¾<Rvenv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/SelectBox.js 2jsX‘h

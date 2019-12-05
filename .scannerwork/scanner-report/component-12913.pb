@@ -1,1 +1,0 @@
-ñdIvenv/lib/python3.6/site-packages/macaroonbakery/checkers/_auth_context.py 2pyX;h

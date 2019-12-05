@@ -1,303 +1,104 @@
-# -*- test-case-name: twisted.application.runner.test.test_pidfile -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-PID file.
+Tests for L{twisted.application.runner._exit}.
 """
 
-import errno
-from os import getpid, kill, name as SYSTEM_NAME
+from twisted.python.compat import NativeStringIO
+from ...runner import _exit
+from .._exit import exit, ExitStatus
 
-from zope.interface import Interface, implementer
-
-from twisted.logger import Logger
-
+import twisted.trial.unittest
 
 
-class IPIDFile(Interface):
+
+class ExitTests(twisted.trial.unittest.TestCase):
     """
-    Manages a file that remembers a process ID.
-    """
-
-    def read():
-        """
-        Read the process ID stored in this PID file.
-
-        @return: The contained process ID.
-        @rtype: L{int}
-
-        @raise NoPIDFound: If this PID file does not exist.
-        @raise EnvironmentError: If this PID file cannot be read.
-        @raise ValueError: If this PID file's content is invalid.
-        """
-
-
-    def writeRunningPID():
-        """
-        Store the PID of the current process in this PID file.
-
-        @raise EnvironmentError: If this PID file cannot be written.
-        """
-
-
-    def remove():
-        """
-        Remove this PID file.
-
-        @raise EnvironmentError: If this PID file cannot be removed.
-        """
-
-
-    def isRunning():
-        """
-        Determine whether there is a running process corresponding to the PID
-        in this PID file.
-
-        @return: True if this PID file contains a PID and a process with that
-        PID is currently running; false otherwise.
-        @rtype: L{bool}
-
-        @raise EnvironmentError: If this PID file cannot be read.
-        @raise InvalidPIDFileError: If this PID file's content is invalid.
-        @raise StalePIDFileError: If this PID file's content refers to a PID
-            for which there is no corresponding running process.
-        """
-
-
-    def __enter__():
-        """
-        Enter a context using this PIDFile.
-
-        Writes the PID file with the PID of the running process.
-
-        @raise AlreadyRunningError: A process corresponding to the PID in this
-            PID file is already running.
-        """
-
-
-    def __exit__(excType, excValue, traceback):
-        """
-        Exit a context using this PIDFile.
-
-        Removes the PID file.
-        """
-
-
-
-@implementer(IPIDFile)
-class PIDFile(object):
-    """
-    Concrete implementation of L{IPIDFile} based on C{IFilePath}.
-
-    This implementation is presently not supported on non-POSIX platforms.
-    Specifically, calling L{PIDFile.isRunning} will raise
-    L{NotImplementedError}.
+    Tests for L{exit}.
     """
 
-    _log = Logger()
+    def setUp(self):
+        self.exit = DummyExit()
+        self.patch(_exit, "sysexit", self.exit)
 
 
-    @staticmethod
-    def _format(pid):
+    def test_exitStatusInt(self):
         """
-        Format a PID file's content.
-
-        @param pid: A process ID.
-        @type pid: int
-
-        @return: Formatted PID file contents.
-        @rtype: L{bytes}
+        L{exit} given an L{int} status code will pass it to L{sys.exit}.
         """
-        return u"{}\n".format(int(pid)).encode("utf-8")
+        status = 1234
+        exit(status)
+        self.assertEqual(self.exit.arg, status)
 
 
-    def __init__(self, filePath):
+    def test_exitStatusStringNotInt(self):
         """
-        @param filePath: The path to the PID file on disk.
-        @type filePath: L{IFilePath}
+        L{exit} given a L{str} status code that isn't a string integer raises
+        L{ValueError}.
         """
-        self.filePath = filePath
+        self.assertRaises(ValueError, exit, "foo")
 
 
-    def read(self):
-        pidString = b""
-        try:
-            with self.filePath.open() as fh:
-                for pidString in fh:
-                    break
-        except OSError as e:
-            if e.errno == errno.ENOENT:  # No such file
-                raise NoPIDFound("PID file does not exist")
-            raise
-
-        try:
-            return int(pidString)
-        except ValueError:
-            raise InvalidPIDFileError(
-                "non-integer PID value in PID file: {!r}".format(pidString)
-            )
-
-
-    def _write(self, pid):
+    def test_exitStatusStringInt(self):
         """
-        Store a PID in this PID file.
-
-        @param pid: A PID to store.
-        @type pid: L{int}
-
-        @raise EnvironmentError: If this PID file cannot be written.
+        L{exit} given a L{str} status code that is a string integer passes the
+        corresponding L{int} to L{sys.exit}.
         """
-        self.filePath.setContent(self._format(pid=pid))
+        exit("1234")
+        self.assertEqual(self.exit.arg, 1234)
 
 
-    def writeRunningPID(self):
-        self._write(getpid())
-
-
-    def remove(self):
-        self.filePath.remove()
-
-
-    def isRunning(self):
-        try:
-            pid = self.read()
-        except NoPIDFound:
-            return False
-
-        if SYSTEM_NAME == "posix":
-            return self._pidIsRunningPOSIX(pid)
-        else:
-            raise NotImplementedError(
-                "isRunning is not implemented on {}".format(SYSTEM_NAME)
-            )
-
-
-    @staticmethod
-    def _pidIsRunningPOSIX(pid):
+    def test_exitConstant(self):
         """
-        POSIX implementation for running process check.
-
-        Determine whether there is a running process corresponding to the given
-        PID.
-
-        @return: True if the given PID is currently running; false otherwise.
-        @rtype: L{bool}
-
-        @raise EnvironmentError: If this PID file cannot be read.
-        @raise InvalidPIDFileError: If this PID file's content is invalid.
-        @raise StalePIDFileError: If this PID file's content refers to a PID
-            for which there is no corresponding running process.
+        L{exit} given a L{ValueConstant} status code passes the corresponding
+        value to L{sys.exit}.
         """
-        try:
-            kill(pid, 0)
-        except OSError as e:
-            if e.errno == errno.ESRCH:  # No such process
-                raise StalePIDFileError(
-                    "PID file refers to non-existing process"
-                )
-            elif e.errno == errno.EPERM:  # Not permitted to kill
-                return True
-            else:
-                raise
-        else:
-            return True
+        status = ExitStatus.EX_CONFIG
+        exit(status)
+        self.assertEqual(self.exit.arg, status.value)
 
 
-    def __enter__(self):
-        try:
-            if self.isRunning():
-                raise AlreadyRunningError()
-        except StalePIDFileError:
-            self._log.info("Replacing stale PID file: {log_source}")
-        self.writeRunningPID()
-        return self
+    def test_exitMessageZero(self):
+        """
+        L{exit} given a status code of zero (C{0}) writes the given message to
+        standard output.
+        """
+        out = NativeStringIO()
+        self.patch(_exit, "stdout", out)
+
+        message = "Hello, world."
+        exit(0, message)
+
+        self.assertEqual(out.getvalue(), message + "\n")
 
 
-    def __exit__(self, excType, excValue, traceback):
-        self.remove()
+    def test_exitMessageNonZero(self):
+        """
+        L{exit} given a non-zero status code writes the given message to
+        standard error.
+        """
+        out = NativeStringIO()
+        self.patch(_exit, "stderr", out)
+
+        message = "Hello, world."
+        exit(64, message)
+
+        self.assertEqual(out.getvalue(), message + "\n")
 
 
 
-@implementer(IPIDFile)
-class NonePIDFile(object):
+class DummyExit(object):
     """
-    PID file implementation that does nothing.
-
-    This is meant to be used as a "active None" object in place of a PID file
-    when no PID file is desired.
+    Stub for L{sys.exit} that remembers whether it's been called and, if it
+    has, what argument it was given.
     """
-
     def __init__(self):
-        pass
+        self.exited = False
 
 
-    def read(self):
-        raise NoPIDFound("PID file does not exist")
+    def __call__(self, arg=None):
+        assert not self.exited
 
-
-    def _write(self, pid):
-        """
-        Store a PID in this PID file.
-
-        @param pid: A PID to store.
-        @type pid: L{int}
-
-        @raise EnvironmentError: If this PID file cannot be written.
-
-        @note: This implementation always raises an L{EnvironmentError}.
-        """
-        raise OSError(errno.EPERM, "Operation not permitted")
-
-
-    def writeRunningPID(self):
-        self._write(0)
-
-
-    def remove(self):
-        raise OSError(errno.ENOENT, "No such file or directory")
-
-
-    def isRunning(self):
-        return False
-
-
-    def __enter__(self):
-        return self
-
-
-    def __exit__(self, excType, excValue, traceback):
-        pass
-
-
-
-nonePIDFile = NonePIDFile()
-
-
-
-class AlreadyRunningError(Exception):
-    """
-    Process is already running.
-    """
-
-
-
-class InvalidPIDFileError(Exception):
-    """
-    PID file contents are invalid.
-    """
-
-
-
-class StalePIDFileError(Exception):
-    """
-    PID file contents are valid, but there is no process with the referenced
-    PID.
-    """
-
-
-
-class NoPIDFound(Exception):
-    """
-    No PID found in PID file.
-    """
+        self.arg    = arg
+        self.exited = True

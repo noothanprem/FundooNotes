@@ -1,1 +1,1 @@
-‰L2venv/lib/python3.6/site-packages/autobahn/wamp/gen :„L
+‰L2venv/lib/python3.6/site-packages/autobahn/wamp/gen :‚L

@@ -1,1 +1,1 @@
-“‡6venv/lib/python3.6/site-packages/simplejson/scanner.py 2pyXVh
+“‡5venv/lib/python3.6/site-packages/simplejson/compat.py 2pyX#h

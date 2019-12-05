@@ -1,1 +1,1 @@
-Ì3venv/lib/python3.6/site-packages/coreapi/transports :ËÍÎ
+Ì4venv/lib/python3.6/site-packages/coreapi/__init__.py 2pyXh

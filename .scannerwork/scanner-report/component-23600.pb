@@ -1,1 +1,1 @@
-°¸Hvenv/lib/python3.6/site-packages/social_core/tests/backends/test_flat.py 2pyX$h
+°¸Jvenv/lib/python3.6/site-packages/social_core/tests/backends/test_arcgis.py 2pyXh

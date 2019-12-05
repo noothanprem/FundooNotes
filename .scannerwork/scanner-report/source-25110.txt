@@ -1,96 +1,164 @@
 from __future__ import absolute_import
 
+import datetime
+import json
+import logging
+import os.path
 import sys
 
-from pip._internal.cache import WheelCache
-from pip._internal.cli.base_command import Command
-from pip._internal.models.format_control import FormatControl
-from pip._internal.operations.freeze import freeze
-from pip._internal.utils.compat import stdlib_pkgs
+from pip._vendor import lockfile, pkg_resources
+from pip._vendor.packaging import version as packaging_version
 
-DEV_PKGS = {'pip', 'setuptools', 'distribute', 'wheel'}
+from pip._internal.index import PackageFinder
+from pip._internal.utils.compat import WINDOWS
+from pip._internal.utils.filesystem import check_path_owner
+from pip._internal.utils.misc import ensure_dir, get_installed_version
+from pip._internal.utils.typing import MYPY_CHECK_RUNNING
+
+if MYPY_CHECK_RUNNING:
+    import optparse  # noqa: F401
+    from typing import Any, Dict  # noqa: F401
+    from pip._internal.download import PipSession  # noqa: F401
 
 
-class FreezeCommand(Command):
+SELFCHECK_DATE_FMT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+logger = logging.getLogger(__name__)
+
+
+class SelfCheckState(object):
+    def __init__(self, cache_dir):
+        # type: (str) -> None
+        self.state = {}  # type: Dict[str, Any]
+        self.statefile_path = None
+
+        # Try to load the existing state
+        if cache_dir:
+            self.statefile_path = os.path.join(cache_dir, "selfcheck.json")
+            try:
+                with open(self.statefile_path) as statefile:
+                    self.state = json.load(statefile)[sys.prefix]
+            except (IOError, ValueError, KeyError):
+                # Explicitly suppressing exceptions, since we don't want to
+                # error out if the cache file is invalid.
+                pass
+
+    def save(self, pypi_version, current_time):
+        # type: (str, datetime.datetime) -> None
+        # If we do not have a path to cache in, don't bother saving.
+        if not self.statefile_path:
+            return
+
+        # Check to make sure that we own the directory
+        if not check_path_owner(os.path.dirname(self.statefile_path)):
+            return
+
+        # Now that we've ensured the directory is owned by this user, we'll go
+        # ahead and make sure that all our directories are created.
+        ensure_dir(os.path.dirname(self.statefile_path))
+
+        # Attempt to write out our version check file
+        with lockfile.LockFile(self.statefile_path):
+            if os.path.exists(self.statefile_path):
+                with open(self.statefile_path) as statefile:
+                    state = json.load(statefile)
+            else:
+                state = {}
+
+            state[sys.prefix] = {
+                "last_check": current_time.strftime(SELFCHECK_DATE_FMT),
+                "pypi_version": pypi_version,
+            }
+
+            with open(self.statefile_path, "w") as statefile:
+                json.dump(state, statefile, sort_keys=True,
+                          separators=(",", ":"))
+
+
+def was_installed_by_pip(pkg):
+    # type: (str) -> bool
+    """Checks whether pkg was installed by pip
+
+    This is used not to display the upgrade message when pip is in fact
+    installed by system package manager, such as dnf on Fedora.
     """
-    Output installed packages in requirements format.
+    try:
+        dist = pkg_resources.get_distribution(pkg)
+        return (dist.has_metadata('INSTALLER') and
+                'pip' in dist.get_metadata_lines('INSTALLER'))
+    except pkg_resources.DistributionNotFound:
+        return False
 
-    packages are listed in a case-insensitive sorted order.
+
+def pip_version_check(session, options):
+    # type: (PipSession, optparse.Values) -> None
+    """Check for an update for pip.
+
+    Limit the frequency of checks to once per week. State is stored either in
+    the active virtualenv or in the user's USER_CACHE_DIR keyed off the prefix
+    of the pip script path.
     """
-    name = 'freeze'
-    usage = """
-      %prog [options]"""
-    summary = 'Output installed packages in requirements format.'
-    log_streams = ("ext://sys.stderr", "ext://sys.stderr")
+    installed_version = get_installed_version("pip")
+    if not installed_version:
+        return
 
-    def __init__(self, *args, **kw):
-        super(FreezeCommand, self).__init__(*args, **kw)
+    pip_version = packaging_version.parse(installed_version)
+    pypi_version = None
 
-        self.cmd_opts.add_option(
-            '-r', '--requirement',
-            dest='requirements',
-            action='append',
-            default=[],
-            metavar='file',
-            help="Use the order in the given requirements file and its "
-                 "comments when generating output. This option can be "
-                 "used multiple times.")
-        self.cmd_opts.add_option(
-            '-f', '--find-links',
-            dest='find_links',
-            action='append',
-            default=[],
-            metavar='URL',
-            help='URL for finding packages, which will be added to the '
-                 'output.')
-        self.cmd_opts.add_option(
-            '-l', '--local',
-            dest='local',
-            action='store_true',
-            default=False,
-            help='If in a virtualenv that has global access, do not output '
-                 'globally-installed packages.')
-        self.cmd_opts.add_option(
-            '--user',
-            dest='user',
-            action='store_true',
-            default=False,
-            help='Only output packages installed in user-site.')
-        self.cmd_opts.add_option(
-            '--all',
-            dest='freeze_all',
-            action='store_true',
-            help='Do not skip these packages in the output:'
-                 ' %s' % ', '.join(DEV_PKGS))
-        self.cmd_opts.add_option(
-            '--exclude-editable',
-            dest='exclude_editable',
-            action='store_true',
-            help='Exclude editable package from output.')
+    try:
+        state = SelfCheckState(cache_dir=options.cache_dir)
 
-        self.parser.insert_option_group(0, self.cmd_opts)
+        current_time = datetime.datetime.utcnow()
+        # Determine if we need to refresh the state
+        if "last_check" in state.state and "pypi_version" in state.state:
+            last_check = datetime.datetime.strptime(
+                state.state["last_check"],
+                SELFCHECK_DATE_FMT
+            )
+            if (current_time - last_check).total_seconds() < 7 * 24 * 60 * 60:
+                pypi_version = state.state["pypi_version"]
 
-    def run(self, options, args):
-        format_control = FormatControl(set(), set())
-        wheel_cache = WheelCache(options.cache_dir, format_control)
-        skip = set(stdlib_pkgs)
-        if not options.freeze_all:
-            skip.update(DEV_PKGS)
+        # Refresh the version if we need to or just see if we need to warn
+        if pypi_version is None:
+            # Lets use PackageFinder to see what the latest pip version is
+            finder = PackageFinder(
+                find_links=options.find_links,
+                index_urls=[options.index_url] + options.extra_index_urls,
+                allow_all_prereleases=False,  # Explicitly set to False
+                trusted_hosts=options.trusted_hosts,
+                session=session,
+            )
+            all_candidates = finder.find_all_candidates("pip")
+            if not all_candidates:
+                return
+            pypi_version = str(
+                max(all_candidates, key=lambda c: c.version).version
+            )
 
-        freeze_kwargs = dict(
-            requirement=options.requirements,
-            find_links=options.find_links,
-            local_only=options.local,
-            user_only=options.user,
-            skip_regex=options.skip_requirements_regex,
-            isolated=options.isolated_mode,
-            wheel_cache=wheel_cache,
-            skip=skip,
-            exclude_editable=options.exclude_editable,
+            # save that we've performed a check
+            state.save(pypi_version, current_time)
+
+        remote_version = packaging_version.parse(pypi_version)
+
+        # Determine if our pypi_version is older
+        if (pip_version < remote_version and
+                pip_version.base_version != remote_version.base_version and
+                was_installed_by_pip('pip')):
+            # Advise "python -m pip" on Windows to avoid issues
+            # with overwriting pip.exe.
+            if WINDOWS:
+                pip_cmd = "python -m pip"
+            else:
+                pip_cmd = "pip"
+            logger.warning(
+                "You are using pip version %s, however version %s is "
+                "available.\nYou should consider upgrading via the "
+                "'%s install --upgrade pip' command.",
+                pip_version, pypi_version, pip_cmd
+            )
+    except Exception:
+        logger.debug(
+            "There was an error checking the latest version of pip",
+            exc_info=True,
         )
-
-        try:
-            for line in freeze(**freeze_kwargs):
-                sys.stdout.write(line + '\n')
-        finally:
-            wheel_cache.cleanup()

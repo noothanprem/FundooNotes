@@ -1,1 +1,1 @@
-İûEvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/libgdal.py 2pyX}h
+İû:venv/lib64/python3.6/site-packages/django/contrib/gis/gdal :'ÜûŞûßûàûíûîûïûü‚üƒü„ü…ü“ü

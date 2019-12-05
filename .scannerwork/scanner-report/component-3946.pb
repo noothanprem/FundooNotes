@@ -1,1 +1,1 @@
-ê3venv/lib/python3.6/site-packages/django/db/backends :è˜Äõ
+ê>venv/lib/python3.6/site-packages/django/db/backends/postgresql :éëìíîïùúû

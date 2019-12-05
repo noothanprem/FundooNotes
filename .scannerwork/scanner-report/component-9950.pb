@@ -1,1 +1,1 @@
-ÞMFvenv/lib/python3.6/site-packages/autobahn/websocket/compress_snappy.py 2pyX®h
+ÞM5venv/lib/python3.6/site-packages/autobahn/_version.py 2pyXh

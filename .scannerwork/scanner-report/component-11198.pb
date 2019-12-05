@@ -1,1 +1,0 @@
-¾W;venv/lib/python3.6/site-packages/faker/providers/bank/de_DE :½W

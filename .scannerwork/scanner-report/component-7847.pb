@@ -1,1 +1,1 @@
-§=mvenv/lib/python3.6/site-packages/django/contrib/contenttypes/management/commands/remove_stale_contenttypes.py 2pyXQh
+§=Hvenv/lib/python3.6/site-packages/django/contrib/contenttypes/__init__.py 2pyXh

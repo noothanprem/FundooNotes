@@ -2,518 +2,469 @@
 # See LICENSE for details.
 
 """
-Tests for L{twisted.trial._dist.disttrial}.
+Test for distributed trial worker side.
 """
 
 import os
-import sys
 
-from twisted.internet.protocol import Protocol, ProcessProtocol
-from twisted.internet.defer import fail, gatherResults, maybeDeferred, succeed
-from twisted.internet.task import Cooperator, deferLater
+from zope.interface.verify import verifyObject
+
+from twisted.trial.reporter import TestResult
+from twisted.trial.unittest import TestCase
+from twisted.trial._dist.worker import (
+    LocalWorker, LocalWorkerAMP, LocalWorkerTransport, WorkerProtocol)
+from twisted.trial._dist import managercommands, workercommands
+
+from twisted.scripts import trial
+from twisted.test.proto_helpers import StringTransport
+
+from twisted.internet.interfaces import ITransport, IAddress
+from twisted.internet.defer import fail, succeed
 from twisted.internet.main import CONNECTION_DONE
-from twisted.internet import reactor, interfaces, error
-from twisted.python.compat import NativeStringIO as StringIO
+from twisted.internet.error import ConnectionDone
+from twisted.python.reflect import fullyQualifiedName
 from twisted.python.failure import Failure
-from twisted.python.lockfile import FilesystemLock
+from twisted.protocols.amp import AMP
+from twisted.python.compat import NativeStringIO
+from io import BytesIO
 
-from twisted.test.test_cooperator import FakeScheduler
-from twisted.test.proto_helpers import MemoryReactorClock
 
-from twisted.trial.unittest import SynchronousTestCase, TestCase
-from twisted.trial.reporter import Reporter, TreeReporter
-from twisted.trial.reporter import UncleanWarningsReporterWrapper
-from twisted.trial.runner import TrialSuite, ErrorHolder
+class FakeAMP(AMP):
+    """
+    A fake amp protocol.
+    """
 
-from twisted.trial._dist.disttrial import DistTrialRunner
-from twisted.trial._dist.distreporter import DistReporter
-from twisted.trial._dist.worker import LocalWorker
 
-from zope.interface import implementer, verify
+
+class WorkerProtocolTests(TestCase):
+    """
+    Tests for L{WorkerProtocol}.
+    """
+
+    def setUp(self):
+        """
+        Set up a transport, a result stream and a protocol instance.
+        """
+        self.serverTransport = StringTransport()
+        self.clientTransport = StringTransport()
+        self.server = WorkerProtocol()
+        self.server.makeConnection(self.serverTransport)
+        self.client = FakeAMP()
+        self.client.makeConnection(self.clientTransport)
+
+
+    def test_run(self):
+        """
+        Calling the L{workercommands.Run} command on the client returns a
+        response with C{success} sets to C{True}.
+        """
+        d = self.client.callRemote(workercommands.Run, testCase="doesntexist")
+
+        def check(result):
+            self.assertTrue(result['success'])
+
+        d.addCallback(check)
+        self.server.dataReceived(self.clientTransport.value())
+        self.clientTransport.clear()
+        self.client.dataReceived(self.serverTransport.value())
+        self.serverTransport.clear()
+        return d
+
+
+    def test_start(self):
+        """
+        The C{start} command changes the current path.
+        """
+        curdir = os.path.realpath(os.path.curdir)
+        self.addCleanup(os.chdir, curdir)
+        self.server.start('..')
+        self.assertNotEqual(os.path.realpath(os.path.curdir), curdir)
+
+
+
+class LocalWorkerAMPTests(TestCase):
+    """
+    Test case for distributed trial's manager-side local worker AMP protocol
+    """
+
+    def setUp(self):
+        self.managerTransport = StringTransport()
+        self.managerAMP = LocalWorkerAMP()
+        self.managerAMP.makeConnection(self.managerTransport)
+        self.result = TestResult()
+        self.workerTransport = StringTransport()
+        self.worker = AMP()
+        self.worker.makeConnection(self.workerTransport)
+
+        config = trial.Options()
+        self.testName = "twisted.doesnexist"
+        config['tests'].append(self.testName)
+        self.testCase = trial._getSuite(config)._tests.pop()
+
+        self.managerAMP.run(self.testCase, self.result)
+        self.managerTransport.clear()
+
+
+    def pumpTransports(self):
+        """
+        Sends data from C{self.workerTransport} to C{self.managerAMP}, and then
+        data from C{self.managerTransport} back to C{self.worker}.
+        """
+        self.managerAMP.dataReceived(self.workerTransport.value())
+        self.workerTransport.clear()
+        self.worker.dataReceived(self.managerTransport.value())
+
+
+    def test_runSuccess(self):
+        """
+        Run a test, and succeed.
+        """
+        results = []
+
+        d = self.worker.callRemote(managercommands.AddSuccess,
+                                   testName=self.testName)
+        d.addCallback(lambda result: results.append(result['success']))
+        self.pumpTransports()
+
+        self.assertTrue(results)
+
+
+    def test_runExpectedFailure(self):
+        """
+        Run a test, and fail expectedly.
+        """
+        results = []
+
+        d = self.worker.callRemote(managercommands.AddExpectedFailure,
+                                   testName=self.testName, error='error',
+                                   todo='todoReason')
+        d.addCallback(lambda result: results.append(result['success']))
+        self.pumpTransports()
+
+        self.assertEqual(self.testCase, self.result.expectedFailures[0][0])
+        self.assertTrue(results)
+
+
+    def test_runError(self):
+        """
+        Run a test, and encounter an error.
+        """
+        results = []
+        errorClass = fullyQualifiedName(ValueError)
+        d = self.worker.callRemote(managercommands.AddError,
+                                   testName=self.testName, error='error',
+                                   errorClass=errorClass,
+                                   frames=[])
+        d.addCallback(lambda result: results.append(result['success']))
+        self.pumpTransports()
+
+        self.assertEqual(self.testCase, self.result.errors[0][0])
+        self.assertTrue(results)
+
+
+    def test_runErrorWithFrames(self):
+        """
+        L{LocalWorkerAMP._buildFailure} recreates the C{Failure.frames} from
+        the C{frames} argument passed to C{AddError}.
+        """
+        results = []
+        errorClass = fullyQualifiedName(ValueError)
+        d = self.worker.callRemote(managercommands.AddError,
+                                   testName=self.testName, error='error',
+                                   errorClass=errorClass,
+                                   frames=["file.py", "invalid code", "3"])
+        d.addCallback(lambda result: results.append(result['success']))
+        self.pumpTransports()
+
+        self.assertEqual(self.testCase, self.result.errors[0][0])
+        self.assertEqual(
+            [('file.py', 'invalid code', 3, [], [])],
+            self.result.errors[0][1].frames)
+        self.assertTrue(results)
+
+
+    def test_runFailure(self):
+        """
+        Run a test, and fail.
+        """
+        results = []
+        failClass = fullyQualifiedName(RuntimeError)
+        d = self.worker.callRemote(managercommands.AddFailure,
+                                   testName=self.testName, fail='fail',
+                                   failClass=failClass,
+                                   frames=[])
+        d.addCallback(lambda result: results.append(result['success']))
+        self.pumpTransports()
+
+        self.assertEqual(self.testCase, self.result.failures[0][0])
+        self.assertTrue(results)
+
+
+    def test_runSkip(self):
+        """
+        Run a test, but skip it.
+        """
+        results = []
+
+        d = self.worker.callRemote(managercommands.AddSkip,
+                                   testName=self.testName, reason='reason')
+        d.addCallback(lambda result: results.append(result['success']))
+        self.pumpTransports()
+
+        self.assertEqual(self.testCase, self.result.skips[0][0])
+        self.assertTrue(results)
+
+
+    def test_runUnexpectedSuccesses(self):
+        """
+        Run a test, and succeed unexpectedly.
+        """
+        results = []
+
+        d = self.worker.callRemote(managercommands.AddUnexpectedSuccess,
+                                   testName=self.testName,
+                                   todo='todo')
+        d.addCallback(lambda result: results.append(result['success']))
+        self.pumpTransports()
+
+        self.assertEqual(self.testCase, self.result.unexpectedSuccesses[0][0])
+        self.assertTrue(results)
+
+
+    def test_testWrite(self):
+        """
+        L{LocalWorkerAMP.testWrite} writes the data received to its test
+        stream.
+        """
+        results = []
+        stream = NativeStringIO()
+        self.managerAMP.setTestStream(stream)
+
+        command = managercommands.TestWrite
+        d = self.worker.callRemote(command,
+                                   out="Some output")
+        d.addCallback(lambda result: results.append(result['success']))
+        self.pumpTransports()
+
+        self.assertEqual("Some output\n", stream.getvalue())
+        self.assertTrue(results)
+
+
+    def test_stopAfterRun(self):
+        """
+        L{LocalWorkerAMP.run} calls C{stopTest} on its test result once the
+        C{Run} commands has succeeded.
+        """
+        result = object()
+        stopped = []
+
+        def fakeCallRemote(command, testCase):
+            return succeed(result)
+
+        self.managerAMP.callRemote = fakeCallRemote
+
+        class StopTestResult(TestResult):
+
+            def stopTest(self, test):
+                stopped.append(test)
+
+
+        d = self.managerAMP.run(self.testCase, StopTestResult())
+        self.assertEqual([self.testCase], stopped)
+        return d.addCallback(self.assertIdentical, result)
+
+
+
+class FakeAMProtocol(AMP):
+    """
+    A fake implementation of L{AMP} for testing.
+    """
+    id = 0
+    dataString = b""
+
+    def dataReceived(self, data):
+        self.dataString += data
+
+
+    def setTestStream(self, stream):
+        self.testStream = stream
 
 
 
 class FakeTransport(object):
     """
-    A simple fake process transport.
+    A fake process transport implementation for testing.
     """
+    dataString = b""
+    calls = 0
 
     def writeToChild(self, fd, data):
-        """
-        Ignore write calls.
-        """
+        self.dataString += data
+
+
+    def loseConnection(self):
+        self.calls += 1
 
 
 
-@implementer(interfaces.IReactorProcess)
-class CountingReactor(MemoryReactorClock):
+class LocalWorkerTests(TestCase):
     """
-    A fake reactor that counts the calls to L{IReactorCore.run},
-    L{IReactorCore.stop}, and L{IReactorProcess.spawnProcess}.
+    Tests for L{LocalWorker} and L{LocalWorkerTransport}.
     """
-    spawnCount = 0
-    stopCount = 0
-    runCount = 0
 
-    def __init__(self, workers):
-        MemoryReactorClock.__init__(self)
-        self._workers = workers
-
-
-    def spawnProcess(self, worker, *args, **kwargs):
+    def tidyLocalWorker(self, *args, **kwargs):
         """
-        See L{IReactorProcess.spawnProcess}.
+        Create a L{LocalWorker}, connect it to a transport, and ensure
+        its log files are closed.
 
-        @param worker: See L{IReactorProcess.spawnProcess}.
-        @param args: See L{IReactorProcess.spawnProcess}.
-        @param kwargs: See L{IReactorProcess.spawnProcess}.
+        @param args: See L{LocalWorker}
+
+        @param kwargs: See L{LocalWorker}
+
+        @return: a L{LocalWorker} instance
         """
-        self._workers.append(worker)
+        worker = LocalWorker(*args, **kwargs)
         worker.makeConnection(FakeTransport())
-        self.spawnCount += 1
+        self.addCleanup(worker._testLog.close)
+        self.addCleanup(worker._outLog.close)
+        self.addCleanup(worker._errLog.close)
+        return worker
 
 
-    def stop(self):
+    def test_childDataReceived(self):
         """
-        See L{IReactorCore.stop}.
+        L{LocalWorker.childDataReceived} forwards the received data to linked
+        L{AMP} protocol if the right file descriptor, otherwise forwards to
+        C{ProcessProtocol.childDataReceived}.
         """
-        MemoryReactorClock.stop(self)
-        self.stopCount += 1
+        localWorker = self.tidyLocalWorker(FakeAMProtocol(), '.', 'test.log')
+        localWorker._outLog = BytesIO()
+        localWorker.childDataReceived(4, b"foo")
+        localWorker.childDataReceived(1, b"bar")
+        self.assertEqual(b"foo", localWorker._ampProtocol.dataString)
+        self.assertEqual(b"bar", localWorker._outLog.getvalue())
 
 
-    def run(self):
+    def test_outReceived(self):
         """
-        See L{IReactorCore.run}.
+        L{LocalWorker.outReceived} logs the output into its C{_outLog} log
+        file.
         """
-        self.runCount += 1
-
-        # The same as IReactorCore.run, except no stop.
-        self.running = True
-        self.hasRun = True
-
-        for f, args, kwargs in self.whenRunningHooks:
-            f(*args, **kwargs)
+        localWorker = self.tidyLocalWorker(FakeAMProtocol(), '.', 'test.log')
+        localWorker._outLog = BytesIO()
+        data = b"The quick brown fox jumps over the lazy dog"
+        localWorker.outReceived(data)
+        self.assertEqual(data, localWorker._outLog.getvalue())
 
 
-
-class CountingReactorTests(SynchronousTestCase):
-    """
-    Tests for L{CountingReactor}.
-    """
-
-    def setUp(self):
-        self.workers = []
-        self.reactor = CountingReactor(self.workers)
-
-
-    def test_providesIReactorProcess(self):
+    def test_errReceived(self):
         """
-        L{CountingReactor} instances provide L{IReactorProcess}.
+        L{LocalWorker.errReceived} logs the errors into its C{_errLog} log
+        file.
         """
-        verify.verifyObject(interfaces.IReactorProcess, self.reactor)
+        localWorker = self.tidyLocalWorker(FakeAMProtocol(), '.', 'test.log')
+        localWorker._errLog = BytesIO()
+        data = b"The quick brown fox jumps over the lazy dog"
+        localWorker.errReceived(data)
+        self.assertEqual(data, localWorker._errLog.getvalue())
 
 
-    def test_spawnProcess(self):
+    def test_write(self):
         """
-        The process protocol for a spawned process is connected to a
-        transport and appended onto the provided C{workers} list, and
-        the reactor's C{spawnCount} increased.
+        L{LocalWorkerTransport.write} forwards the written data to the given
+        transport.
         """
-        self.assertFalse(self.reactor.spawnCount)
-
-        proto = Protocol()
-        for count in [1, 2]:
-            self.reactor.spawnProcess(proto, sys.executable,
-                                      arg=[sys.executable])
-            self.assertTrue(proto.transport)
-            self.assertEqual(self.workers, [proto] * count)
-            self.assertEqual(self.reactor.spawnCount, count)
+        transport = FakeTransport()
+        localTransport = LocalWorkerTransport(transport)
+        data = b"The quick brown fox jumps over the lazy dog"
+        localTransport.write(data)
+        self.assertEqual(data, transport.dataString)
 
 
-    def test_stop(self):
+    def test_writeSequence(self):
         """
-        Stopping the reactor increments its C{stopCount}
+        L{LocalWorkerTransport.writeSequence} forwards the written data to the
+        given transport.
         """
-        self.assertFalse(self.reactor.stopCount)
-        for count in [1, 2]:
-            self.reactor.stop()
-            self.assertEqual(self.reactor.stopCount, count)
+        transport = FakeTransport()
+        localTransport = LocalWorkerTransport(transport)
+        data = (b"The quick ", b"brown fox jumps ", b"over the lazy dog")
+        localTransport.writeSequence(data)
+        self.assertEqual(b"".join(data), transport.dataString)
 
 
-    def test_run(self):
+    def test_loseConnection(self):
         """
-        Running the reactor increments its C{runCount}, does not imply
-        C{stop}, and calls L{IReactorCore.callWhenRunning} hooks.
+        L{LocalWorkerTransport.loseConnection} forwards the call to the given
+        transport.
         """
-        self.assertFalse(self.reactor.runCount)
+        transport = FakeTransport()
+        localTransport = LocalWorkerTransport(transport)
+        localTransport.loseConnection()
 
-        whenRunningCalls = []
-        self.reactor.callWhenRunning(whenRunningCalls.append, None)
-
-        for count in [1, 2]:
-            self.reactor.run()
-            self.assertEqual(self.reactor.runCount, count)
-            self.assertEqual(self.reactor.stopCount, 0)
-            self.assertEqual(len(whenRunningCalls), count)
+        self.assertEqual(transport.calls, 1)
 
 
-
-class EternalTerminationPredicateFactory(object):
-    """
-    A rigged terminationPredicateFactory for which time never pass.
-    """
-
-    def __call__(self):
+    def test_connectionLost(self):
         """
-        See: L{task._Timer}
-        """
-        return False
-
-
-
-class DistTrialRunnerTests(TestCase):
-    """
-    Tests for L{DistTrialRunner}.
-    """
-
-    def setUp(self):
-        """
-        Create a runner for testing.
-        """
-        self.runner = DistTrialRunner(TreeReporter, 4, [],
-                                      workingDirectory=self.mktemp())
-        self.runner._stream = StringIO()
-
-
-    def reap(self, workers):
-        """
-        Reap the workers and trap L{ConnectionDone} failures on their
-        C{endDeferred}s.
-
-        @param workers: The workers to reap.
-        @type workers: An iterable of L{LocalWorker}
+        L{LocalWorker.connectionLost} closes the log streams.
         """
 
-        for worker in workers:
-            worker.endDeferred.addErrback(Failure.trap, error.ConnectionDone)
-            worker.processEnded(Failure(CONNECTION_DONE))
+        localWorker = self.tidyLocalWorker(FakeAMProtocol(), '.', 'test.log')
+        localWorker.connectionLost(None)
+        self.assertTrue(localWorker._outLog.closed)
+        self.assertTrue(localWorker._errLog.closed)
+        self.assertTrue(localWorker._testLog.closed)
 
 
-    def getFakeSchedulerAndEternalCooperator(self):
+    def test_processEnded(self):
         """
-        Helper to create fake scheduler and cooperator in tests.
-
-        The cooperator has a termination timer which will never inform
-        the scheduler that the task needs to be terminated.
-
-        @return: L{tuple} of (scheduler, cooperator)
-        """
-        scheduler = FakeScheduler()
-        cooperator = Cooperator(
-            scheduler=scheduler,
-            terminationPredicateFactory=EternalTerminationPredicateFactory,
-            )
-        return scheduler, cooperator
-
-
-    def test_writeResults(self):
-        """
-        L{DistTrialRunner.writeResults} writes to the stream specified in the
-        init.
-        """
-        stringIO = StringIO()
-        result = DistReporter(Reporter(stringIO))
-        self.runner.writeResults(result)
-        self.assertTrue(stringIO.tell() > 0)
-
-
-    def test_createLocalWorkers(self):
-        """
-        C{createLocalWorkers} iterates the list of protocols and create one
-        L{LocalWorker} for each.
-        """
-        protocols = [object() for x in range(4)]
-        workers = self.runner.createLocalWorkers(protocols, "path")
-        for s in workers:
-            self.assertIsInstance(s, LocalWorker)
-        self.assertEqual(4, len(workers))
-
-
-    def test_launchWorkerProcesses(self):
-        """
-        Given a C{spawnProcess} function, C{launchWorkerProcess} launches a
-        python process with an existing path as its argument.
-        """
-        protocols = [ProcessProtocol() for i in range(4)]
-        arguments = []
-        environment = {}
-
-        def fakeSpawnProcess(processProtocol, executable, args=(), env={},
-                             path=None, uid=None, gid=None, usePTY=0,
-                             childFDs=None):
-            arguments.append(executable)
-            arguments.extend(args)
-            environment.update(env)
-
-        self.runner.launchWorkerProcesses(
-            fakeSpawnProcess, protocols, ["foo"])
-        self.assertEqual(arguments[0], arguments[1])
-        self.assertTrue(os.path.exists(arguments[2]))
-        self.assertEqual("foo", arguments[3])
-        self.assertEqual(os.pathsep.join(sys.path),
-                         environment["TRIAL_PYTHONPATH"])
-
-
-    def test_run(self):
-        """
-        C{run} starts the reactor exactly once and spawns each of the workers
-        exactly once.
-        """
-        workers = []
-        fakeReactor = CountingReactor(workers)
-        self.addCleanup(self.reap, workers)
-
-        suite = TrialSuite()
-        for i in range(10):
-            suite.addTest(TestCase())
-        self.runner.run(suite, fakeReactor)
-        self.assertEqual(fakeReactor.runCount, 1)
-        self.assertEqual(fakeReactor.spawnCount, self.runner._workerNumber)
-
-
-    def test_runUsedDirectory(self):
-        """
-        L{DistTrialRunner} checks if the test directory is already locked, and
-        if it is generates a name based on it.
+        L{LocalWorker.processEnded} calls C{connectionLost} on itself and on
+        the L{AMP} protocol.
         """
 
-        class CountingReactorWithLock(CountingReactor):
-
-            def spawnProcess(oself, worker, *args, **kwargs):
-                oself._workers.append(worker)
-                self.assertEqual(os.path.abspath(worker._logDirectory),
-                                 os.path.abspath(
-                                     os.path.join(workingDirectory + "-1",
-                                                  str(oself.spawnCount))))
-                localLock = FilesystemLock(workingDirectory + "-1.lock")
-                self.assertFalse(localLock.lock())
-                oself.spawnCount += 1
-                worker.makeConnection(FakeTransport())
-                worker._ampProtocol.run = lambda *args: succeed(None)
-
-        newDirectory = self.mktemp()
-        os.mkdir(newDirectory)
-        workingDirectory = os.path.join(newDirectory, "_trial_temp")
-        lock = FilesystemLock(workingDirectory + ".lock")
-        lock.lock()
-        self.addCleanup(lock.unlock)
-        self.runner._workingDirectory = workingDirectory
-
-        workers = []
-
-        fakeReactor = CountingReactorWithLock(workers)
-        self.addCleanup(self.reap, workers)
-
-        suite = TrialSuite()
-        for i in range(10):
-            suite.addTest(TestCase())
-
-        self.runner.run(suite, fakeReactor)
+        transport = FakeTransport()
+        protocol = FakeAMProtocol()
+        localWorker = LocalWorker(protocol, '.', 'test.log')
+        localWorker.makeConnection(transport)
+        localWorker.processEnded(Failure(CONNECTION_DONE))
+        self.assertTrue(localWorker._outLog.closed)
+        self.assertTrue(localWorker._errLog.closed)
+        self.assertTrue(localWorker._testLog.closed)
+        self.assertIdentical(None, protocol.transport)
+        return self.assertFailure(localWorker.endDeferred, ConnectionDone)
 
 
-    def test_minimalWorker(self):
+    def test_addresses(self):
         """
-        L{DistTrialRunner} doesn't try to start more workers than the number of
-        tests.
+        L{LocalWorkerTransport.getPeer} and L{LocalWorkerTransport.getHost}
+        return L{IAddress} objects.
         """
-        workers = []
-        fakeReactor = CountingReactor(workers)
-        self.addCleanup(self.reap, workers)
-
-        self.runner.run(TestCase(), fakeReactor)
-        self.assertEqual(fakeReactor.runCount, 1)
-        self.assertEqual(fakeReactor.spawnCount, 1)
+        localTransport = LocalWorkerTransport(None)
+        self.assertTrue(verifyObject(IAddress, localTransport.getPeer()))
+        self.assertTrue(verifyObject(IAddress, localTransport.getHost()))
 
 
-    def test_runUncleanWarnings(self):
+    def test_transport(self):
         """
-        Running with the C{unclean-warnings} option makes L{DistTrialRunner}
-        uses the L{UncleanWarningsReporterWrapper}.
+        L{LocalWorkerTransport} implements L{ITransport} to be able to be used
+        by L{AMP}.
         """
-        workers = []
-        fakeReactor = CountingReactor(workers)
-        self.addCleanup(self.reap, workers)
-
-        self.runner._uncleanWarnings = True
-        result = self.runner.run(TestCase(), fakeReactor)
-        self.assertIsInstance(result, DistReporter)
-        self.assertIsInstance(result.original,
-                              UncleanWarningsReporterWrapper)
+        localTransport = LocalWorkerTransport(None)
+        self.assertTrue(verifyObject(ITransport, localTransport))
 
 
-    def test_runWithoutTest(self):
+    def test_startError(self):
         """
-        When the suite contains no test, L{DistTrialRunner} takes a shortcut
-        path without launching any process or starting the reactor.
-        """
-        fakeReactor = object()
-        suite = TrialSuite()
-        result = self.runner.run(suite, fakeReactor)
-        self.assertIsInstance(result, DistReporter)
-        output = self.runner._stream.getvalue()
-        self.assertIn("Running 0 test", output)
-        self.assertIn("PASSED", output)
-
-
-    def test_runWithoutTestButWithAnError(self):
-        """
-        Even if there is no test, the suite can contain an error (most likely,
-        an import error): this should make the run fail, and the error should
-        be printed.
-        """
-        fakeReactor = object()
-        error = ErrorHolder("an error", Failure(RuntimeError("foo bar")))
-        result = self.runner.run(error, fakeReactor)
-        self.assertIsInstance(result, DistReporter)
-        output = self.runner._stream.getvalue()
-        self.assertIn("Running 0 test", output)
-        self.assertIn("foo bar", output)
-        self.assertIn("an error", output)
-        self.assertIn("errors=1", output)
-        self.assertIn("FAILED", output)
-
-
-    def test_runUnexpectedError(self):
-        """
-        If for some reasons we can't connect to the worker process, the test
-        suite catches and fails.
+        L{LocalWorker} swallows the exceptions returned by the L{AMP} protocol
+        start method, as it generates unnecessary errors.
         """
 
-        class CountingReactorWithFail(CountingReactor):
+        def failCallRemote(command, directory):
+            return fail(RuntimeError("oops"))
 
-            def spawnProcess(self, worker, *args, **kwargs):
-                self._workers.append(worker)
-                worker.makeConnection(FakeTransport())
-                self.spawnCount += 1
-                worker._ampProtocol.run = self.failingRun
+        protocol = FakeAMProtocol()
+        protocol.callRemote = failCallRemote
+        self.tidyLocalWorker(protocol, '.', 'test.log')
 
-            def failingRun(self, case, result):
-                return fail(RuntimeError("oops"))
-
-        scheduler, cooperator = self.getFakeSchedulerAndEternalCooperator()
-
-        workers = []
-        fakeReactor = CountingReactorWithFail(workers)
-        self.addCleanup(self.reap, workers)
-
-        result = self.runner.run(TestCase(), fakeReactor,
-                                 cooperator.cooperate)
-        self.assertEqual(fakeReactor.runCount, 1)
-        self.assertEqual(fakeReactor.spawnCount, 1)
-        scheduler.pump()
-        self.assertEqual(1, len(result.original.failures))
-
-
-    def test_runStopAfterTests(self):
-        """
-        L{DistTrialRunner} calls C{reactor.stop} and unlocks the test directory
-        once the tests have run.
-        """
-        class CountingReactorWithSuccess(CountingReactor):
-
-            def spawnProcess(self, worker, *args, **kwargs):
-                self._workers.append(worker)
-                worker.makeConnection(FakeTransport())
-                self.spawnCount += 1
-                worker._ampProtocol.run = self.succeedingRun
-
-            def succeedingRun(self, case, result):
-                return succeed(None)
-
-        workingDirectory = self.runner._workingDirectory
-
-        workers = []
-        fakeReactor = CountingReactorWithSuccess(workers)
-
-        self.runner.run(TestCase(), fakeReactor)
-
-        def check():
-            localLock = FilesystemLock(workingDirectory + ".lock")
-            self.assertTrue(localLock.lock())
-            self.assertEqual(1, fakeReactor.stopCount)
-
-        self.assertEqual(list(fakeReactor.triggers.keys()), ["before"])
-        self.assertEqual(list(fakeReactor.triggers["before"]), ["shutdown"])
-        self.reap(workers)
-
-        return deferLater(reactor, 0, check)
-
-
-    def test_runWaitForProcessesDeferreds(self):
-        """
-        L{DistTrialRunner} waits for the worker processes to stop when the
-        reactor is stopping, and then unlocks the test directory, not trying to
-        stop the reactor again.
-        """
-        workers = []
-        workingDirectory = self.runner._workingDirectory
-
-        fakeReactor = CountingReactor(workers)
-        self.runner.run(TestCase(), fakeReactor)
-
-        def check(ign):
-            # Let the AMP deferreds fire
-            return deferLater(reactor, 0, realCheck)
-
-        def realCheck():
-            localLock = FilesystemLock(workingDirectory + ".lock")
-            self.assertTrue(localLock.lock())
-            # Stop is not called, as it ought to have been called before
-            self.assertEqual(0, fakeReactor.stopCount)
-
-        self.assertEqual(list(fakeReactor.triggers.keys()), ["before"])
-        self.assertEqual(list(fakeReactor.triggers["before"]), ["shutdown"])
-        self.reap(workers)
-
-        return gatherResults([
-            maybeDeferred(f, *a, **kw)
-            for f, a, kw in fakeReactor.triggers["before"]["shutdown"]
-        ]).addCallback(check)
-
-
-    def test_runUntilFailure(self):
-        """
-        L{DistTrialRunner} can run in C{untilFailure} mode where it will run
-        the given tests until they fail.
-        """
-        called = []
-
-        class CountingReactorWithSuccess(CountingReactor):
-
-            def spawnProcess(self, worker, *args, **kwargs):
-                self._workers.append(worker)
-                worker.makeConnection(FakeTransport())
-                self.spawnCount += 1
-                worker._ampProtocol.run = self.succeedingRun
-
-            def succeedingRun(self, case, result):
-                called.append(None)
-                if len(called) == 5:
-                    return fail(RuntimeError("oops"))
-                return succeed(None)
-
-        workers = []
-        fakeReactor = CountingReactorWithSuccess(workers)
-        self.addCleanup(self.reap, workers)
-
-        scheduler, cooperator = self.getFakeSchedulerAndEternalCooperator()
-
-        result = self.runner.run(
-            TestCase(), fakeReactor, cooperate=cooperator.cooperate,
-            untilFailure=True)
-        scheduler.pump()
-        self.assertEqual(5, len(called))
-        self.assertFalse(result.wasSuccessful())
-        output = self.runner._stream.getvalue()
-        self.assertIn("PASSED", output)
-        self.assertIn("FAIL", output)
+        self.assertEqual([], self.flushLoggedErrors(RuntimeError))

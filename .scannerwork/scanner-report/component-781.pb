@@ -1,1 +1,1 @@
-çAvenv/lib/python3.6/site-packages/celery/worker/consumer/events.py 2pyXFh
+ç@venv/lib/python3.6/site-packages/celery/worker/consumer/tasks.py 2pyXDh

@@ -1,303 +1,289 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
 
-"""Miscellaneous stuff for coverage.py."""
+"""Results of coverage measurement."""
 
-import errno
-import hashlib
-import inspect
-import locale
-import os
-import sys
-import types
+import collections
 
-from coverage import env
-from coverage.backward import to_bytes, unicode_class
-
-ISOLATED_MODULES = {}
+from coverage.backward import iitems
+from coverage.misc import contract, format_lines, SimpleRepr
 
 
-def isolate_module(mod):
-    """Copy a module so that we are isolated from aggressive mocking.
+class Analysis(object):
+    """The results of analyzing a FileReporter."""
 
-    If a test suite mocks os.path.exists (for example), and then we need to use
-    it during the test, everything will get tangled up if we use their mock.
-    Making a copy of the module when we import it will isolate coverage.py from
-    those complications.
-    """
-    if mod not in ISOLATED_MODULES:
-        new_mod = types.ModuleType(mod.__name__)
-        ISOLATED_MODULES[mod] = new_mod
-        for name in dir(mod):
-            value = getattr(mod, name)
-            if isinstance(value, types.ModuleType):
-                value = isolate_module(value)
-            setattr(new_mod, name, value)
-    return ISOLATED_MODULES[mod]
+    def __init__(self, data, file_reporter):
+        self.data = data
+        self.file_reporter = file_reporter
+        self.filename = self.file_reporter.filename
+        self.statements = self.file_reporter.lines()
+        self.excluded = self.file_reporter.excluded_lines()
 
-os = isolate_module(os)
+        # Identify missing statements.
+        executed = self.data.lines(self.filename) or []
+        executed = self.file_reporter.translate_lines(executed)
+        self.missing = self.statements - executed
 
-
-def dummy_decorator_with_args(*args_unused, **kwargs_unused):
-    """Dummy no-op implementation of a decorator with arguments."""
-    def _decorator(func):
-        return func
-    return _decorator
-
-
-# Use PyContracts for assertion testing on parameters and returns, but only if
-# we are running our own test suite.
-if env.TESTING:
-    from contracts import contract              # pylint: disable=unused-import
-    from contracts import new_contract as raw_new_contract
-
-    def new_contract(*args, **kwargs):
-        """A proxy for contracts.new_contract that doesn't mind happening twice."""
-        try:
-            return raw_new_contract(*args, **kwargs)
-        except ValueError:
-            # During meta-coverage, this module is imported twice, and
-            # PyContracts doesn't like redefining contracts. It's OK.
-            pass
-
-    # Define contract words that PyContract doesn't have.
-    new_contract('bytes', lambda v: isinstance(v, bytes))
-    if env.PY3:
-        new_contract('unicode', lambda v: isinstance(v, unicode_class))
-
-    def one_of(argnames):
-        """Ensure that only one of the argnames is non-None."""
-        def _decorator(func):
-            argnameset = set(name.strip() for name in argnames.split(","))
-            def _wrapped(*args, **kwargs):
-                vals = [kwargs.get(name) for name in argnameset]
-                assert sum(val is not None for val in vals) == 1
-                return func(*args, **kwargs)
-            return _wrapped
-        return _decorator
-else:                                           # pragma: not testing
-    # We aren't using real PyContracts, so just define our decorators as
-    # stunt-double no-ops.
-    contract = dummy_decorator_with_args
-    one_of = dummy_decorator_with_args
-
-    def new_contract(*args_unused, **kwargs_unused):
-        """Dummy no-op implementation of `new_contract`."""
-        pass
-
-
-def nice_pair(pair):
-    """Make a nice string representation of a pair of numbers.
-
-    If the numbers are equal, just return the number, otherwise return the pair
-    with a dash between them, indicating the range.
-
-    """
-    start, end = pair
-    if start == end:
-        return "%d" % start
-    else:
-        return "%d-%d" % (start, end)
-
-
-def format_lines(statements, lines):
-    """Nicely format a list of line numbers.
-
-    Format a list of line numbers for printing by coalescing groups of lines as
-    long as the lines represent consecutive statements.  This will coalesce
-    even if there are gaps between statements.
-
-    For example, if `statements` is [1,2,3,4,5,10,11,12,13,14] and
-    `lines` is [1,2,5,10,11,13,14] then the result will be "1-2, 5-11, 13-14".
-
-    Both `lines` and `statements` can be any iterable. All of the elements of
-    `lines` must be in `statements`, and all of the values must be positive
-    integers.
-
-    """
-    statements = sorted(statements)
-    lines = sorted(lines)
-
-    pairs = []
-    start = None
-    lidx = 0
-    for stmt in statements:
-        if lidx >= len(lines):
-            break
-        if stmt == lines[lidx]:
-            lidx += 1
-            if not start:
-                start = stmt
-            end = stmt
-        elif start:
-            pairs.append((start, end))
-            start = None
-    if start:
-        pairs.append((start, end))
-    ret = ', '.join(map(nice_pair, pairs))
-    return ret
-
-
-def expensive(fn):
-    """A decorator to indicate that a method shouldn't be called more than once.
-
-    Normally, this does nothing.  During testing, this raises an exception if
-    called more than once.
-
-    """
-    if env.TESTING:
-        attr = "_once_" + fn.__name__
-
-        def _wrapped(self):
-            """Inner function that checks the cache."""
-            if hasattr(self, attr):
-                raise AssertionError("Shouldn't have called %s more than once" % fn.__name__)
-            setattr(self, attr, True)
-            return fn(self)
-        return _wrapped
-    else:
-        return fn                   # pragma: not testing
-
-
-def bool_or_none(b):
-    """Return bool(b), but preserve None."""
-    if b is None:
-        return None
-    else:
-        return bool(b)
-
-
-def join_regex(regexes):
-    """Combine a list of regexes into one that matches any of them."""
-    return "|".join("(?:%s)" % r for r in regexes)
-
-
-def file_be_gone(path):
-    """Remove a file, and don't get annoyed if it doesn't exist."""
-    try:
-        os.remove(path)
-    except OSError as e:
-        if e.errno != errno.ENOENT:
-            raise
-
-
-def output_encoding(outfile=None):
-    """Determine the encoding to use for output written to `outfile` or stdout."""
-    if outfile is None:
-        outfile = sys.stdout
-    encoding = (
-        getattr(outfile, "encoding", None) or
-        getattr(sys.__stdout__, "encoding", None) or
-        locale.getpreferredencoding()
-    )
-    return encoding
-
-
-class Hasher(object):
-    """Hashes Python data into md5."""
-    def __init__(self):
-        self.md5 = hashlib.md5()
-
-    def update(self, v):
-        """Add `v` to the hash, recursively if needed."""
-        self.md5.update(to_bytes(str(type(v))))
-        if isinstance(v, unicode_class):
-            self.md5.update(v.encode('utf8'))
-        elif isinstance(v, bytes):
-            self.md5.update(v)
-        elif v is None:
-            pass
-        elif isinstance(v, (int, float)):
-            self.md5.update(to_bytes(str(v)))
-        elif isinstance(v, (tuple, list)):
-            for e in v:
-                self.update(e)
-        elif isinstance(v, dict):
-            keys = v.keys()
-            for k in sorted(keys):
-                self.update(k)
-                self.update(v[k])
+        if self.data.has_arcs():
+            self._arc_possibilities = sorted(self.file_reporter.arcs())
+            self.exit_counts = self.file_reporter.exit_counts()
+            self.no_branch = self.file_reporter.no_branch_lines()
+            n_branches = self.total_branches()
+            mba = self.missing_branch_arcs()
+            n_partial_branches = sum(len(v) for k,v in iitems(mba) if k not in self.missing)
+            n_missing_branches = sum(len(v) for k,v in iitems(mba))
         else:
-            for k in dir(v):
-                if k.startswith('__'):
-                    continue
-                a = getattr(v, k)
-                if inspect.isroutine(a):
-                    continue
-                self.update(k)
-                self.update(a)
+            self._arc_possibilities = []
+            self.exit_counts = {}
+            self.no_branch = set()
+            n_branches = n_partial_branches = n_missing_branches = 0
 
-    def hexdigest(self):
-        """Retrieve the hex digest of the hash."""
-        return self.md5.hexdigest()
-
-
-def _needs_to_implement(that, func_name):
-    """Helper to raise NotImplementedError in interface stubs."""
-    if hasattr(that, "_coverage_plugin_name"):
-        thing = "Plugin"
-        name = that._coverage_plugin_name
-    else:
-        thing = "Class"
-        klass = that.__class__
-        name = "{klass.__module__}.{klass.__name__}".format(klass=klass)
-
-    raise NotImplementedError(
-        "{thing} {name!r} needs to implement {func_name}()".format(
-            thing=thing, name=name, func_name=func_name
-            )
+        self.numbers = Numbers(
+            n_files=1,
+            n_statements=len(self.statements),
+            n_excluded=len(self.excluded),
+            n_missing=len(self.missing),
+            n_branches=n_branches,
+            n_partial_branches=n_partial_branches,
+            n_missing_branches=n_missing_branches,
         )
 
+    def missing_formatted(self):
+        """The missing line numbers, formatted nicely.
 
-class SimpleRepr(object):
-    """A mixin implementing a simple __repr__."""
-    def __repr__(self):
-        return "<{klass} @{id:x} {attrs}>".format(
-            klass=self.__class__.__name__,
-            id=id(self) & 0xFFFFFF,
-            attrs=" ".join("{}={!r}".format(k, v) for k, v in self.__dict__.items()),
+        Returns a string like "1-2, 5-11, 13-14".
+
+        """
+        return format_lines(self.statements, self.missing)
+
+    def has_arcs(self):
+        """Were arcs measured in this result?"""
+        return self.data.has_arcs()
+
+    def arc_possibilities(self):
+        """Returns a sorted list of the arcs in the code."""
+        return self._arc_possibilities
+
+    def arcs_executed(self):
+        """Returns a sorted list of the arcs actually executed in the code."""
+        executed = self.data.arcs(self.filename) or []
+        executed = self.file_reporter.translate_arcs(executed)
+        return sorted(executed)
+
+    def arcs_missing(self):
+        """Returns a sorted list of the arcs in the code not executed."""
+        possible = self.arc_possibilities()
+        executed = self.arcs_executed()
+        missing = (
+            p for p in possible
+                if p not in executed
+                    and p[0] not in self.no_branch
+        )
+        return sorted(missing)
+
+    def arcs_missing_formatted(self):
+        """The missing branch arcs, formatted nicely.
+
+        Returns a string like "1->2, 1->3, 16->20". Omits any mention of
+        branches from missing lines, so if line 17 is missing, then 17->18
+        won't be included.
+
+        """
+        arcs = self.missing_branch_arcs()
+        missing = self.missing
+        line_exits = sorted(iitems(arcs))
+        pairs = []
+        for line, exits in line_exits:
+            for ex in sorted(exits):
+                if line not in missing:
+                    pairs.append("%d->%s" % (line, (ex if ex > 0 else "exit")))
+        return ', '.join(pairs)
+
+    def arcs_unpredicted(self):
+        """Returns a sorted list of the executed arcs missing from the code."""
+        possible = self.arc_possibilities()
+        executed = self.arcs_executed()
+        # Exclude arcs here which connect a line to itself.  They can occur
+        # in executed data in some cases.  This is where they can cause
+        # trouble, and here is where it's the least burden to remove them.
+        # Also, generators can somehow cause arcs from "enter" to "exit", so
+        # make sure we have at least one positive value.
+        unpredicted = (
+            e for e in executed
+                if e not in possible
+                    and e[0] != e[1]
+                    and (e[0] > 0 or e[1] > 0)
+        )
+        return sorted(unpredicted)
+
+    def branch_lines(self):
+        """Returns a list of line numbers that have more than one exit."""
+        return [l1 for l1,count in iitems(self.exit_counts) if count > 1]
+
+    def total_branches(self):
+        """How many total branches are there?"""
+        return sum(count for count in self.exit_counts.values() if count > 1)
+
+    def missing_branch_arcs(self):
+        """Return arcs that weren't executed from branch lines.
+
+        Returns {l1:[l2a,l2b,...], ...}
+
+        """
+        missing = self.arcs_missing()
+        branch_lines = set(self.branch_lines())
+        mba = collections.defaultdict(list)
+        for l1, l2 in missing:
+            if l1 in branch_lines:
+                mba[l1].append(l2)
+        return mba
+
+    def branch_stats(self):
+        """Get stats about branches.
+
+        Returns a dict mapping line numbers to a tuple:
+        (total_exits, taken_exits).
+        """
+
+        missing_arcs = self.missing_branch_arcs()
+        stats = {}
+        for lnum in self.branch_lines():
+            exits = self.exit_counts[lnum]
+            try:
+                missing = len(missing_arcs[lnum])
+            except KeyError:
+                missing = 0
+            stats[lnum] = (exits, exits - missing)
+        return stats
+
+
+class Numbers(SimpleRepr):
+    """The numerical results of measuring coverage.
+
+    This holds the basic statistics from `Analysis`, and is used to roll
+    up statistics across files.
+
+    """
+    # A global to determine the precision on coverage percentages, the number
+    # of decimal places.
+    _precision = 0
+    _near0 = 1.0              # These will change when _precision is changed.
+    _near100 = 99.0
+
+    def __init__(self, n_files=0, n_statements=0, n_excluded=0, n_missing=0,
+                    n_branches=0, n_partial_branches=0, n_missing_branches=0
+                    ):
+        self.n_files = n_files
+        self.n_statements = n_statements
+        self.n_excluded = n_excluded
+        self.n_missing = n_missing
+        self.n_branches = n_branches
+        self.n_partial_branches = n_partial_branches
+        self.n_missing_branches = n_missing_branches
+
+    def init_args(self):
+        """Return a list for __init__(*args) to recreate this object."""
+        return [
+            self.n_files, self.n_statements, self.n_excluded, self.n_missing,
+            self.n_branches, self.n_partial_branches, self.n_missing_branches,
+        ]
+
+    @classmethod
+    def set_precision(cls, precision):
+        """Set the number of decimal places used to report percentages."""
+        assert 0 <= precision < 10
+        cls._precision = precision
+        cls._near0 = 1.0 / 10**precision
+        cls._near100 = 100.0 - cls._near0
+
+    @property
+    def n_executed(self):
+        """Returns the number of executed statements."""
+        return self.n_statements - self.n_missing
+
+    @property
+    def n_executed_branches(self):
+        """Returns the number of executed branches."""
+        return self.n_branches - self.n_missing_branches
+
+    @property
+    def pc_covered(self):
+        """Returns a single percentage value for coverage."""
+        if self.n_statements > 0:
+            numerator, denominator = self.ratio_covered
+            pc_cov = (100.0 * numerator) / denominator
+        else:
+            pc_cov = 100.0
+        return pc_cov
+
+    @property
+    def pc_covered_str(self):
+        """Returns the percent covered, as a string, without a percent sign.
+
+        Note that "0" is only returned when the value is truly zero, and "100"
+        is only returned when the value is truly 100.  Rounding can never
+        result in either "0" or "100".
+
+        """
+        pc = self.pc_covered
+        if 0 < pc < self._near0:
+            pc = self._near0
+        elif self._near100 < pc < 100:
+            pc = self._near100
+        else:
+            pc = round(pc, self._precision)
+        return "%.*f" % (self._precision, pc)
+
+    @classmethod
+    def pc_str_width(cls):
+        """How many characters wide can pc_covered_str be?"""
+        width = 3   # "100"
+        if cls._precision > 0:
+            width += 1 + cls._precision
+        return width
+
+    @property
+    def ratio_covered(self):
+        """Return a numerator and denominator for the coverage ratio."""
+        numerator = self.n_executed + self.n_executed_branches
+        denominator = self.n_statements + self.n_branches
+        return numerator, denominator
+
+    def __add__(self, other):
+        nums = Numbers()
+        nums.n_files = self.n_files + other.n_files
+        nums.n_statements = self.n_statements + other.n_statements
+        nums.n_excluded = self.n_excluded + other.n_excluded
+        nums.n_missing = self.n_missing + other.n_missing
+        nums.n_branches = self.n_branches + other.n_branches
+        nums.n_partial_branches = (
+            self.n_partial_branches + other.n_partial_branches
             )
+        nums.n_missing_branches = (
+            self.n_missing_branches + other.n_missing_branches
+            )
+        return nums
+
+    def __radd__(self, other):
+        # Implementing 0+Numbers allows us to sum() a list of Numbers.
+        if other == 0:
+            return self
+        return NotImplemented
 
 
-class BaseCoverageException(Exception):
-    """The base of all Coverage exceptions."""
-    pass
+@contract(total='number', fail_under='number', precision=int, returns=bool)
+def should_fail_under(total, fail_under, precision):
+    """Determine if a total should fail due to fail-under.
 
+    `total` is a float, the coverage measurement total. `fail_under` is the
+    fail_under setting to compare with. `precision` is the number of digits
+    to consider after the decimal point.
 
-class CoverageException(BaseCoverageException):
-    """A run-of-the-mill exception specific to coverage.py."""
-    pass
-
-
-class NoSource(CoverageException):
-    """We couldn't find the source for a module."""
-    pass
-
-
-class NoCode(NoSource):
-    """We couldn't find any code at all."""
-    pass
-
-
-class NotPython(CoverageException):
-    """A source file turned out not to be parsable Python."""
-    pass
-
-
-class ExceptionDuringRun(CoverageException):
-    """An exception happened while running customer code.
-
-    Construct it with three arguments, the values from `sys.exc_info`.
+    Returns True if the total should fail.
 
     """
-    pass
+    # Special case for fail_under=100, it must really be 100.
+    if fail_under == 100.0 and total != 100.0:
+        return True
 
-
-class StopEverything(BaseCoverageException):
-    """An exception that means everything should stop.
-
-    The CoverageTest class converts these to SkipTest, so that when running
-    tests, raising this exception will automatically skip the test.
-
-    """
-    pass
+    return round(total, precision) < fail_under

@@ -1,1 +1,1 @@
-¨‡&venv/lib/python3.6/site-packages/kombu :<§‡Ï‡ø‡ù‡ú‡û‡ü‡ý‡þ‡ÿ‡”ˆ–ˆ—ˆ˜ˆ™ˆšˆÎˆÏˆÐˆÑˆ
+¨‡.venv/lib/python3.6/site-packages/kombu/five.py 2pyX	h

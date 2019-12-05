@@ -1,1 +1,1 @@
-¾Ô)venv/lib64/python3.6/site-packages/screen :	¼Ô½ÔÄÔ
+¾Ô)venv/lib64/python3.6/site-packages/screen :	½Ô¼ÔÃÔ

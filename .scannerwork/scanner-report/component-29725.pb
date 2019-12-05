@@ -1,1 +1,1 @@
-è=venv/lib64/python3.6/site-packages/django/utils/itercompat.py 2pyX	h
+è<venv/lib64/python3.6/site-packages/django/utils/timesince.py 2pyX\h

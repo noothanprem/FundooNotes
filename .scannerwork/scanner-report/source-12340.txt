@@ -1,83 +1,133 @@
 #
-# The Python Imaging Library.
+# The Python Imaging Library
 # $Id$
 #
-# GD file handling
+# bitmap distribution font (bdf) file parser
 #
-# History:
-# 1996-04-12 fl   Created
+# history:
+# 1996-05-16 fl   created (as bdf2pil)
+# 1997-08-25 fl   converted to FontFile driver
+# 2001-05-25 fl   removed bogus __init__ call
+# 2002-11-20 fl   robustification (from Kevin Cazabon, Dmitry Vasiliev)
+# 2003-04-22 fl   more robustification (from Graham Dumpleton)
 #
-# Copyright (c) 1997 by Secret Labs AB.
-# Copyright (c) 1996 by Fredrik Lundh.
+# Copyright (c) 1997-2003 by Secret Labs AB.
+# Copyright (c) 1997-2003 by Fredrik Lundh.
 #
 # See the README file for information on usage and redistribution.
 #
 
+from __future__ import print_function
 
-# NOTE: This format cannot be automatically recognized, so the
-# class is not registered for use with Image.open().  To open a
-# gd file, use the GdImageFile.open() function instead.
-
-# THE GD FORMAT IS NOT DESIGNED FOR DATA INTERCHANGE.  This
-# implementation is provided for convenience and demonstrational
-# purposes only.
+from . import Image, FontFile
 
 
-from . import ImageFile, ImagePalette
-from ._binary import i8, i16be as i16, i32be as i32
+# --------------------------------------------------------------------
+# parse X Bitmap Distribution Format (BDF)
+# --------------------------------------------------------------------
 
-__version__ = "0.1"
+bdf_slant = {
+    "R": "Roman",
+    "I": "Italic",
+    "O": "Oblique",
+    "RI": "Reverse Italic",
+    "RO": "Reverse Oblique",
+    "OT": "Other"
+}
+
+bdf_spacing = {
+    "P": "Proportional",
+    "M": "Monospaced",
+    "C": "Cell"
+}
+
+
+def bdf_char(f):
+    # skip to STARTCHAR
+    while True:
+        s = f.readline()
+        if not s:
+            return None
+        if s[:9] == b"STARTCHAR":
+            break
+    id = s[9:].strip().decode('ascii')
+
+    # load symbol properties
+    props = {}
+    while True:
+        s = f.readline()
+        if not s or s[:6] == b"BITMAP":
+            break
+        i = s.find(b" ")
+        props[s[:i].decode('ascii')] = s[i+1:-1].decode('ascii')
+
+    # load bitmap
+    bitmap = []
+    while True:
+        s = f.readline()
+        if not s or s[:7] == b"ENDCHAR":
+            break
+        bitmap.append(s[:-1])
+    bitmap = b"".join(bitmap)
+
+    [x, y, l, d] = [int(p) for p in props["BBX"].split()]
+    [dx, dy] = [int(p) for p in props["DWIDTH"].split()]
+
+    bbox = (dx, dy), (l, -d-y, x+l, -d), (0, 0, x, y)
+
+    try:
+        im = Image.frombytes("1", (x, y), bitmap, "hex", "1")
+    except ValueError:
+        # deal with zero-width characters
+        im = Image.new("1", (x, y))
+
+    return id, int(props["ENCODING"]), bbox, im
 
 
 ##
-# Image plugin for the GD uncompressed format.  Note that this format
-# is not supported by the standard <b>Image.open</b> function.  To use
-# this plugin, you have to import the <b>GdImageFile</b> module and
-# use the <b>GdImageFile.open</b> function.
+# Font file plugin for the X11 BDF format.
 
-class GdImageFile(ImageFile.ImageFile):
+class BdfFontFile(FontFile.FontFile):
 
-    format = "GD"
-    format_description = "GD uncompressed images"
+    def __init__(self, fp):
 
-    def _open(self):
+        FontFile.FontFile.__init__(self)
 
-        # Header
-        s = self.fp.read(1037)
+        s = fp.readline()
+        if s[:13] != b"STARTFONT 2.1":
+            raise SyntaxError("not a valid BDF file")
 
-        if not i16(s[:2]) in [65534, 65535]:
-            raise SyntaxError("Not a valid GD 2.x .gd file")
+        props = {}
+        comments = []
 
-        self.mode = "L"  # FIXME: "P"
-        self.size = i16(s[2:4]), i16(s[4:6])
+        while True:
+            s = fp.readline()
+            if not s or s[:13] == b"ENDPROPERTIES":
+                break
+            i = s.find(b" ")
+            props[s[:i].decode('ascii')] = s[i+1:-1].decode('ascii')
+            if s[:i] in [b"COMMENT", b"COPYRIGHT"]:
+                if s.find(b"LogicalFontDescription") < 0:
+                    comments.append(s[i+1:-1].decode('ascii'))
 
-        trueColor = i8(s[6])
-        trueColorOffset = 2 if trueColor else 0
+        # font = props["FONT"].split("-")
 
-        # transparency index
-        tindex = i32(s[7+trueColorOffset:7+trueColorOffset+4])
-        if tindex < 256:
-            self.info["transparency"] = tindex
+        # font[4] = bdf_slant[font[4].upper()]
+        # font[11] = bdf_spacing[font[11].upper()]
 
-        self.palette = ImagePalette.raw("XBGR", s[7+trueColorOffset+4:7+trueColorOffset+4+256*4])
+        # ascent = int(props["FONT_ASCENT"])
+        # descent = int(props["FONT_DESCENT"])
 
-        self.tile = [("raw", (0, 0)+self.size, 7+trueColorOffset+4+256*4, ("L", 0, 1))]
+        # fontname = ";".join(font[1:])
 
+        # print("#", fontname)
+        # for i in comments:
+        #       print("#", i)
 
-def open(fp, mode="r"):
-    """
-    Load texture from a GD image file.
-
-    :param filename: GD file name, or an opened file handle.
-    :param mode: Optional mode.  In this version, if the mode argument
-        is given, it must be "r".
-    :returns: An image instance.
-    :raises IOError: If the image could not be read.
-    """
-    if mode != "r":
-        raise ValueError("bad mode")
-
-    try:
-        return GdImageFile(fp)
-    except SyntaxError:
-        raise IOError("cannot identify this image file")
+        while True:
+            c = bdf_char(fp)
+            if not c:
+                break
+            id, ch, (xy, dst, src), im = c
+            if 0 <= ch < len(self.glyph):
+                self.glyph[ch] = xy, dst, src, im

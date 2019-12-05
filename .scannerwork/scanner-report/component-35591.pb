@@ -1,1 +1,1 @@
-‡–/venv/lib64/python3.6/site-packages/django_redis :†–ˆ–”–ž–¡–©–
+‡–/venv/lib64/python3.6/site-packages/django_redis :†–ˆ–”– –¡–©–

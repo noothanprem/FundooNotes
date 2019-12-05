@@ -1,1 +1,1 @@
-÷º\venv/lib/python3.6/site-packages/django_extensions/management/commands/drop_test_database.py 2pyXçh
+÷ºPvenv/lib/python3.6/site-packages/django_extensions/management/commands/sqldsn.py 2pyXéh

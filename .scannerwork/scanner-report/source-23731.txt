@@ -1,52 +1,50 @@
 """
-Disqus OAuth2 backend, docs at:
-    https://python-social-auth.readthedocs.io/en/latest/backends/disqus.html
+Mozilla Persona authentication backend, docs at:
+    https://python-social-auth.readthedocs.io/en/latest/backends/persona.html
 """
-from .oauth import BaseOAuth2
+from ..utils import handle_http_errors
+from .base import BaseAuth
+from ..exceptions import AuthFailed, AuthMissingParameter
 
 
-class DisqusOAuth2(BaseOAuth2):
-    name = 'disqus'
-    AUTHORIZATION_URL = 'https://disqus.com/api/oauth/2.0/authorize/'
-    ACCESS_TOKEN_URL = 'https://disqus.com/api/oauth/2.0/access_token/'
-    ACCESS_TOKEN_METHOD = 'POST'
-    REDIRECT_STATE = False
-    SCOPE_SEPARATOR = ','
-    EXTRA_DATA = [
-        ('avatar', 'avatar'),
-        ('connections', 'connections'),
-        ('user_id', 'user_id'),
-        ('email', 'email'),
-        ('email_hash', 'emailHash'),
-        ('expires', 'expires'),
-        ('location', 'location'),
-        ('meta', 'response'),
-        ('name', 'name'),
-        ('username', 'username'),
-    ]
+class PersonaAuth(BaseAuth):
+    """BrowserID authentication backend"""
+    name = 'persona'
 
     def get_user_id(self, details, response):
-        return response['response']['id']
+        """Use BrowserID email as ID"""
+        return details['email']
 
     def get_user_details(self, response):
-        """Return user details from Disqus account"""
-        rr = response.get('response', {})
-        return {
-            'username': rr.get('username', ''),
-            'user_id': response.get('user_id', ''),
-            'email': rr.get('email', ''),
-            'name': rr.get('name', ''),
-        }
+        """Return user details, BrowserID only provides Email."""
+        # {'status': 'okay',
+        #  'audience': 'localhost:8000',
+        #  'expires': 1328983575529,
+        #  'email': 'name@server.com',
+        #  'issuer': 'browserid.org'}
+        email = response['email']
+        return {'username': email.split('@', 1)[0],
+                'email': email,
+                'fullname': '',
+                'first_name': '',
+                'last_name': ''}
 
     def extra_data(self, user, uid, response, details=None, *args, **kwargs):
-        meta_response = dict(response, **response.get('response', {}))
-        return super(DisqusOAuth2, self).extra_data(user, uid, meta_response,
-                                                    details, *args, **kwargs)
+        """Return users extra data"""
+        return {'audience': response['audience'],
+                'issuer': response['issuer']}
 
-    def user_data(self, access_token, *args, **kwargs):
-        """Loads user data from service"""
-        key, secret = self.get_key_and_secret()
-        return self.get_json(
-            'https://disqus.com/api/3.0/users/details.json',
-            params={'access_token': access_token, 'api_secret': secret}
-        )
+    @handle_http_errors
+    def auth_complete(self, *args, **kwargs):
+        """Completes login process, must return user instance"""
+        if 'assertion' not in self.data:
+            raise AuthMissingParameter(self, 'assertion')
+
+        response = self.get_json('https://browserid.org/verify', data={
+            'assertion': self.data['assertion'],
+            'audience': self.strategy.request_host()
+        }, method='POST')
+        if response.get('status') == 'failure':
+            raise AuthFailed(self)
+        kwargs.update({'response': response, 'backend': self})
+        return self.strategy.authenticate(*args, **kwargs)

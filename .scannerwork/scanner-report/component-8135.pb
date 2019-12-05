@@ -1,1 +1,1 @@
-Ç?Avenv/lib/python3.6/site-packages/django/core/handlers/__init__.py 2pyXh
+Ç?Fvenv/lib/python3.6/site-packages/django/contrib/contenttypes/checks.py 2pyX*h

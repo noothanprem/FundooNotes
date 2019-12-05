@@ -1,5 +1,6 @@
-# $Id: nl.py 7119 2011-09-02 13:00:23Z milde $
-# Author: Martijn Pieters <mjpieters@users.sourceforge.net>
+# -*- coding: utf-8 -*-
+# $Id: sv.py 8012 2017-01-03 23:08:19Z milde $
+# Author: Adam Chodorowski <chodorowski@users.sourceforge.net>
 # Copyright: This module has been placed in the public domain.
 
 # New language mappings are welcome.  Before doing a new translation, please
@@ -8,105 +9,87 @@
 # docutils/parsers/rst/languages.
 
 """
-Dutch-language mappings for language-dependent features of
-reStructuredText.
+Swedish language mappings for language-dependent features of reStructuredText.
 """
 
 __docformat__ = 'reStructuredText'
 
-
 directives = {
-      # language-dependent: fixed
-      'attentie': 'attention',
-      'let-op': 'caution',
-      'code (translation required)': 'code',
-      'gevaar': 'danger',
-      'fout': 'error',
-      'hint': 'hint',
-      'belangrijk': 'important',
-      'opmerking': 'note',
-      'tip': 'tip',
-      'waarschuwing': 'warning',
-      'aanmaning': 'admonition',
-      'katern': 'sidebar',
-      'onderwerp': 'topic',
-      'lijn-blok': 'line-block',
-      'letterlijk-ontleed': 'parsed-literal',
-      'rubriek': 'rubric',
-      'opschrift': 'epigraph',
-      'hoogtepunten': 'highlights',
-      'pull-quote': 'pull-quote', # Dutch printers use the english term
-      'samenstelling': 'compound',
-      'verbinding': 'compound',
-      'container (translation required)': 'container',
-      #'vragen': 'questions',
-      'tabel': 'table',
-      'csv-tabel': 'csv-table',
-      'lijst-tabel': 'list-table',
-      #'veelgestelde-vragen': 'questions',
+      'observera': 'attention',
+      'akta': 'caution', # also 'försiktigt'
+      'kod': 'code',
+      'fara': 'danger',
+      'fel': 'error',
+      'vink': 'hint', # also 'hint'
+      'viktigt': 'important',
+      'notera': 'note',
+      'tips': 'tip',
+      'varning': 'warning',
+      'anmärkning': 'admonition', # literal 'tillrättavisning', 'förmaning'
+      'sidorad': 'sidebar',
+      'ämne': 'topic',
+      'tema': 'topic',
+      'rad-block': 'line-block',
+      'parsed-literal (translation required)': 'parsed-literal', # 'tolkad-bokstavlig'?
+      'rubrik': 'rubric',
+      'epigraf': 'epigraph',
+      'höjdpunkter': 'highlights',
+      'pull-quote (translation required)': 'pull-quote',
+      'sammansatt': 'compound',
+      'container': 'container',
+      # u'frågor': 'questions',
+      # NOTE: A bit long, but recommended by http://www.nada.kth.se/dataterm/:
+      # u'frågor-och-svar': 'questions',
+      # u'vanliga-frågor': 'questions',
+      'tabell': 'table',
+      'csv-tabell': 'csv-table',
+      'list-tabell': 'list-table',
       'meta': 'meta',
-      'math (translation required)': 'math',
-      #'imagemap': 'imagemap',
-      'beeld': 'image',
-      'figuur': 'figure',
-      'opnemen': 'include',
-      'onbewerkt': 'raw',
-      'vervang': 'replace',
-      'vervanging': 'replace',
+      'matematik': 'math',
+      # u'bildkarta': 'imagemap',   # FIXME: Translation might be too literal.
+      'bild': 'image',
+      'figur': 'figure',
+      'inkludera': 'include',
+      'rå': 'raw',
+      'ersätta': 'replace',
       'unicode': 'unicode',
       'datum': 'date',
-      'klasse': 'class',
-      'rol': 'role',
-      'default-role (translation required)': 'default-role',
-      'title (translation required)': 'title',
-      'inhoud': 'contents',
-      'sectnum': 'sectnum',
-      'sectie-nummering': 'sectnum',
-      'hoofdstuk-nummering': 'sectnum',
-      'header (translation required)': 'header',
-      'footer (translation required)': 'footer',
-      #'voetnoten': 'footnotes',
-      #'citaten': 'citations',
-      'verwijzing-voetnoten': 'target-notes',
-      'restructuredtext-test-instructie': 'restructuredtext-test-directive'}
-"""Dutch name to registered (in directives/__init__.py) directive name
+      'klass': 'class',
+      'roll': 'role',
+      'standardroll': 'default-role',
+      'titel': 'title',
+      'innehåll': 'contents',
+      'sektionsnumrering': 'sectnum',
+      'target-notes (translation required)': 'target-notes',
+      'sidhuvud': 'header',
+      'sidfot': 'footer',
+      # u'fotnoter': 'footnotes',
+      # u'citeringar': 'citations',
+      }
+"""Swedish name to registered (in directives/__init__.py) directive name
 mapping."""
 
 roles = {
-    # language-dependent: fixed
-    'afkorting': 'abbreviation',
-    # 'ab': 'abbreviation',
-    'acroniem': 'acronym',
-    'ac': 'acronym',
-    'code (translation required)': 'code',
-    'index': 'index',
-    'i': 'index',
-    'inferieur': 'subscript',
-    'inf': 'subscript',
-    'superieur': 'superscript',
-    'sup': 'superscript',
-    'titel-referentie': 'title-reference',
-    'titel': 'title-reference',
-    't': 'title-reference',
-    'pep-referentie': 'pep-reference',
-    'pep': 'pep-reference',
-    'rfc-referentie': 'rfc-reference',
-    'rfc': 'rfc-reference',
-    'nadruk': 'emphasis',
-    'extra': 'strong',
-    'extra-nadruk': 'strong',
-    'vet': 'strong',
-    'letterlijk': 'literal',
-    'math (translation required)': 'math',
-    'benoemde-referentie': 'named-reference',
-    'anonieme-referentie': 'anonymous-reference',
-    'voetnoot-referentie': 'footnote-reference',
-    'citaat-referentie': 'citation-reference',
-    'substitie-reference': 'substitution-reference',
-    'verwijzing': 'target',
-    'uri-referentie': 'uri-reference',
-    'uri': 'uri-reference',
-    'url': 'uri-reference',
-    'onbewerkt': 'raw',}
-"""Mapping of Dutch role names to canonical role names for interpreted text.
+      'förkortning': 'abbreviation',
+      'akronym': 'acronym',
+      'kod': 'code',
+      'index': 'index',
+      'nedsänkt': 'subscript',
+      'upphöjd': 'superscript',
+      'titel-referens': 'title-reference',
+      'pep-referens': 'pep-reference',
+      'rfc-referens': 'rfc-reference',
+      'betoning': 'emphasis',
+      'stark': 'strong',
+      'bokstavlig': 'literal', # also 'ordagranna'
+      'matematik': 'math',
+      'namngiven-referens': 'named-reference',
+      'anonym-referens': 'anonymous-reference',
+      'fotnot-referens': 'footnote-reference',
+      'citat-referens': 'citation-reference',
+      'ersättnings-referens': 'substitution-reference',
+      'mål': 'target',
+      'uri-referens': 'uri-reference',
+      'rå': 'raw',}
+"""Mapping of Swedish role names to canonical role names for interpreted text.
 """

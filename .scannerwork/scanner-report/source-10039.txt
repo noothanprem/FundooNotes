@@ -26,849 +26,559 @@
 
 from __future__ import absolute_import
 
-import six
-import inspect
-import binascii
-import random
-
+import math
 import txaio
-txaio.use_twisted()  # noqa
 
-from twisted.internet.defer import inlineCallbacks, succeed
+from twisted.internet.protocol import Factory
+from twisted.protocols.basic import Int32StringReceiver
+from twisted.internet.error import ConnectionDone
+from twisted.internet.defer import CancelledError
 
 from autobahn.util import public
+from autobahn.twisted.util import peer2str, transport_channel_id
+from autobahn.util import _LazyHexFormatter
+from autobahn.wamp.exception import ProtocolError, SerializationError, TransportLost, InvalidUriError
+from autobahn.exception import PayloadExceededError
 
-from autobahn.websocket.util import parse_url as parse_ws_url
-from autobahn.rawsocket.util import parse_url as parse_rs_url
-
-from autobahn.twisted.websocket import WampWebSocketClientFactory
-from autobahn.twisted.rawsocket import WampRawSocketClientFactory
-
-from autobahn.websocket.compress import PerMessageDeflateOffer, \
-    PerMessageDeflateResponse, PerMessageDeflateResponseAccept
-
-from autobahn.wamp import protocol, auth
-from autobahn.wamp.interfaces import IAuthenticator
-from autobahn.wamp.types import ComponentConfig
+__all__ = (
+    'WampRawSocketServerProtocol',
+    'WampRawSocketClientProtocol',
+    'WampRawSocketServerFactory',
+    'WampRawSocketClientFactory'
+)
 
 
-__all__ = [
-    'ApplicationSession',
-    'ApplicationSessionFactory',
-    'ApplicationRunner',
-    'Application',
-    'Service',
+class WampRawSocketProtocol(Int32StringReceiver):
+    """
+    Base class for Twisted-based WAMP-over-RawSocket protocols.
+    """
+    log = txaio.make_logger()
 
-    # new API
-    'Session',
-    # 'run',  # should probably move this method to here? instead of component
-]
+    def __init__(self):
+        # set the RawSocket maximum message size by default
+        self._max_message_size = 2**24
 
-try:
-    from twisted.application import service
-except (ImportError, SyntaxError):
-    # Not on PY3 yet
-    service = None
-    __all__.pop(__all__.index('Service'))
+    def lengthLimitExceeded(self, length):
+        # override hook in Int32StringReceiver base class that is fired when a message is (to be) received
+        # that is larger than what we agreed to handle (by negotiation in the RawSocket opening handshake)
+        emsg = 'RawSocket connection: length of received message exceeded (message was {} bytes, but current maximum is {} bytes)'.format(length, self.MAX_LENGTH)
+        raise PayloadExceededError(emsg)
+
+    def connectionMade(self):
+        self.log.debug('{klass}.connectionMade()', klass=self.__class__.__name__)
+
+        # the peer we are connected to
+        #
+        try:
+            peer = self.transport.getPeer()
+        except AttributeError:
+            # ProcessProtocols lack getPeer()
+            self.peer = "?"
+        else:
+            self.peer = peer2str(peer)
+
+        # a Future/Deferred that fires when we hit STATE_CLOSED
+        self.is_closed = txaio.create_future()
+
+        # this will hold an ApplicationSession object
+        # once the RawSocket opening handshake has been
+        # completed
+        #
+        self._session = None
+
+        # Will hold the negotiated serializer once the opening handshake is complete
+        #
+        self._serializer = None
+
+        # Will be set to True once the opening handshake is complete
+        #
+        self._handshake_complete = False
+
+        # Buffer for opening handshake received bytes.
+        #
+        self._handshake_bytes = b''
+
+        # Peer requested to _receive_ this maximum length of serialized messages - hence we must not send larger msgs!
+        #
+        self._max_len_send = None
+
+    def _on_handshake_complete(self):
+        try:
+            self._session = self.factory._factory()
+            self._session.onOpen(self)
+        except Exception as e:
+            # Exceptions raised in onOpen are fatal ..
+            self.log.warn("{klass}._on_handshake_complete(): ApplicationSession constructor / onOpen raised ({err})",
+                          klass=self.__class__.__name__, err=e)
+            self.abort()
+        else:
+            self.log.debug("ApplicationSession started.")
+
+    def connectionLost(self, reason):
+        self.log.debug('{klass}.connectionLost(reason="{reason}"', klass=self.__class__.__name__, reason=reason)
+        txaio.resolve(self.is_closed, self)
+        try:
+            wasClean = isinstance(reason.value, ConnectionDone)
+            if self._session:
+                self._session.onClose(wasClean)
+        except Exception as e:
+            # silently ignore exceptions raised here ..
+            self.log.warn('{klass}.connectionLost(): ApplicationSession.onClose raised "{err}"',
+                          klass=self.__class__.__name__, err=e)
+        self._session = None
+
+    def stringReceived(self, payload):
+        self.log.trace('{klass}.stringReceived(): RX {octets} octets',
+                       klass=self.__class__.__name__, octets=_LazyHexFormatter(payload))
+        try:
+            for msg in self._serializer.unserialize(payload):
+                self.log.trace("{klass}.stringReceived: RX WAMP message: {msg}",
+                               klass=self.__class__.__name__, msg=msg)
+                self._session.onMessage(msg)
+
+        except CancelledError as e:
+            self.log.debug("{klass}.stringReceived: WAMP CancelledError - connection will continue!\n{err}",
+                           klass=self.__class__.__name__,
+                           err=e)
+
+        except InvalidUriError as e:
+            self.log.warn("{klass}.stringReceived: WAMP InvalidUriError - aborting connection!\n{err}",
+                          klass=self.__class__.__name__,
+                          err=e)
+            self.abort()
+
+        except ProtocolError as e:
+            self.log.warn("{klass}.stringReceived: WAMP ProtocolError - aborting connection!\n{err}",
+                          klass=self.__class__.__name__,
+                          err=e)
+            self.abort()
+
+        except PayloadExceededError as e:
+            self.log.warn("{klass}.stringReceived: WAMP PayloadExceededError - aborting connection!\n{err}",
+                          klass=self.__class__.__name__,
+                          err=e)
+            self.abort()
+
+        except SerializationError as e:
+            self.log.warn("{klass}.stringReceived: WAMP SerializationError - aborting connection!\n{err}",
+                          klass=self.__class__.__name__,
+                          err=e)
+            self.abort()
+
+        except Exception as e:
+            self.log.warn("{klass}.stringReceived: WAMP Exception - aborting connection!\n{err}",
+                          klass=self.__class__.__name__,
+                          err=e)
+            self.abort()
+
+    def send(self, msg):
+        """
+        Implements :func:`autobahn.wamp.interfaces.ITransport.send`
+        """
+        if self.isOpen():
+            self.log.trace('{klass}.send() (serializer={serializer}): TX WAMP message: "{msg}"',
+                           klass=self.__class__.__name__, msg=msg, serializer=self._serializer)
+            try:
+                payload, _ = self._serializer.serialize(msg)
+            except SerializationError as e:
+                # all exceptions raised from above should be serialization errors ..
+                raise SerializationError("WampRawSocketProtocol: unable to serialize WAMP application payload ({0})".format(e))
+            else:
+                payload_len = len(payload)
+                if 0 < self._max_len_send < payload_len:
+                    emsg = u'tried to send RawSocket message with size {} exceeding payload limit of {} octets'.format(
+                        payload_len, self._max_len_send)
+                    self.log.warn(emsg)
+                    raise PayloadExceededError(emsg)
+                else:
+                    self.sendString(payload)
+                    self.log.trace('{klass}.send(): TX {octets} octets',
+                                   klass=self.__class__.__name__, octets=_LazyHexFormatter(payload))
+        else:
+            raise TransportLost()
+
+    def isOpen(self):
+        """
+        Implements :func:`autobahn.wamp.interfaces.ITransport.isOpen`
+        """
+        return self._session is not None
+
+    def close(self):
+        """
+        Implements :func:`autobahn.wamp.interfaces.ITransport.close`
+        """
+        if self.isOpen():
+            self.transport.loseConnection()
+        else:
+            raise TransportLost()
+
+    def abort(self):
+        """
+        Implements :func:`autobahn.wamp.interfaces.ITransport.abort`
+        """
+        if self.isOpen():
+            if hasattr(self.transport, 'abortConnection'):
+                # ProcessProtocol lacks abortConnection()
+                self.transport.abortConnection()
+            else:
+                self.transport.loseConnection()
+        else:
+            raise TransportLost()
 
 
 @public
-class ApplicationSession(protocol.ApplicationSession):
+class WampRawSocketServerProtocol(WampRawSocketProtocol):
     """
-    WAMP application session for Twisted-based applications.
+    Twisted-based WAMP-over-RawSocket server protocol.
 
     Implements:
 
-        * :class:`autobahn.wamp.interfaces.ITransportHandler`
-        * :class:`autobahn.wamp.interfaces.ISession`
+        * :class:`autobahn.wamp.interfaces.ITransport`
     """
 
-    log = txaio.make_logger()
+    def dataReceived(self, data):
 
+        if self._handshake_complete:
+            WampRawSocketProtocol.dataReceived(self, data)
+        else:
+            remaining = 4 - len(self._handshake_bytes)
+            self._handshake_bytes += data[:remaining]
 
-class ApplicationSessionFactory(protocol.ApplicationSessionFactory):
-    """
-    WAMP application session factory for Twisted-based applications.
-    """
+            if len(self._handshake_bytes) == 4:
 
-    session = ApplicationSession
-    """
-    The application session class this application session factory will use. Defaults to :class:`autobahn.twisted.wamp.ApplicationSession`.
-    """
+                self.log.debug(
+                    "WampRawSocketServerProtocol: opening handshake received - {octets}",
+                    octets=_LazyHexFormatter(self._handshake_bytes),
+                )
 
-    log = txaio.make_logger()
+                if ord(self._handshake_bytes[0:1]) != 0x7f:
+                    self.log.warn(
+                        "WampRawSocketServerProtocol: invalid magic byte (octet 1) in"
+                        " opening handshake: was 0x{magic}, but expected 0x7f",
+                        magic=_LazyHexFormatter(self._handshake_bytes[0]),
+                    )
+                    self.abort()
+
+                # peer requests us to send messages of maximum length 2**max_len_exp
+                #
+                self._max_len_send = 2 ** (9 + (ord(self._handshake_bytes[1:2]) >> 4))
+                self.log.debug(
+                    "WampRawSocketServerProtocol: client requests us to send out most {max_bytes} bytes per message",
+                    max_bytes=self._max_len_send,
+                )
+
+                # client wants to speak this serialization format
+                #
+                ser_id = ord(self._handshake_bytes[1:2]) & 0x0F
+                if ser_id in self.factory._serializers:
+                    self._serializer = self.factory._serializers[ser_id]
+                    self.log.debug(
+                        "WampRawSocketServerProtocol: client wants to use serializer '{serializer}'",
+                        serializer=ser_id,
+                    )
+                else:
+                    self.log.warn(
+                        "WampRawSocketServerProtocol: opening handshake - no suitable serializer found (client requested {serializer}, and we have {serializers}",
+                        serializer=ser_id,
+                        serializers=self.factory._serializers.keys(),
+                    )
+                    self.abort()
+
+                # we request the client to send message of maximum length 2**reply_max_len_exp
+                #
+                reply_max_len_exp = int(math.ceil(math.log(self._max_message_size, 2)))
+
+                # this is an instance attribute on the Twisted base class for maximum size
+                # of _received_ messages
+                self.MAX_LENGTH = 2**reply_max_len_exp
+
+                # send out handshake reply
+                #
+                reply_octet2 = bytes(bytearray([
+                    ((reply_max_len_exp - 9) << 4) | self._serializer.RAWSOCKET_SERIALIZER_ID]))
+                self.transport.write(b'\x7F')       # magic byte
+                self.transport.write(reply_octet2)  # max length / serializer
+                self.transport.write(b'\x00\x00')   # reserved octets
+
+                self._handshake_complete = True
+
+                self._on_handshake_complete()
+
+                self.log.debug(
+                    "WampRawSocketServerProtocol: opening handshake completed: {serializer}",
+                    serializer=self._serializer,
+                )
+
+            # consume any remaining data received already ..
+            #
+            data = data[remaining:]
+            if data:
+                self.dataReceived(data)
+
+    def get_channel_id(self, channel_id_type=u'tls-unique'):
+        """
+        Implements :func:`autobahn.wamp.interfaces.ITransport.get_channel_id`
+        """
+        return transport_channel_id(self.transport, is_server=True, channel_id_type=channel_id_type)
 
 
 @public
-class ApplicationRunner(object):
+class WampRawSocketClientProtocol(WampRawSocketProtocol):
     """
-    This class is a convenience tool mainly for development and quick hosting
-    of WAMP application components.
+    Twisted-based WAMP-over-RawSocket client protocol.
 
-    It can host a WAMP application component in a WAMP-over-WebSocket client
-    connecting to a WAMP router.
+    Implements:
+
+        * :class:`autobahn.wamp.interfaces.ITransport`
     """
 
+    def connectionMade(self):
+        WampRawSocketProtocol.connectionMade(self)
+        self._serializer = self.factory._serializer
+
+        # we request the peer to send messages of maximum length 2**reply_max_len_exp
+        request_max_len_exp = int(math.ceil(math.log(self._max_message_size, 2)))
+
+        # this is an instance attribute on the Twisted base class for maximum size
+        # of _received_ messages
+        self.MAX_LENGTH = 2**request_max_len_exp
+
+        # send out handshake request
+        #
+        request_octet2 = bytes(bytearray([
+            ((request_max_len_exp - 9) << 4) | self._serializer.RAWSOCKET_SERIALIZER_ID]))
+        self.transport.write(b'\x7F')         # magic byte
+        self.transport.write(request_octet2)  # max length / serializer
+        self.transport.write(b'\x00\x00')     # reserved octets
+
+    def dataReceived(self, data):
+
+        if self._handshake_complete:
+            WampRawSocketProtocol.dataReceived(self, data)
+        else:
+            remaining = 4 - len(self._handshake_bytes)
+            self._handshake_bytes += data[:remaining]
+
+            if len(self._handshake_bytes) == 4:
+
+                self.log.debug(
+                    "WampRawSocketClientProtocol: opening handshake received - {handshake}",
+                    handshake=_LazyHexFormatter(self._handshake_bytes),
+                )
+
+                if ord(self._handshake_bytes[0:1]) != 0x7f:
+                    self.log.debug(
+                        "WampRawSocketClientProtocol: invalid magic byte (octet 1) in opening handshake: was 0x{magic}, but expected 0x7f",
+                        magic=_LazyHexFormatter(self._handshake_bytes[0]),
+                    )
+                    self.abort()
+
+                # peer requests us to _send_ messages of maximum length 2**max_len_exp
+                #
+                self._max_len_send = 2 ** (9 + (ord(self._handshake_bytes[1:2]) >> 4))
+                self.log.debug(
+                    "WampRawSocketClientProtocol: server requests us to send out most {max} bytes per message",
+                    max=self._max_len_send,
+                )
+
+                # client wants to speak this serialization format
+                #
+                ser_id = ord(self._handshake_bytes[1:2]) & 0x0F
+                if ser_id != self._serializer.RAWSOCKET_SERIALIZER_ID:
+                    self.log.error(
+                        "WampRawSocketClientProtocol: opening handshake - no suitable serializer found (server replied {serializer}, and we requested {serializers})",
+                        serializer=ser_id,
+                        serializers=self._serializer.RAWSOCKET_SERIALIZER_ID,
+                    )
+                    self.abort()
+
+                self._handshake_complete = True
+
+                self._on_handshake_complete()
+
+                self.log.debug(
+                    "WampRawSocketClientProtocol: opening handshake completed (using serializer {serializer})",
+                    serializer=self._serializer,
+                )
+
+            # consume any remaining data received already ..
+            #
+            data = data[remaining:]
+            if data:
+                self.dataReceived(data)
+
+    def get_channel_id(self, channel_id_type=u'tls-unique'):
+        """
+        Implements :func:`autobahn.wamp.interfaces.ITransport.get_channel_id`
+        """
+        return transport_channel_id(self.transport, is_server=False, channel_id_type=channel_id_type)
+
+
+class WampRawSocketFactory(Factory):
+    """
+    Base class for Twisted-based WAMP-over-RawSocket factories.
+    """
     log = txaio.make_logger()
 
-    def __init__(self,
-                 url,
-                 realm=None,
-                 extra=None,
-                 serializers=None,
-                 ssl=None,
-                 proxy=None,
-                 headers=None,
-                 max_retries=None,
-                 initial_retry_delay=None,
-                 max_retry_delay=None,
-                 retry_delay_growth=None,
-                 retry_delay_jitter=None):
+    def __init__(self, factory):
         """
 
-        :param url: The WebSocket URL of the WAMP router to connect to (e.g. `ws://somehost.com:8090/somepath`)
-        :type url: str
-
-        :param realm: The WAMP realm to join the application session to.
-        :type realm: str
-
-        :param extra: Optional extra configuration to forward to the application component.
-        :type extra: dict
-
-        :param serializers: A list of WAMP serializers to use (or None for default serializers).
-           Serializers must implement :class:`autobahn.wamp.interfaces.ISerializer`.
-        :type serializers: list
-
-        :param ssl: (Optional). If specified this should be an
-            instance suitable to pass as ``sslContextFactory`` to
-            :class:`twisted.internet.endpoints.SSL4ClientEndpoint`` such
-            as :class:`twisted.internet.ssl.CertificateOptions`. Leaving
-            it as ``None`` will use the result of calling Twisted's
-            :meth:`twisted.internet.ssl.platformTrust` which tries to use
-            your distribution's CA certificates.
-        :type ssl: :class:`twisted.internet.ssl.CertificateOptions`
-
-        :param proxy: Explicit proxy server to use; a dict with ``host`` and ``port`` keys
-        :type proxy: dict or None
-
-        :param headers: Additional headers to send (only applies to WAMP-over-WebSocket).
-        :type headers: dict
-
-        :param max_retries: Maximum number of reconnection attempts. Unlimited if set to -1.
-        :type max_retries: int
-
-        :param initial_retry_delay: Initial delay for reconnection attempt in seconds (Default: 1.0s).
-        :type initial_retry_delay: float
-
-        :param max_retry_delay: Maximum delay for reconnection attempts in seconds (Default: 60s).
-        :type max_retry_delay: float
-
-        :param retry_delay_growth: The growth factor applied to the retry delay between reconnection attempts (Default 1.5).
-        :type retry_delay_growth: float
-
-        :param retry_delay_jitter: A 0-argument callable that introduces nose into the delay. (Default random.random)
-        :type retry_delay_jitter: float
+        :param factory: A callable that produces instances that implement
+            :class:`autobahn.wamp.interfaces.ITransportHandler`
+        :type factory: callable
         """
-        assert(type(url) == six.text_type)
-        assert(realm is None or type(realm) == six.text_type)
-        assert(extra is None or type(extra) == dict)
-        assert(headers is None or type(headers) == dict)
-        assert(proxy is None or type(proxy) == dict)
-        self.url = url
-        self.realm = realm
-        self.extra = extra or dict()
-        self.serializers = serializers
-        self.ssl = ssl
-        self.proxy = proxy
-        self.headers = headers
-        self.max_retries = max_retries
-        self.initial_retry_delay = initial_retry_delay
-        self.max_retry_delay = max_retry_delay
-        self.retry_delay_growth = retry_delay_growth
-        self.retry_delay_jitter = retry_delay_jitter
-
-        # this if for auto-reconnection when Twisted ClientService is avail
-        self._client_service = None
-        # total number of successful connections
-        self._connect_successes = 0
-
-    @public
-    def stop(self):
-        """
-        Stop reconnecting, if auto-reconnecting was enabled.
-        """
-        self.log.debug('{klass}.stop()', klass=self.__class__.__name__)
-
-        if self._client_service:
-            return self._client_service.stopService()
+        if callable(factory):
+            self._factory = factory
         else:
-            return succeed(None)
+            self._factory = lambda: factory
 
-    @public
-    def run(self, make, start_reactor=True, auto_reconnect=False, log_level='info', endpoint=None, reactor=None):
+        # RawSocket max payload size is 16M (https://wamp-proto.org/_static/gen/wamp_latest_ietf.html#handshake)
+        self._max_message_size = 2**24
+
+    def resetProtocolOptions(self):
+        self._max_message_size = 2**24
+
+    def setProtocolOptions(self, maxMessagePayloadSize=None):
+        self.log.debug('{klass}.setProtocolOptions(maxMessagePayloadSize={maxMessagePayloadSize})',
+                       klass=self.__class__.__name__, maxMessagePayloadSize=maxMessagePayloadSize)
+        assert maxMessagePayloadSize is None or (type(maxMessagePayloadSize) == int and maxMessagePayloadSize >= 512 and maxMessagePayloadSize <= 2**24)
+        if maxMessagePayloadSize is not None and maxMessagePayloadSize != self._max_message_size:
+            self._max_message_size = maxMessagePayloadSize
+
+    def buildProtocol(self, addr):
+        self.log.debug('{klass}.buildProtocol(addr={addr})', klass=self.__class__.__name__, addr=addr)
+        p = self.protocol()
+        p.factory = self
+        p.MAX_LENGTH = self._max_message_size
+        p._max_message_size = self._max_message_size
+        self.log.debug('{klass}.buildProtocol() -> proto={proto}, max_message_size={max_message_size}, MAX_LENGTH={MAX_LENGTH}',
+                       klass=self.__class__.__name__, proto=p, max_message_size=p._max_message_size, MAX_LENGTH=p.MAX_LENGTH)
+        return p
+
+
+@public
+class WampRawSocketServerFactory(WampRawSocketFactory):
+    """
+    Twisted-based WAMP-over-RawSocket server protocol factory.
+    """
+
+    protocol = WampRawSocketServerProtocol
+
+    def __init__(self, factory, serializers=None):
         """
-        Run the application component.
 
-        :param make: A factory that produces instances of :class:`autobahn.twisted.wamp.ApplicationSession`
-           when called with an instance of :class:`autobahn.wamp.types.ComponentConfig`.
-        :type make: callable
+        :param factory: A callable that produces instances that implement
+            :class:`autobahn.wamp.interfaces.ITransportHandler`
+        :type factory: callable
 
-        :param start_reactor: When ``True`` (the default) this method starts
-           the Twisted reactor and doesn't return until the reactor
-           stops. If there are any problems starting the reactor or
-           connect()-ing, we stop the reactor and raise the exception
-           back to the caller.
-
-        :returns: None is returned, unless you specify
-            ``start_reactor=False`` in which case the Deferred that
-            connect() returns is returned; this will callback() with
-            an IProtocol instance, which will actually be an instance
-            of :class:`WampWebSocketClientProtocol`
+        :param serializers: A list of WAMP serializers to use (or ``None``
+            for all available serializers).
+        :type serializers: list of objects implementing
+            :class:`autobahn.wamp.interfaces.ISerializer`
         """
-        self.log.debug('{klass}.run()', klass=self.__class__.__name__)
+        WampRawSocketFactory.__init__(self, factory)
 
-        if start_reactor:
-            # only select framework, set loop and start logging when we are asked
-            # start the reactor - otherwise we are running in a program that likely
-            # already tool care of all this.
-            from twisted.internet import reactor
-            txaio.use_twisted()
-            txaio.config.loop = reactor
-            txaio.start_logging(level=log_level)
+        if serializers is None:
+            serializers = []
 
-        if callable(make):
-            # factory for use ApplicationSession
-            def create():
-                cfg = ComponentConfig(self.realm, self.extra, runner=self)
-                try:
-                    session = make(cfg)
-                except Exception:
-                    self.log.failure('ApplicationSession could not be instantiated: {log_failure.value}')
-                    if start_reactor and reactor.running:
-                        reactor.stop()
-                    raise
-                else:
-                    return session
-        else:
-            create = make
-
-        if self.url.startswith(u'rs'):
-            # try to parse RawSocket URL ..
-            isSecure, host, port = parse_rs_url(self.url)
-
-            # use the first configured serializer if any (which means, auto-choose "best")
-            serializer = self.serializers[0] if self.serializers else None
-
-            # create a WAMP-over-RawSocket transport client factory
-            transport_factory = WampRawSocketClientFactory(create, serializer=serializer)
-
-        else:
-            # try to parse WebSocket URL ..
-            isSecure, host, port, resource, path, params = parse_ws_url(self.url)
-
-            # create a WAMP-over-WebSocket transport client factory
-            transport_factory = WampWebSocketClientFactory(create, url=self.url, serializers=self.serializers, proxy=self.proxy, headers=self.headers)
-
-            # client WebSocket settings - similar to:
-            # - http://crossbar.io/docs/WebSocket-Compression/#production-settings
-            # - http://crossbar.io/docs/WebSocket-Options/#production-settings
-
-            # The permessage-deflate extensions offered to the server ..
-            offers = [PerMessageDeflateOffer()]
-
-            # Function to accept permessage_delate responses from the server ..
-            def accept(response):
-                if isinstance(response, PerMessageDeflateResponse):
-                    return PerMessageDeflateResponseAccept(response)
-
-            # set WebSocket options for all client connections
-            transport_factory.setProtocolOptions(maxFramePayloadSize=1048576,
-                                                 maxMessagePayloadSize=1048576,
-                                                 autoFragmentSize=65536,
-                                                 failByDrop=False,
-                                                 openHandshakeTimeout=2.5,
-                                                 closeHandshakeTimeout=1.,
-                                                 tcpNoDelay=True,
-                                                 autoPingInterval=10.,
-                                                 autoPingTimeout=5.,
-                                                 autoPingSize=4,
-                                                 perMessageCompressionOffers=offers,
-                                                 perMessageCompressionAccept=accept)
-
-        # supress pointless log noise
-        transport_factory.noisy = False
-
-        if endpoint:
-            client = endpoint
-        else:
-            # if user passed ssl= but isn't using isSecure, we'll never
-            # use the ssl argument which makes no sense.
-            context_factory = None
-            if self.ssl is not None:
-                if not isSecure:
-                    raise RuntimeError(
-                        'ssl= argument value passed to %s conflicts with the "ws:" '
-                        'prefix of the url argument. Did you mean to use "wss:"?' %
-                        self.__class__.__name__)
-                context_factory = self.ssl
-            elif isSecure:
-                from twisted.internet.ssl import optionsForClientTLS
-                context_factory = optionsForClientTLS(host)
-
-            from twisted.internet import reactor
-            if self.proxy is not None:
-                from twisted.internet.endpoints import TCP4ClientEndpoint
-                client = TCP4ClientEndpoint(reactor, self.proxy['host'], self.proxy['port'])
-                transport_factory.contextFactory = context_factory
-            elif isSecure:
-                from twisted.internet.endpoints import SSL4ClientEndpoint
-                assert context_factory is not None
-                client = SSL4ClientEndpoint(reactor, host, port, context_factory)
-            else:
-                from twisted.internet.endpoints import TCP4ClientEndpoint
-                client = TCP4ClientEndpoint(reactor, host, port)
-
-        # as the reactor shuts down, we wish to wait until we've sent
-        # out our "Goodbye" message; leave() returns a Deferred that
-        # fires when the transport gets to STATE_CLOSED
-        def cleanup(proto):
-            if hasattr(proto, '_session') and proto._session is not None:
-                if proto._session.is_attached():
-                    return proto._session.leave()
-                elif proto._session.is_connected():
-                    return proto._session.disconnect()
-
-        # when our proto was created and connected, make sure it's cleaned
-        # up properly later on when the reactor shuts down for whatever reason
-        def init_proto(proto):
-            self._connect_successes += 1
-            reactor.addSystemEventTrigger('before', 'shutdown', cleanup, proto)
-            return proto
-
-        use_service = False
-        if auto_reconnect:
+            # try CBOR WAMP serializer
             try:
-                # since Twisted 16.1.0
-                from twisted.application.internet import ClientService
-                from twisted.application.internet import backoffPolicy
-                use_service = True
+                from autobahn.wamp.serializer import CBORSerializer
+                serializers.append(CBORSerializer(batched=True))
+                serializers.append(CBORSerializer())
             except ImportError:
-                use_service = False
+                pass
 
-        if use_service:
-            # this code path is automatically reconnecting ..
-            self.log.debug('using t.a.i.ClientService')
-
-            if self.max_retries or self.initial_retry_delay or self.max_retry_delay or self.retry_delay_growth or self.retry_delay_jitter:
-                kwargs = {}
-
-                def _jitter():
-                    j = 1 if self.retry_delay_jitter is None else self.retry_delay_jitter
-                    return random.random() * j
-
-                for key, val in [('initialDelay', self.initial_retry_delay),
-                                 ('maxDelay', self.max_retry_delay),
-                                 ('factor', self.retry_delay_growth),
-                                 ('jitter', _jitter)]:
-                    if val:
-                        kwargs[key] = val
-
-                # retry policy that will only try to reconnect if we connected
-                # successfully at least once before (so it fails on host unreachable etc ..)
-                def retry(failed_attempts):
-                    if self._connect_successes > 0 and (self.max_retries == -1 or failed_attempts < self.max_retries):
-                        return backoffPolicy(**kwargs)(failed_attempts)
-                    else:
-                        print('hit stop')
-                        self.stop()
-                        return 100000000000000
-            else:
-                retry = backoffPolicy()
-
-            self._client_service = ClientService(client, transport_factory, retryPolicy=retry)
-            self._client_service.startService()
-
-            d = self._client_service.whenConnected()
-
-        else:
-            # this code path is only connecting once!
-            self.log.debug('using t.i.e.connect()')
-
-            d = client.connect(transport_factory)
-
-        # if we connect successfully, the arg is a WampWebSocketClientProtocol
-        d.addCallback(init_proto)
-
-        # if the user didn't ask us to start the reactor, then they
-        # get to deal with any connect errors themselves.
-        if start_reactor:
-            # if an error happens in the connect(), we save the underlying
-            # exception so that after the event-loop exits we can re-raise
-            # it to the caller.
-
-            class ErrorCollector(object):
-                exception = None
-
-                def __call__(self, failure):
-                    self.exception = failure.value
-                    reactor.stop()
-            connect_error = ErrorCollector()
-            d.addErrback(connect_error)
-
-            # now enter the Twisted reactor loop
-            reactor.run()
-
-            # if we exited due to a connection error, raise that to the
-            # caller
-            if connect_error.exception:
-                raise connect_error.exception
-
-        else:
-            # let the caller handle any errors
-            return d
-
-
-class _ApplicationSession(ApplicationSession):
-    """
-    WAMP application session class used internally with :class:`autobahn.twisted.app.Application`.
-    """
-
-    def __init__(self, config, app):
-        """
-
-        :param config: The component configuration.
-        :type config: Instance of :class:`autobahn.wamp.types.ComponentConfig`
-        :param app: The application this session is for.
-        :type app: Instance of :class:`autobahn.twisted.wamp.Application`.
-        """
-        # noinspection PyArgumentList
-        ApplicationSession.__init__(self, config)
-        self.app = app
-
-    @inlineCallbacks
-    def onConnect(self):
-        """
-        Implements :func:`autobahn.wamp.interfaces.ISession.onConnect`
-        """
-        yield self.app._fire_signal('onconnect')
-        self.join(self.config.realm)
-
-    @inlineCallbacks
-    def onJoin(self, details):
-        """
-        Implements :func:`autobahn.wamp.interfaces.ISession.onJoin`
-        """
-        for uri, proc in self.app._procs:
-            yield self.register(proc, uri)
-
-        for uri, handler in self.app._handlers:
-            yield self.subscribe(handler, uri)
-
-        yield self.app._fire_signal('onjoined')
-
-    @inlineCallbacks
-    def onLeave(self, details):
-        """
-        Implements :func:`autobahn.wamp.interfaces.ISession.onLeave`
-        """
-        yield self.app._fire_signal('onleave')
-        self.disconnect()
-
-    @inlineCallbacks
-    def onDisconnect(self):
-        """
-        Implements :func:`autobahn.wamp.interfaces.ISession.onDisconnect`
-        """
-        yield self.app._fire_signal('ondisconnect')
-
-
-class Application(object):
-    """
-    A WAMP application. The application object provides a simple way of
-    creating, debugging and running WAMP application components.
-    """
-
-    log = txaio.make_logger()
-
-    def __init__(self, prefix=None):
-        """
-
-        :param prefix: The application URI prefix to use for procedures and topics,
-           e.g. ``"com.example.myapp"``.
-        :type prefix: unicode
-        """
-        self._prefix = prefix
-
-        # procedures to be registered once the app session has joined the router/realm
-        self._procs = []
-
-        # event handler to be subscribed once the app session has joined the router/realm
-        self._handlers = []
-
-        # app lifecycle signal handlers
-        self._signals = {}
-
-        # once an app session is connected, this will be here
-        self.session = None
-
-    def __call__(self, config):
-        """
-        Factory creating a WAMP application session for the application.
-
-        :param config: Component configuration.
-        :type config: Instance of :class:`autobahn.wamp.types.ComponentConfig`
-
-        :returns: obj -- An object that derives of
-           :class:`autobahn.twisted.wamp.ApplicationSession`
-        """
-        assert(self.session is None)
-        self.session = _ApplicationSession(config, self)
-        return self.session
-
-    def run(self, url=u"ws://localhost:8080/ws", realm=u"realm1", start_reactor=True):
-        """
-        Run the application.
-
-        :param url: The URL of the WAMP router to connect to.
-        :type url: unicode
-        :param realm: The realm on the WAMP router to join.
-        :type realm: unicode
-        """
-        runner = ApplicationRunner(url, realm)
-        return runner.run(self.__call__, start_reactor)
-
-    def register(self, uri=None):
-        """
-        Decorator exposing a function as a remote callable procedure.
-
-        The first argument of the decorator should be the URI of the procedure
-        to register under.
-
-        :Example:
-
-        .. code-block:: python
-
-           @app.register('com.myapp.add2')
-           def add2(a, b):
-              return a + b
-
-        Above function can then be called remotely over WAMP using the URI `com.myapp.add2`
-        the function was registered under.
-
-        If no URI is given, the URI is constructed from the application URI prefix
-        and the Python function name.
-
-        :Example:
-
-        .. code-block:: python
-
-           app = Application('com.myapp')
-
-           # implicit URI will be 'com.myapp.add2'
-           @app.register()
-           def add2(a, b):
-              return a + b
-
-        If the function `yields` (is a co-routine), the `@inlineCallbacks` decorator
-        will be applied automatically to it. In that case, if you wish to return something,
-        you should use `returnValue`:
-
-        :Example:
-
-        .. code-block:: python
-
-           from twisted.internet.defer import returnValue
-
-           @app.register('com.myapp.add2')
-           def add2(a, b):
-              res = yield stuff(a, b)
-              returnValue(res)
-
-        :param uri: The URI of the procedure to register under.
-        :type uri: unicode
-        """
-        def decorator(func):
-            if uri:
-                _uri = uri
-            else:
-                assert(self._prefix is not None)
-                _uri = "{0}.{1}".format(self._prefix, func.__name__)
-
-            if inspect.isgeneratorfunction(func):
-                func = inlineCallbacks(func)
-
-            self._procs.append((_uri, func))
-            return func
-        return decorator
-
-    def subscribe(self, uri=None):
-        """
-        Decorator attaching a function as an event handler.
-
-        The first argument of the decorator should be the URI of the topic
-        to subscribe to. If no URI is given, the URI is constructed from
-        the application URI prefix and the Python function name.
-
-        If the function yield, it will be assumed that it's an asynchronous
-        process and inlineCallbacks will be applied to it.
-
-        :Example:
-
-        .. code-block:: python
-
-           @app.subscribe('com.myapp.topic1')
-           def onevent1(x, y):
-              print("got event on topic1", x, y)
-
-        :param uri: The URI of the topic to subscribe to.
-        :type uri: unicode
-        """
-        def decorator(func):
-            if uri:
-                _uri = uri
-            else:
-                assert(self._prefix is not None)
-                _uri = "{0}.{1}".format(self._prefix, func.__name__)
-
-            if inspect.isgeneratorfunction(func):
-                func = inlineCallbacks(func)
-
-            self._handlers.append((_uri, func))
-            return func
-        return decorator
-
-    def signal(self, name):
-        """
-        Decorator attaching a function as handler for application signals.
-
-        Signals are local events triggered internally and exposed to the
-        developer to be able to react to the application lifecycle.
-
-        If the function yield, it will be assumed that it's an asynchronous
-        coroutine and inlineCallbacks will be applied to it.
-
-        Current signals :
-
-           - `onjoined`: Triggered after the application session has joined the
-              realm on the router and registered/subscribed all procedures
-              and event handlers that were setup via decorators.
-           - `onleave`: Triggered when the application session leaves the realm.
-
-        .. code-block:: python
-
-           @app.signal('onjoined')
-           def _():
-              # do after the app has join a realm
-
-        :param name: The name of the signal to watch.
-        :type name: unicode
-        """
-        def decorator(func):
-            if inspect.isgeneratorfunction(func):
-                func = inlineCallbacks(func)
-            self._signals.setdefault(name, []).append(func)
-            return func
-        return decorator
-
-    @inlineCallbacks
-    def _fire_signal(self, name, *args, **kwargs):
-        """
-        Utility method to call all signal handlers for a given signal.
-
-        :param name: The signal name.
-        :type name: str
-        """
-        for handler in self._signals.get(name, []):
+            # try MsgPack WAMP serializer
             try:
-                # FIXME: what if the signal handler is not a coroutine?
-                # Why run signal handlers synchronously?
-                yield handler(*args, **kwargs)
-            except Exception as e:
-                # FIXME
-                self.log.info("Warning: exception in signal handler swallowed: {err}", err=e)
+                from autobahn.wamp.serializer import MsgPackSerializer
+                serializers.append(MsgPackSerializer(batched=True))
+                serializers.append(MsgPackSerializer())
+            except ImportError:
+                pass
+
+            # try UBJSON WAMP serializer
+            try:
+                from autobahn.wamp.serializer import UBJSONSerializer
+                serializers.append(UBJSONSerializer(batched=True))
+                serializers.append(UBJSONSerializer())
+            except ImportError:
+                pass
+
+            # try JSON WAMP serializer
+            try:
+                from autobahn.wamp.serializer import JsonSerializer
+                serializers.append(JsonSerializer(batched=True))
+                serializers.append(JsonSerializer())
+            except ImportError:
+                pass
+
+            if not serializers:
+                raise Exception("could not import any WAMP serializers")
+
+        self._serializers = {}
+        for ser in serializers:
+            self._serializers[ser.RAWSOCKET_SERIALIZER_ID] = ser
 
 
-if service:
-    # Don't define it if Twisted's service support isn't here
+@public
+class WampRawSocketClientFactory(WampRawSocketFactory):
+    """
+    Twisted-based WAMP-over-RawSocket client protocol factory.
+    """
 
-    class Service(service.MultiService):
+    protocol = WampRawSocketClientProtocol
+
+    def __init__(self, factory, serializer=None):
         """
-        A WAMP application as a twisted service.
-        The application object provides a simple way of creating, debugging and running WAMP application
-        components inside a traditional twisted application
 
-        This manages application lifecycle of the wamp connection using startService and stopService
-        Using services also allows to create integration tests that properly terminates their connections
+        :param factory: A callable that produces instances that implement
+            :class:`autobahn.wamp.interfaces.ITransportHandler`
+        :type factory: callable
 
-        It can host a WAMP application component in a WAMP-over-WebSocket client
-        connecting to a WAMP router.
+        :param serializer: The WAMP serializer to use (or ``None`` for
+           "best" serializer, chosen as the first serializer available from
+           this list: CBOR, MessagePack, UBJSON, JSON).
+        :type serializer: object implementing :class:`autobahn.wamp.interfaces.ISerializer`
         """
-        factory = WampWebSocketClientFactory
+        WampRawSocketFactory.__init__(self, factory)
 
-        def __init__(self, url, realm, make, extra=None, context_factory=None):
-            """
+        if serializer is None:
 
-            :param url: The WebSocket URL of the WAMP router to connect to (e.g. `ws://somehost.com:8090/somepath`)
-            :type url: unicode
+            # try CBOR WAMP serializer
+            try:
+                from autobahn.wamp.serializer import CBORSerializer
+                serializer = CBORSerializer()
+            except ImportError:
+                pass
 
-            :param realm: The WAMP realm to join the application session to.
-            :type realm: unicode
+        if serializer is None:
 
-            :param make: A factory that produces instances of :class:`autobahn.asyncio.wamp.ApplicationSession`
-               when called with an instance of :class:`autobahn.wamp.types.ComponentConfig`.
-            :type make: callable
+            # try MsgPack WAMP serializer
+            try:
+                from autobahn.wamp.serializer import MsgPackSerializer
+                serializer = MsgPackSerializer()
+            except ImportError:
+                pass
 
-            :param extra: Optional extra configuration to forward to the application component.
-            :type extra: dict
+        if serializer is None:
 
-            :param context_factory: optional, only for secure connections. Passed as contextFactory to
-                the ``listenSSL()`` call; see https://twistedmatrix.com/documents/current/api/twisted.internet.interfaces.IReactorSSL.connectSSL.html
-            :type context_factory: twisted.internet.ssl.ClientContextFactory or None
+            # try UBJSON WAMP serializer
+            try:
+                from autobahn.wamp.serializer import UBJSONSerializer
+                serializer = UBJSONSerializer()
+            except ImportError:
+                pass
 
-            You can replace the attribute factory in order to change connectionLost or connectionFailed behaviour.
-            The factory attribute must return a WampWebSocketClientFactory object
-            """
-            self.url = url
-            self.realm = realm
-            self.extra = extra or dict()
-            self.make = make
-            self.context_factory = context_factory
-            service.MultiService.__init__(self)
-            self.setupService()
+        if serializer is None:
+            # try JSON WAMP serializer
+            try:
+                from autobahn.wamp.serializer import JsonSerializer
+                serializer = JsonSerializer()
+            except ImportError:
+                pass
 
-        def setupService(self):
-            """
-            Setup the application component.
-            """
-            is_secure, host, port, resource, path, params = parse_ws_url(self.url)
+        if serializer is None:
+            raise Exception("could not import any WAMP serializer")
 
-            # factory for use ApplicationSession
-            def create():
-                cfg = ComponentConfig(self.realm, self.extra)
-                session = self.make(cfg)
-                return session
-
-            # create a WAMP-over-WebSocket transport client factory
-            transport_factory = self.factory(create, url=self.url)
-
-            # setup the client from a Twisted endpoint
-
-            if is_secure:
-                from twisted.application.internet import SSLClient
-                ctx = self.context_factory
-                if ctx is None:
-                    from twisted.internet.ssl import optionsForClientTLS
-                    ctx = optionsForClientTLS(host)
-                client = SSLClient(host, port, transport_factory, contextFactory=ctx)
-            else:
-                if self.context_factory is not None:
-                    raise Exception("context_factory specified on non-secure URI")
-                from twisted.application.internet import TCPClient
-                client = TCPClient(host, port, transport_factory)
-
-            client.setServiceParent(self)
-
-
-# new API
-class Session(protocol._SessionShim):
-    # XXX these methods are redundant, but put here for possibly
-    # better clarity; maybe a bad idea.
-
-    def on_welcome(self, welcome_msg):
-        pass
-
-    def on_join(self, details):
-        pass
-
-    def on_leave(self, details):
-        self.disconnect()
-
-    def on_connect(self):
-        self.join(self.config.realm)
-
-    def on_disconnect(self):
-        pass
-
-
-# experimental authentication API
-class AuthCryptoSign(object):
-
-    def __init__(self, **kw):
-        # should put in checkconfig or similar
-        for key in kw.keys():
-            if key not in [u'authextra', u'authid', u'authrole', u'privkey']:
-                raise ValueError(
-                    "Unexpected key '{}' for {}".format(key, self.__class__.__name__)
-                )
-        for key in [u'privkey', u'authid']:
-            if key not in kw:
-                raise ValueError(
-                    "Must provide '{}' for cryptosign".format(key)
-                )
-        for key in kw.get('authextra', dict()):
-            if key not in [u'pubkey']:
-                raise ValueError(
-                    "Unexpected key '{}' in 'authextra'".format(key)
-                )
-
-        from autobahn.wamp.cryptosign import SigningKey
-        self._privkey = SigningKey.from_key_bytes(
-            binascii.a2b_hex(kw[u'privkey'])
-        )
-
-        if u'pubkey' in kw.get(u'authextra', dict()):
-            pubkey = kw[u'authextra'][u'pubkey']
-            if pubkey != self._privkey.public_key():
-                raise ValueError(
-                    "Public key doesn't correspond to private key"
-                )
-        else:
-            kw[u'authextra'] = kw.get(u'authextra', dict())
-            kw[u'authextra'][u'pubkey'] = self._privkey.public_key()
-        self._args = kw
-
-    def on_challenge(self, session, challenge):
-        return self._privkey.sign_challenge(session, challenge)
-
-
-IAuthenticator.register(AuthCryptoSign)
-
-
-class AuthWampCra(object):
-
-    def __init__(self, **kw):
-        # should put in checkconfig or similar
-        for key in kw.keys():
-            if key not in [u'authextra', u'authid', u'authrole', u'secret']:
-                raise ValueError(
-                    "Unexpected key '{}' for {}".format(key, self.__class__.__name__)
-                )
-        for key in [u'secret', u'authid']:
-            if key not in kw:
-                raise ValueError(
-                    "Must provide '{}' for wampcra".format(key)
-                )
-
-        self._args = kw
-        self._secret = kw.pop(u'secret')
-        if not isinstance(self._secret, six.text_type):
-            self._secret = self._secret.decode('utf8')
-
-    def on_challenge(self, session, challenge):
-        key = self._secret.encode('utf8')
-        if u'salt' in challenge.extra:
-            key = auth.derive_key(
-                key,
-                challenge.extra['salt'],
-                challenge.extra['iterations'],
-                challenge.extra['keylen']
-            )
-
-        signature = auth.compute_wcs(
-            key,
-            challenge.extra['challenge'].encode('utf8')
-        )
-        return signature.decode('ascii')
-
-
-IAuthenticator.register(AuthWampCra)
+        self._serializer = serializer

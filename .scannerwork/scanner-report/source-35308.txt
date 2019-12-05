@@ -1,8 +1,4 @@
-import socket
-from tornado.concurrent import Future
-from tornado.gen import coroutine
-from tornado.ioloop import IOLoop
-from tornado.iostream import IOStream
+import asyncio
 
 from jeepney.auth import SASLParser, make_auth_external, BEGIN, AuthenticationError
 from jeepney.bus import get_bus
@@ -11,32 +7,25 @@ from jeepney.wrappers import ProxyBase
 from jeepney.routing import Router
 from jeepney.bus_messages import message_bus
 
-class DBusConnection:
-    def __init__(self, bus_addr):
+class DBusProtocol(asyncio.Protocol):
+    def __init__(self):
         self.auth_parser = SASLParser()
         self.parser = Parser()
-        self.router = Router(Future)
-        self.authentication = Future()
+        self.router = Router(asyncio.Future)
+        self.authentication = asyncio.Future()
         self.unique_name = None
 
-        self._sock = socket.socket(family=socket.AF_UNIX)
-        self.stream = IOStream(self._sock, read_chunk_size=4096)
-
-        def connected():
-            self.stream.write(b'\0' + make_auth_external())
-
-        self.stream.connect(bus_addr, connected)
-        self.stream.read_until_close(streaming_callback=self.data_received)
+    def connection_made(self, transport):
+        self.transport = transport
+        self.transport.write(b'\0' + make_auth_external())
 
     def _authenticated(self):
-        self.stream.write(BEGIN)
+        self.transport.write(BEGIN)
         self.authentication.set_result(True)
-        self.data_received_post_auth(self.auth_parser.buffer)
+        self.data_received = self.data_received_post_auth
+        self.data_received(self.auth_parser.buffer)
 
     def data_received(self, data):
-        if self.authentication.done():
-            return self.data_received_post_auth(data)
-
         self.auth_parser.feed(data)
         if self.auth_parser.authenticated:
             self._authenticated()
@@ -53,34 +42,32 @@ class DBusConnection:
 
         future = self.router.outgoing(message)
         data = message.serialise()
-        self.stream.write(data)
+        self.transport.write(data)
         return future
 
 class Proxy(ProxyBase):
-    def __init__(self, msggen, connection):
+    def __init__(self, msggen, protocol):
         super().__init__(msggen)
-        self._connection = connection
+        self._protocol = protocol
 
     def __repr__(self):
-        return 'Proxy({}, {})'.format(self._msggen, self._connection)
+        return 'Proxy({}, {})'.format(self._msggen, self._protocol)
 
     def _method_call(self, make_msg):
         def inner(*args, **kwargs):
             msg = make_msg(*args, **kwargs)
             assert msg.header.message_type is MessageType.method_call
-            return self._connection.send_message(msg)
+            return self._protocol.send_message(msg)
 
         return inner
 
 
-@coroutine
-def connect_and_authenticate(bus='SESSION'):
-    bus_addr = get_bus(bus)
-    conn = DBusConnection(bus_addr)
-    yield conn.authentication
-    conn.unique_name = (yield Proxy(message_bus, conn).Hello())[0]
-    return conn
-
-if __name__ == '__main__':
-    conn = IOLoop.current().run_sync(connect_and_authenticate)
-    print("Unique name is:", conn.unique_name)
+async def connect_and_authenticate(bus='SESSION', loop=None):
+    if loop is None:
+        loop = asyncio.get_event_loop()
+    (t, p) = await loop.create_unix_connection(DBusProtocol, path=get_bus(bus))
+    await p.authentication
+    bus = Proxy(message_bus, p)
+    hello_reply = await bus.Hello()
+    p.unique_name = hello_reply[0]
+    return (t, p)

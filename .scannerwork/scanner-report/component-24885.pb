@@ -1,1 +1,1 @@
-µÂSvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet/compat.py 2pyX#h
+µÂ\venv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet/sbcharsetprober.py 2pyX…h

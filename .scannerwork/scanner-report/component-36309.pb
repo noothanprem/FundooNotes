@@ -1,1 +1,1 @@
-՛'venv/lib64/python3.6/site-packages/nine :	ӛ֛כ
+՛/venv/lib64/python3.6/site-packages/nine/user.py 2pyXh

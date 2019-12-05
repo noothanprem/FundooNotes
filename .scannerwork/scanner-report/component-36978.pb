@@ -1,1 +1,0 @@
-ò Cvenv/lib64/python3.6/site-packages/faker/providers/automotive/id_ID :ñ 

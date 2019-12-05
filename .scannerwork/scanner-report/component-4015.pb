@@ -1,1 +1,1 @@
-¯Gvenv/lib/python3.6/site-packages/django/db/backends/mysql/operations.py 2pyX³h
+¯Evenv/lib/python3.6/site-packages/django/db/backends/mysql/features.py 2pyXyh

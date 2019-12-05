@@ -1,1 +1,1 @@
-¨—Cvenv/lib/python3.6/site-packages/jwt/contrib/algorithms/py_ecdsa.py 2pyX=h
+¨—8venv/lib/python3.6/site-packages/jwt/contrib/__init__.py 2pyXh

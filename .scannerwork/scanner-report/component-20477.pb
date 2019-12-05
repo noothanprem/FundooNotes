@@ -1,1 +1,1 @@
-¤Я0venv/lib/python3.6/site-packages/Crypto/SelfTest :№Яда
+¤Я<venv/lib/python3.6/site-packages/Crypto/SelfTest/__init__.py 2pyX]h

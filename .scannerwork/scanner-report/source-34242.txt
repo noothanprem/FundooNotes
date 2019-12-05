@@ -1,59 +1,42 @@
-"""Base email backend class."""
+"""
+Email backend that writes messages to console instead of sending them.
+"""
+import sys
+import threading
+
+from django.core.mail.backends.base import BaseEmailBackend
 
 
-class BaseEmailBackend:
-    """
-    Base class for email backend implementations.
+class EmailBackend(BaseEmailBackend):
+    def __init__(self, *args, **kwargs):
+        self.stream = kwargs.pop('stream', sys.stdout)
+        self._lock = threading.RLock()
+        super().__init__(*args, **kwargs)
 
-    Subclasses must at least overwrite send_messages().
-
-    open() and close() can be called indirectly by using a backend object as a
-    context manager:
-
-       with backend as connection:
-           # do something with connection
-           pass
-    """
-    def __init__(self, fail_silently=False, **kwargs):
-        self.fail_silently = fail_silently
-
-    def open(self):
-        """
-        Open a network connection.
-
-        This method can be overwritten by backend implementations to
-        open a network connection.
-
-        It's up to the backend implementation to track the status of
-        a network connection if it's needed by the backend.
-
-        This method can be called by applications to force a single
-        network connection to be used when sending mails. See the
-        send_messages() method of the SMTP backend for a reference
-        implementation.
-
-        The default implementation does nothing.
-        """
-        pass
-
-    def close(self):
-        """Close a network connection."""
-        pass
-
-    def __enter__(self):
-        try:
-            self.open()
-        except Exception:
-            self.close()
-            raise
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
+    def write_message(self, message):
+        msg = message.message()
+        msg_data = msg.as_bytes()
+        charset = msg.get_charset().get_output_charset() if msg.get_charset() else 'utf-8'
+        msg_data = msg_data.decode(charset)
+        self.stream.write('%s\n' % msg_data)
+        self.stream.write('-' * 79)
+        self.stream.write('\n')
 
     def send_messages(self, email_messages):
-        """
-        Send one or more EmailMessage objects and return the number of email
-        messages sent.
-        """
-        raise NotImplementedError('subclasses of BaseEmailBackend must override send_messages() method')
+        """Write all messages to the stream in a thread-safe way."""
+        if not email_messages:
+            return
+        msg_count = 0
+        with self._lock:
+            try:
+                stream_created = self.open()
+                for message in email_messages:
+                    self.write_message(message)
+                    self.stream.flush()  # flush after each message
+                    msg_count += 1
+                if stream_created:
+                    self.close()
+            except Exception:
+                if not self.fail_silently:
+                    raise
+        return msg_count

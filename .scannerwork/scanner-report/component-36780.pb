@@ -1,1 +1,1 @@
-¬ŸAvenv/lib64/python3.6/site-packages/faker/providers/internet/uk_UA :«Ÿ
+¬ŸMvenv/lib64/python3.6/site-packages/faker/providers/internet/uk_UA/__init__.py 2pyXh

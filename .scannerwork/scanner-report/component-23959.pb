@@ -1,1 +1,1 @@
-—»@venv/lib/python3.6/site-packages/social_core/backends/twitter.py 2pyX*h
+—»Dvenv/lib/python3.6/site-packages/social_core/backends/loginradius.py 2pyXFh

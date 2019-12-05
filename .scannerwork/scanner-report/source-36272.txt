@@ -16,9 +16,10 @@
   </resource_type>
 
   <representation id="service-root-json" mediaType="application/json">
-    <param style="plain" required="true" type="xsd:date"
-           path="$['a_date']" name="a_date" />
-    <param style="plain" required="true" type="xsd:dateTime"
-           path="$['a_datetime']" name="a_datetime" />
+    <param style="plain" required="true" path="$['has_options]"
+           name="has_options">
+      <option value="Value 1" />
+      <option value="Value 2" />
+    </param>
   </representation>
 </application>

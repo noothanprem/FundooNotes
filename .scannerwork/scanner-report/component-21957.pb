@@ -1,1 +1,1 @@
-ū=venv/lib/python3.6/site-packages/twisted/words/im/__init__.py 2pyX	h
+ū=venv/lib/python3.6/site-packages/twisted/words/im/basechat.py 2pyX�h

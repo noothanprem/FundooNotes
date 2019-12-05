@@ -1,54 +1,89 @@
-from hamcrest.core.base_matcher import BaseMatcher
-from hamcrest.core.helpers.hasmethod import hasmethod
-from hamcrest.core.helpers.wrap_matcher import wrap_matcher
-
 __author__ = "Jon Reid"
 __copyright__ = "Copyright 2011 hamcrest.org"
 __license__ = "BSD, see License.txt"
 
+from hamcrest.core.base_matcher import BaseMatcher
+from hamcrest.core.core.allof import all_of
+from hamcrest.core.helpers.hasmethod import hasmethod
+from hamcrest.core.helpers.wrap_matcher import wrap_matcher
 
-class IsDictContaining(BaseMatcher):
 
-    def __init__(self, key_matcher, value_matcher):
-        self.key_matcher = key_matcher
-        self.value_matcher = value_matcher
+class IsSequenceContaining(BaseMatcher):
 
-    def _matches(self, dictionary):
-        if hasmethod(dictionary, 'items'):
-            for key, value in dictionary.items():
-                if self.key_matcher.matches(key) and self.value_matcher.matches(value):
+    def __init__(self, element_matcher):
+        self.element_matcher = element_matcher
+
+    def _matches(self, sequence):
+        try:
+            for item in sequence:
+                if self.element_matcher.matches(item):
                     return True
-        return False
+        except TypeError: # not a sequence
+            return False
 
     def describe_to(self, description):
-        description.append_text('a dictionary containing [')        \
-                    .append_description_of(self.key_matcher)        \
-                    .append_text(': ')                              \
-                    .append_description_of(self.value_matcher)      \
-                    .append_text(']')
+        description.append_text('a sequence containing ')           \
+                    .append_description_of(self.element_matcher)
 
 
-def has_entry(key_match, value_match):
-    """Matches if dictionary contains key-value entry satisfying a given pair
-    of matchers.
+# It'd be great to make use of all_of, but we can't be sure we won't
+# be seeing a one-time sequence here (like a generator); see issue #20
+# Instead, we wrap it inside a class that will convert the sequence into
+# a concrete list and then hand it off to the all_of matcher.
+class IsSequenceContainingEvery(BaseMatcher):
 
-    :param key_match: The matcher to satisfy for the key, or an expected value
-        for :py:func:`~hamcrest.core.core.isequal.equal_to` matching.
-    :param value_match: The matcher to satisfy for the value, or an expected
-        value for :py:func:`~hamcrest.core.core.isequal.equal_to` matching.
+    def __init__(self, *element_matchers):
+        delegates = [has_item(e) for e in element_matchers]
+        self.matcher = all_of(*delegates)
 
-    This matcher iterates the evaluated dictionary, searching for any key-value
-    entry that satisfies ``key_match`` and ``value_match``. If a matching entry
-    is found, ``has_entry`` is satisfied.
+    def _matches(self, sequence):
+        try:
+            return self.matcher.matches(list(sequence))
+        except TypeError:
+            return False
+
+    def describe_mismatch(self, item, mismatch_description):
+        self.matcher.describe_mismatch(item, mismatch_description)
+
+    def describe_to(self, description):
+        self.matcher.describe_to(description)
+
+
+
+def has_item(match):
+    """Matches if any element of sequence satisfies a given matcher.
+
+    :param match: The matcher to satisfy, or an expected value for
+        :py:func:`~hamcrest.core.core.isequal.equal_to` matching.
+
+    This matcher iterates the evaluated sequence, searching for any element
+    that satisfies a given matcher. If a matching element is found,
+    ``has_item`` is satisfied.
+
+    If the ``match`` argument is not a matcher, it is implicitly wrapped in an
+    :py:func:`~hamcrest.core.core.isequal.equal_to` matcher to check for
+    equality.
+
+    """
+    return IsSequenceContaining(wrap_matcher(match))
+
+
+def has_items(*items):
+    """Matches if all of the given matchers are satisfied by any elements of
+    the sequence.
+
+    :param match1,...: A comma-separated list of matchers.
+
+    This matcher iterates the given matchers, searching for any elements in the
+    evaluated sequence that satisfy them. If each matcher is satisfied, then
+    ``has_items`` is satisfied.
 
     Any argument that is not a matcher is implicitly wrapped in an
     :py:func:`~hamcrest.core.core.isequal.equal_to` matcher to check for
     equality.
 
-    Examples::
-
-        has_entry(equal_to('foo'), equal_to(1))
-        has_entry('foo', 1)
-
     """
-    return IsDictContaining(wrap_matcher(key_match), wrap_matcher(value_match))
+    matchers = []
+    for item in items:
+        matchers.append(wrap_matcher(item))
+    return IsSequenceContainingEvery(*matchers)

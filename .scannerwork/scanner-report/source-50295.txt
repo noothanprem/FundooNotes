@@ -1,74 +1,43 @@
 # -*- coding: utf-8 -*-
-import logging
-import os
-import sys
-
-from django_extensions.management.signals import post_command, pre_command
+from six.moves import configparser
 
 
-def _make_writeable(filename):
+def parse_mysql_cnf(dbinfo):
     """
-    Make sure that the file is writeable. Useful if our source is
-    read-only.
+    Attempt to parse mysql database config file for connection settings.
+    Ideally we would hook into django's code to do this, but read_default_file is handled by the mysql C libs
+    so we have to emulate the behaviour
+
+    Settings that are missing will return ''
+    returns (user, password, database_name, database_host, database_port)
     """
-    import stat
-    if sys.platform.startswith('java'):
-        # On Jython there is no os.access()
-        return
-    if not os.access(filename, os.W_OK):
-        st = os.stat(filename)
-        new_permissions = stat.S_IMODE(st.st_mode) | stat.S_IWUSR
-        os.chmod(filename, new_permissions)
+    read_default_file = dbinfo.get('OPTIONS', {}).get('read_default_file')
+    if read_default_file:
+        config = configparser.RawConfigParser({
+            'user': '',
+            'password': '',
+            'database': '',
+            'host': '',
+            'port': '',
+            'socket': '',
+        })
+        import os
+        config.read(os.path.expanduser(read_default_file))
+        try:
+            user = config.get('client', 'user')
+            password = config.get('client', 'password')
+            database_name = config.get('client', 'database')
+            database_host = config.get('client', 'host')
+            database_port = config.get('client', 'port')
+            socket = config.get('client', 'socket')
 
+            if database_host == 'localhost' and socket:
+                # mysql actually uses a socket if host is localhost
+                database_host = socket
 
-def setup_logger(logger, stream, filename=None, fmt=None):
-    """
-    Set up a logger (if no handlers exist) for console output,
-    and file 'tee' output if desired.
-    """
-    if len(logger.handlers) < 1:
-        console = logging.StreamHandler(stream)
-        console.setLevel(logging.DEBUG)
-        console.setFormatter(logging.Formatter(fmt))
-        logger.addHandler(console)
-        logger.setLevel(logging.DEBUG)
-        logger.propagate = False
+            return user, password, database_name, database_host, database_port
 
-        if filename:
-            outfile = logging.FileHandler(filename)
-            outfile.setLevel(logging.INFO)
-            outfile.setFormatter(logging.Formatter("%(asctime)s " + (fmt if fmt else '%(message)s')))
-            logger.addHandler(outfile)
+        except configparser.NoSectionError:
+            pass
 
-
-class RedirectHandler(logging.Handler):
-    """Redirect logging sent to one logger (name) to another."""
-
-    def __init__(self, name, level=logging.DEBUG):
-        # Contemplate feasibility of copying a destination (allow original handler) and redirecting.
-        logging.Handler.__init__(self, level)
-        self.name = name
-        self.logger = logging.getLogger(name)
-
-    def emit(self, record):
-        self.logger.handle(record)
-
-
-def signalcommand(func):
-    """Python decorator for management command handle defs that sends out a pre/post signal."""
-
-    def inner(self, *args, **kwargs):
-        pre_command.send(self.__class__, args=args, kwargs=kwargs)
-        ret = func(self, *args, **kwargs)
-        post_command.send(self.__class__, args=args, kwargs=kwargs, outcome=ret)
-        return ret
-    return inner
-
-
-def has_ipdb():
-    try:
-        import ipdb  # noqa
-        import IPython  # noqa
-        return True
-    except ImportError:
-        return False
+    return '', '', '', '', ''

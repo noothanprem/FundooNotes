@@ -1,66 +1,83 @@
-#  testresources: extensions to python unittest to allow declaritive use
-#  of resources by test cases.
+# Copyright (c) 2004 Canonical Limited
+#       Author: Robert Collins <robert.collins@canonical.com>
 #
-#  Copyright (c) 2005-2010 Testresources Contributors
-#  
-#  Licensed under either the Apache License, Version 2.0 or the BSD 3-clause
-#  license at the users choice. A copy of both licenses are available in the
-#  project source as Apache-2.0 and BSD. You may not use this file except in
-#  compliance with one of these two licences.
-#  
-#  Unless required by applicable law or agreed to in writing, software distributed
-#  under these licenses is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-#  CONDITIONS OF ANY KIND, either express or implied.  See the license you chose
-#  for the specific language governing permissions and limitations under that
-#  license.
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 #
 
-from unittest import TestResult
-
-import testresources
-from testresources.tests import TestUtil
-
-def test_suite():
-    import testresources.tests.test_optimising_test_suite
-    import testresources.tests.test_resourced_test_case
-    import testresources.tests.test_test_loader
-    import testresources.tests.test_test_resource
-    import testresources.tests.test_resource_graph
-    result = TestUtil.TestSuite()
-    result.addTest(testresources.tests.test_test_loader.test_suite())
-    result.addTest(testresources.tests.test_test_resource.test_suite())
-    result.addTest(testresources.tests.test_resourced_test_case.test_suite())
-    result.addTest(testresources.tests.test_resource_graph.test_suite())
-    result.addTest(
-        testresources.tests.test_optimising_test_suite.test_suite())
-    return result
+import sys
+import logging
+import unittest
 
 
-class ResultWithoutResourceExtensions(object):
-    """A test fake which does not have resource extensions."""
-
-
-class ResultWithResourceExtensions(TestResult):
-    """A test fake which has resource extensions."""
-
+class LogCollector(logging.Handler):
     def __init__(self):
-        TestResult.__init__(self)
-        self._calls = []
+        logging.Handler.__init__(self)
+        self.records=[]
+    def emit(self, record):
+        self.records.append(record.getMessage())
 
-    def startCleanResource(self, resource):
-        self._calls.append(("clean", "start", resource))
 
-    def stopCleanResource(self, resource):
-        self._calls.append(("clean", "stop", resource))
+def makeCollectingLogger():
+    """I make a logger instance that collects its logs for programmatic analysis
+    -> (logger, collector)"""
+    logger=logging.Logger("collector")
+    handler=LogCollector()
+    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    logger.addHandler(handler)
+    return logger, handler
 
-    def startMakeResource(self, resource):
-        self._calls.append(("make", "start", resource))
 
-    def stopMakeResource(self, resource):
-        self._calls.append(("make", "stop", resource))
+def visitTests(suite, visitor):
+    """A foreign method for visiting the tests in a test suite."""
+    if isinstance(suite, unittest.TestCase):
+        visitor.visitCase(suite)
+        return
+    for test in suite._tests:
+        #Abusing types to avoid monkey patching unittest.TestCase.
+        # Maybe that would be better?
+        try:
+            test.visit(visitor)
+        except AttributeError:
+            if isinstance(test, unittest.TestCase):
+                visitor.visitCase(test)
+            elif isinstance(test, unittest.TestSuite):
+                visitor.visitSuite(test)
+                visitTests(test, visitor)
+            else:
+                print("unvisitable non-unittest.TestCase element %r (%r)" % (test, test.__class__))
 
-    def startResetResource(self, resource):
-        self._calls.append(("reset", "start", resource))
 
-    def stopResetResource(self, resource):
-        self._calls.append(("reset", "stop", resource))
+class TestSuite(unittest.TestSuite):
+    """I am an extended TestSuite with a visitor interface.
+    This is primarily to allow filtering of tests - and suites or
+    more in the future. An iterator of just tests wouldn't scale..."""
+
+    def visit(self, visitor):
+        """visit the composite. Visiting is depth-first.
+        current callbacks are visitSuite and visitCase."""
+        visitor.visitSuite(self)
+        visitTests(self, visitor)
+
+
+class TestLoader(unittest.TestLoader):
+    """Custome TestLoader to set the right TestSuite class."""
+    suiteClass = TestSuite
+
+class TestVisitor(object):
+    """A visitor for Tests"""
+    def visitSuite(self, aTestSuite):
+        pass
+    def visitCase(self, aTestCase):
+        pass

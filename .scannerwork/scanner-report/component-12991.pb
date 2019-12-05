@@ -1,1 +1,1 @@
-¿e9venv/lib/python3.6/site-packages/chardet/langthaimodel.py 2pyXÈh
+¿e8venv/lib/python3.6/site-packages/chardet/latin1prober.py 2pyX’h

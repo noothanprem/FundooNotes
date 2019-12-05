@@ -1,1 +1,1 @@
-°³Fvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/utils.py 2pyX@h
+°³Evenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/apps.py 2pyXh

@@ -1,1 +1,1 @@
-Ïš=venv/lib64/python3.6/site-packages/xlwt/ExcelFormulaParser.py 2pyXžh
+Ïš3venv/lib64/python3.6/site-packages/xlwt/Workbook.py 2pyXÉh

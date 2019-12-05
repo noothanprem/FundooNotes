@@ -1,1 +1,1 @@
-²‘9venv/lib64/python3.6/site-packages/django_common/tests.py 2pyX'h
+²‘<venv/lib64/python3.6/site-packages/django_common/settings.py 2pyXh

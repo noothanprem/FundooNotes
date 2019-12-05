@@ -1,1 +1,1 @@
-ú?Dvenv/lib/python3.6/site-packages/django/core/serializers/__init__.py 2pyXëh
+ú?8venv/lib/python3.6/site-packages/django/core/serializers :ù?û?ü?ý?þ?‡@

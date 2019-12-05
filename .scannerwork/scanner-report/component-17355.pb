@@ -1,1 +1,0 @@
-ˇ3venv/lib/python3.6/site-packages/kombu/utils/url.py 2pyX{h

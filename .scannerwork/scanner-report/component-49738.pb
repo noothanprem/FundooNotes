@@ -1,1 +1,1 @@
-ʄDvenv/lib64/python3.6/site-packages/social_core/backends/pinterest.py 2pyX/h
+ʄCvenv/lib64/python3.6/site-packages/social_core/backends/facebook.py 2pyX�h

@@ -1,1 +1,1 @@
-Œ‡Dvenv/lib/python3.6/site-packages/simplejson/tests/test_namedtuple.py 2pyX{h
+Œ‡Qvenv/lib/python3.6/site-packages/simplejson/tests/test_encode_basestring_ascii.py 2pyX0h

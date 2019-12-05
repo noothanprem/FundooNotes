@@ -1,1 +1,1 @@
-°‘Bvenv/lib64/python3.6/site-packages/django_common/email_backends.py 2pyXGh
+°‘0venv/lib64/python3.6/site-packages/django_common :6®‘¯‘±‘²‘³‘´‘µ‘Ä‘Å‘Æ‘Ç‘Ô‘×‘Ù‘ë‘í‘î‘ï‘

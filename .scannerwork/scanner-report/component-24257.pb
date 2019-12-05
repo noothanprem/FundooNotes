@@ -1,1 +1,1 @@
-Á½Fvenv/lib/python3.6/site-packages/django_extensions/management/mysql.py 2pyX,h
+Á½Ivenv/lib/python3.6/site-packages/django_extensions/management/modelviz.py 2pyX±h

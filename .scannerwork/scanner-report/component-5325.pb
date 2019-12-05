@@ -1,1 +1,1 @@
-Í)Fvenv/lib/python3.6/site-packages/django/contrib/staticfiles/storage.py 2pyXöh
+Í)Cvenv/lib/python3.6/site-packages/django/contrib/staticfiles/urls.py 2pyXh

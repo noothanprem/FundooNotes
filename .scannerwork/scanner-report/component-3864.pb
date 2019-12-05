@@ -1,1 +1,1 @@
-˜<venv/lib/python3.6/site-packages/django/db/models/options.py 2pyX½h
+˜=venv/lib/python3.6/site-packages/django/db/models/deletion.py 2pyXÊh

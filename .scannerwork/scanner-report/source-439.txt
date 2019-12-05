@@ -4,57 +4,50 @@
 
 from __future__ import absolute_import, division, print_function
 
-import sys
-
 from cryptography import utils
 from cryptography.exceptions import (
     AlreadyFinalized, InvalidKey, UnsupportedAlgorithm, _Reasons
 )
-from cryptography.hazmat.backends.interfaces import ScryptBackend
+from cryptography.hazmat.backends.interfaces import PBKDF2HMACBackend
 from cryptography.hazmat.primitives import constant_time
 from cryptography.hazmat.primitives.kdf import KeyDerivationFunction
 
 
-# This is used by the scrypt tests to skip tests that require more memory
-# than the MEM_LIMIT
-_MEM_LIMIT = sys.maxsize // 2
-
-
 @utils.register_interface(KeyDerivationFunction)
-class Scrypt(object):
-    def __init__(self, salt, length, n, r, p, backend):
-        if not isinstance(backend, ScryptBackend):
+class PBKDF2HMAC(object):
+    def __init__(self, algorithm, length, salt, iterations, backend):
+        if not isinstance(backend, PBKDF2HMACBackend):
             raise UnsupportedAlgorithm(
-                "Backend object does not implement ScryptBackend.",
+                "Backend object does not implement PBKDF2HMACBackend.",
                 _Reasons.BACKEND_MISSING_INTERFACE
             )
 
+        if not backend.pbkdf2_hmac_supported(algorithm):
+            raise UnsupportedAlgorithm(
+                "{} is not supported for PBKDF2 by this backend.".format(
+                    algorithm.name),
+                _Reasons.UNSUPPORTED_HASH
+            )
+        self._used = False
+        self._algorithm = algorithm
         self._length = length
         utils._check_bytes("salt", salt)
-        if n < 2 or (n & (n - 1)) != 0:
-            raise ValueError("n must be greater than 1 and be a power of 2.")
-
-        if r < 1:
-            raise ValueError("r must be greater than or equal to 1.")
-
-        if p < 1:
-            raise ValueError("p must be greater than or equal to 1.")
-
-        self._used = False
         self._salt = salt
-        self._n = n
-        self._r = r
-        self._p = p
+        self._iterations = iterations
         self._backend = backend
 
     def derive(self, key_material):
         if self._used:
-            raise AlreadyFinalized("Scrypt instances can only be used once.")
+            raise AlreadyFinalized("PBKDF2 instances can only be used once.")
         self._used = True
 
         utils._check_byteslike("key_material", key_material)
-        return self._backend.derive_scrypt(
-            key_material, self._salt, self._length, self._n, self._r, self._p
+        return self._backend.derive_pbkdf2_hmac(
+            self._algorithm,
+            self._length,
+            self._salt,
+            self._iterations,
+            key_material
         )
 
     def verify(self, key_material, expected_key):

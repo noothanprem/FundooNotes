@@ -1,1 +1,1 @@
-”6venv/lib/python3.6/site-packages/django/utils/dates.py 2pyX2h
+”<venv/lib/python3.6/site-packages/django/utils/lorem_ipsum.py 2pyXsh

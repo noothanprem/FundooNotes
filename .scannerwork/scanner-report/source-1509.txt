@@ -1,4 +1,4 @@
-# Copyright 2016 Donald Stufft and individual contributors
+# Copyright 2013 Donald Stufft and individual contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,49 +14,55 @@
 
 from __future__ import absolute_import, division, print_function
 
-import nacl.exceptions as exc
-from nacl._sodium import ffi, lib
-from nacl.exceptions import ensure
 
-BYTES = lib.crypto_shorthash_siphash24_bytes()
-KEYBYTES = lib.crypto_shorthash_siphash24_keybytes()
-XBYTES = lib.crypto_shorthash_siphashx24_bytes()
-XKEYBYTES = lib.crypto_shorthash_siphashx24_keybytes()
-
-
-def crypto_shorthash_siphash24(data, key):
-    """Compute a fast, cryptographic quality, keyed hash of the input data
-
-    :param data:
-    :type data: bytes
-    :param key: len(key) must be equal to
-                :py:data:`.KEYBYTES` (16)
-    :type key: bytes
+class CryptoError(Exception):
     """
-    if len(key) != KEYBYTES:
-        raise exc.ValueError(
-            "Key length must be exactly {0} bytes".format(KEYBYTES))
-    digest = ffi.new("unsigned char[]", BYTES)
-    rc = lib.crypto_shorthash_siphash24(digest, data, len(data), key)
-
-    ensure(rc == 0, raising=exc.RuntimeError)
-    return ffi.buffer(digest, BYTES)[:]
-
-
-def crypto_shorthash_siphashx24(data, key):
-    """Compute a fast, cryptographic quality, keyed hash of the input data
-
-    :param data:
-    :type data: bytes
-    :param key: len(key) must be equal to
-                :py:data:`.XKEYBYTES` (16)
-    :type key: bytes
+    Base exception for all nacl related errors
     """
-    if len(key) != XKEYBYTES:
-        raise exc.ValueError(
-            "Key length must be exactly {0} bytes".format(XKEYBYTES))
-    digest = ffi.new("unsigned char[]", XBYTES)
-    rc = lib.crypto_shorthash_siphashx24(digest, data, len(data), key)
 
-    ensure(rc == 0, raising=exc.RuntimeError)
-    return ffi.buffer(digest, XBYTES)[:]
+
+class BadSignatureError(CryptoError):
+    """
+    Raised when the signature was forged or otherwise corrupt.
+    """
+
+
+class RuntimeError(RuntimeError, CryptoError):
+    pass
+
+
+class AssertionError(AssertionError, CryptoError):
+    pass
+
+
+class TypeError(TypeError, CryptoError):
+    pass
+
+
+class ValueError(ValueError, CryptoError):
+    pass
+
+
+class InvalidkeyError(CryptoError):
+    pass
+
+
+def ensure(cond, *args, **kwds):
+    """
+    Return if a condition is true, otherwise raise a caller-configurable
+    :py:class:`Exception`
+    :param bool cond: the condition to be checked
+    :param sequence args: the arguments to be passed to the exception's
+                          constructor
+    The only accepted named parameter is `raising` used to configure the
+    exception to be raised if `cond` is not `True`
+    """
+    _CHK_UNEXP = 'check_condition() got an unexpected keyword argument {0}'
+
+    raising = kwds.pop('raising', AssertionError)
+    if kwds:
+        raise TypeError(_CHK_UNEXP.format(repr(kwds.popitem()[0])))
+
+    if cond is True:
+        return
+    raise raising(*args)

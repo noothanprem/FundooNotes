@@ -1,88 +1,100 @@
 """
-ORCID OAuth2 Application backend, docs at:
-    https://python-social-auth.readthedocs.io/en/latest/backends/orcid.html
+Shopify OAuth2 backend, docs at:
+    https://python-social-auth.readthedocs.io/en/latest/backends/shopify.html
 """
+import imp
+import six
+
+from ..utils import handle_http_errors
 from .oauth import BaseOAuth2
+from ..exceptions import AuthFailed, AuthCanceled
 
 
-class ORCIDOAuth2(BaseOAuth2):
-    """ORCID OAuth2 authentication backend"""
-    name = 'orcid'
-    ID_KEY = 'orcid'
-    AUTHORIZATION_URL = 'https://orcid.org/oauth/authorize'
-    ACCESS_TOKEN_URL = 'https://orcid.org/oauth/token'
-    USER_DATA_URL = 'https://pub.orcid.org/v2.0/{}'
-    DEFAULT_SCOPE = ['/authenticate']
-    ACCESS_TOKEN_METHOD = 'POST'
+class ShopifyOAuth2(BaseOAuth2):
+    """Shopify OAuth2 authentication backend"""
+    name = 'shopify'
+    ID_KEY = 'shop'
     EXTRA_DATA = [
-        ('orcid', 'id'),
-        ('expires_in', 'expires'),
-        ('refresh_token', 'refresh_token')
+        ('shop', 'shop'),
+        ('website', 'website'),
+        ('expires', 'expires')
     ]
+    REDIRECT_STATE = False
 
-    def auth_params(self, state=None):
-        params = super(ORCIDOAuth2, self).auth_params(state)
-        return params
+    @property
+    def shopify_api_version(self):
+        return self.setting('API_VERSION', '2019-04')
+
+    @property
+    def shopify_api(self):
+        if not hasattr(self, '_shopify_api'):
+            fp, pathname, description = imp.find_module('shopify')
+            self._shopify_api = imp.load_module('shopify', fp, pathname,
+                                                description)
+        return self._shopify_api
 
     def get_user_details(self, response):
-        """Return user details from ORCID account"""
-        fullname= response.get('name', '')
-        first_name = last_name = email = ''
-        person = response.get('person')
-        if person:
-            name = person.get('name')
-            if name:
-                first_name = name.get('given-names', {}).get('value', '')
-                last_name = name.get('family-name', {}).get('value', '')
+        """Use the shopify store name as the username"""
+        return {
+            'username': six.text_type(response.get('shop', '')).replace(
+                '.myshopify.com', ''
+            )
+        }
 
-            emails = person.get('emails')
-            if emails:
-                emails_list = emails.get('email')
-                if emails_list and len(emails_list) > 0:
-                    email = emails_list[0].get('email', '')
+    def extra_data(self, user, uid, response, details=None, *args, **kwargs):
+        """Return access_token and extra defined names to store in
+        extra_data field"""
+        data = super(ShopifyOAuth2, self).extra_data(user, uid, response,
+                                                     details, *args, **kwargs)
+        session = self.shopify_api.Session(self.data.get('shop').strip(),
+                                           version=self.shopify_api_version)
+        # Get, and store the permanent token
+        token = session.request_token(data['access_token'])
+        data['access_token'] = token
+        return dict(data)
 
-                    if len(emails_list) > 1:
-                        for email_dict in emails_list:
-                            if email_dict.get('primary','') == True:
-                                email = email_dict.get('email', '')
-                                break
-                    else:
-                        mail = emails_list[0].get('email', '')
+    def auth_url(self):
+        key, secret = self.get_key_and_secret()
+        self.shopify_api.Session.setup(api_key=key, secret=secret)
+        scope = self.get_scope()
+        state = self.state_token()
+        self.strategy.session_set(self.name + '_state', state)
+        redirect_uri = self.get_redirect_uri(state)
+        session = self.shopify_api.Session(self.data.get('shop').strip(),
+                                           version=self.shopify_api_version)
+        return session.create_permission_url(
+            scope=scope,
+            redirect_uri=redirect_uri
+        )
 
-        return {'username': response.get('orcid'),
-                'email': email,
-                'fullname': fullname,
-                'first_name': first_name,
-                'last_name': last_name}
-
-    def user_data(self, access_token, *args, **kwargs):
-        """Loads user data from service"""
-        params = self.setting('PROFILE_EXTRA_PARAMS', {})
-        params['access_token'] = access_token
+    @handle_http_errors
+    def auth_complete(self, *args, **kwargs):
+        """Completes login process, must return user instance"""
+        self.process_error(self.data)
+        access_token = None
+        key, secret = self.get_key_and_secret()
         try:
-            return self.get_json(self.USER_DATA_URL.format(
-                            kwargs['response']['orcid']),
-                            headers={'Content-Type': 'application/json'},
-                            params=params)
-        except ValueError as e:
-            return None
+            shop_url = self.data.get('shop')
+            self.shopify_api.Session.setup(api_key=key, secret=secret)
+            shopify_session = self.shopify_api.Session(
+                shop_url, version=self.shopify_api_version, token=self.data
+            )
+            access_token = shopify_session.token
+        except self.shopify_api.ValidationException:
+            raise AuthCanceled(self)
+        else:
+            if not access_token:
+                raise AuthFailed(self, 'Authentication Failed')
+        return self.do_auth(access_token, shop_url, shopify_session.url,
+                            *args, **kwargs)
 
-
-class ORCIDOAuth2Sandbox(ORCIDOAuth2):
-    """ORCID OAuth2 Sandbox authentication backend"""
-    name = 'orcid-sandbox'
-    AUTHORIZATION_URL = 'https://sandbox.orcid.org/oauth/authorize'
-    ACCESS_TOKEN_URL = 'https://sandbox.orcid.org/oauth/token'
-    USER_DATA_URL = 'https://pub.sandbox.orcid.org/v2.0/{}'
-
-
-class ORCIDMemberOAuth2(ORCIDOAuth2):
-    """ORCID OAuth2 authentication backend that uses ORCID Member API"""
-    USER_DATA_URL = 'https://api.orcid.org/v2.0/{}'
-    DEFAULT_SCOPE = ['/authenticate', '/read-limited']
-
-
-class ORCIDMemberOAuth2Sandbox(ORCIDOAuth2Sandbox):
-    """ORCID OAuth2 Sandbox authentication backend that uses ORCID Member Sandbox API"""
-    USER_DATA_URL = 'https://api.sandbox.orcid.org/v2.0/{}'
-    DEFAULT_SCOPE = ['/authenticate', '/read-limited']
+    def do_auth(self, access_token, shop_url, website, *args, **kwargs):
+        kwargs.update({
+            'backend': self,
+            'response': {
+                'shop': shop_url,
+                'website': 'http://{0}'.format(website),
+                'access_token': access_token
+            }
+        })
+        return self.strategy.authenticate(*args, **kwargs)

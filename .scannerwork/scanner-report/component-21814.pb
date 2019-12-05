@@ -1,1 +1,1 @@
-¶ª4venv/lib/python3.6/site-packages/twisted/logger/test :0µª·ª¸ª¹ªºª»ª¼ª½ª¾ª¿ªÀªÁªÂªÔªÕªÖª
+¶ªCvenv/lib/python3.6/site-packages/twisted/logger/test/test_global.py 2pyXõh

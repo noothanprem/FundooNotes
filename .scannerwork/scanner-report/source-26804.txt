@@ -1,38 +1,38 @@
-"""Worker Event Heartbeat Bootstep."""
+"""Consumer Broker Connection Bootstep."""
 from __future__ import absolute_import, unicode_literals
 
+from kombu.common import ignore_errors
+
 from celery import bootsteps
-from celery.worker import heartbeat
+from celery.utils.log import get_logger
 
-from .events import Events
+__all__ = ('Connection',)
 
-__all__ = ('Heart',)
+logger = get_logger(__name__)
+info = logger.info
 
 
-class Heart(bootsteps.StartStopStep):
-    """Bootstep sending event heartbeats.
+class Connection(bootsteps.StartStopStep):
+    """Service managing the consumer broker connection."""
 
-    This service sends a ``worker-heartbeat`` message every n seconds.
-
-    Note:
-        Not to be confused with AMQP protocol level heartbeats.
-    """
-
-    requires = (Events,)
-
-    def __init__(self, c,
-                 without_heartbeat=False, heartbeat_interval=None, **kwargs):
-        self.enabled = not without_heartbeat
-        self.heartbeat_interval = heartbeat_interval
-        c.heart = None
-        super(Heart, self).__init__(c, **kwargs)
+    def __init__(self, c, **kwargs):
+        c.connection = None
+        super(Connection, self).__init__(c, **kwargs)
 
     def start(self, c):
-        c.heart = heartbeat.Heart(
-            c.timer, c.event_dispatcher, self.heartbeat_interval,
-        )
-        c.heart.start()
+        c.connection = c.connect()
+        info('Connected to %s', c.connection.as_uri())
 
-    def stop(self, c):
-        c.heart = c.heart and c.heart.stop()
-    shutdown = stop
+    def shutdown(self, c):
+        # We must set self.connection to None here, so
+        # that the green pidbox thread exits.
+        connection, c.connection = c.connection, None
+        if connection:
+            ignore_errors(connection, connection.close)
+
+    def info(self, c):
+        params = 'N/A'
+        if c.connection:
+            params = c.connection.info()
+            params.pop('password', None)  # don't send password.
+        return {'broker': params}

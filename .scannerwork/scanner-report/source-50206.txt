@@ -1,67 +1,242 @@
 # -*- coding: utf-8 -*-
-from __future__ import with_statement
-
+import importlib
+import inspect
 import os
-import re
-import six
+import traceback
 
-from django.conf import settings
-from django.core.management.base import BaseCommand
+from argparse import ArgumentTypeError
 
-from django_extensions.compat import get_template_setting
+from django.apps import apps
+from django.core.management.base import CommandError
+
+from django_extensions.management.email_notifications import EmailNotificationCommand
 from django_extensions.management.utils import signalcommand
 
-ANNOTATION_RE = re.compile(r"\{?#[\s]*?(TODO|FIXME|BUG|HACK|WARNING|NOTE|XXX)[\s:]?(.+)")
-ANNOTATION_END_RE = re.compile(r"(.*)#\}(.*)")
+
+class DirPolicyChoices:
+    NONE = 'none'
+    EACH = 'each'
+    ROOT = 'root'
 
 
-class Command(BaseCommand):
-    help = 'Show all annotations like TODO, FIXME, BUG, HACK, WARNING, NOTE or XXX in your py and HTML files.'
-    label = 'annotation tag (TODO, FIXME, BUG, HACK, WARNING, NOTE, XXX)'
+def check_is_directory(value):
+    if value is None or not os.path.isdir(value):
+        raise ArgumentTypeError("%s is not a directory!" % value)
+    return value
+
+
+class BadCustomDirectoryException(Exception):
+    def __init__(self, value):
+        self.message = value + ' If --dir-policy is custom than you must set correct directory in ' \
+                               '--dir option or in settings.RUNSCRIPT_CHDIR'
+
+    def __str__(self):
+        return self.message
+
+
+class Command(EmailNotificationCommand):
+    help = 'Runs a script in django context.'
+
+    def __init__(self, *args, **kwargs):
+        super(Command, self).__init__(*args, **kwargs)
+        self.current_directory = os.getcwd()
 
     def add_arguments(self, parser):
         super(Command, self).add_arguments(parser)
+        parser.add_argument('script', nargs='+')
         parser.add_argument(
-            '--tag',
-            dest='tag',
-            help='Search for specific tags only',
-            action='append'
+            '--fixtures', action='store_true', dest='infixtures', default=False,
+            help='Also look in app.fixtures subdir',
+        )
+        parser.add_argument(
+            '--noscripts', action='store_true', dest='noscripts', default=False,
+            help='Do not look in app.scripts subdir',
+        )
+        parser.add_argument(
+            '-s', '--silent', action='store_true', dest='silent', default=False,
+            help='Run silently, do not show errors and tracebacks',
+        )
+        parser.add_argument(
+            '--no-traceback', action='store_true', dest='no_traceback', default=False,
+            help='Do not show tracebacks',
+        )
+        parser.add_argument(
+            '--script-args', nargs='*', type=str,
+            help='Space-separated argument list to be passed to the scripts. Note that the '
+                 'same arguments will be passed to all named scripts.',
+        )
+        parser.add_argument(
+            '--dir-policy', type=str,
+            choices=[DirPolicyChoices.NONE, DirPolicyChoices.EACH, DirPolicyChoices.ROOT],
+            help='Policy of selecting scripts execution directory: '
+                 'none - start all scripts in current directory '
+                 'each - start all scripts in their directories '
+                 'root - start all scripts in BASE_DIR directory ',
+        )
+        parser.add_argument(
+            '--chdir', type=check_is_directory,
+            help='If dir-policy option is set to custom, than this option determines script execution directory.',
         )
 
     @signalcommand
     def handle(self, *args, **options):
-        # don't add django internal code
-        apps = [app for app in filter(lambda app: not app.startswith('django.contrib'), settings.INSTALLED_APPS)]
-        template_dirs = get_template_setting('DIRS', [])
-        base_dir = getattr(settings, 'BASE_DIR')
-        if template_dirs:
-            apps += template_dirs
-        for app_dir in apps:
-            app_dir = app_dir.replace(".", "/")
-            if base_dir:
-                app_dir = os.path.join(base_dir, app_dir)
-            for top, dirs, files in os.walk(app_dir):
-                for fn in files:
-                    if os.path.splitext(fn)[1] in ('.py', '.html'):
-                        fpath = os.path.join(top, fn)
-                        annotation_lines = []
-                        with open(fpath, 'r') as fd:
-                            i = 0
-                            for line in fd.readlines():
-                                i += 1
-                                if ANNOTATION_RE.search(line):
-                                    tag, msg = ANNOTATION_RE.findall(line)[0]
-                                    if options['tag']:
-                                        if tag not in map(str.upper, map(str, options['tag'])):
-                                            break
+        from django.conf import settings
 
-                                    if ANNOTATION_END_RE.search(msg.strip()):
-                                        msg = ANNOTATION_END_RE.findall(msg.strip())[0][0]
+        NOTICE = self.style.SQL_TABLE
+        NOTICE2 = self.style.SQL_FIELD
+        ERROR = self.style.ERROR
+        ERROR2 = self.style.NOTICE
 
-                                    annotation_lines.append("[%3s] %-5s %s" % (i, tag, msg.strip()))
-                            if annotation_lines:
-                                self.stdout.write("%s:" % fpath)
-                                for annotation in annotation_lines:
-                                    annotation = annotation.decode('utf-8') if six.PY2 else annotation
-                                    self.stdout.write("  * %s" % annotation)
-                                self.stdout.write("")
+        subdirs = []
+        scripts = options['script']
+
+        if not options['noscripts']:
+            subdirs.append(getattr(settings, 'RUNSCRIPT_SCRIPT_DIR', 'scripts'))
+        if options['infixtures']:
+            subdirs.append('fixtures')
+        verbosity = options["verbosity"]
+        show_traceback = options['traceback']
+        no_traceback = options['no_traceback']
+        if no_traceback:
+            show_traceback = False
+        else:
+            show_traceback = True
+        silent = options['silent']
+        if silent:
+            verbosity = 0
+        email_notifications = options['email_notifications']
+
+        if len(subdirs) < 1:
+            print(NOTICE("No subdirs to run left."))
+            return
+
+        if len(scripts) < 1:
+            print(ERROR("Script name required."))
+            return
+
+        def get_directory_from_chdir():
+            directory = options['chdir'] or getattr(settings, 'RUNSCRIPT_CHDIR', None)
+            try:
+                check_is_directory(directory)
+            except ArgumentTypeError as e:
+                raise BadCustomDirectoryException(str(e))
+            return directory
+
+        def get_directory_basing_on_policy(script_module):
+            policy = options['dir_policy'] or getattr(settings, 'RUNSCRIPT_CHDIR_POLICY', DirPolicyChoices.NONE)
+            if policy == DirPolicyChoices.ROOT:
+                return settings.BASE_DIR
+            elif policy == DirPolicyChoices.EACH:
+                return os.path.dirname(inspect.getfile(script_module))
+            else:
+                return self.current_directory
+
+        def set_directory(script_module):
+            if options['chdir']:
+                directory = get_directory_from_chdir()
+            elif options['dir_policy']:
+                directory = get_directory_basing_on_policy(script_module)
+            elif getattr(settings, 'RUNSCRIPT_CHDIR', None):
+                directory = get_directory_from_chdir()
+            else:
+                directory = get_directory_basing_on_policy(script_module)
+            os.chdir(os.path.abspath(directory))
+
+        def run_script(mod, *script_args):
+            try:
+                set_directory(mod)
+                mod.run(*script_args)
+                if email_notifications:
+                    self.send_email_notification(notification_id=mod.__name__)
+            except Exception as e:
+                if silent:
+                    return
+                if verbosity > 0:
+                    print(ERROR("Exception while running run() in '%s'" % mod.__name__))
+                if email_notifications:
+                    self.send_email_notification(
+                        notification_id=mod.__name__, include_traceback=True)
+                if show_traceback:
+                    if not isinstance(e, CommandError):
+                        raise
+
+        def my_import(parent_package, module_name):
+            full_module_path = "%s.%s" % (parent_package, module_name)
+            if verbosity > 1:
+                print(NOTICE("Check for %s" % full_module_path))
+            # Try importing the parent package first
+            try:
+                importlib.import_module(parent_package)
+            except ImportError as e:
+                if str(e).startswith('No module named'):
+                    # No need to proceed if the parent package doesn't exist
+                    return False
+
+            try:
+                t = importlib.import_module(full_module_path)
+            except ImportError as e:
+                # The parent package exists, but the module doesn't
+                try:
+                    if importlib.util.find_spec(full_module_path) is None:
+                        return False
+                except Exception:
+                    module_file = os.path.join(settings.BASE_DIR, *full_module_path.split('.')) + '.py'
+                    if not os.path.isfile(module_file):
+                        return False
+
+                if silent:
+                    return False
+                if show_traceback:
+                    traceback.print_exc()
+                if verbosity > 0:
+                    print(ERROR("Cannot import module '%s': %s." % (full_module_path, e)))
+
+                return False
+
+            if hasattr(t, "run"):
+                if verbosity > 1:
+                    print(NOTICE2("Found script '%s' ..." % full_module_path))
+                return t
+            else:
+                if verbosity > 1:
+                    print(ERROR2("Found script '%s' but no run() function found." % full_module_path))
+
+        def find_modules_for_script(script):
+            """ Find script module which contains 'run' attribute """
+            modules = []
+            # first look in apps
+            for app in apps.get_app_configs():
+                for subdir in subdirs:
+                    mod = my_import("%s.%s" % (app.name, subdir), script)
+                    if mod:
+                        modules.append(mod)
+            # try direct import
+            if script.find(".") != -1:
+                parent, mod_name = script.rsplit(".", 1)
+                mod = my_import(parent, mod_name)
+                if mod:
+                    modules.append(mod)
+            else:
+                # try app.DIR.script import
+                for subdir in subdirs:
+                    mod = my_import(subdir, script)
+                    if mod:
+                        modules.append(mod)
+
+            return modules
+
+        if options['script_args']:
+            script_args = options['script_args']
+        else:
+            script_args = []
+        for script in scripts:
+            modules = find_modules_for_script(script)
+            if not modules:
+                if verbosity > 0 and not silent:
+                    print(ERROR("No (valid) module for script '%s' found" % script))
+                    if verbosity < 2:
+                        print(ERROR("Try running with a higher verbosity level like: -v2 or -v3"))
+            for mod in modules:
+                if verbosity > 1:
+                    print(NOTICE2("Running script '%s' ..." % mod.__name__))
+                run_script(mod, *script_args)

@@ -1,1 +1,0 @@
-Ωè;venv/lib64/python3.6/site-packages/django/conf/locale/es_PR :ºèæè

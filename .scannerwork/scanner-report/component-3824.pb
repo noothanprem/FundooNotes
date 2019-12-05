@@ -1,1 +1,1 @@
-ð?venv/lib/python3.6/site-packages/django/db/migrations/loader.py 2pyXÅh
+ðAvenv/lib/python3.6/site-packages/django/db/migrations/executor.py 2pyXùh

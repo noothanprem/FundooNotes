@@ -1,1 +1,1 @@
-ùÂNvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/idna/core.py 2pyXh
+ùÂSvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/idna/uts46data.py 2pyX@h

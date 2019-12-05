@@ -1,1 +1,0 @@
-Õ,Gvenv/lib/python3.6/site-packages/django/contrib/gis/templates/gis/admin :Ö,Ø,

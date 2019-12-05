@@ -1,1 +1,0 @@
-ŠÉ3venv/lib/python3.6/site-packages/attr/converters.py 2pyXOh

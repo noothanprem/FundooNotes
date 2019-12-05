@@ -1,1 +1,1 @@
-…¾avenv/lib/python3.6/site-packages/django_extensions/static/django_extensions/js/jquery.bgiframe.js 2jsX(h
+…¾bvenv/lib/python3.6/site-packages/django_extensions/static/django_extensions/js/jquery.ajaxQueue.js 2jsXxh

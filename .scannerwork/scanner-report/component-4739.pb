@@ -1,1 +1,1 @@
-ƒ%Tvenv/lib/python3.6/site-packages/django/contrib/flatpages/migrations/0001_initial.py 2pyX(h
+ƒ%Jvenv/lib/python3.6/site-packages/django/contrib/auth/context_processors.py 2pyX@h

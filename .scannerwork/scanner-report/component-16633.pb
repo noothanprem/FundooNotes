@@ -1,1 +1,1 @@
-ù7venv/lib/python3.6/site-packages/django_cron/management :ø
+ùCvenv/lib/python3.6/site-packages/django_cron/management/__init__.py 2pyXh

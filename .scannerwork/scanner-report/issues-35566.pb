@@ -5,12 +5,12 @@ h
 pythonS1481-Remove the unused local variable "lacks_one". 2
 ÑÑ P
 pythonS14811Remove the unused local variable "has_the_other". 2
-ÖÖ P
+ÅÅ P
 pythonS14811Remove the unused local variable "has_the_other". 2
-ÅÅ J
+ÖÖ J
 pythonS1481+Remove the unused local variable "has_one". 2
 ÄÄ K
-pythonS1481,Remove the unused local variable "builder2". 2
-íí K
 pythonS1481,Remove the unused local variable "builder1". 2
-ëë 
+ëë K
+pythonS1481,Remove the unused local variable "builder2". 2
+íí 

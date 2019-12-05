@@ -1,1 +1,1 @@
-бе3venv/lib64/python3.6/site-packages/django_inlinecss :аевесетеъеые
+бе3venv/lib64/python3.6/site-packages/django_inlinecss :аевесетещеые

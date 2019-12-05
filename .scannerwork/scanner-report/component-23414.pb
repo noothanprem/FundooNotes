@@ -1,1 +1,1 @@
-ö¶Hvenv/lib/python3.6/site-packages/social_core/tests/backends/test_clef.py 2pyXh
+ö¶Ivenv/lib/python3.6/site-packages/social_core/tests/backends/test_kakao.py 2pyXh

@@ -1,1 +1,1 @@
-‘ÓFvenv/lib64/python3.6/site-packages/kombu/asynchronous/aws/sqs/queue.py 2pyXƒh
+‘ÓBvenv/lib64/python3.6/site-packages/kombu/asynchronous/semaphore.py 2pyXmh

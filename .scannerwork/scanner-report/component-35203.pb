@@ -1,1 +1,1 @@
-ƒ“Mvenv/lib64/python3.6/site-packages/provider/oauth2/migrations/0001_initial.py 2pyXšh
+ƒ“avenv/lib64/python3.6/site-packages/provider/oauth2/migrations/0002_auto__chg_field_client_user.py 2pyXfh

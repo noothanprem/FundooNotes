@@ -1,28 +1,26 @@
-# coding: utf-8
-from __future__ import unicode_literals
+from requests import HTTPError
 
-import json
+from six.moves.urllib_parse import urlencode
 
-from .oauth import OAuth2Test
+from ...exceptions import AuthCanceled
+from .oauth import OAuth1Test
 
 
-class VKOAuth2Test(OAuth2Test):
-    backend_path = 'social_core.backends.vk.VKOAuth2'
-    user_data_url = 'https://api.vk.com/method/users.get'
-    expected_username = 'durov'
-    access_token_body = json.dumps({
-        'access_token': 'foobar',
-        'token_type': 'bearer'
+class EvernoteOAuth1Test(OAuth1Test):
+    backend_path = 'social_core.backends.evernote.EvernoteOAuth'
+    expected_username = '101010'
+    access_token_body = urlencode({
+        'edam_webApiUrlPrefix': 'https://sandbox.evernote.com/shard/s1/',
+        'edam_shard': 's1',
+        'oauth_token': 'foobar',
+        'edam_expires': '1395118279645',
+        'edam_userId': '101010',
+        'edam_noteStoreUrl': 'https://sandbox.evernote.com/shard/s1/notestore'
     })
-    user_data_body = json.dumps({
-        'response': [{
-            'uid': '1',
-            'first_name': 'Павел',
-            'last_name': 'Дуров',
-            'screen_name': 'durov',
-            'nickname': '',
-            'photo': "http:\/\/cs7003.vk.me\/v7003815\/22a1\/xgG9fb-IJ3Y.jpg"
-        }]
+    request_token_body = urlencode({
+        'oauth_token_secret': 'foobar-secret',
+        'oauth_token': 'foobar',
+        'oauth_callback_confirmed': 'true'
     })
 
     def test_login(self):
@@ -30,3 +28,29 @@ class VKOAuth2Test(OAuth2Test):
 
     def test_partial_pipeline(self):
         self.do_partial_pipeline()
+
+
+class EvernoteOAuth1CanceledTest(EvernoteOAuth1Test):
+    access_token_status = 401
+
+    def test_login(self):
+        with self.assertRaises(AuthCanceled) as cm:
+            self.do_login()
+        self.assertTrue(cm.exception.response is not None)
+
+    def test_partial_pipeline(self):
+        with self.assertRaises(AuthCanceled) as cm:
+            self.do_partial_pipeline()
+        self.assertTrue(cm.exception.response is not None)
+
+
+class EvernoteOAuth1ErrorTest(EvernoteOAuth1Test):
+    access_token_status = 500
+
+    def test_login(self):
+        with self.assertRaises(HTTPError):
+            self.do_login()
+
+    def test_partial_pipeline(self):
+        with self.assertRaises(HTTPError):
+            self.do_partial_pipeline()

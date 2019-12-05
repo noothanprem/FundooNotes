@@ -1,1 +1,1 @@
-é7venv/lib/python3.6/site-packages/django_cron/migrations :	çèê
+éGvenv/lib/python3.6/site-packages/django_cron/migrations/0001_initial.py 2pyXh

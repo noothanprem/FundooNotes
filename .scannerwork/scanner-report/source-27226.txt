@@ -1,124 +1,114 @@
-"""
-A module that brings in equivalents of various modified Python 3 builtins
-into Py2. Has no effect on Py3.
+'''
+This module provides a newsuper() function in Python 2 that mimics the
+behaviour of super() in Python 3. It is designed to be used as follows:
 
-The builtin functions are:
+    from __future__ import division, absolute_import, print_function
+    from future.builtins import super
 
-- ``ascii`` (from Py2's future_builtins module)
-- ``hex`` (from Py2's future_builtins module)
-- ``oct`` (from Py2's future_builtins module)
-- ``chr`` (equivalent to ``unichr`` on Py2)
-- ``input`` (equivalent to ``raw_input`` on Py2)
-- ``next`` (calls ``__next__`` if it exists, else ``next`` method)
-- ``open`` (equivalent to io.open on Py2)
-- ``super`` (backport of Py3's magic zero-argument super() function
-- ``round`` (new "Banker's Rounding" behaviour from Py3)
+And then, for example:
 
-``isinstance`` is also currently exported for backwards compatibility
-with v0.8.2, although this has been deprecated since v0.9.
+    class VerboseList(list):
+        def append(self, item):
+            print('Adding an item')
+            super().append(item)        # new simpler super() function
 
+Importing this module on Python 3 has no effect.
 
-input()
--------
-Like the new ``input()`` function from Python 3 (without eval()), except
-that it returns bytes. Equivalent to Python 2's ``raw_input()``.
+This is based on (i.e. almost identical to) Ryan Kelly's magicsuper
+module here:
 
-Warning: By default, importing this module *removes* the old Python 2
-input() function entirely from ``__builtin__`` for safety. This is
-because forgetting to import the new ``input`` from ``future`` might
-otherwise lead to a security vulnerability (shell injection) on Python 2.
+    https://github.com/rfk/magicsuper.git
 
-To restore it, you can retrieve it yourself from
-``__builtin__._old_input``.
+Excerpts from Ryan's docstring:
 
-Fortunately, ``input()`` seems to be seldom used in the wild in Python
-2...
+  "Of course, you can still explicitly pass in the arguments if you want
+  to do something strange.  Sometimes you really do want that, e.g. to
+  skip over some classes in the method resolution order.
 
-"""
+  "How does it work?  By inspecting the calling frame to determine the
+  function object being executed and the object on which it's being
+  called, and then walking the object's __mro__ chain to find out where
+  that function was defined.  Yuck, but it seems to work..."
+'''
 
-from future import utils
+from __future__ import absolute_import
+import sys
+from types import FunctionType
+
+from future.utils import PY3, PY26
 
 
-if utils.PY2:
-    from io import open
-    from future_builtins import ascii, oct, hex
-    from __builtin__ import unichr as chr, pow as _builtin_pow
-    import __builtin__
+_builtin_super = super
 
-    # Only for backward compatibility with future v0.8.2:
-    isinstance = __builtin__.isinstance
+_SENTINEL = object()
 
-    # Warning: Python 2's input() is unsafe and MUST not be able to be used
-    # accidentally by someone who expects Python 3 semantics but forgets
-    # to import it on Python 2. Versions of ``future`` prior to 0.11
-    # deleted it from __builtin__.  Now we keep in __builtin__ but shadow
-    # the name like all others. Just be sure to import ``input``.
+def newsuper(typ=_SENTINEL, type_or_obj=_SENTINEL, framedepth=1):
+    '''Like builtin super(), but capable of magic.
 
-    input = raw_input
-
-    from future.builtins.newnext import newnext as next
-    from future.builtins.newround import newround as round
-    from future.builtins.newsuper import newsuper as super
-    from future.types.newint import newint
-
-    _SENTINEL = object()
-
-    def pow(x, y, z=_SENTINEL):
-        """
-        pow(x, y[, z]) -> number
-
-        With two arguments, equivalent to x**y.  With three arguments,
-        equivalent to (x**y) % z, but may be more efficient (e.g. for ints).
-        """
-        # Handle newints
-        if isinstance(x, newint):
-            x = long(x)
-        if isinstance(y, newint):
-            y = long(y)
-        if isinstance(z, newint):
-            z = long(z)
+    This acts just like the builtin super() function, but if called
+    without any arguments it attempts to infer them at runtime.
+    '''
+    #  Infer the correct call if used without arguments.
+    if typ is _SENTINEL:
+        # We'll need to do some frame hacking.
+        f = sys._getframe(framedepth)
 
         try:
-            if z == _SENTINEL:
-                return _builtin_pow(x, y)
+            # Get the function's first positional argument.
+            type_or_obj = f.f_locals[f.f_code.co_varnames[0]]
+        except (IndexError, KeyError,):
+            raise RuntimeError('super() used in a function with no args')
+
+        try:
+            # Get the MRO so we can crawl it.
+            mro = type_or_obj.__mro__
+        except (AttributeError, RuntimeError):  # see issue #160
+            try:
+                mro = type_or_obj.__class__.__mro__
+            except AttributeError:
+                raise RuntimeError('super() used with a non-newstyle class')
+
+        #   A ``for...else`` block?  Yes!  It's odd, but useful.
+        #   If unfamiliar with for...else, see:
+        #
+        #       http://psung.blogspot.com/2007/12/for-else-in-python.html
+        for typ in mro:
+            #  Find the class that owns the currently-executing method.
+            for meth in typ.__dict__.values():
+                # Drill down through any wrappers to the underlying func.
+                # This handles e.g. classmethod() and staticmethod().
+                try:
+                    while not isinstance(meth,FunctionType):
+                        if isinstance(meth, property):
+                            # Calling __get__ on the property will invoke
+                            # user code which might throw exceptions or have
+                            # side effects
+                            meth = meth.fget
+                        else:
+                            try:
+                                meth = meth.__func__
+                            except AttributeError:
+                                meth = meth.__get__(type_or_obj, typ)
+                except (AttributeError, TypeError):
+                    continue
+                if meth.func_code is f.f_code:
+                    break   # Aha!  Found you.
             else:
-                return _builtin_pow(x, y, z)
-        except ValueError:
-            if z == _SENTINEL:
-                return _builtin_pow(x+0j, y)
-            else:
-                return _builtin_pow(x+0j, y, z)
+                continue    #  Not found! Move onto the next class in MRO.
+            break    #  Found! Break out of the search loop.
+        else:
+            raise RuntimeError('super() called outside a method')
 
-    # ``future`` doesn't support Py3.0/3.1. If we ever did, we'd add this:
-    #     callable = __builtin__.callable
+    #  Dispatch to builtin super().
+    if type_or_obj is not _SENTINEL:
+        return _builtin_super(typ, type_or_obj)
+    return _builtin_super(typ)
 
-    __all__ = ['ascii', 'chr', 'hex', 'input', 'isinstance', 'next', 'oct',
-               'open', 'pow', 'round', 'super']
 
-else:
-    import builtins
-    ascii = builtins.ascii
-    chr = builtins.chr
-    hex = builtins.hex
-    input = builtins.input
-    next = builtins.next
-    # Only for backward compatibility with future v0.8.2:
-    isinstance = builtins.isinstance
-    oct = builtins.oct
-    open = builtins.open
-    pow = builtins.pow
-    round = builtins.round
-    super = builtins.super
+def superm(*args, **kwds):
+    f = sys._getframe(1)
+    nm = f.f_code.co_name
+    return getattr(newsuper(framedepth=2),nm)(*args, **kwds)
 
-    __all__ = []
 
-    # The callable() function was removed from Py3.0 and 3.1 and
-    # reintroduced into Py3.2+. ``future`` doesn't support Py3.0/3.1. If we ever
-    # did, we'd add this:
-    # try:
-    #     callable = builtins.callable
-    # except AttributeError:
-    #     # Definition from Pandas
-    #     def callable(obj):
-    #         return any("__call__" in klass.__dict__ for klass in type(obj).__mro__)
-    #     __all__.append('callable')
+__all__ = ['newsuper']

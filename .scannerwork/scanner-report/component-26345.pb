@@ -1,1 +1,1 @@
-้อ/venv/lib64/python3.6/site-packages/braces/views :่อ๊อ๋อ์อํอ๕อ
+้อ<venv/lib64/python3.6/site-packages/django_short_url/admin.py 2pyXh

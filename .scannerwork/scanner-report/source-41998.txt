@@ -1,111 +1,98 @@
 import asyncio
-import sys
-import threading
 import time
+from concurrent.futures import CancelledError
+
+from .compatibility import guarantee_single_callable
+from .timeout import timeout as async_timeout
 
 
-class Local:
+class ApplicationCommunicator:
     """
-    A drop-in replacement for threading.locals that also works with asyncio
-    Tasks (via the current_task asyncio method), and passes locals through
-    sync_to_async and async_to_sync.
-
-    Specifically:
-     - Locals work per-coroutine on any thread not spawned using asgiref
-     - Locals work per-thread on any thread not spawned using asgiref
-     - Locals are shared with the parent coroutine when using sync_to_async
-     - Locals are shared with the parent thread when using async_to_sync
-       (and if that thread was launched using sync_to_async, with its parent
-       coroutine as well, with this working for indefinite levels of nesting)
-
-    Set thread_critical to True to not allow locals to pass from an async Task
-    to a thread it spawns. This is needed for code that truly needs
-    thread-safety, as opposed to things used for helpful context (e.g. sqlite
-    does not like being called from a different thread to the one it is from).
-    Thread-critical code will still be differentiated per-Task within a thread
-    as it is expected it does not like concurrent access.
-
-    This doesn't use contextvars as it needs to support 3.6. Once it can support
-    3.7 only, we can then reimplement the storage more nicely.
+    Runs an ASGI application in a test mode, allowing sending of
+    messages to it and retrieval of messages it sends.
     """
 
-    CLEANUP_INTERVAL = 60  # seconds
+    def __init__(self, application, scope):
+        self.application = guarantee_single_callable(application)
+        self.scope = scope
+        self.input_queue = asyncio.Queue()
+        self.output_queue = asyncio.Queue()
+        self.future = asyncio.ensure_future(
+            self.application(scope, self.input_queue.get, self.output_queue.put)
+        )
 
-    def __init__(self, thread_critical=False):
-        self._storage = {}
-        self._last_cleanup = time.time()
-        self._clean_lock = threading.Lock()
-        self._thread_critical = thread_critical
-
-    def _get_context_id(self):
+    async def wait(self, timeout=1):
         """
-        Get the ID we should use for looking up variables
+        Waits for the application to stop itself and returns any exceptions.
         """
-        # Prevent a circular reference
-        from .sync import AsyncToSync, SyncToAsync
+        try:
+            async with async_timeout(timeout):
+                try:
+                    await self.future
+                    self.future.result()
+                except CancelledError:
+                    pass
+        finally:
+            if not self.future.done():
+                self.future.cancel()
+                try:
+                    await self.future
+                except CancelledError:
+                    pass
 
-        # First, pull the current task if we can
-        context_id = SyncToAsync.get_current_task()
-        # OK, let's try for a thread ID
-        if context_id is None:
-            context_id = threading.current_thread()
-        # If we're thread-critical, we stop here, as we can't share contexts.
-        if self._thread_critical:
-            return context_id
-        # Now, take those and see if we can resolve them through the launch maps
-        for i in range(sys.getrecursionlimit()):
-            try:
-                if isinstance(context_id, threading.Thread):
-                    # Threads have a source task in SyncToAsync
-                    context_id = SyncToAsync.launch_map[context_id]
-                else:
-                    # Tasks have a source thread in AsyncToSync
-                    context_id = AsyncToSync.launch_map[context_id]
-            except KeyError:
-                break
-        else:
-            # Catch infinite loops (they happen if you are screwing around
-            # with AsyncToSync implementations)
-            raise RuntimeError("Infinite launch_map loops")
-        return context_id
+    def stop(self, exceptions=True):
+        if not self.future.done():
+            self.future.cancel()
+        elif exceptions:
+            # Give a chance to raise any exceptions
+            self.future.result()
 
-    def _cleanup(self):
+    def __del__(self):
+        # Clean up on deletion
+        try:
+            self.stop(exceptions=False)
+        except RuntimeError:
+            # Event loop already stopped
+            pass
+
+    async def send_input(self, message):
         """
-        Cleans up any references to dead threads or tasks
+        Sends a single message to the application
         """
-        for key in list(self._storage.keys()):
-            if isinstance(key, threading.Thread):
-                if not key.is_alive():
-                    del self._storage[key]
-            elif isinstance(key, asyncio.Task):
-                if key.done():
-                    del self._storage[key]
-        self._last_cleanup = time.time()
+        # Give it the message
+        await self.input_queue.put(message)
 
-    def _maybe_cleanup(self):
+    async def receive_output(self, timeout=1):
         """
-        Cleans up if enough time has passed
+        Receives a single message from the application, with optional timeout.
         """
-        if time.time() - self._last_cleanup > self.CLEANUP_INTERVAL:
-            with self._clean_lock:
-                self._cleanup()
+        # Make sure there's not an exception to raise from the task
+        if self.future.done():
+            self.future.result()
+        # Wait and receive the message
+        try:
+            async with async_timeout(timeout):
+                return await self.output_queue.get()
+        except asyncio.TimeoutError as e:
+            # See if we have another error to raise inside
+            if self.future.done():
+                self.future.result()
+            else:
+                self.future.cancel()
+                try:
+                    await self.future
+                except CancelledError:
+                    pass
+            raise e
 
-    def __getattr__(self, key):
-        context_id = self._get_context_id()
-        if key in self._storage.get(context_id, {}):
-            return self._storage[context_id][key]
-        else:
-            raise AttributeError("%r object has no attribute %r" % (self, key))
-
-    def __setattr__(self, key, value):
-        if key in ("_storage", "_last_cleanup", "_clean_lock", "_thread_critical"):
-            return super().__setattr__(key, value)
-        self._maybe_cleanup()
-        self._storage.setdefault(self._get_context_id(), {})[key] = value
-
-    def __delattr__(self, key):
-        context_id = self._get_context_id()
-        if key in self._storage.get(context_id, {}):
-            del self._storage[context_id][key]
-        else:
-            raise AttributeError("%r object has no attribute %r" % (self, key))
+    async def receive_nothing(self, timeout=0.1, interval=0.01):
+        """
+        Checks that there is no message to receive in the given time.
+        """
+        # `interval` has precedence over `timeout`
+        start = time.monotonic()
+        while time.monotonic() - start < timeout:
+            if not self.output_queue.empty():
+                return False
+            await asyncio.sleep(interval)
+        return self.output_queue.empty()

@@ -1,1 +1,1 @@
-ž—Ovenv/lib64/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/Unregistered.py 2pyX/h
+ž—Ivenv/lib64/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/Result.py 2pyXgh

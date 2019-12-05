@@ -1,1 +1,1 @@
-àHvenv/lib/python3.6/site-packages/django/db/backends/oracle/operations.py 2pyXÎh
+àGvenv/lib/python3.6/site-packages/django/db/backends/oracle/functions.py 2pyXh

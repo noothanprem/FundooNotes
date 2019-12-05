@@ -1,1 +1,1 @@
-ÒS:venv/lib/python3.6/site-packages/faker/providers/ssn/et_EE :ÑS
+ÒS:venv/lib/python3.6/site-packages/faker/providers/ssn/ru_RU :ÑS

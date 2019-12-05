@@ -1,1 +1,1 @@
-ÀV=venv/lib/python3.6/site-packages/faker/providers/person/hr_HR :¿V
+ÀV7venv/lib/python3.6/site-packages/faker/providers/person :¾V

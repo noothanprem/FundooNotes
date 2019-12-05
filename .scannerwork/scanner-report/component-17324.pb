@@ -1,1 +1,1 @@
-¬‡8venv/lib/python3.6/site-packages/kombu/utils/encoding.py 2pyX”h
+¬‡;venv/lib/python3.6/site-packages/kombu/utils/collections.py 2pyX,h

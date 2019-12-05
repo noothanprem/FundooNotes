@@ -1,47 +1,58 @@
-import unittest
-import warnings
+import gevent
 import sys
+import gevent.testing as greentest
+from gevent.testing import six
+from gevent.testing import ExpectedException as ExpectedError
 
-# All supported python versions now provide SSLContext.
-# We subclass without importing by name. Compare with
-# warning2.py
-import ssl
+if not six.PY3:
+    sys.exc_clear()
 
-class MySubclass(ssl.SSLContext):
+class RawException(Exception):
     pass
 
-# This file should only have this one test in it
-# because we have to be careful about our imports
-# and because we need to be careful about our patching.
 
-class Test(unittest.TestCase):
+def hello(err):
+    assert sys.exc_info() == (None, None, None), sys.exc_info()
+    raise err
 
-    @unittest.skipIf(sys.version_info[:2] < (3, 6),
-                     "Only on Python 3.6+")
-    def test_ssl_subclass_and_module_reference(self):
 
-        from gevent import monkey
+def hello2():
+    try:
+        hello(ExpectedError('expected exception in hello'))
+    except ExpectedError:
+        pass
 
-        self.assertFalse(monkey.saved)
 
-        with warnings.catch_warnings(record=True) as issued_warnings:
-            warnings.simplefilter('always')
+class Test(greentest.TestCase):
 
-            monkey.patch_all()
-            monkey.patch_all()
+    def test1(self):
+        error = RawException('hello')
+        expected_error = ExpectedError('expected exception in hello')
+        try:
+            raise error
+        except RawException:
+            self.expect_one_error()
+            g = gevent.spawn(hello, expected_error)
+            g.join()
+            self.assert_error(ExpectedError, expected_error)
+            self.assertIsInstance(g.exception, ExpectedError)
 
-        issued_warnings = [x for x in issued_warnings
-                           if isinstance(x.message, monkey.MonkeyPatchWarning)]
+            try:
+                raise
+            except: # pylint:disable=bare-except
+                ex = sys.exc_info()[1]
+                self.assertIs(ex, error)
 
-        self.assertEqual(1, len(issued_warnings))
-        message = str(issued_warnings[0].message)
-
-        self.assertNotIn("Modules that had direct imports", message)
-        self.assertIn("Subclasses (NOT patched)", message)
-        # the gevent subclasses should not be in here.
-        self.assertNotIn('gevent.', message)
+    def test2(self):
+        timer = gevent.get_hub().loop.timer(0)
+        timer.start(hello2)
+        try:
+            gevent.sleep(0.1)
+            self.assertEqual(sys.exc_info(), (None, None, None))
+        finally:
+            timer.close()
 
 
 
 if __name__ == '__main__':
-    unittest.main()
+    greentest.main()

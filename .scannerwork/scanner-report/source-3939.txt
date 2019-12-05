@@ -1,61 +1,21 @@
-from django.core import signals
-from django.db.utils import (
-    DEFAULT_DB_ALIAS, DJANGO_VERSION_PICKLE_KEY, ConnectionHandler,
-    ConnectionRouter, DatabaseError, DataError, Error, IntegrityError,
-    InterfaceError, InternalError, NotSupportedError, OperationalError,
-    ProgrammingError,
-)
-
-__all__ = [
-    'connection', 'connections', 'router', 'DatabaseError', 'IntegrityError',
-    'InternalError', 'ProgrammingError', 'DataError', 'NotSupportedError',
-    'Error', 'InterfaceError', 'OperationalError', 'DEFAULT_DB_ALIAS',
-    'DJANGO_VERSION_PICKLE_KEY',
-]
-
-connections = ConnectionHandler()
-
-router = ConnectionRouter()
-
-
-class DefaultConnectionProxy:
+def make_model_tuple(model):
     """
-    Proxy for accessing the default DatabaseWrapper object's attributes. If you
-    need to access the DatabaseWrapper object itself, use
-    connections[DEFAULT_DB_ALIAS] instead.
+    Take a model or a string of the form "app_label.ModelName" and return a
+    corresponding ("app_label", "modelname") tuple. If a tuple is passed in,
+    assume it's a valid model tuple already and return it unchanged.
     """
-    def __getattr__(self, item):
-        return getattr(connections[DEFAULT_DB_ALIAS], item)
-
-    def __setattr__(self, name, value):
-        return setattr(connections[DEFAULT_DB_ALIAS], name, value)
-
-    def __delattr__(self, name):
-        return delattr(connections[DEFAULT_DB_ALIAS], name)
-
-    def __eq__(self, other):
-        return connections[DEFAULT_DB_ALIAS] == other
-
-
-# For backwards compatibility. Prefer connections['default'] instead.
-connection = DefaultConnectionProxy()
-
-
-# Register an event to reset saved queries when a Django request is started.
-def reset_queries(**kwargs):
-    for conn in connections.all():
-        conn.queries_log.clear()
-
-
-signals.request_started.connect(reset_queries)
-
-
-# Register an event to reset transaction state and close connections past
-# their lifetime.
-def close_old_connections(**kwargs):
-    for conn in connections.all():
-        conn.close_if_unusable_or_obsolete()
-
-
-signals.request_started.connect(close_old_connections)
-signals.request_finished.connect(close_old_connections)
+    try:
+        if isinstance(model, tuple):
+            model_tuple = model
+        elif isinstance(model, str):
+            app_label, model_name = model.split(".")
+            model_tuple = app_label, model_name.lower()
+        else:
+            model_tuple = model._meta.app_label, model._meta.model_name
+        assert len(model_tuple) == 2
+        return model_tuple
+    except (ValueError, AssertionError):
+        raise ValueError(
+            "Invalid model reference '%s'. String model references "
+            "must be of the form 'app_label.ModelName'." % model
+        )

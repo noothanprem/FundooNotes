@@ -11,138 +11,81 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 from botocore import xform_name
-from botocore.model import OperationModel
 from botocore.utils import get_service_module_name
 from botocore.docs.method import document_model_driven_method
-from botocore.docs.method import document_custom_method
 
 from boto3.docs.base import BaseDocumenter
-from boto3.docs.method import document_model_driven_resource_method
 from boto3.docs.utils import get_resource_ignore_params
-from boto3.docs.utils import get_resource_public_actions
 from boto3.docs.utils import add_resource_type_overview
 
 
-class ActionDocumenter(BaseDocumenter):
-    def document_actions(self, section):
-        modeled_actions_list = self._resource_model.actions
-        modeled_actions = {}
-        for modeled_action in modeled_actions_list:
-            modeled_actions[modeled_action.name] = modeled_action
-        resource_actions = get_resource_public_actions(
-            self._resource.__class__)
-        self.member_map['actions'] = sorted(resource_actions)
+class WaiterResourceDocumenter(BaseDocumenter):
+    def __init__(self, resource, service_waiter_model):
+        super(WaiterResourceDocumenter, self).__init__(resource)
+        self._service_waiter_model = service_waiter_model
+
+    def document_resource_waiters(self, section):
+        waiters = self._resource.meta.resource_model.waiters
         add_resource_type_overview(
             section=section,
-            resource_type='Actions',
+            resource_type='Waiters',
             description=(
-                'Actions call operations on resources.  They may '
-                'automatically handle the passing in of arguments set '
-                'from identifiers and some attributes.'),
-            intro_link='actions_intro')
-
-        for action_name in sorted(resource_actions):
-            action_section = section.add_new_section(action_name)
-            if action_name in ['load', 'reload'] and self._resource_model.load:
-                document_load_reload_action(
-                    section=action_section,
-                    action_name=action_name,
-                    resource_name=self._resource_name,
-                    event_emitter=self._resource.meta.client.meta.events,
-                    load_model=self._resource_model.load,
-                    service_model=self._service_model
-                )
-            elif action_name in modeled_actions:
-                document_action(
-                    section=action_section,
-                    resource_name=self._resource_name,
-                    event_emitter=self._resource.meta.client.meta.events,
-                    action_model=modeled_actions[action_name],
-                    service_model=self._service_model,
-                )
-            else:
-                document_custom_method(
-                    action_section, action_name, resource_actions[action_name])
+                'Waiters provide an interface to wait for a resource'
+                ' to reach a specific state.'),
+            intro_link='waiters_intro')
+        waiter_list = []
+        self.member_map['waiters'] = waiter_list
+        for waiter in waiters:
+            waiter_section = section.add_new_section(waiter.name)
+            waiter_list.append(waiter.name)
+            document_resource_waiter(
+                section=waiter_section,
+                resource_name=self._resource_name,
+                event_emitter=self._resource.meta.client.meta.events,
+                service_model=self._service_model,
+                resource_waiter_model=waiter,
+                service_waiter_model=self._service_waiter_model
+            )
 
 
-def document_action(section, resource_name, event_emitter, action_model,
-                    service_model, include_signature=True):
-    """Documents a resource action
-
-    :param section: The section to write to
-
-    :param resource_name: The name of the resource
-
-    :param event_emitter: The event emitter to use to emit events
-
-    :param action_model: The model of the action
-
-    :param service_model: The model of the service
-
-    :param include_signature: Whether or not to include the signature.
-        It is useful for generating docstrings.
-    """
+def document_resource_waiter(section, resource_name, event_emitter,
+                             service_model, resource_waiter_model,
+                             service_waiter_model, include_signature=True):
+    waiter_model = service_waiter_model.get_waiter(
+        resource_waiter_model.waiter_name)
     operation_model = service_model.operation_model(
-        action_model.request.operation)
-    ignore_params = get_resource_ignore_params(action_model.request.params)
+        waiter_model.operation)
 
-    example_return_value = 'response'
-    if action_model.resource:
-        example_return_value = xform_name(action_model.resource.type)
-    example_resource_name = xform_name(resource_name)
-    if service_model.service_name == resource_name:
-        example_resource_name = resource_name
-    example_prefix = '%s = %s.%s' % (
-        example_return_value, example_resource_name, action_model.name)
-    document_model_driven_resource_method(
-        section=section, method_name=action_model.name,
+    ignore_params = get_resource_ignore_params(resource_waiter_model.params)
+    service_module_name = get_service_module_name(service_model)
+    description = (
+        'Waits until this %s is %s. This method calls '
+        ':py:meth:`%s.Waiter.%s.wait` which polls. '
+        ':py:meth:`%s.Client.%s` every %s seconds until '
+        'a successful state is reached. An error is returned '
+        'after %s failed checks.' % (
+            resource_name, ' '.join(resource_waiter_model.name.split('_')[2:]),
+            service_module_name,
+            xform_name(resource_waiter_model.waiter_name),
+            service_module_name,
+            xform_name(waiter_model.operation),
+            waiter_model.delay, waiter_model.max_attempts))
+    example_prefix = '%s.%s' % (
+        xform_name(resource_name), resource_waiter_model.name)
+    document_model_driven_method(
+        section=section, method_name=resource_waiter_model.name,
         operation_model=operation_model,
         event_emitter=event_emitter,
-        method_description=operation_model.documentation,
         example_prefix=example_prefix,
-        exclude_input=ignore_params,
-        resource_action_model=action_model,
-        include_signature=include_signature
-    )
-
-
-def document_load_reload_action(section, action_name, resource_name,
-                                event_emitter, load_model, service_model,
-                                include_signature=True):
-    """Documents the resource load action
-
-    :param section: The section to write to
-
-    :param action_name: The name of the loading action should be load or reload
-
-    :param resource_name: The name of the resource
-
-    :param event_emitter: The event emitter to use to emit events
-
-    :param load_model: The model of the load action
-
-    :param service_model: The model of the service
-
-    :param include_signature: Whether or not to include the signature.
-        It is useful for generating docstrings.
-    """
-    description = (
-        'Calls  :py:meth:`%s.Client.%s` to update the attributes of the'
-        ' %s resource. Note that the load and reload methods are '
-        'the same method and can be used interchangeably.' % (
-            get_service_module_name(service_model),
-            xform_name(load_model.request.operation),
-            resource_name)
-    )
-    example_resource_name = xform_name(resource_name)
-    if service_model.service_name == resource_name:
-        example_resource_name = resource_name
-    example_prefix = '%s.%s' % (example_resource_name, action_name)
-    document_model_driven_method(
-        section=section, method_name=action_name,
-        operation_model=OperationModel({}, service_model),
-        event_emitter=event_emitter,
         method_description=description,
-        example_prefix=example_prefix,
+        exclude_input=ignore_params,
         include_signature=include_signature
     )
+    if 'return' in section.available_sections:
+        # Waiters do not return anything so we should remove
+        # any sections that may document the underlying return
+        # value of the client method.
+        return_section = section.get_section('return')
+        return_section.clear_text()
+        return_section.remove_all_sections()
+        return_section.write(':returns: None')

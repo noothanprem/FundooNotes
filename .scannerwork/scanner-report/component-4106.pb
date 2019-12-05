@@ -1,1 +1,1 @@
-Š 8venv/lib/python3.6/site-packages/django/contrib/humanize :‰ š"
+Š Dvenv/lib/python3.6/site-packages/django/contrib/humanize/__init__.py 2pyXh

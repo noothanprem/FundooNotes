@@ -1,1 +1,0 @@
-Ûš9venv/lib/python3.6/site-packages/rest_framework_simplejwt :$ÚšÜšÝšÞšßšàšášâšðšñšòš››

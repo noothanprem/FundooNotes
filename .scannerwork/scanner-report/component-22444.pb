@@ -1,1 +1,0 @@
-¬¯4venv/lib/python3.6/site-packages/twisted/conch/ls.py 2pyXTh

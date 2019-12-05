@@ -1,1 +1,1 @@
- и2venv/lib64/python3.6/site-packages/django/template :*…иЋићиЌиќиѕи–ияиаиписитиуифи
+ иAvenv/lib64/python3.6/site-packages/django/template/loader_tags.py 2pyXЊh

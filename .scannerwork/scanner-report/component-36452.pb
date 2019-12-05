@@ -1,1 +1,0 @@
-äœ'venv/lib64/python3.6/site-packages/furl :ãœæœçœèœéœêœ

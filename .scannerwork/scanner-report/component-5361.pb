@@ -1,1 +1,1 @@
-ñ)Cvenv/lib/python3.6/site-packages/django/contrib/sessions/migrations :ð)ò)
+ñ)Evenv/lib/python3.6/site-packages/django/contrib/staticfiles/checks.py 2pyXh

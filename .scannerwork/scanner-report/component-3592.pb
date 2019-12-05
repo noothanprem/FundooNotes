@@ -1,1 +1,1 @@
-ˆ7venv/lib/python3.6/site-packages/django/views/static.py 2pyXˆh
+ˆ9venv/lib/python3.6/site-packages/django/views/defaults.py 2pyX~h

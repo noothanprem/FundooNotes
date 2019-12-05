@@ -1,1 +1,1 @@
-ó7Lvenv/lib/python3.6/site-packages/django/contrib/admin/migrations/__init__.py 2pyXh
+ó7@venv/lib/python3.6/site-packages/django/contrib/admin/migrations :ñ7ò7ô7õ7

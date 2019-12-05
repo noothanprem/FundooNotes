@@ -1,1 +1,0 @@
-до=venv/lib64/python3.6/site-packages/text_unidecode/__init__.py 2pyXh

@@ -1,57 +1,77 @@
 # Copyright 2017 Canonical Ltd.
 # Licensed under the LGPLv3, see LICENCE file for details.
-from collections import namedtuple
-
-import macaroonbakery.checkers as checkers
 
 
-def legacy_namespace():
-    ''' Standard namespace for pre-version3 macaroons.
+class DischargeRequiredError(Exception):
+    ''' Raised by checker when authorization has failed and a discharged
+    macaroon might fix it.
+
+    A caller should grant the user the ability to authorize by minting a
+    macaroon associated with Ops (see MacaroonStore.MacaroonIdInfo for
+    how the associated operations are retrieved) and adding Caveats. If
+    the user succeeds in discharging the caveats, the authorization will
+    be granted.
     '''
-    ns = checkers.Namespace(None)
-    ns.register(checkers.STD_NAMESPACE, '')
-    return ns
+    def __init__(self, msg, ops, cavs):
+        '''
+        :param msg: holds some reason why the authorization was denied.
+        :param ops: holds all the operations that were not authorized.
+        If ops contains a single LOGIN_OP member, the macaroon
+        should be treated as an login token. Login tokens (also
+        known as authentication macaroons) usually have a longer
+        life span than other macaroons.
+        :param cavs: holds the caveats that must be added to macaroons that
+        authorize the above operations.
+        '''
+        super(DischargeRequiredError, self).__init__(msg)
+        self._ops = ops
+        self._cavs = cavs
+
+    def ops(self):
+        return self._ops
+
+    def cavs(self):
+        return self._cavs
 
 
-class ThirdPartyCaveatInfo(namedtuple(
-    'ThirdPartyCaveatInfo',
-    'condition, first_party_public_key, third_party_key_pair, root_key, '
-        'caveat, version, id, namespace')):
-    '''ThirdPartyCaveatInfo holds the information decoded from
-    a third party caveat id.
-
-    @param condition holds the third party condition to be discharged.
-    This is the only field that most third party dischargers will
-    need to consider. {str}
-
-    @param first_party_public_key holds the public key of the party
-    that created the third party caveat. {PublicKey}
-
-    @param third_party_key_pair holds the nacl private used to decrypt
-    the caveat - the key pair of the discharging service. {PrivateKey}
-
-    @param root_key holds the secret root key encoded by the caveat. {bytes}
-
-    @param caveat holds the full caveat id from
-    which all the other fields are derived. {bytes}
-
-    @param version holds the version that was used to encode
-    the caveat id. {number}
-
-    @param id holds the id of the third party caveat (the id that the
-    discharge macaroon should be given). This will differ from Caveat
-    when the caveat information is encoded separately. {bytes}
-
-    @param namespace object that holds the namespace of the first party
-    that created the macaroon, as encoded by the party that added the
-    third party caveat. {checkers.Namespace}
+class PermissionDenied(Exception):
+    '''Raised from AuthChecker when permission has been denied.
     '''
+    pass
 
 
-class ThirdPartyInfo(namedtuple('ThirdPartyInfo', 'version, public_key')):
-    ''' ThirdPartyInfo holds information on a given third party
-    discharge service.
-    @param version The latest bakery protocol version supported
-    by the discharger {number}
-    @param public_key Public key of the third party {PublicKey}
+class CaveatNotRecognizedError(Exception):
+    '''Containing the cause of errors returned from caveat checkers when the
+    caveat was not recognized.
     '''
+    pass
+
+
+class VerificationError(Exception):
+    '''Raised to signify that an error is because of a verification failure
+    rather than because verification could not be done.'''
+    pass
+
+
+class AuthInitError(Exception):
+    '''Raised if AuthChecker cannot be initialized properly.'''
+    pass
+
+
+class IdentityError(Exception):
+    ''' Raised from IdentityClient.declared_identity when an error occurs.
+    '''
+    pass
+
+
+class ThirdPartyCaveatCheckFailed(Exception):
+    ''' Raised from ThirdPartyCaveatChecker.check_third_party when check fails.
+    '''
+    pass
+
+
+class ThirdPartyInfoNotFound(Exception):
+    ''' Raised from implementation of ThirdPartyLocator.third_party_info when
+    the info cannot be found.
+    '''
+    pass

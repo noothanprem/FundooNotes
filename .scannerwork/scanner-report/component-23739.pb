@@ -1,1 +1,1 @@
-»¹>venv/lib/python3.6/site-packages/social_core/backends/moves.py 2pyXh
+»¹?venv/lib/python3.6/site-packages/social_core/backends/yandex.py 2pyXVh

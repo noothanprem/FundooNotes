@@ -1,1 +1,1 @@
-Â:venv/lib/python3.6/site-packages/celery/fixups/__init__.py 2pyXh
+Â.venv/lib/python3.6/site-packages/celery/fixups :ÁÃ

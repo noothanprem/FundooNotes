@@ -1,1 +1,1 @@
-©ê8venv/lib64/python3.6/site-packages/django/conf/locale/fa :®ê™ê
+©êCvenv/lib64/python3.6/site-packages/django/conf/locale/fa/formats.py 2pyXh

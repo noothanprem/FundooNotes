@@ -1,1 +1,1 @@
-ºéJvenv/lib64/python3.6/site-packages/django/db/migrations/operations/base.py 2pyXŽh
+ºéNvenv/lib64/python3.6/site-packages/django/db/migrations/operations/__init__.py 2pyXh

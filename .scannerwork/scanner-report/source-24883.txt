@@ -1,4 +1,14 @@
 ######################## BEGIN LICENSE BLOCK ########################
+# The Original Code is mozilla.org code.
+#
+# The Initial Developer of the Original Code is
+# Netscape Communications Corporation.
+# Portions created by the Initial Developer are Copyright (C) 1998
+# the Initial Developer. All Rights Reserved.
+#
+# Contributor(s):
+#   Mark Pilgrim - port to Python
+#
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
 # License as published by the Free Software Foundation; either
@@ -15,25 +25,23 @@
 # 02110-1301  USA
 ######################### END LICENSE BLOCK #########################
 
+from .mbcharsetprober import MultiByteCharSetProber
+from .codingstatemachine import CodingStateMachine
+from .chardistribution import EUCKRDistributionAnalysis
+from .mbcssm import EUCKR_SM_MODEL
 
-from .compat import PY2, PY3
-from .universaldetector import UniversalDetector
-from .version import __version__, VERSION
 
+class EUCKRProber(MultiByteCharSetProber):
+    def __init__(self):
+        super(EUCKRProber, self).__init__()
+        self.coding_sm = CodingStateMachine(EUCKR_SM_MODEL)
+        self.distribution_analyzer = EUCKRDistributionAnalysis()
+        self.reset()
 
-def detect(byte_str):
-    """
-    Detect the encoding of the given byte string.
+    @property
+    def charset_name(self):
+        return "EUC-KR"
 
-    :param byte_str:     The byte sequence to examine.
-    :type byte_str:      ``bytes`` or ``bytearray``
-    """
-    if not isinstance(byte_str, bytearray):
-        if not isinstance(byte_str, bytes):
-            raise TypeError('Expected object of type bytes or bytearray, got: '
-                            '{0}'.format(type(byte_str)))
-        else:
-            byte_str = bytearray(byte_str)
-    detector = UniversalDetector()
-    detector.feed(byte_str)
-    return detector.close()
+    @property
+    def language(self):
+        return "Korean"

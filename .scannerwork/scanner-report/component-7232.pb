@@ -1,1 +1,1 @@
-À8Ivenv/lib/python3.6/site-packages/django/contrib/admin/templatetags/log.py 2pyX<h
+À8Avenv/lib/python3.6/site-packages/django/contrib/admin/__init__.py 2pyXh

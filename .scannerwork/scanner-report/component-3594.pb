@@ -1,1 +1,1 @@
-ä-venv/lib/python3.6/site-packages/django/utils :Vâãåçéèêëíìîïñóòôöõúùû´¨≠ÆØ∞±≤≥‡·‚„‰ÂÊÁËÈÍÏÌ
+ä7venv/lib/python3.6/site-packages/django/views/static.py 2pyXàh

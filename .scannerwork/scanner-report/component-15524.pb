@@ -1,1 +1,1 @@
-¤yLvenv/lib/python3.6/site-packages/awscli/customizations/configure/addmodel.py 2pyXyh
+¤yJvenv/lib/python3.6/site-packages/awscli/customizations/configure/writer.py 2pyXÆh

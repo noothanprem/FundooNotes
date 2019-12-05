@@ -1,1 +1,0 @@
-ÐV=venv/lib/python3.6/site-packages/faker/providers/person/id_ID :ÏV

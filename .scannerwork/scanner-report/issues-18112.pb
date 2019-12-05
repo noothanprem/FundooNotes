@@ -1,4 +1,2 @@
-h
-pythonS107LMethod "__init__" has 15 parameters, which is greater than the 7 authorized. 2 3h
-pythonS107LMethod "__init__" has 15 parameters, which is greater than the 7 authorized. 2" 3h
-pythonS107LMethod "__init__" has 15 parameters, which is greater than the 7 authorized. 2/4 3
+g
+pythonS107KMethod "__init__" has 8 parameters, which is greater than the 7 authorized. 2AB 6

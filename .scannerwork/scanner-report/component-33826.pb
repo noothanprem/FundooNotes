@@ -1,1 +1,1 @@
-¢ˆdvenv/lib64/python3.6/site-packages/django/contrib/admin/static/admin/js/vendor/select2/i18n/pt-BR.js 2jsXh
+¢ˆavenv/lib64/python3.6/site-packages/django/contrib/admin/static/admin/js/vendor/select2/i18n/ca.js 2jsXh

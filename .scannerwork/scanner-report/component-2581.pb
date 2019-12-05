@@ -1,1 +1,1 @@
-•<venv/lib/python3.6/site-packages/openid/consumer/discover.py 2pyXÒh
+•0venv/lib/python3.6/site-packages/openid/consumer :”–—ž

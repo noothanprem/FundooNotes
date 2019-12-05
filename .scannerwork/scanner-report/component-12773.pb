@@ -1,1 +1,1 @@
-åc)venv/lib/python3.6/site-packages/requests :$äcæcçcècécêcëcìcícîcïcðcøc„d…d†d‡dˆd
+åc5venv/lib/python3.6/site-packages/requests/sessions.py 2pyXƒh

@@ -1,1 +1,1 @@
-¢ƒ2venv/lib/python3.6/site-packages/gi/pygtkcompat.py 2pyXh
+¢ƒ6venv/lib/python3.6/site-packages/gi/_propertyhelper.py 2pyX–h

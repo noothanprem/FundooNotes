@@ -1,1 +1,1 @@
-͇5venv/lib/python3.6/site-packages/kombu/utils/debug.py 2pyX@h
+͇3venv/lib/python3.6/site-packages/kombu/utils/div.py 2pyX#h

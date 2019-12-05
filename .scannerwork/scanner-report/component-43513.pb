@@ -1,1 +1,1 @@
-ùÓBvenv/lib64/python3.6/site-packages/kombu/transport/virtual/base.py 2pyXîh
+ùÓ:venv/lib64/python3.6/site-packages/kombu/transport/virtual :	øÓúÓÿÓ

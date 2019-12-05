@@ -1,1 +1,1 @@
-Á8venv/lib/python3.6/site-packages/django/template/loaders :ÀÂÃÄËÌ
+ÁKvenv/lib/python3.6/site-packages/django/template/loaders/app_directories.py 2pyXh

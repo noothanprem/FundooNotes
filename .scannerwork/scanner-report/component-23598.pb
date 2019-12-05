@@ -1,1 +1,1 @@
-®¸Ivenv/lib/python3.6/site-packages/social_core/tests/backends/test_auth0.py 2pyXEh
+®¸Kvenv/lib/python3.6/site-packages/social_core/tests/backends/test_cognito.py 2pyX%h

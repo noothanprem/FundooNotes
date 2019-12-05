@@ -1,333 +1,298 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-"""
-Tests for L{twisted.words.protocols.jabber.error}.
-"""
-
 from __future__ import absolute_import, division
 
-from twisted.python.compat import unicode
 from twisted.trial import unittest
 
-from twisted.words.protocols.jabber import error
-from twisted.words.xish import domish
+from twisted.words.xish import xpath
+from twisted.words.xish.domish import Element
+from twisted.words.xish.xpath import XPathQuery
+from twisted.words.xish.xpathparser import SyntaxError
 
-NS_XML = 'http://www.w3.org/XML/1998/namespace'
-NS_STREAMS = 'http://etherx.jabber.org/streams'
-NS_XMPP_STREAMS = 'urn:ietf:params:xml:ns:xmpp-streams'
-NS_XMPP_STANZAS = 'urn:ietf:params:xml:ns:xmpp-stanzas'
-
-class BaseErrorTests(unittest.TestCase):
-
-    def test_getElementPlain(self):
-        """
-        Test getting an element for a plain error.
-        """
-        e = error.BaseError('feature-not-implemented')
-        element = e.getElement()
-        self.assertIdentical(element.uri, None)
-        self.assertEqual(len(element.children), 1)
-
-    def test_getElementText(self):
-        """
-        Test getting an element for an error with a text.
-        """
-        e = error.BaseError('feature-not-implemented', u'text')
-        element = e.getElement()
-        self.assertEqual(len(element.children), 2)
-        self.assertEqual(unicode(element.text), 'text')
-        self.assertEqual(element.text.getAttribute((NS_XML, 'lang')), None)
-
-    def test_getElementTextLang(self):
-        """
-        Test getting an element for an error with a text and language.
-        """
-        e = error.BaseError('feature-not-implemented', u'text', 'en_US')
-        element = e.getElement()
-        self.assertEqual(len(element.children), 2)
-        self.assertEqual(unicode(element.text), 'text')
-        self.assertEqual(element.text[(NS_XML, 'lang')], 'en_US')
-
-    def test_getElementAppCondition(self):
-        """
-        Test getting an element for an error with an app specific condition.
-        """
-        ac = domish.Element(('testns', 'myerror'))
-        e = error.BaseError('feature-not-implemented', appCondition=ac)
-        element = e.getElement()
-        self.assertEqual(len(element.children), 2)
-        self.assertEqual(element.myerror, ac)
-
-class StreamErrorTests(unittest.TestCase):
-
-    def test_getElementPlain(self):
-        """
-        Test namespace of the element representation of an error.
-        """
-        e = error.StreamError('feature-not-implemented')
-        element = e.getElement()
-        self.assertEqual(element.uri, NS_STREAMS)
-
-    def test_getElementConditionNamespace(self):
-        """
-        Test that the error condition element has the correct namespace.
-        """
-        e = error.StreamError('feature-not-implemented')
-        element = e.getElement()
-        self.assertEqual(NS_XMPP_STREAMS, getattr(element, 'feature-not-implemented').uri)
-
-    def test_getElementTextNamespace(self):
-        """
-        Test that the error text element has the correct namespace.
-        """
-        e = error.StreamError('feature-not-implemented', u'text')
-        element = e.getElement()
-        self.assertEqual(NS_XMPP_STREAMS, element.text.uri)
-
-
-
-class StanzaErrorTests(unittest.TestCase):
-    """
-    Tests for L{error.StreamError}.
-    """
-
-
-    def test_typeRemoteServerTimeout(self):
-        """
-        Remote Server Timeout should yield type wait, code 504.
-        """
-        e = error.StanzaError('remote-server-timeout')
-        self.assertEqual('wait', e.type)
-        self.assertEqual('504', e.code)
-
-
-    def test_getElementPlain(self):
-        """
-        Test getting an element for a plain stanza error.
-        """
-        e = error.StanzaError('feature-not-implemented')
-        element = e.getElement()
-        self.assertEqual(element.uri, None)
-        self.assertEqual(element['type'], 'cancel')
-        self.assertEqual(element['code'], '501')
-
-
-    def test_getElementType(self):
-        """
-        Test getting an element for a stanza error with a given type.
-        """
-        e = error.StanzaError('feature-not-implemented', 'auth')
-        element = e.getElement()
-        self.assertEqual(element.uri, None)
-        self.assertEqual(element['type'], 'auth')
-        self.assertEqual(element['code'], '501')
-
-
-    def test_getElementConditionNamespace(self):
-        """
-        Test that the error condition element has the correct namespace.
-        """
-        e = error.StanzaError('feature-not-implemented')
-        element = e.getElement()
-        self.assertEqual(NS_XMPP_STANZAS, getattr(element, 'feature-not-implemented').uri)
-
-
-    def test_getElementTextNamespace(self):
-        """
-        Test that the error text element has the correct namespace.
-        """
-        e = error.StanzaError('feature-not-implemented', text=u'text')
-        element = e.getElement()
-        self.assertEqual(NS_XMPP_STANZAS, element.text.uri)
-
-
-    def test_toResponse(self):
-        """
-        Test an error response is generated from a stanza.
-
-        The addressing on the (new) response stanza should be reversed, an
-        error child (with proper properties) added and the type set to
-        C{'error'}.
-        """
-        stanza = domish.Element(('jabber:client', 'message'))
-        stanza['type'] = 'chat'
-        stanza['to'] = 'user1@example.com'
-        stanza['from'] = 'user2@example.com/resource'
-        e = error.StanzaError('service-unavailable')
-        response = e.toResponse(stanza)
-        self.assertNotIdentical(response, stanza)
-        self.assertEqual(response['from'], 'user1@example.com')
-        self.assertEqual(response['to'], 'user2@example.com/resource')
-        self.assertEqual(response['type'], 'error')
-        self.assertEqual(response.error.children[0].name,
-                         'service-unavailable')
-        self.assertEqual(response.error['type'], 'cancel')
-        self.assertNotEqual(stanza.children, response.children)
-
-
-
-class ParseErrorTests(unittest.TestCase):
-    """
-    Tests for L{error._parseError}.
-    """
-
-
+class XPathTests(unittest.TestCase):
     def setUp(self):
-        self.error = domish.Element((None, 'error'))
+        # Build element:
+        # <foo xmlns='testns' attrib1='value1' attrib3="user@host/resource">
+        #     somecontent
+        #     <bar>
+        #        <foo>
+        #         <gar>DEF</gar>
+        #        </foo>
+        #     </bar>
+        #     somemorecontent
+        #     <bar attrib2="value2">
+        #        <bar>
+        #          <foo/>
+        #          <gar>ABC</gar>
+        #        </bar>
+        #     <bar/>
+        #     <bar attrib4='value4' attrib5='value5'>
+        #        <foo/>
+        #        <gar>JKL</gar>
+        #     </bar>
+        #     <bar attrib4='value4' attrib5='value4'>
+        #        <foo/>
+        #        <gar>MNO</gar>
+        #     </bar>
+        #     <bar attrib4='value4' attrib5='value6' attrib6='á'>
+        #         <quux>☃</quux>
+        #     </bar>
+        # </foo>
+        self.e = Element(("testns", "foo"))
+        self.e["attrib1"] = "value1"
+        self.e["attrib3"] = "user@host/resource"
+        self.e.addContent(u"somecontent")
+        self.bar1 = self.e.addElement("bar")
+        self.subfoo = self.bar1.addElement("foo")
+        self.gar1 = self.subfoo.addElement("gar")
+        self.gar1.addContent(u"DEF")
+        self.e.addContent(u"somemorecontent")
+        self.bar2 = self.e.addElement("bar")
+        self.bar2["attrib2"] = "value2"
+        self.bar3 = self.bar2.addElement("bar")
+        self.subfoo2 = self.bar3.addElement("foo")
+        self.gar2 = self.bar3.addElement("gar")
+        self.gar2.addContent(u"ABC")
+        self.bar4 = self.e.addElement("bar")
+        self.bar5 = self.e.addElement("bar")
+        self.bar5["attrib4"] = "value4"
+        self.bar5["attrib5"] = "value5"
+        self.subfoo3 = self.bar5.addElement("foo")
+        self.gar3 = self.bar5.addElement("gar")
+        self.gar3.addContent(u"JKL")
+        self.bar6 = self.e.addElement("bar")
+        self.bar6["attrib4"] = "value4"
+        self.bar6["attrib5"] = "value4"
+        self.subfoo4 = self.bar6.addElement("foo")
+        self.gar4 = self.bar6.addElement("gar")
+        self.gar4.addContent(u"MNO")
+        self.bar7 = self.e.addElement("bar")
+        self.bar7["attrib4"] = "value4"
+        self.bar7["attrib5"] = "value6"
+        self.bar7["attrib6"] = u"á"
+        self.quux = self.bar7.addElement("quux")
+        self.quux.addContent(u"\N{SNOWMAN}")
 
-
-    def test_empty(self):
+    def test_staticMethods(self):
         """
-        Test parsing of the empty error element.
+        Test basic operation of the static methods.
         """
-        result = error._parseError(self.error, 'errorns')
-        self.assertEqual({'condition': None,
-                          'text': None,
-                          'textLang': None,
-                          'appCondition': None}, result)
+        self.assertEqual(xpath.matches("/foo/bar", self.e),
+                          True)
+        self.assertEqual(xpath.queryForNodes("/foo/bar", self.e),
+                          [self.bar1, self.bar2, self.bar4,
+                           self.bar5, self.bar6, self.bar7])
+        self.assertEqual(xpath.queryForString("/foo", self.e),
+                          "somecontent")
+        self.assertEqual(xpath.queryForStringList("/foo", self.e),
+                          ["somecontent", "somemorecontent"])
 
-
-    def test_condition(self):
+    def test_locationFooBar(self):
         """
-        Test parsing of an error element with a condition.
+        Test matching foo with child bar.
         """
-        self.error.addElement(('errorns', 'bad-request'))
-        result = error._parseError(self.error, 'errorns')
-        self.assertEqual('bad-request', result['condition'])
+        xp = XPathQuery("/foo/bar")
+        self.assertEqual(xp.matches(self.e), 1)
 
-
-    def test_text(self):
+    def test_locationFooBarFoo(self):
         """
-        Test parsing of an error element with a text.
+        Test finding foos at the second level.
         """
-        text = self.error.addElement(('errorns', 'text'))
-        text.addContent(u'test')
-        result = error._parseError(self.error, 'errorns')
-        self.assertEqual('test', result['text'])
-        self.assertEqual(None, result['textLang'])
+        xp = XPathQuery("/foo/bar/foo")
+        self.assertEqual(xp.matches(self.e), 1)
+        self.assertEqual(xp.queryForNodes(self.e), [self.subfoo,
+                                                     self.subfoo3,
+                                                     self.subfoo4])
 
-
-    def test_textLang(self):
+    def test_locationNoBar3(self):
         """
-        Test parsing of an error element with a text with a defined language.
+        Test not finding bar3.
         """
-        text = self.error.addElement(('errorns', 'text'))
-        text[NS_XML, 'lang'] = 'en_US'
-        text.addContent(u'test')
-        result = error._parseError(self.error, 'errorns')
-        self.assertEqual('en_US', result['textLang'])
+        xp = XPathQuery("/foo/bar3")
+        self.assertEqual(xp.matches(self.e), 0)
 
-
-    def test_appCondition(self):
+    def test_locationAllChilds(self):
         """
-        Test parsing of an error element with an app specific condition.
+        Test finding childs of foo.
         """
-        condition = self.error.addElement(('testns', 'condition'))
-        result = error._parseError(self.error, 'errorns')
-        self.assertEqual(condition, result['appCondition'])
+        xp = XPathQuery("/foo/*")
+        self.assertEqual(xp.matches(self.e), True)
+        self.assertEqual(xp.queryForNodes(self.e), [self.bar1, self.bar2,
+                                                     self.bar4, self.bar5,
+                                                     self.bar6, self.bar7])
 
-
-    def test_appConditionMultiple(self):
+    def test_attribute(self):
         """
-        Test parsing of an error element with multiple app specific conditions.
+        Test matching foo with attribute.
         """
-        self.error.addElement(('testns', 'condition'))
-        condition = self.error.addElement(('testns', 'condition2'))
-        result = error._parseError(self.error, 'errorns')
-        self.assertEqual(condition, result['appCondition'])
+        xp = XPathQuery("/foo[@attrib1]")
+        self.assertEqual(xp.matches(self.e), True)
 
-
-
-class ExceptionFromStanzaTests(unittest.TestCase):
-
-    def test_basic(self):
+    def test_attributeWithValueAny(self):
         """
-        Test basic operations of exceptionFromStanza.
-
-        Given a realistic stanza, check if a sane exception is returned.
-
-        Using this stanza::
-
-          <iq type='error'
-              from='pubsub.shakespeare.lit'
-              to='francisco@denmark.lit/barracks'
-              id='subscriptions1'>
-            <pubsub xmlns='http://jabber.org/protocol/pubsub'>
-              <subscriptions/>
-            </pubsub>
-            <error type='cancel'>
-              <feature-not-implemented
-                xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>
-              <unsupported xmlns='http://jabber.org/protocol/pubsub#errors'
-                           feature='retrieve-subscriptions'/>
-            </error>
-          </iq>
+        Test find nodes with attribute having value.
         """
+        xp = XPathQuery("/foo/*[@attrib2='value2']")
+        self.assertEqual(xp.matches(self.e), True)
+        self.assertEqual(xp.queryForNodes(self.e), [self.bar2])
 
-        stanza = domish.Element((None, 'stanza'))
-        p = stanza.addElement(('http://jabber.org/protocol/pubsub', 'pubsub'))
-        p.addElement('subscriptions')
-        e = stanza.addElement('error')
-        e['type'] = 'cancel'
-        e.addElement((NS_XMPP_STANZAS, 'feature-not-implemented'))
-        uc = e.addElement(('http://jabber.org/protocol/pubsub#errors',
-                           'unsupported'))
-        uc['feature'] = 'retrieve-subscriptions'
-
-        result = error.exceptionFromStanza(stanza)
-        self.assertIsInstance(result, error.StanzaError)
-        self.assertEqual('feature-not-implemented', result.condition)
-        self.assertEqual('cancel', result.type)
-        self.assertEqual(uc, result.appCondition)
-        self.assertEqual([p], result.children)
-
-    def test_legacy(self):
+    def test_locationWithValueUnicode(self):
         """
-        Test legacy operations of exceptionFromStanza.
-
-        Given a realistic stanza with only legacy (pre-XMPP) error information,
-        check if a sane exception is returned.
-
-        Using this stanza::
-
-          <message type='error'
-                   to='piers@pipetree.com/Home'
-                   from='qmacro@jaber.org'>
-            <body>Are you there?</body>
-            <error code='502'>Unable to resolve hostname.</error>
-          </message>
+        Nodes' attributes can be matched with non-ASCII values.
         """
-        stanza = domish.Element((None, 'stanza'))
-        p = stanza.addElement('body', content=u'Are you there?')
-        e = stanza.addElement('error', content=u'Unable to resolve hostname.')
-        e['code'] = '502'
+        xp = XPathQuery(u"/foo/*[@attrib6='á']")
+        self.assertEqual(xp.matches(self.e), True)
+        self.assertEqual(xp.queryForNodes(self.e), [self.bar7])
 
-        result = error.exceptionFromStanza(stanza)
-        self.assertIsInstance(result, error.StanzaError)
-        self.assertEqual('service-unavailable', result.condition)
-        self.assertEqual('wait', result.type)
-        self.assertEqual('Unable to resolve hostname.', result.text)
-        self.assertEqual([p], result.children)
-
-class ExceptionFromStreamErrorTests(unittest.TestCase):
-
-    def test_basic(self):
+    def test_namespaceFound(self):
         """
-        Test basic operations of exceptionFromStreamError.
-
-        Given a realistic stream error, check if a sane exception is returned.
-
-        Using this error::
-
-          <stream:error xmlns:stream='http://etherx.jabber.org/streams'>
-            <xml-not-well-formed xmlns='urn:ietf:params:xml:ns:xmpp-streams'/>
-          </stream:error>
+        Test matching node with namespace.
         """
+        xp = XPathQuery("/foo[@xmlns='testns']/bar")
+        self.assertEqual(xp.matches(self.e), 1)
 
-        e = domish.Element(('http://etherx.jabber.org/streams', 'error'))
-        e.addElement((NS_XMPP_STREAMS, 'xml-not-well-formed'))
+    def test_namespaceNotFound(self):
+        """
+        Test not matching node with wrong namespace.
+        """
+        xp = XPathQuery("/foo[@xmlns='badns']/bar2")
+        self.assertEqual(xp.matches(self.e), 0)
 
-        result = error.exceptionFromStreamError(e)
-        self.assertIsInstance(result, error.StreamError)
-        self.assertEqual('xml-not-well-formed', result.condition)
+    def test_attributeWithValue(self):
+        """
+        Test matching node with attribute having value.
+        """
+        xp = XPathQuery("/foo[@attrib1='value1']")
+        self.assertEqual(xp.matches(self.e), 1)
+
+    def test_queryForString(self):
+        """
+        queryforString on absolute paths returns their first CDATA.
+        """
+        xp = XPathQuery("/foo")
+        self.assertEqual(xp.queryForString(self.e), "somecontent")
+
+    def test_queryForStringList(self):
+        """
+        queryforStringList on absolute paths returns all their CDATA.
+        """
+        xp = XPathQuery("/foo")
+        self.assertEqual(xp.queryForStringList(self.e),
+                          ["somecontent", "somemorecontent"])
+
+    def test_queryForStringListAnyLocation(self):
+        """
+        queryforStringList on relative paths returns all their CDATA.
+        """
+        xp = XPathQuery("//foo")
+        self.assertEqual(xp.queryForStringList(self.e),
+                          ["somecontent", "somemorecontent"])
+
+    def test_queryForNodes(self):
+        """
+        Test finding nodes.
+        """
+        xp = XPathQuery("/foo/bar")
+        self.assertEqual(xp.queryForNodes(self.e), [self.bar1, self.bar2,
+                                                     self.bar4, self.bar5,
+                                                     self.bar6, self.bar7])
+
+    def test_textCondition(self):
+        """
+        Test matching a node with given text.
+        """
+        xp = XPathQuery("/foo[text() = 'somecontent']")
+        self.assertEqual(xp.matches(self.e), True)
+
+    def test_textConditionUnicode(self):
+        """
+        A node can be matched by text with non-ascii code points.
+        """
+        xp = XPathQuery(u"//*[text()='\N{SNOWMAN}']")
+        self.assertEqual(xp.matches(self.e), True)
+        self.assertEqual(xp.queryForNodes(self.e), [self.quux])
+
+    def test_textNotOperator(self):
+        """
+        Test for not operator.
+        """
+        xp = XPathQuery("/foo[not(@nosuchattrib)]")
+        self.assertEqual(xp.matches(self.e), True)
+
+    def test_anyLocationAndText(self):
+        """
+        Test finding any nodes named gar and getting their text contents.
+        """
+        xp = XPathQuery("//gar")
+        self.assertEqual(xp.matches(self.e), True)
+        self.assertEqual(xp.queryForNodes(self.e), [self.gar1, self.gar2,
+                                                     self.gar3, self.gar4])
+        self.assertEqual(xp.queryForStringList(self.e), ["DEF", "ABC",
+                                                          "JKL", "MNO"])
+
+    def test_anyLocation(self):
+        """
+        Test finding any nodes named bar.
+        """
+        xp = XPathQuery("//bar")
+        self.assertEqual(xp.matches(self.e), True)
+        self.assertEqual(xp.queryForNodes(self.e), [self.bar1, self.bar2,
+                                                     self.bar3, self.bar4,
+                                                     self.bar5, self.bar6,
+                                                     self.bar7])
+
+    def test_anyLocationQueryForString(self):
+        """
+        L{XPathQuery.queryForString} should raise a L{NotImplementedError}
+        for any location.
+        """
+        xp = XPathQuery("//bar")
+        self.assertRaises(NotImplementedError, xp.queryForString, None)
+
+    def test_andOperator(self):
+        """
+        Test boolean and operator in condition.
+        """
+        xp = XPathQuery("//bar[@attrib4='value4' and @attrib5='value5']")
+        self.assertEqual(xp.matches(self.e), True)
+        self.assertEqual(xp.queryForNodes(self.e), [self.bar5])
+
+    def test_orOperator(self):
+        """
+        Test boolean or operator in condition.
+        """
+        xp = XPathQuery("//bar[@attrib5='value4' or @attrib5='value5']")
+        self.assertEqual(xp.matches(self.e), True)
+        self.assertEqual(xp.queryForNodes(self.e), [self.bar5, self.bar6])
+
+    def test_booleanOperatorsParens(self):
+        """
+        Test multiple boolean operators in condition with parens.
+        """
+        xp = XPathQuery("""//bar[@attrib4='value4' and
+                                 (@attrib5='value4' or @attrib5='value6')]""")
+        self.assertEqual(xp.matches(self.e), True)
+        self.assertEqual(xp.queryForNodes(self.e), [self.bar6, self.bar7])
+
+    def test_booleanOperatorsNoParens(self):
+        """
+        Test multiple boolean operators in condition without parens.
+        """
+        xp = XPathQuery("""//bar[@attrib5='value4' or
+                                 @attrib5='value5' or
+                                 @attrib5='value6']""")
+        self.assertEqual(xp.matches(self.e), True)
+        self.assertEqual(xp.queryForNodes(self.e), [self.bar5, self.bar6, self.bar7])
+
+    def test_badXPathNoClosingBracket(self):
+        """
+        A missing closing bracket raises a SyntaxError.
+
+        This test excercises the most common failure mode.
+        """
+        exc = self.assertRaises(SyntaxError, XPathQuery, """//bar[@attrib1""")
+        self.assertTrue(exc.msg.startswith("Trying to find one of"),
+                        ("SyntaxError message '%s' doesn't start with "
+                         "'Trying to find one of'") % exc.msg)

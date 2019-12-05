@@ -1,1 +1,1 @@
-ùJAvenv/lib/python3.6/site-packages/django_redis/compressors/zlib.py 2pyXh
+ùJEvenv/lib/python3.6/site-packages/django_redis/compressors/__init__.py 2pyXh

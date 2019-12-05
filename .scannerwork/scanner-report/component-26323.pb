@@ -1,1 +1,1 @@
-см>venv/lib64/python3.6/site-packages/django_short_url/migrations :	рмтмум
+смNvenv/lib64/python3.6/site-packages/django_short_url/migrations/0001_initial.py 2pyX h

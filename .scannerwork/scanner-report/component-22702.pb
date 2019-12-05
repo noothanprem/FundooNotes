@@ -1,1 +1,1 @@
-®±2venv/lib/python3.6/site-packages/werkzeug/wrappers :!­±¯±°±±±²±³±´±µ±¶±·±Ã±
+®±=venv/lib/python3.6/site-packages/werkzeug/wrappers/request.py 2pyX-h

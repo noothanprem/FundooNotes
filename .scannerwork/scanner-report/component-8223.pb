@@ -1,1 +1,1 @@
-Ÿ@@venv/lib/python3.6/site-packages/django/core/management/commands :0ž@ @¡@¢@£@¥@¦@§@¨@©@ª@«@¬@­@®@Ç@È@É@Ê@Ë@Ì@Í@Î@Ï@
+Ÿ@Tvenv/lib/python3.6/site-packages/django/core/management/commands/squashmigrations.py 2pyX×h

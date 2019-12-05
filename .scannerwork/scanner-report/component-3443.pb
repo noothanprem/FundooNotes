@@ -1,1 +1,1 @@
-ó;venv/lib/python3.6/site-packages/rest_framework_jwt/test.py 2pyXh
+óEvenv/lib/python3.6/site-packages/rest_framework_jwt/authentication.py 2pyXnh

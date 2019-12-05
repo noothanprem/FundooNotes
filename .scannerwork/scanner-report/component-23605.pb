@@ -1,1 +1,1 @@
-µ¸Jvenv/lib/python3.6/site-packages/social_core/tests/backends/test_google.py 2pyXƒh
+µ¸Hvenv/lib/python3.6/site-packages/social_core/tests/backends/test_flat.py 2pyX$h

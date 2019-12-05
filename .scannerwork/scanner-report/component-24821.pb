@@ -1,1 +1,1 @@
-õÁVvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/sessions.py 2pyXƒh
+õÁJvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests :6ôÁöÁ÷ÁøÁùÁúÁûÁüÁıÁşÁÿÁ€ÂÂ”Â•Â–Â—Â˜Â

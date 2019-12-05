@@ -1,38 +1,87 @@
-h
-pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 s
-pythonS100WRename method "test_sendMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2"" t
-pythonS100XRename method "test_utf8Messages" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2-- {
-pythonS100_Rename method "test_invalidEncodingNick" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2<<  o
-pythonS100SRename method "scanResponse" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2RR }
-pythonS100aRename method "test_sendNickSendsGreeting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2bb "q
-pythonS100URename method "test_fullLogin" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2rr n
-pythonS100PRename method "test_PART" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
- o
-pythonS100QRename method "test_NAMES" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-££ p
-pythonS100RRename method "sendMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¶¶ j
+M
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2
+’’P [M
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2
+–– v
+pythonS100ZRename method "_entityCreationTest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 s
+pythonS100WRename method "testUserCreation" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 255 t
+pythonS100XRename method "testGroupCreation" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 299 t
+pythonS100XRename method "testUserRetrieval" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2== s
+pythonS100WRename method "testUserAddition" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2PP u
+pythonS100YRename method "testGroupRetrieval" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2aa t
+pythonS100XRename method "testGroupAddition" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2nn }
+pythonS100aRename method "testGroupUsernameCollision" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ww "t
+pythonS100VRename method "testEnumeration" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ƒƒ j
 pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÃÃ {
-pythonS100]Rename method "assertChokesOnBadBytes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÇÇ n
-pythonS100PRename method "test_JOIN" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ØØ o
-pythonS100QRename method "test_NAMES" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-àà o
-pythonS100QRename method "test_TOPIC" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-èè n
-pythonS100PRename method "test_LIST" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ðð n
-pythonS100PRename method "test_MODE" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-úú q
-pythonS100SRename method "test_PRIVMSG" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‚‚ o
-pythonS100QRename method "test_WHOIS" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ŠŠ n
-pythonS100PRename method "test_PART" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-”” m
-pythonS100ORename method "test_WHO" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-žž {
-pythonS117_Rename this local variable "expectedResult" to match the regular expression ^[_a-z][a-z0-9_]*$. 233 s
-pythonS117WRename this parameter "messageType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2RR% 0
+¥¥ t
+pythonS100VRename method "_assertGreeting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+´´ r
+pythonS100TRename method "_loggedInUser" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÌÌ r
+pythonS100TRename method "testPASSLogin" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ää w
+pythonS100YRename method "test_nickServLogin" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+éé t
+pythonS100VRename method "testFailedLogin" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+þþ o
+pythonS100QRename method "testLogout" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ˆˆ m
+pythonS100ORename method "testJoin" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+““ w
+pythonS100YRename method "test_joinTopicless" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÊÊ n
+pythonS100PRename method "testLeave" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ßß q
+pythonS100SRename method "testGetTopic" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+›› q
+pythonS100SRename method "testSetTopic" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¾¾ u
+pythonS100WRename method "testGroupMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+êê w
+pythonS100YRename method "testPrivateMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+„„ m
+pythonS100ORename method "testOper" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¡¡ t
+pythonS100VRename method "testGetUserMode" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¬¬ t
+pythonS100VRename method "testSetUserMode" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¹¹ u
+pythonS100WRename method "testGetGroupMode" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÄÄ u
+pythonS100WRename method "testSetGroupMode" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÓÓ l
+pythonS100NRename method "testWho" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ââ m
+pythonS100ORename method "testList" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ n
+pythonS100PRename method "testWhois" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¹¹ v
+pythonS100XRename method "remote_userJoined" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+øø t
+pythonS100VRename method "remote_userLeft" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+üü {
+pythonS100]Rename method "remote_groupMetaUpdate" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+„„ j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ŠŠ u
+pythonS100WRename method "_protocolFactory" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+›› m
+pythonS100ORename method "tearDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+   t
+pythonS100VRename method "_loggedInAvatar" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¨¨ o
+pythonS100QRename method "testGroups" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+´´ s
+pythonS117WRename this local variable "dupExc" to match the regular expression ^[_a-z][a-z0-9_]*$. 2 v
+pythonS117ZRename this local variable "noSuchExc" to match the regular expression ^[_a-z][a-z0-9_]*$. 2 u
+pythonS117YRename this local variable "lookedUp" to match the regular expression ^[_a-z][a-z0-9_]*$. 2HH u
+pythonS117YRename this local variable "lookedUp" to match the regular expression ^[_a-z][a-z0-9_]*$. 2]] u
+pythonS117WRename this parameter "messageType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÓÓ )|
+pythonS117^Rename this local variable "responseCodes" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÚÚ x
+pythonS117ZRename this local variable "nameBytes" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+©© x
+pythonS117ZRename this local variable "mindThree" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+»» 

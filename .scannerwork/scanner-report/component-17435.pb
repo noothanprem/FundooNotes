@@ -1,1 +1,1 @@
-›ˆ7venv/lib/python3.6/site-packages/kombu/transport/SQS.py 2pyX¼h
+›ˆ0venv/lib/python3.6/site-packages/kombu/mixins.py 2pyX°h

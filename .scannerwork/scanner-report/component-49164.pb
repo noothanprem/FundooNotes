@@ -1,1 +1,1 @@
-Œ€Dvenv/lib64/python3.6/site-packages/rest_framework/authtoken/views.py 2pyX3h
+Œ€Dvenv/lib64/python3.6/site-packages/rest_framework/authtoken/admin.py 2pyXh

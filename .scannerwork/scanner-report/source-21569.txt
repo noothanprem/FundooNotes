@@ -1,31 +1,30 @@
+# -*- test-case-name: twisted.trial._dist.test.test_options -*-
+#
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-Commands for telling a worker to load tests or run tests.
+Options handling specific to trial's workers.
 
 @since: 12.3
 """
 
-from twisted.protocols.amp import Command, String, Boolean, Unicode
-from twisted.python.compat import _PY3
+from twisted.python.filepath import FilePath
+from twisted.python.usage import Options
+from twisted.scripts.trial import _BasicOptions
+from twisted.application.app import ReactorSelectionMixin
 
-NativeString = Unicode if _PY3 else String
 
 
-
-class Run(Command):
+class WorkerOptions(_BasicOptions, Options, ReactorSelectionMixin):
     """
-    Run a test.
+    Options forwarded to the trial distributed worker.
     """
-    arguments = [(b'testCase', NativeString())]
-    response = [(b'success', Boolean())]
 
 
-
-class Start(Command):
-    """
-    Set up the worker process, giving the running directory.
-    """
-    arguments = [(b'directory', NativeString())]
-    response = [(b'success', Boolean())]
+    def coverdir(self):
+        """
+        Return a L{FilePath} representing the directory into which coverage
+        results should be written.
+        """
+        return FilePath('coverage')

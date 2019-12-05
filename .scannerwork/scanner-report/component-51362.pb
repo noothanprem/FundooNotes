@@ -1,1 +1,0 @@
-¢ëLvenv/lib64/python3.6/site-packages/testresources/tests/test_test_resource.py 2pyXçh

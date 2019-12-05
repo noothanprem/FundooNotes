@@ -1,23 +1,9 @@
-try:
-    import copy_reg as copyreg
-except ImportError:
-    import copyreg
+import sys
 
-from .utils import identity
+PY2 = sys.version_info[0] == 2
+PY3 = sys.version_info[0] == 3
 
-copyreg.constructor(identity)
 
-try:
-    from .cext import Proxy
-    from .cext import identity
-except ImportError:
-    from .slots import Proxy
-else:
-    copyreg.constructor(identity)
-
-try:
-    from ._version import version as __version__
-except ImportError:
-    __version__ = '1.4.2'
-
-__all__ = "Proxy",
+def with_metaclass(meta, *bases):
+    """Create a base class with a metaclass."""
+    return meta("NewBase", bases, {})

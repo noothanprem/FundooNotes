@@ -1,1 +1,1 @@
-»ðFvenv/lib64/python3.6/site-packages/django/contrib/flatpages/migrations :¹ðºð
+»ðRvenv/lib64/python3.6/site-packages/django/contrib/flatpages/migrations/__init__.py 2pyXh

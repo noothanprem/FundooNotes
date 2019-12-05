@@ -1,1 +1,0 @@
-Ÿc&venv/lib/python3.6/site-packages/flask :$c c¡c¢c£c¤c¥c¦c§c¨c©cªc«c¬c­cÁcÂcÉc

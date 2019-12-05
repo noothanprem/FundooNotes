@@ -1,260 +1,180 @@
 # -*- coding: utf-8 -*-
-"""Celery error types.
+"""The :program:`celery events` command.
 
-Error Hierarchy
-===============
+.. program:: celery events
 
-- :exc:`Exception`
-    - :exc:`celery.exceptions.CeleryError`
-        - :exc:`~celery.exceptions.ImproperlyConfigured`
-        - :exc:`~celery.exceptions.SecurityError`
-        - :exc:`~celery.exceptions.TaskPredicate`
-            - :exc:`~celery.exceptions.Ignore`
-            - :exc:`~celery.exceptions.Reject`
-            - :exc:`~celery.exceptions.Retry`
-        - :exc:`~celery.exceptions.TaskError`
-            - :exc:`~celery.exceptions.QueueNotFound`
-            - :exc:`~celery.exceptions.IncompleteStream`
-            - :exc:`~celery.exceptions.NotRegistered`
-            - :exc:`~celery.exceptions.AlreadyRegistered`
-            - :exc:`~celery.exceptions.TimeoutError`
-            - :exc:`~celery.exceptions.MaxRetriesExceededError`
-            - :exc:`~celery.exceptions.TaskRevokedError`
-            - :exc:`~celery.exceptions.InvalidTaskError`
-            - :exc:`~celery.exceptions.ChordError`
-    - :class:`kombu.exceptions.KombuError`
-        - :exc:`~celery.exceptions.OperationalError`
+.. seealso::
 
-            Raised when a transport connection error occurs while
-            sending a message (be it a task, remote control command error).
+    See :ref:`preload-options` and :ref:`daemon-options`.
 
-            .. note::
-                This exception does not inherit from
-                :exc:`~celery.exceptions.CeleryError`.
-    - **billiard errors** (prefork pool)
-        - :exc:`~celery.exceptions.SoftTimeLimitExceeded`
-        - :exc:`~celery.exceptions.TimeLimitExceeded`
-        - :exc:`~celery.exceptions.WorkerLostError`
-        - :exc:`~celery.exceptions.Terminated`
-- :class:`UserWarning`
-    - :class:`~celery.exceptions.CeleryWarning`
-        - :class:`~celery.exceptions.AlwaysEagerIgnored`
-        - :class:`~celery.exceptions.DuplicateNodenameWarning`
-        - :class:`~celery.exceptions.FixupWarning`
-        - :class:`~celery.exceptions.NotConfigured`
-- :exc:`BaseException`
-    - :exc:`SystemExit`
-        - :exc:`~celery.exceptions.WorkerTerminate`
-        - :exc:`~celery.exceptions.WorkerShutdown`
+.. cmdoption:: -d, --dump
+
+    Dump events to stdout.
+
+.. cmdoption:: -c, --camera
+
+    Take snapshots of events using this camera.
+
+.. cmdoption:: --detach
+
+    Camera: Detach and run in the background as a daemon.
+
+.. cmdoption:: -F, --freq, --frequency
+
+    Camera: Shutter frequency.  Default is every 1.0 seconds.
+
+.. cmdoption:: -r, --maxrate
+
+    Camera: Optional shutter rate limit (e.g., 10/m).
+
+.. cmdoption:: -l, --loglevel
+
+    Logging level, choose between `DEBUG`, `INFO`, `WARNING`,
+    `ERROR`, `CRITICAL`, or `FATAL`.  Default is INFO.
+
+.. cmdoption:: -f, --logfile
+
+    Path to log file.  If no logfile is specified, `stderr` is used.
+
+.. cmdoption:: --pidfile
+
+    Optional file used to store the process pid.
+
+    The program won't start if this file already exists
+    and the pid is still alive.
+
+.. cmdoption:: --uid
+
+    User id, or user name of the user to run as after detaching.
+
+.. cmdoption:: --gid
+
+    Group id, or group name of the main group to change to after
+    detaching.
+
+.. cmdoption:: --umask
+
+    Effective umask (in octal) of the process after detaching.  Inherits
+    the umask of the parent process by default.
+
+.. cmdoption:: --workdir
+
+    Optional directory to change to after detaching.
+
+.. cmdoption:: --executable
+
+    Executable to use for the detached process.
 """
 from __future__ import absolute_import, unicode_literals
 
-import numbers
+import sys
+from functools import partial
 
-from billiard.exceptions import (SoftTimeLimitExceeded, Terminated,
-                                 TimeLimitExceeded, WorkerLostError)
-from kombu.exceptions import OperationalError
+from celery.bin.base import Command, daemon_options
+from celery.platforms import detached, set_process_title, strargv
 
-from .five import python_2_unicode_compatible, string_t
+__all__ = ('events',)
 
-__all__ = (
-    # Warnings
-    'CeleryWarning',
-    'AlwaysEagerIgnored', 'DuplicateNodenameWarning',
-    'FixupWarning', 'NotConfigured',
-
-    # Core errors
-    'CeleryError',
-    'ImproperlyConfigured', 'SecurityError',
-
-    # Kombu (messaging) errors.
-    'OperationalError',
-
-    # Task semi-predicates
-    'TaskPredicate', 'Ignore', 'Reject', 'Retry',
-
-    # Task related errors.
-    'TaskError', 'QueueNotFound', 'IncompleteStream',
-    'NotRegistered', 'AlreadyRegistered', 'TimeoutError',
-    'MaxRetriesExceededError', 'TaskRevokedError',
-    'InvalidTaskError', 'ChordError',
-
-    # Billiard task errors.
-    'SoftTimeLimitExceeded', 'TimeLimitExceeded',
-    'WorkerLostError', 'Terminated',
-
-    # Deprecation warnings (forcing Python to emit them).
-    'CPendingDeprecationWarning', 'CDeprecationWarning',
-
-    # Worker shutdown semi-predicates (inherits from SystemExit).
-    'WorkerShutdown', 'WorkerTerminate',
-)
-
-UNREGISTERED_FMT = """\
-Task of kind {0} never registered, please make sure it's imported.\
-"""
+HELP = __doc__
 
 
-class CeleryWarning(UserWarning):
-    """Base class for all Celery warnings."""
+class events(Command):
+    """Event-stream utilities.
 
+    Notes:
+        .. code-block:: console
 
-class AlwaysEagerIgnored(CeleryWarning):
-    """send_task ignores :setting:`task_always_eager` option."""
+            # - Start graphical monitor (requires curses)
+            $ celery events --app=proj
+            $ celery events -d --app=proj
+            # - Dump events to screen.
+            $ celery events -b amqp://
+            # - Run snapshot camera.
+            $ celery events -c <camera> [options]
 
+    Examples:
+        .. code-block:: console
 
-class DuplicateNodenameWarning(CeleryWarning):
-    """Multiple workers are using the same nodename."""
+            $ celery events
+            $ celery events -d
+            $ celery events -c mod.attr -F 1.0 --detach --maxrate=100/m -l info
+    """
 
+    doc = HELP
+    supports_args = False
 
-class FixupWarning(CeleryWarning):
-    """Fixup related warning."""
+    def run(self, dump=False, camera=None, frequency=1.0, maxrate=None,
+            loglevel='INFO', logfile=None, prog_name='celery events',
+            pidfile=None, uid=None, gid=None, umask=None,
+            workdir=None, detach=False, **kwargs):
+        self.prog_name = prog_name
 
+        if dump:
+            return self.run_evdump()
+        if camera:
+            return self.run_evcam(camera, freq=frequency, maxrate=maxrate,
+                                  loglevel=loglevel, logfile=logfile,
+                                  pidfile=pidfile, uid=uid, gid=gid,
+                                  umask=umask,
+                                  workdir=workdir,
+                                  detach=detach)
+        return self.run_evtop()
 
-class NotConfigured(CeleryWarning):
-    """Celery hasn't been configured, as no config module has been found."""
+    def run_evdump(self):
+        from celery.events.dumper import evdump
+        self.set_process_status('dump')
+        return evdump(app=self.app)
 
+    def run_evtop(self):
+        from celery.events.cursesmon import evtop
+        self.set_process_status('top')
+        return evtop(app=self.app)
 
-class CeleryError(Exception):
-    """Base class for all Celery errors."""
+    def run_evcam(self, camera, logfile=None, pidfile=None, uid=None,
+                  gid=None, umask=None, workdir=None,
+                  detach=False, **kwargs):
+        from celery.events.snapshot import evcam
+        self.set_process_status('cam')
+        kwargs['app'] = self.app
+        cam = partial(evcam, camera,
+                      logfile=logfile, pidfile=pidfile, **kwargs)
 
-
-class TaskPredicate(CeleryError):
-    """Base class for task-related semi-predicates."""
-
-
-@python_2_unicode_compatible
-class Retry(TaskPredicate):
-    """The task is to be retried later."""
-
-    #: Optional message describing context of retry.
-    message = None
-
-    #: Exception (if any) that caused the retry to happen.
-    exc = None
-
-    #: Time of retry (ETA), either :class:`numbers.Real` or
-    #: :class:`~datetime.datetime`.
-    when = None
-
-    def __init__(self, message=None, exc=None, when=None, **kwargs):
-        from kombu.utils.encoding import safe_repr
-        self.message = message
-        if isinstance(exc, string_t):
-            self.exc, self.excs = None, exc
+        if detach:
+            with detached(logfile, pidfile, uid, gid, umask, workdir):
+                return cam()
         else:
-            self.exc, self.excs = exc, safe_repr(exc) if exc else None
-        self.when = when
-        super(Retry, self).__init__(self, exc, when, **kwargs)
+            return cam()
 
-    def humanize(self):
-        if isinstance(self.when, numbers.Number):
-            return 'in {0.when}s'.format(self)
-        return 'at {0.when}'.format(self)
+    def set_process_status(self, prog, info=''):
+        prog = '{0}:{1}'.format(self.prog_name, prog)
+        info = '{0} {1}'.format(info, strargv(sys.argv))
+        return set_process_title(prog, info=info)
 
-    def __str__(self):
-        if self.message:
-            return self.message
-        if self.excs:
-            return 'Retry {0}: {1}'.format(self.humanize(), self.excs)
-        return 'Retry {0}'.format(self.humanize())
+    def add_arguments(self, parser):
+        dopts = parser.add_argument_group('Dumper')
+        dopts.add_argument('-d', '--dump', action='store_true', default=False)
 
-    def __reduce__(self):
-        return self.__class__, (self.message, self.excs, self.when)
+        copts = parser.add_argument_group('Snapshot')
+        copts.add_argument('-c', '--camera')
+        copts.add_argument('--detach', action='store_true', default=False)
+        copts.add_argument('-F', '--frequency', '--freq',
+                           type=float, default=1.0)
+        copts.add_argument('-r', '--maxrate')
+        copts.add_argument('-l', '--loglevel', default='INFO')
 
+        daemon_options(parser, default_pidfile='celeryev.pid')
 
-RetryTaskError = Retry  # noqa: E305 XXX compat
-
-
-class Ignore(TaskPredicate):
-    """A task can raise this to ignore doing state updates."""
-
-
-@python_2_unicode_compatible
-class Reject(TaskPredicate):
-    """A task can raise this if it wants to reject/re-queue the message."""
-
-    def __init__(self, reason=None, requeue=False):
-        self.reason = reason
-        self.requeue = requeue
-        super(Reject, self).__init__(reason, requeue)
-
-    def __repr__(self):
-        return 'reject requeue=%s: %s' % (self.requeue, self.reason)
+        user_options = self.app.user_options['events']
+        if user_options:
+            self.add_compat_options(
+                parser.add_argument_group('User Options'),
+                user_options)
 
 
-class ImproperlyConfigured(CeleryError):
-    """Celery is somehow improperly configured."""
+def main():
+    ev = events()
+    ev.execute_from_commandline()
 
 
-class SecurityError(CeleryError):
-    """Security related exception."""
-
-
-class TaskError(CeleryError):
-    """Task related errors."""
-
-
-class QueueNotFound(KeyError, TaskError):
-    """Task routed to a queue not in ``conf.queues``."""
-
-
-class IncompleteStream(TaskError):
-    """Found the end of a stream of data, but the data isn't complete."""
-
-
-@python_2_unicode_compatible
-class NotRegistered(KeyError, TaskError):
-    """The task ain't registered."""
-
-    def __repr__(self):
-        return UNREGISTERED_FMT.format(self)
-
-
-class AlreadyRegistered(TaskError):
-    """The task is already registered."""
-    # XXX Unused
-
-
-class TimeoutError(TaskError):
-    """The operation timed out."""
-
-
-class MaxRetriesExceededError(TaskError):
-    """The tasks max restart limit has been exceeded."""
-
-    def __init__(self, *args, **kwargs):
-        self.task_args = kwargs.pop("task_args", [])
-        self.task_kwargs = kwargs.pop("task_kwargs", dict())
-        super(MaxRetriesExceededError, self).__init__(*args, **kwargs)
-
-
-class TaskRevokedError(TaskError):
-    """The task has been revoked, so no result available."""
-
-
-class InvalidTaskError(TaskError):
-    """The task has invalid data or ain't properly constructed."""
-
-
-class ChordError(TaskError):
-    """A task part of the chord raised an exception."""
-
-
-class CPendingDeprecationWarning(PendingDeprecationWarning):
-    """Warning of pending deprecation."""
-
-
-class CDeprecationWarning(DeprecationWarning):
-    """Warning of deprecation."""
-
-
-class WorkerTerminate(SystemExit):
-    """Signals that the worker should terminate immediately."""
-
-
-SystemTerminate = WorkerTerminate  # noqa: E305 XXX compat
-
-
-class WorkerShutdown(SystemExit):
-    """Signals that the worker should perform a warm shutdown."""
+if __name__ == '__main__':              # pragma: no cover
+    main()

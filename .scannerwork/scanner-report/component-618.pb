@@ -1,1 +1,1 @@
-ê4venv/lib/python3.6/site-packages/celery/bin/multi.py 2pyXÌh
+ê3venv/lib/python3.6/site-packages/celery/bin/beat.py 2pyX‡h

@@ -1,1 +1,1 @@
-ä‚9venv/lib/python3.6/site-packages/keyring/util/__init__.py 2pyX&h
+ä‚;venv/lib/python3.6/site-packages/keyring/util/properties.py 2pyX<h

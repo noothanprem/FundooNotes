@@ -1,1 +1,1 @@
-•;venv/lib64/python3.6/site-packages/django_elasticsearch_dsl :!•Ÿ• •¡•¢•«•­•¯•°•½•Ä•
+•;venv/lib64/python3.6/site-packages/django_elasticsearch_dsl :!•Ÿ• •¡•¢•­•®•¯•°•½•Ä•

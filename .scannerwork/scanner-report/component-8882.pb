@@ -1,1 +1,1 @@
-²E;venv/lib/python3.6/site-packages/django/conf/locale/sr_Latn :±E³E
+²EGvenv/lib/python3.6/site-packages/django/conf/locale/sr_Latn/__init__.py 2pyXh

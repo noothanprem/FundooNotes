@@ -1,5 +1,5 @@
 #
-# Copyright (c) 1996-2000 Tyler C. Sarna <tsarna@sarna.org>
+# Copyright (c) 2000 Tyler C. Sarna <tsarna@sarna.org>
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,120 +29,53 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 #
-__all__ = tuple('''registerWidget getCodes getCodeNames createBarcodeDrawing createBarcodeImageInMemory'''.split())
-__version__ = '0.9'
-__doc__='''Popular barcodes available as reusable widgets'''
 
-_widgets = []
-def registerWidget(widget):
-    _widgets.append(widget)
+from reportlab.lib.units import inch
+from reportlab.graphics.barcode.common import Barcode
+import string
 
-def _reset():
-    _widgets[:] = []
-    from reportlab.graphics.barcode.widgets import BarcodeI2of5, BarcodeCode128, BarcodeStandard93,\
-                        BarcodeExtended93, BarcodeStandard39, BarcodeExtended39,\
-                        BarcodeMSI, BarcodeCodabar, BarcodeCode11, BarcodeFIM,\
-                        BarcodePOSTNET, BarcodeUSPS_4State, BarcodeCode128Auto, BarcodeECC200DataMatrix
+# . 3 T Tracker
+# , 2 D Descender
+# ' 1 A Ascender
+# | 0 H Ascender/Descender
 
-    #newer codes will typically get their own module
-    from reportlab.graphics.barcode.eanbc import Ean13BarcodeWidget, Ean8BarcodeWidget, UPCA, Ean5BarcodeWidget, ISBNBarcodeWidget
-    from reportlab.graphics.barcode.qr import QrCodeWidget
-    for widget in (BarcodeI2of5,
-                BarcodeCode128,
-                BarcodeCode128Auto,
-                BarcodeStandard93,
-                BarcodeExtended93,
-                BarcodeStandard39,
-                BarcodeExtended39,
-                BarcodeMSI,
-                BarcodeCodabar,
-                BarcodeCode11,
-                BarcodeFIM,
-                BarcodePOSTNET,
-                BarcodeUSPS_4State,
-                Ean13BarcodeWidget,
-                Ean8BarcodeWidget,
-                UPCA,
-                Ean5BarcodeWidget,
-                ISBNBarcodeWidget,
-                QrCodeWidget,
-                BarcodeECC200DataMatrix,
-                ):
-        registerWidget(widget)
-_reset()
-from reportlab.rl_config import register_reset
-register_reset(_reset)
+_rm_patterns = {
+    "0" : "--||",   "1" : "-',|",   "2" : "-'|,",   "3" : "'-,|",
+    "4" : "'-|,",   "5" : "'',,",   "6" : "-,'|",   "7" : "-|-|",
+    "8" : "-|',",   "9" : "',-|",   "A" : "',',",   "B" : "'|-,",
+    "C" : "-,|'",   "D" : "-|,'",   "E" : "-||-",   "F" : "',,'",
+    "G" : "',|-",   "H" : "'|,-",   "I" : ",-'|",   "J" : ",'-|",
+    "K" : ",'',",   "L" : "|--|",   "M" : "|-',",   "N" : "|'-,",
+    "O" : ",-|'",   "P" : ",','",   "Q" : ",'|-",   "R" : "|-,'",
+    "S" : "|-|-",   "T" : "|',-",   "U" : ",,''",   "V" : ",|-'",
+    "W" : ",|'-",   "X" : "|,-'",   "Y" : "|,'-",   "Z" : "||--",
 
-def getCodes():
-    """Returns a dict mapping code names to widgets"""
-    #the module exports a dictionary of names to widgets, to make it easy for
-    #apps and doc tools to display information about them.
-    codes = {}
-    for widget in _widgets:
-        codeName = widget.codeName
-        codes[codeName] = widget
+    # start, stop
+    "(" : "'-,'",   ")" : "'|,|"
+}
 
-    return codes
+_ozN_patterns = {
+    "0" : "||",    "1" : "|'",    "2" : "|,",    "3" : "'|",    "4" : "''",
+    "5" : "',",    "6" : ",|",    "7" : ",'",    "8" : ",,",    "9" : ".|"
+}
 
-def getCodeNames():
-    """Returns sorted list of supported bar code names"""
-    return sorted(getCodes().keys())
+_ozC_patterns = {
+    "A" : "|||",    "B" : "||'",    "C" : "||,",    "D" : "|'|",
+    "E" : "|''",    "F" : "|',",    "G" : "|,|",    "H" : "|,'",
+    "I" : "|,,",    "J" : "'||",    "K" : "'|'",    "L" : "'|,",
+    "M" : "''|",    "N" : "'''",    "O" : "'',",    "P" : "',|",
+    "Q" : "','",    "R" : "',,",    "S" : ",||",    "T" : ",|'",
+    "U" : ",|,",    "V" : ",'|",    "W" : ",''",    "X" : ",',",
+    "Y" : ",,|",    "Z" : ",,'",    "a" : "|,.",    "b" : "|.|",
+    "c" : "|.'",    "d" : "|.,",    "e" : "|..",    "f" : "'|.",
+    "g" : "''.",    "h" : "',.",    "i" : "'.|",    "j" : "'.'",
+    "k" : "'.,",    "l" : "'..",    "m" : ",|.",    "n" : ",'.",
+    "o" : ",,.",    "p" : ",.|",    "q" : ",.'",    "r" : ",.,",
+    "s" : ",..",    "t" : ".|.",    "u" : ".'.",    "v" : ".,.",
+    "w" : "..|",    "x" : "..'",    "y" : "..,",    "z" : "...",
+    "0" : ",,,",    "1" : ".||",    "2" : ".|'",    "3" : ".|,",
+    "4" : ".'|",    "5" : ".''",    "6" : ".',",    "7" : ".,|",
+    "8" : ".,'",    "9" : ".,,",    " " : "||.",    "#" : "|'.",
+}
 
-def createBarcodeDrawing(codeName, **options):
-    """This creates and returns a drawing with a barcode.
-    """    
-    from reportlab.graphics.shapes import Drawing, Group
-
-    codes = getCodes()
-    bcc = codes[codeName]
-    width = options.pop('width',None)
-    height = options.pop('height',None)
-    isoScale = options.pop('isoScale',0)
-    kw = {}
-    for k,v in options.items():
-        if k.startswith('_') or k in bcc._attrMap: kw[k] = v
-    bc = bcc(**kw)
-
-
-    #Robin's new ones validate when setting the value property.
-    #Ty Sarna's old ones do not.  We need to test.
-    if hasattr(bc, 'validate'):
-        bc.validate()   #raise exception if bad value
-        if not bc.valid:
-            raise ValueError("Illegal barcode with value '%s' in code '%s'" % (options.get('value',None), codeName))
-
-    #size it after setting the data    
-    x1, y1, x2, y2 = bc.getBounds()
-    w = float(x2 - x1)
-    h = float(y2 - y1)
-    sx = width not in ('auto',None)
-    sy = height not in ('auto',None)
-    if sx or sy:
-        sx = sx and width/w or 1.0
-        sy = sy and height/h or 1.0
-        if isoScale:
-            if sx<1.0 and sy<1.0:
-                sx = sy = max(sx,sy)
-            else:
-                sx = sy = min(sx,sy)
-
-        w *= sx
-        h *= sy
-    else:
-        sx = sy = 1
-
-    #bc.x = -sx*x1
-    #bc.y = -sy*y1
-    d = Drawing(width=w,height=h,transform=[sx,0,0,sy,-sx*x1,-sy*y1])
-    d.add(bc, "_bc")
-    return d
-
-def createBarcodeImageInMemory(codeName,**options):
-    """This creates and returns barcode as an image in memory.
-    Takes same arguments as createBarcodeDrawing and also an
-    optional format keyword which can be anything acceptable
-    to Drawing.asString eg gif, pdf, tiff, py ......
-    """
-    format = options.pop('format','png')
-    d = createBarcodeDrawing(codeName, **options)
-    return d.asString(format)
+#http://www.auspost.com.au/futurepost/

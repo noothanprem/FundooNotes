@@ -1,1 +1,1 @@
-œ¡Avenv/lib/python3.6/site-packages/django_social_share/templatetags :›¡ž¡
+œ¡Mvenv/lib/python3.6/site-packages/django_social_share/templatetags/__init__.py 2pyXh

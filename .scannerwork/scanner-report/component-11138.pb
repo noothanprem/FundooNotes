@@ -1,1 +1,1 @@
-ÇW=venv/lib/python3.6/site-packages/faker/providers/person/et_EE :ÅW
+ÇW=venv/lib/python3.6/site-packages/faker/providers/person/hi_IN :ÄW

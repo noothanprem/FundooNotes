@@ -1,1 +1,1 @@
-ÏA6venv/lib/python3.6/site-packages/django/conf/locale/gd :ÎAÌA
+ÏABvenv/lib/python3.6/site-packages/django/conf/locale/gd/__init__.py 2pyXh

@@ -1,1 +1,1 @@
-«½=venv/lib/python3.6/site-packages/django_extensions/management :$©½¬½­½®½¯½°½±½¿½À½Á½Â½Ã½
+«½Svenv/lib/python3.6/site-packages/django_extensions/management/notebook_extension.py 2pyXh

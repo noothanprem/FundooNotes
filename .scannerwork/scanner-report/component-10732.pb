@@ -1,1 +1,1 @@
-ÏS;venv/lib/python3.6/site-packages/faker/providers/misc/en_US :ÎS
+ÏS5venv/lib/python3.6/site-packages/faker/providers/misc :ÎS

@@ -1,1 +1,1 @@
-ð3venv/lib/python3.6/site-packages/celery/bin/call.py 2pyXTh
+ð7venv/lib/python3.6/site-packages/celery/bin/__init__.py 2pyXh

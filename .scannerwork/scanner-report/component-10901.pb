@@ -1,1 +1,0 @@
-•ULvenv/lib/python3.6/site-packages/faker/providers/date_time/id_ID/__init__.py 2pyX)h

@@ -1,1 +1,1 @@
-¤ÂYvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet/cli/__init__.py 2pyXh
+¤ÂMvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet/cli :£Â¥Â

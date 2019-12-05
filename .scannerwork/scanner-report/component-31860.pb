@@ -1,1 +1,0 @@
-פרSvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/postgis/schema.py 2pyXCh

@@ -1,1 +1,1 @@
-вcvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/filter_backends/search/multi_match.py 2pyXOh
+вkvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/filter_backends/search/simple_query_string.py 2pyXPh

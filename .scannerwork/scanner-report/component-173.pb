@@ -1,1 +1,1 @@
-­>venv/lib/python3.6/site-packages/oauth2_provider/generators.py 2pyX-h
+­<venv/lib/python3.6/site-packages/oauth2_provider/settings.py 2pyX­h

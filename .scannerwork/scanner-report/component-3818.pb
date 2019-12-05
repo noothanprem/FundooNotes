@@ -1,1 +1,1 @@
-êCvenv/lib/python3.6/site-packages/django/db/migrations/exceptions.py 2pyX7h
+êCvenv/lib/python3.6/site-packages/django/db/migrations/serializer.py 2pyXÎh

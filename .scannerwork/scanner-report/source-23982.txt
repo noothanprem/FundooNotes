@@ -1,47 +1,59 @@
-from functools import wraps
+DEFAULT_AUTH_PIPELINE = (
+    # Get the information we can about the user and return it in a simple
+    # format to create the user instance later. On some cases the details are
+    # already part of the auth response from the provider, but sometimes this
+    # could hit a provider API.
+    'social_core.pipeline.social_auth.social_details',
 
-from .utils import partial_prepare
-from ..utils import PARTIAL_TOKEN_SESSION_NAME
+    # Get the social uid from whichever service we're authing thru. The uid is
+    # the unique identifier of the given user in the provider.
+    'social_core.pipeline.social_auth.social_uid',
 
+    # Verifies that the current auth process is valid within the current
+    # project, this is where emails and domains whitelists are applied (if
+    # defined).
+    'social_core.pipeline.social_auth.auth_allowed',
 
-def partial_step(save_to_session):
-    """Wraps func to behave like a partial pipeline step, any output
-    that's not None or {} will be considered a response object and
-    will be returned to user.
+    # Checks if the current social-account is already associated in the site.
+    'social_core.pipeline.social_auth.social_user',
 
-    The pipeline function will receive a current_partial object, it
-    contains the partial pipeline data and a token that is used to
-    identify it when it's continued, this is useful to build links
-    with the token.
+    # Make up a username for this person, appends a random string at the end if
+    # there's any collision.
+    'social_core.pipeline.user.get_username',
 
-    The default value for this parameter is partial_token, but can be
-    overridden by SOCIAL_AUTH_PARTIAL_PIPELINE_TOKEN_NAME setting.
+    # Send a validation email to the user to verify its email address.
+    # 'social_core.pipeline.mail.mail_validation',
 
-    The token is also stored in the session under the
-    PARTIAL_TOKEN_SESSION_NAME (partial_pipeline_token) key when the
-    save_to_session parameter is True.
-    """
-    def decorator(func):
-        @wraps(func)
-        def wrapper(strategy, backend, pipeline_index, *args, **kwargs):
-            current_partial = partial_prepare(strategy, backend, pipeline_index,
-                                              *args, **kwargs)
+    # Associates the current social details with another user account with
+    # a similar email address.
+    # 'social_core.pipeline.social_auth.associate_by_email',
 
-            out = func(strategy=strategy,
-                       backend=backend,
-                       pipeline_index=pipeline_index,
-                       current_partial=current_partial,
-                       *args, **kwargs) or {}
+    # Create a user account if we haven't found one yet.
+    'social_core.pipeline.user.create_user',
 
-            if not isinstance(out, dict):
-                strategy.storage.partial.store(current_partial)
-                if save_to_session:
-                    strategy.session_set(PARTIAL_TOKEN_SESSION_NAME,
-                                         current_partial.token)
-            return out
-        return wrapper
-    return decorator
+    # Create the record that associated the social account with this user.
+    'social_core.pipeline.social_auth.associate_user',
 
+    # Populate the extra_data field in the social record with the values
+    # specified by settings (and the default ones like access_token, etc).
+    'social_core.pipeline.social_auth.load_extra_data',
 
-# Backward compatible partial decorator, that stores the token in the session
-partial = partial_step(save_to_session=True)
+    # Update the user record with any changed info from the auth service.
+    'social_core.pipeline.user.user_details'
+)
+
+DEFAULT_DISCONNECT_PIPELINE = (
+    # Verifies that the social association can be disconnected from the current
+    # user (ensure that the user login mechanism is not compromised by this
+    # disconnection).
+    'social_core.pipeline.disconnect.allowed_to_disconnect',
+
+    # Collects the social associations to disconnect.
+    'social_core.pipeline.disconnect.get_entries',
+
+    # Revoke any access_token when possible.
+    'social_core.pipeline.disconnect.revoke_tokens',
+
+    # Removes the social associations.
+    'social_core.pipeline.disconnect.disconnect'
+)

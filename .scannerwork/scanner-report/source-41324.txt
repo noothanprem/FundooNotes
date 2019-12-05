@@ -1,416 +1,563 @@
-# Copyright 2012-2013 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-
+# Copyright 2013 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
 # the License is located at
-
+#
 #     http://aws.amazon.com/apache2.0/
-
+#
 # or in the "license" file accompanying this file. This file is
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-import sys
-import struct
-import unicodedata
+"""Abstractions for CLI arguments.
 
-import colorama
+This module contains abstractions for representing CLI arguments.
+This includes how the CLI argument parser is created, how arguments
+are serialized, and how arguments are bound (if at all) to operation
+arguments.
 
-from awscli.utils import is_a_tty
-from awscli.compat import six
+The BaseCLIArgument is the interface for all arguments.  This is the interface
+expected by objects that work with arguments.  If you want to implement your
+own argument subclass, make sure it implements everything in BaseCLIArgument.
 
+Arguments generally fall into one of several categories:
 
-def get_text_length(text):
-    # `len(unichar)` measures the number of characters, so we use
-    # `unicodedata.east_asian_width` to measure the length of characters.
-    # Following responses are considered to be full-width length.
-    # * A(Ambiguous)
-    # * F(Fullwidth)
-    # * W(Wide)
-    text = six.text_type(text)
-    return sum(2 if unicodedata.east_asian_width(char) in 'WFA' else 1
-               for char in text)
+* global argument.  These arguments may influence what the CLI does,
+  but aren't part of the input parameters needed to make an API call.  For
+  example, the ``--region`` argument specifies which region to send the request
+  to.  The ``--output`` argument specifies how to display the response to the
+  user.  The ``--query`` argument specifies how to select specific elements
+  from a response.
+* operation argument.  These are arguments that influence the parameters we
+  send to a service when making an API call.  Some of these arguments are
+  automatically created directly from introspecting the JSON service model.
+  Sometimes customizations may provide a pseudo-argument that takes the
+  user input and maps the input value to several API parameters.
 
+"""
+import logging
 
-def determine_terminal_width(default_width=80):
-    # If we can't detect the terminal width, the default_width is returned.
-    try:
-        from termios import TIOCGWINSZ
-        from fcntl import ioctl
-    except ImportError:
-        return default_width
-    try:
-        height, width = struct.unpack('hhhh', ioctl(sys.stdout,
-                                                    TIOCGWINSZ, '\000' * 8))[0:2]
-    except Exception:
-        return default_width
-    else:
-        return width
+from botocore import xform_name
+from botocore.hooks import first_non_none_response
+
+from awscli.argprocess import unpack_cli_arg
+from awscli.schema import SchemaTransformer
+from botocore import model
 
 
-def center_text(text, length=80, left_edge='|', right_edge='|',
-                text_length=None):
-    """Center text with specified edge chars.
+LOG = logging.getLogger('awscli.arguments')
 
-    You can pass in the length of the text as an arg, otherwise it is computed
-    automatically for you.  This can allow you to center a string not based
-    on it's literal length (useful if you're using ANSI codes).
+
+class UnknownArgumentError(Exception):
+    pass
+
+
+def create_argument_model_from_schema(schema):
+    # Given a JSON schems (described in schema.py), convert it
+    # to a shape object from `botocore.model.Shape` that can be
+    # used as the argument_model for the Argument classes below.
+    transformer = SchemaTransformer()
+    shapes_map = transformer.transform(schema)
+    shape_resolver = model.ShapeResolver(shapes_map)
+    # The SchemaTransformer guarantees that the top level shape
+    # will always be named 'InputShape'.
+    arg_shape = shape_resolver.get_shape_by_name('InputShape')
+    return arg_shape
+
+
+class BaseCLIArgument(object):
+    """Interface for CLI argument.
+
+    This class represents the interface used for representing CLI
+    arguments.
+
     """
-    # postcondition: get_text_length(returned_text) == length
-    if text_length is None:
-        text_length = get_text_length(text)
-    output = []
-    char_start = (length // 2) - (text_length // 2) - 1
-    output.append(left_edge + ' ' * char_start + text)
-    length_so_far = get_text_length(left_edge) + char_start + text_length
-    right_side_spaces = length - get_text_length(right_edge) - length_so_far
-    output.append(' ' * right_side_spaces)
-    output.append(right_edge)
-    final = ''.join(output)
-    return final
+
+    def __init__(self, name):
+        self._name = name
+
+    def add_to_arg_table(self, argument_table):
+        """Add this object to the argument_table.
+
+        The ``argument_table`` represents the argument for the operation.
+        This is called by the ``ServiceOperation`` object to create the
+        arguments associated with the operation.
+
+        :type argument_table: dict
+        :param argument_table: The argument table.  The key is the argument
+            name, and the value is an object implementing this interface.
+        """
+        argument_table[self.name] = self
+
+    def add_to_parser(self, parser):
+        """Add this object to the parser instance.
+
+        This method is called by the associated ``ArgumentParser``
+        instance.  This method should make the relevant calls
+        to ``add_argument`` to add itself to the argparser.
+
+        :type parser: ``argparse.ArgumentParser``.
+        :param parser: The argument parser associated with the operation.
+
+        """
+        pass
+
+    def add_to_params(self, parameters, value):
+        """Add this object to the parameters dict.
+
+        This method is responsible for taking the value specified
+        on the command line, and deciding how that corresponds to
+        parameters used by the service/operation.
+
+        :type parameters: dict
+        :param parameters: The parameters dictionary that will be
+            given to ``botocore``.  This should match up to the
+            parameters associated with the particular operation.
+
+        :param value: The value associated with the CLI option.
+
+        """
+        pass
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def cli_name(self):
+        return '--' + self._name
+
+    @property
+    def cli_type_name(self):
+        raise NotImplementedError("cli_type_name")
+
+    @property
+    def required(self):
+        raise NotImplementedError("required")
+
+    @property
+    def documentation(self):
+        raise NotImplementedError("documentation")
+
+    @property
+    def cli_type(self):
+        raise NotImplementedError("cli_type")
+
+    @property
+    def py_name(self):
+        return self._name.replace('-', '_')
+
+    @property
+    def choices(self):
+        """List valid choices for argument value.
+
+        If this value is not None then this should return a list of valid
+        values for the argument.
+
+        """
+        return None
+
+    @property
+    def synopsis(self):
+        return ''
+
+    @property
+    def positional_arg(self):
+        return False
+
+    @property
+    def nargs(self):
+        return None
+
+    @name.setter
+    def name(self, value):
+        self._name = value
+
+    @property
+    def group_name(self):
+        """Get the group name associated with the argument.
+
+        An argument can be part of a group.  This property will
+        return the name of that group.
+
+        This base class has no default behavior for groups, code
+        that consumes argument objects can use them for whatever
+        purposes they like (documentation, mutually exclusive group
+        validation, etc.).
+
+        """
+        return None
 
 
-def align_left(text, length, left_edge='|', right_edge='|', text_length=None,
-               left_padding=2):
-    """Left align text."""
-    # postcondition: get_text_length(returned_text) == length
-    if text_length is None:
-        text_length = get_text_length(text)
-    computed_length = (
-        text_length + left_padding + \
-        get_text_length(left_edge) + get_text_length(right_edge))
-    if length - computed_length >= 0:
-        padding = left_padding
-    else:
-        padding = 0
-    output = []
-    length_so_far = 0
-    output.append(left_edge)
-    length_so_far += len(left_edge)
-    output.append(' ' * padding)
-    length_so_far += padding
-    output.append(text)
-    length_so_far += text_length
-    output.append(' ' * (length - length_so_far - len(right_edge)))
-    output.append(right_edge)
-    return ''.join(output)
+class CustomArgument(BaseCLIArgument):
+    """
+    Represents a CLI argument that is configured from a dictionary.
 
+    For example, the "top level" arguments used for the CLI
+    (--region, --output) can use a CustomArgument argument,
+    as these are described in the cli.json file as dictionaries.
 
-def convert_to_vertical_table(sections):
-    # Any section that only has a single row is
-    # inverted, so:
-    # header1 | header2 | header3
-    # val1    | val2    | val2
-    #
-    # becomes:
-    #
-    # header1 | val1
-    # header2 | val2
-    # header3 | val3
-    for i, section in enumerate(sections):
-        if len(section.rows) == 1 and section.headers:
-            headers = section.headers
-            new_section = Section()
-            new_section.title = section.title
-            new_section.indent_level = section.indent_level
-            for header, element in zip(headers, section.rows[0]):
-                new_section.add_row([header, element])
-            sections[i] = new_section
+    This class is also useful for plugins/customizations that want to
+    add additional args.
 
+    """
 
-class IndentedStream(object):
-    def __init__(self, stream, indent_level, left_indent_char='|',
-                 right_indent_char='|'):
-        self._stream = stream
-        self._indent_level = indent_level
-        self._left_indent_char = left_indent_char
-        self._right_indent_char = right_indent_char
+    def __init__(self, name, help_text='', dest=None, default=None,
+                 action=None, required=None, choices=None, nargs=None,
+                 cli_type_name=None, group_name=None, positional_arg=False,
+                 no_paramfile=False, argument_model=None, synopsis='',
+                 const=None):
+        self._name = name
+        self._help = help_text
+        self._dest = dest
+        self._default = default
+        self._action = action
+        self._required = required
+        self._nargs = nargs
+        self._const = const
+        self._cli_type_name = cli_type_name
+        self._group_name = group_name
+        self._positional_arg = positional_arg
+        if choices is None:
+            choices = []
+        self._choices = choices
+        self._synopsis = synopsis
 
-    def write(self, text):
-        self._stream.write(self._left_indent_char * self._indent_level)
-        if text.endswith('\n'):
-            self._stream.write(text[:-1])
-            self._stream.write(self._right_indent_char * self._indent_level)
-            self._stream.write('\n')
+        # These are public attributes that are ok to access from external
+        # objects.
+        self.no_paramfile = no_paramfile
+        self.argument_model = None
+
+        if argument_model is None:
+            argument_model = self._create_scalar_argument_model()
+        self.argument_model = argument_model
+
+        # If the top level element is a list then set nargs to
+        # accept multiple values seperated by a space.
+        if self.argument_model is not None and \
+                self.argument_model.type_name == 'list':
+            self._nargs = '+'
+
+    def _create_scalar_argument_model(self):
+        if self._nargs is not None:
+            # If nargs is not None then argparse will parse the value
+            # as a list, so we don't create an argument_object so we don't
+            # go through param validation.
+            return None
+        # If no argument model is provided, we create a basic
+        # shape argument.
+        type_name = self.cli_type_name
+        return create_argument_model_from_schema({'type': type_name})
+
+    @property
+    def cli_name(self):
+        if self._positional_arg:
+            return self._name
         else:
-            self._stream.write(text)
+            return '--' + self._name
 
-    def __getattr__(self, attr):
-        return getattr(self._stream, attr)
+    def add_to_parser(self, parser):
+        """
 
+        See the ``BaseCLIArgument.add_to_parser`` docs for more information.
 
-class Styler(object):
-    def style_title(self, text):
-        return text
+        """
+        cli_name = self.cli_name
+        kwargs = {}
+        if self._dest is not None:
+            kwargs['dest'] = self._dest
+        if self._action is not None:
+            kwargs['action'] = self._action
+        if self._default is not None:
+            kwargs['default'] = self._default
+        if self._choices:
+            kwargs['choices'] = self._choices
+        if self._required is not None:
+            kwargs['required'] = self._required
+        if self._nargs is not None:
+            kwargs['nargs'] = self._nargs
+        if self._const is not None:
+            kwargs['const'] = self._const
+        parser.add_argument(cli_name, **kwargs)
 
-    def style_header_column(self, text):
-        return text
+    @property
+    def required(self):
+        if self._required is None:
+            return False
+        return self._required
 
-    def style_row_element(self, text):
-        return text
+    @required.setter
+    def required(self, value):
+        self._required = value
 
-    def style_indentation_char(self, text):
-        return text
+    @property
+    def documentation(self):
+        return self._help
 
-
-class ColorizedStyler(Styler):
-    def __init__(self):
-        # `autoreset` allows us to not have to sent reset sequences for every
-        # string. `strip` lets us preserve color when redirecting.
-        colorama.init(autoreset=True, strip=False)
-
-    def style_title(self, text):
-        # Originally bold + underline
-        return text
-        #return colorama.Style.BOLD + text + colorama.Style.RESET_ALL
-
-    def style_header_column(self, text):
-        # Originally underline
-        return text
-
-    def style_row_element(self, text):
-        return (colorama.Style.BRIGHT + colorama.Fore.BLUE +
-                text + colorama.Style.RESET_ALL)
-
-    def style_indentation_char(self, text):
-        return (colorama.Style.DIM + colorama.Fore.YELLOW +
-                text + colorama.Style.RESET_ALL)
-
-
-class MultiTable(object):
-    def __init__(self, terminal_width=None, initial_section=True,
-                 column_separator='|', terminal=None,
-                 styler=None, auto_reformat=True):
-        self._auto_reformat = auto_reformat
-        if initial_section:
-            self._current_section = Section()
-            self._sections = [self._current_section]
+    @property
+    def cli_type_name(self):
+        if self._cli_type_name is not None:
+            return self._cli_type_name
+        elif self._action in ['store_true', 'store_false']:
+            return 'boolean'
+        elif self.argument_model is not None:
+            return self.argument_model.type_name
         else:
-            self._current_section = None
-            self._sections = []
-        if styler is None:
-            # Move out to factory.
-            if is_a_tty():
-                self._styler = ColorizedStyler()
-            else:
-                self._styler = Styler()
-        else:
-            self._styler = styler
-        self._rendering_index = 0
-        self._column_separator = column_separator
-        if terminal_width is None:
-            self._terminal_width = determine_terminal_width()
+            # Default to 'string' type if we don't have any
+            # other info.
+            return 'string'
 
-    def add_title(self, title):
-        self._current_section.add_title(title)
+    @property
+    def cli_type(self):
+        cli_type = str
+        if self._action in ['store_true', 'store_false']:
+            cli_type = bool
+        return cli_type
 
-    def add_row_header(self, headers):
-        self._current_section.add_header(headers)
+    @property
+    def choices(self):
+        return self._choices
 
-    def add_row(self, row_elements):
-        self._current_section.add_row(row_elements)
+    @property
+    def group_name(self):
+        return self._group_name
 
-    def new_section(self, title, indent_level=0):
-        self._current_section = Section()
-        self._sections.append(self._current_section)
-        self._current_section.add_title(title)
-        self._current_section.indent_level = indent_level
+    @property
+    def synopsis(self):
+        return self._synopsis
 
-    def render(self, stream):
-        max_width = self._calculate_max_width()
-        should_convert_table = self._determine_conversion_needed(max_width)
-        if should_convert_table:
-            convert_to_vertical_table(self._sections)
-            max_width = self._calculate_max_width()
-        stream.write('-' * max_width + '\n')
-        for section in self._sections:
-            self._render_section(section, max_width, stream)
+    @property
+    def positional_arg(self):
+        return self._positional_arg
 
-    def _determine_conversion_needed(self, max_width):
-        # If we don't know the width of the controlling terminal,
-        # then we don't try to resize the table.
-        if max_width > self._terminal_width:
-            return self._auto_reformat
+    @property
+    def nargs(self):
+        return self._nargs
 
-    def _calculate_max_width(self):
-        max_width = max(s.total_width(padding=4, with_border=True,
-                                      outer_padding=s.indent_level)
-                        for s in self._sections)
-        return max_width
 
-    def _render_section(self, section, max_width, stream):
-        stream = IndentedStream(stream, section.indent_level,
-                                self._styler.style_indentation_char('|'),
-                                self._styler.style_indentation_char('|'))
-        max_width -= (section.indent_level * 2)
-        self._render_title(section, max_width, stream)
-        self._render_column_titles(section, max_width, stream)
-        self._render_rows(section, max_width, stream)
+class CLIArgument(BaseCLIArgument):
+    """Represents a CLI argument that maps to a service parameter.
 
-    def _render_title(self, section, max_width, stream):
-        # The title consists of:
-        # title        :  |   This is the title      |
-        # bottom_border:  ----------------------------
-        if section.title:
-            title = self._styler.style_title(section.title)
-            stream.write(center_text(title, max_width, '|', '|',
-                                     get_text_length(section.title)) + '\n')
-            if not section.headers and not section.rows:
-                stream.write('+%s+' % ('-' * (max_width - 2)) + '\n')
+    """
 
-    def _render_column_titles(self, section, max_width, stream):
-        if not section.headers:
+    TYPE_MAP = {
+        'structure': str,
+        'map': str,
+        'timestamp': str,
+        'list': str,
+        'string': str,
+        'float': float,
+        'integer': str,
+        'long': int,
+        'boolean': bool,
+        'double': float,
+        'blob': str
+    }
+
+    def __init__(self, name, argument_model, operation_model,
+                 event_emitter, is_required=False,
+                 serialized_name=None):
+        """
+
+        :type name: str
+        :param name: The name of the argument in "cli" form
+            (e.g.  ``min-instances``).
+
+        :type argument_model: ``botocore.model.Shape``
+        :param argument_model: The shape object that models the argument.
+
+        :type argument_model: ``botocore.model.OperationModel``
+        :param argument_model: The object that models the associated operation.
+
+        :type event_emitter: ``botocore.hooks.BaseEventHooks``
+        :param event_emitter: The event emitter to use when emitting events.
+            This class will emit events during parts of the argument
+            parsing process.  This event emitter is what is used to emit
+            such events.
+
+        :type is_required: boolean
+        :param is_required: Indicates if this parameter is required or not.
+
+        """
+        self._name = name
+        # This is the name we need to use when constructing the parameters
+        # dict we send to botocore.  While we can change the .name attribute
+        # which is the name exposed in the CLI, the serialized name we use
+        # for botocore is invariant and should not be changed.
+        if serialized_name is None:
+            serialized_name = name
+        self._serialized_name = serialized_name
+        self.argument_model = argument_model
+        self._required = is_required
+        self._operation_model = operation_model
+        self._event_emitter = event_emitter
+        self._documentation = argument_model.documentation
+
+    @property
+    def py_name(self):
+        return self._name.replace('-', '_')
+
+    @property
+    def required(self):
+        return self._required
+
+    @required.setter
+    def required(self, value):
+        self._required = value
+
+    @property
+    def documentation(self):
+        return self._documentation
+
+    @documentation.setter
+    def documentation(self, value):
+        self._documentation = value
+
+    @property
+    def cli_type_name(self):
+        return self.argument_model.type_name
+
+    @property
+    def cli_type(self):
+        return self.TYPE_MAP.get(self.argument_model.type_name, str)
+
+    def add_to_parser(self, parser):
+        """
+
+        See the ``BaseCLIArgument.add_to_parser`` docs for more information.
+
+        """
+        cli_name = self.cli_name
+        parser.add_argument(
+            cli_name,
+            help=self.documentation,
+            type=self.cli_type,
+            required=self.required)
+
+    def add_to_params(self, parameters, value):
+        if value is None:
             return
-        # In order to render the column titles we need to know
-        # the width of each of the columns.
-        widths = section.calculate_column_widths(padding=4,
-                                                 max_width=max_width)
-        # TODO: Built a list instead of +=, it's more efficient.
-        current = ''
-        length_so_far = 0
-        # The first cell needs both left and right edges '|  foo  |'
-        # while subsequent cells only need right edges '  foo  |'.
-        first = True
-        for width, header in zip(widths, section.headers):
-            stylized_header = self._styler.style_header_column(header)
-            if first:
-                left_edge = '|'
-                first = False
-            else:
-                left_edge = ''
-            current += center_text(text=stylized_header, length=width,
-                                   left_edge=left_edge, right_edge='|',
-                                   text_length=get_text_length(header))
-            length_so_far += width
-        self._write_line_break(stream, widths)
-        stream.write(current + '\n')
-
-    def _write_line_break(self, stream, widths):
-        # Write out something like:
-        # +-------+---------+---------+
-        parts = []
-        first = True
-        for width in widths:
-            if first:
-                parts.append('+%s+' % ('-' * (width - 2)))
-                first = False
-            else:
-                parts.append('%s+' % ('-' * (width - 1)))
-        parts.append('\n')
-        stream.write(''.join(parts))
-
-    def _render_rows(self, section, max_width, stream):
-        if not section.rows:
-            return
-        widths = section.calculate_column_widths(padding=4,
-                                                 max_width=max_width)
-        if not widths:
-            return
-        self._write_line_break(stream, widths)
-        for row in section.rows:
-            # TODO: Built the string in a list then join instead of using +=,
-            # it's more efficient.
-            current = ''
-            length_so_far = 0
-            first = True
-            for width, element in zip(widths, row):
-                if first:
-                    left_edge = '|'
-                    first = False
-                else:
-                    left_edge = ''
-                stylized = self._styler.style_row_element(element)
-                current += align_left(text=stylized, length=width,
-                                      left_edge=left_edge,
-                                      right_edge=self._column_separator,
-                                      text_length=get_text_length(element))
-                length_so_far += width
-            stream.write(current + '\n')
-        self._write_line_break(stream, widths)
-
-
-class Section(object):
-    def __init__(self):
-        self.title = ''
-        self.headers = []
-        self.rows = []
-        self.indent_level = 0
-        self._num_cols = None
-        self._max_widths = []
-
-    def __repr__(self):
-        return ("Section(title=%s, headers=%s, indent_level=%s, num_rows=%s)" %
-                (self.title, self.headers, self.indent_level, len(self.rows)))
-
-    def calculate_column_widths(self, padding=0, max_width=None):
-        # postcondition: sum(widths) == max_width
-        unscaled_widths = [w + padding for w in self._max_widths]
-        if max_width is None:
-            return unscaled_widths
-        if not unscaled_widths:
-            return unscaled_widths
         else:
-            # Compute scale factor for max_width.
-            scale_factor = max_width / float(sum(unscaled_widths))
-            scaled = [int(round(scale_factor * w)) for w in unscaled_widths]
-            # Once we've scaled the columns, we may be slightly over/under
-            # the amount we need so we have to adjust the columns.
-            off_by = sum(scaled) - max_width
-            while off_by != 0:
-                iter_order = range(len(scaled))
-                if off_by < 0:
-                    iter_order = reversed(iter_order)
-                for i in iter_order:
-                    if off_by > 0:
-                        scaled[i] -= 1
-                        off_by -= 1
-                    else:
-                        scaled[i] += 1
-                        off_by += 1
-                    if off_by == 0:
-                        break
-            return scaled
+            # This is a two step process.  First is the process of converting
+            # the command line value into a python value.  Normally this is
+            # handled by argparse directly, but there are cases where extra
+            # processing is needed.  For example, "--foo name=value" the value
+            # can be converted from "name=value" to {"name": "value"}.  This is
+            # referred to as the "unpacking" process.  Once we've unpacked the
+            # argument value, we have to decide how this is converted into
+            # something that can be consumed by botocore.  Many times this is
+            # just associating the key and value in the params dict as down
+            # below.  Sometimes this can be more complicated, and subclasses
+            # can customize as they need.
+            unpacked = self._unpack_argument(value)
+            LOG.debug('Unpacked value of %r for parameter "%s": %r', value,
+                      self.py_name, unpacked)
+            parameters[self._serialized_name] = unpacked
 
-    def total_width(self, padding=0, with_border=False, outer_padding=0):
-        total = 0
-        # One char on each side == 2 chars total to the width.
-        border_padding = 2
-        for w in self.calculate_column_widths():
-            total += w + padding
-        if with_border:
-            total += border_padding
-        total += outer_padding + outer_padding
-        return max(get_text_length(self.title) + border_padding + outer_padding +
-                   outer_padding, total)
-
-    def add_title(self, title):
-        self.title = title
-
-    def add_header(self, headers):
-        self._update_max_widths(headers)
-        if self._num_cols is None:
-            self._num_cols = len(headers)
-        self.headers = self._format_headers(headers)
-
-    def _format_headers(self, headers):
-        return headers
-
-    def add_row(self, row):
-        if self._num_cols is None:
-            self._num_cols = len(row)
-        if len(row) != self._num_cols:
-            raise ValueError("Row should have %s elements, instead "
-                             "it has %s" % (self._num_cols, len(row)))
-        row = self._format_row(row)
-        self.rows.append(row)
-        self._update_max_widths(row)
-
-    def _format_row(self, row):
-        return [six.text_type(r) for r in row]
-
-    def _update_max_widths(self, row):
-        if not self._max_widths:
-            self._max_widths = [get_text_length(el) for el in row]
+    def _unpack_argument(self, value):
+        service_name = self._operation_model.service_model.service_name
+        operation_name = xform_name(self._operation_model.name, '-')
+        override = self._emit_first_response('process-cli-arg.%s.%s' % (
+            service_name, operation_name), param=self.argument_model,
+            cli_argument=self, value=value)
+        if override is not None:
+            # A plugin supplied an alternate conversion,
+            # use it instead.
+            return override
         else:
-            for i, el in enumerate(row):
-                self._max_widths[i] = max(get_text_length(el), self._max_widths[i])
+            # Fall back to the default arg processing.
+            return unpack_cli_arg(self, value)
+
+    def _emit(self, name, **kwargs):
+        return self._event_emitter.emit(name, **kwargs)
+
+    def _emit_first_response(self, name, **kwargs):
+        responses = self._emit(name, **kwargs)
+        return first_non_none_response(responses)
+
+
+class ListArgument(CLIArgument):
+
+    def add_to_parser(self, parser):
+        cli_name = self.cli_name
+        parser.add_argument(cli_name,
+                            nargs='*',
+                            type=self.cli_type,
+                            required=self.required)
+
+
+class BooleanArgument(CLIArgument):
+    """Represent a boolean CLI argument.
+
+    A boolean parameter is specified without a value::
+
+        aws foo bar --enabled
+
+    For cases wher the boolean parameter is required we need to add
+    two parameters::
+
+        aws foo bar --enabled
+        aws foo bar --no-enabled
+
+    We use the capabilities of the CLIArgument to help achieve this.
+
+    """
+
+    def __init__(self, name, argument_model, operation_model,
+                 event_emitter,
+                 is_required=False, action='store_true', dest=None,
+                 group_name=None, default=None,
+                 serialized_name=None):
+        super(BooleanArgument, self).__init__(name,
+                                              argument_model,
+                                              operation_model,
+                                              event_emitter,
+                                              is_required,
+                                              serialized_name=serialized_name)
+        self._mutex_group = None
+        self._action = action
+        if dest is None:
+            self._destination = self.py_name
+        else:
+            self._destination = dest
+        if group_name is None:
+            self._group_name = self.name
+        else:
+            self._group_name = group_name
+        self._default = default
+
+    def add_to_params(self, parameters, value):
+        # If a value was explicitly specified (so value is True/False
+        # but *not* None) then we add it to the params dict.
+        # If the value was not explicitly set (value is None)
+        # we don't add it to the params dict.
+        if value is not None:
+            parameters[self._serialized_name] = value
+
+    def add_to_arg_table(self, argument_table):
+        # Boolean parameters are a bit tricky.  For a single boolean parameter
+        # we actually want two CLI params, a --foo, and a --no-foo.  To do this
+        # we need to add two entries to the argument table.  So we can add
+        # ourself as the positive option (--no), and then create a clone of
+        # ourselves for the negative service.  We then insert both into the
+        # arg table.
+        argument_table[self.name] = self
+        negative_name = 'no-%s' % self.name
+        negative_version = self.__class__(
+            negative_name, self.argument_model,
+            self._operation_model, self._event_emitter,
+            action='store_false', dest=self._destination,
+            group_name=self.group_name, serialized_name=self._serialized_name)
+        argument_table[negative_name] = negative_version
+
+    def add_to_parser(self, parser):
+        parser.add_argument(self.cli_name,
+                            help=self.documentation,
+                            action=self._action,
+                            default=self._default,
+                            dest=self._destination)
+
+    @property
+    def group_name(self):
+        return self._group_name

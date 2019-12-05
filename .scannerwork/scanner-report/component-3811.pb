@@ -1,2 +1,1 @@
-ã3venv/lib/python3.6/site-packages/django/__main__.py 2pyX
-h
+ã3venv/lib/python3.6/site-packages/django/__init__.py 2pyXh

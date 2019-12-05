@@ -1,1 +1,1 @@
-Но9venv/lib/python3.6/site-packages/twisted/conch/ui/ansi.py 2pyXёh
+Но.venv/lib/python3.6/site-packages/twisted/conch :3МоЮоЯоаобовогодоеожо╖о╕о╣о║оТпФпнп

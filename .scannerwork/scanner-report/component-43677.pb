@@ -1,1 +1,0 @@
-Õ>venv/lib64/python3.6/site-packages/elasticsearch/client/cat.py 2pyXÓh

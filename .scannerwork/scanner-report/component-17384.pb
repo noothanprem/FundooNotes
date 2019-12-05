@@ -1,1 +1,2 @@
-è‡Cvenv/lib/python3.6/site-packages/kombu/asynchronous/aws/__init__.py 2pyXh
+è‡Bvenv/lib/python3.6/site-packages/kombu/asynchronous/aws/sqs/ext.py 2pyX
+h

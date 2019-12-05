@@ -1,92 +1,193 @@
-from django.apps.registry import Apps
-from django.db import models
-from django.db.utils import DatabaseError
-from django.utils.decorators import classproperty
-from django.utils.timezone import now
+from django.db.transaction import atomic
 
-from .exceptions import MigrationSchemaMissing
+from .exceptions import IrreversibleError
 
 
-class MigrationRecorder:
+class Migration:
     """
-    Deal with storing migration records in the database.
+    The base class for all migrations.
 
-    Because this table is actually itself used for dealing with model
-    creation, it's the one thing we can't do normally via migrations.
-    We manually handle table creation/schema updating (using schema backend)
-    and then have a floating model to do queries with.
+    Migration files will import this from django.db.migrations.Migration
+    and subclass it as a class called Migration. It will have one or more
+    of the following attributes:
 
-    If a migration is unapplied its row is removed from the table. Having
-    a row in the table always means a migration is applied.
+     - operations: A list of Operation instances, probably from django.db.migrations.operations
+     - dependencies: A list of tuples of (app_path, migration_name)
+     - run_before: A list of tuples of (app_path, migration_name)
+     - replaces: A list of migration_names
+
+    Note that all migrations come out of migrations and into the Loader or
+    Graph as instances, having been initialized with their app label and name.
     """
-    _migration_class = None
 
-    @classproperty
-    def Migration(cls):
+    # Operations to apply during this migration, in order.
+    operations = []
+
+    # Other migrations that should be run before this migration.
+    # Should be a list of (app, migration_name).
+    dependencies = []
+
+    # Other migrations that should be run after this one (i.e. have
+    # this migration added to their dependencies). Useful to make third-party
+    # apps' migrations run after your AUTH_USER replacement, for example.
+    run_before = []
+
+    # Migration names in this app that this migration replaces. If this is
+    # non-empty, this migration will only be applied if all these migrations
+    # are not applied.
+    replaces = []
+
+    # Is this an initial migration? Initial migrations are skipped on
+    # --fake-initial if the table or fields already exist. If None, check if
+    # the migration has any dependencies to determine if there are dependencies
+    # to tell if db introspection needs to be done. If True, always perform
+    # introspection. If False, never perform introspection.
+    initial = None
+
+    # Whether to wrap the whole migration in a transaction. Only has an effect
+    # on database backends which support transactional DDL.
+    atomic = True
+
+    def __init__(self, name, app_label):
+        self.name = name
+        self.app_label = app_label
+        # Copy dependencies & other attrs as we might mutate them at runtime
+        self.operations = list(self.__class__.operations)
+        self.dependencies = list(self.__class__.dependencies)
+        self.run_before = list(self.__class__.run_before)
+        self.replaces = list(self.__class__.replaces)
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, Migration) and
+            self.name == other.name and
+            self.app_label == other.app_label
+        )
+
+    def __repr__(self):
+        return "<Migration %s.%s>" % (self.app_label, self.name)
+
+    def __str__(self):
+        return "%s.%s" % (self.app_label, self.name)
+
+    def __hash__(self):
+        return hash("%s.%s" % (self.app_label, self.name))
+
+    def mutate_state(self, project_state, preserve=True):
         """
-        Lazy load to avoid AppRegistryNotReady if installed apps import
-        MigrationRecorder.
+        Take a ProjectState and return a new one with the migration's
+        operations applied to it. Preserve the original object state by
+        default and return a mutated state from a copy.
         """
-        if cls._migration_class is None:
-            class Migration(models.Model):
-                app = models.CharField(max_length=255)
-                name = models.CharField(max_length=255)
-                applied = models.DateTimeField(default=now)
+        new_state = project_state
+        if preserve:
+            new_state = project_state.clone()
 
-                class Meta:
-                    apps = Apps()
-                    app_label = 'migrations'
-                    db_table = 'django_migrations'
+        for operation in self.operations:
+            operation.state_forwards(self.app_label, new_state)
+        return new_state
 
-                def __str__(self):
-                    return 'Migration %s for %s' % (self.name, self.app)
+    def apply(self, project_state, schema_editor, collect_sql=False):
+        """
+        Take a project_state representing all migrations prior to this one
+        and a schema_editor for a live database and apply the migration
+        in a forwards order.
 
-            cls._migration_class = Migration
-        return cls._migration_class
+        Return the resulting project state for efficient reuse by following
+        Migrations.
+        """
+        for operation in self.operations:
+            # If this operation cannot be represented as SQL, place a comment
+            # there instead
+            if collect_sql:
+                schema_editor.collected_sql.append("--")
+                if not operation.reduces_to_sql:
+                    schema_editor.collected_sql.append(
+                        "-- MIGRATION NOW PERFORMS OPERATION THAT CANNOT BE WRITTEN AS SQL:"
+                    )
+                schema_editor.collected_sql.append("-- %s" % operation.describe())
+                schema_editor.collected_sql.append("--")
+                if not operation.reduces_to_sql:
+                    continue
+            # Save the state before the operation has run
+            old_state = project_state.clone()
+            operation.state_forwards(self.app_label, project_state)
+            # Run the operation
+            atomic_operation = operation.atomic or (self.atomic and operation.atomic is not False)
+            if not schema_editor.atomic_migration and atomic_operation:
+                # Force a transaction on a non-transactional-DDL backend or an
+                # atomic operation inside a non-atomic migration.
+                with atomic(schema_editor.connection.alias):
+                    operation.database_forwards(self.app_label, schema_editor, old_state, project_state)
+            else:
+                # Normal behaviour
+                operation.database_forwards(self.app_label, schema_editor, old_state, project_state)
+        return project_state
 
-    def __init__(self, connection):
-        self.connection = connection
+    def unapply(self, project_state, schema_editor, collect_sql=False):
+        """
+        Take a project_state representing all migrations prior to this one
+        and a schema_editor for a live database and apply the migration
+        in a reverse order.
 
-    @property
-    def migration_qs(self):
-        return self.Migration.objects.using(self.connection.alias)
+        The backwards migration process consists of two phases:
 
-    def has_table(self):
-        """Return True if the django_migrations table exists."""
-        return self.Migration._meta.db_table in self.connection.introspection.table_names(self.connection.cursor())
+        1. The intermediate states from right before the first until right
+           after the last operation inside this migration are preserved.
+        2. The operations are applied in reverse order using the states
+           recorded in step 1.
+        """
+        # Construct all the intermediate states we need for a reverse migration
+        to_run = []
+        new_state = project_state
+        # Phase 1
+        for operation in self.operations:
+            # If it's irreversible, error out
+            if not operation.reversible:
+                raise IrreversibleError("Operation %s in %s is not reversible" % (operation, self))
+            # Preserve new state from previous run to not tamper the same state
+            # over all operations
+            new_state = new_state.clone()
+            old_state = new_state.clone()
+            operation.state_forwards(self.app_label, new_state)
+            to_run.insert(0, (operation, old_state, new_state))
 
-    def ensure_schema(self):
-        """Ensure the table exists and has the correct schema."""
-        # If the table's there, that's fine - we've never changed its schema
-        # in the codebase.
-        if self.has_table():
-            return
-        # Make the table
-        try:
-            with self.connection.schema_editor() as editor:
-                editor.create_model(self.Migration)
-        except DatabaseError as exc:
-            raise MigrationSchemaMissing("Unable to create the django_migrations table (%s)" % exc)
+        # Phase 2
+        for operation, to_state, from_state in to_run:
+            if collect_sql:
+                schema_editor.collected_sql.append("--")
+                if not operation.reduces_to_sql:
+                    schema_editor.collected_sql.append(
+                        "-- MIGRATION NOW PERFORMS OPERATION THAT CANNOT BE WRITTEN AS SQL:"
+                    )
+                schema_editor.collected_sql.append("-- %s" % operation.describe())
+                schema_editor.collected_sql.append("--")
+                if not operation.reduces_to_sql:
+                    continue
+            atomic_operation = operation.atomic or (self.atomic and operation.atomic is not False)
+            if not schema_editor.atomic_migration and atomic_operation:
+                # Force a transaction on a non-transactional-DDL backend or an
+                # atomic operation inside a non-atomic migration.
+                with atomic(schema_editor.connection.alias):
+                    operation.database_backwards(self.app_label, schema_editor, from_state, to_state)
+            else:
+                # Normal behaviour
+                operation.database_backwards(self.app_label, schema_editor, from_state, to_state)
+        return project_state
 
-    def applied_migrations(self):
-        """Return a set of (app, name) of applied migrations."""
-        if self.has_table():
-            return {tuple(x) for x in self.migration_qs.values_list('app', 'name')}
-        else:
-            # If the django_migrations table doesn't exist, then no migrations
-            # are applied.
-            return set()
 
-    def record_applied(self, app, name):
-        """Record that a migration was applied."""
-        self.ensure_schema()
-        self.migration_qs.create(app=app, name=name)
+class SwappableTuple(tuple):
+    """
+    Subclass of tuple so Django can tell this was originally a swappable
+    dependency when it reads the migration file.
+    """
 
-    def record_unapplied(self, app, name):
-        """Record that a migration was unapplied."""
-        self.ensure_schema()
-        self.migration_qs.filter(app=app, name=name).delete()
+    def __new__(cls, value, setting):
+        self = tuple.__new__(cls, value)
+        self.setting = setting
+        return self
 
-    def flush(self):
-        """Delete all migration records. Useful for testing migrations."""
-        self.migration_qs.all().delete()
+
+def swappable_dependency(value):
+    """Turn a setting value into a dependency."""
+    return SwappableTuple((value.split(".", 1)[0], "__first__"), value)

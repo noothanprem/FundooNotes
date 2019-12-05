@@ -1,1 +1,1 @@
-ߨ:venv/lib/python3.6/site-packages/twisted/trial/__init__.py 2pyX3h
+ߨAvenv/lib/python3.6/site-packages/twisted/trial/_dist/disttrial.py 2pyX�h

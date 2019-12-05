@@ -1,1 +1,1 @@
-ç¬3venv/lib64/python3.6/site-packages/docutils/parsers :æ¬è¬
+ç¬3venv/lib64/python3.6/site-packages/docutils/parsers :æ¬ñ¬

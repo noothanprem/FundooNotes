@@ -1,1 +1,1 @@
-ûº?venv/lib/python3.6/site-packages/social_core/backends/amazon.py 2pyX.h
+ûºCvenv/lib/python3.6/site-packages/social_core/backends/salesforce.py 2pyX2h

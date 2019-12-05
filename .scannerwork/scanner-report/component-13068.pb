@@ -1,1 +1,1 @@
-Œf=venv/lib/python3.6/site-packages/chardet/universaldetector.py 2pyXŸh
+Œf8venv/lib/python3.6/site-packages/chardet/hebrewprober.py 2pyX¥h

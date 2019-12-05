@@ -1,314 +1,288 @@
 # coding: utf-8
 
 """
-Classes and objects to represent prime-field elliptic curves and points on them.
-Exports the following items:
+Functions to convert unicode IRIs into ASCII byte string URIs and back. Exports
+the following items:
 
- - PrimeCurve()
- - PrimePoint()
- - SECP192R1_CURVE
- - SECP192R1_BASE_POINT
- - SECP224R1_CURVE
- - SECP224R1_BASE_POINT
- - SECP256R1_CURVE
- - SECP256R1_BASE_POINT
- - SECP384R1_CURVE
- - SECP384R1_BASE_POINT
- - SECP521R1_CURVE
- - SECP521R1_BASE_POINT
-
-The curve constants are all PrimeCurve() objects and the base point constants
-are all PrimePoint() objects.
-
-Some of the following source code is derived from
-http://webpages.charter.net/curryfans/peter/downloads.html, but has been heavily
-modified to fit into this projects lint settings. The original project license
-is listed below:
-
-Copyright (c) 2014 Peter Pearson
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+ - iri_to_uri()
+ - uri_to_iri()
 """
 
 from __future__ import unicode_literals, division, absolute_import, print_function
 
-from ._int import inverse_mod
+from encodings import idna  # noqa
+import codecs
+import re
+import sys
+
+from ._errors import unwrap
+from ._types import byte_cls, str_cls, type_name, bytes_to_list, int_types
+
+if sys.version_info < (3,):
+    from urlparse import urlsplit, urlunsplit
+    from urllib import (
+        quote as urlquote,
+        unquote as unquote_to_bytes,
+    )
+
+else:
+    from urllib.parse import (
+        quote as urlquote,
+        unquote_to_bytes,
+        urlsplit,
+        urlunsplit,
+    )
 
 
-class PrimeCurve():
+def iri_to_uri(value):
     """
-    Elliptic curve over a prime field. Characteristic two field curves are not
-    supported.
-    """
+    Normalizes and encodes a unicode IRI into an ASCII byte string URI
 
-    def __init__(self, p, a, b):
-        """
-        The curve of points satisfying y^2 = x^3 + a*x + b (mod p)
+    :param value:
+        A unicode string of an IRI
 
-        :param p:
-            The prime number as an integer
-
-        :param a:
-            The component a as an integer
-
-        :param b:
-            The component b as an integer
-        """
-
-        self.p = p
-        self.a = a
-        self.b = b
-
-    def contains(self, point):
-        """
-        :param point:
-            A Point object
-
-        :return:
-            Boolean if the point is on this curve
-        """
-
-        y2 = point.y * point.y
-        x3 = point.x * point.x * point.x
-        return (y2 - (x3 + self.a * point.x + self.b)) % self.p == 0
-
-
-class PrimePoint():
-    """
-    A point on a prime-field elliptic curve
+    :return:
+        A byte string of the ASCII-encoded URI
     """
 
-    def __init__(self, curve, x, y, order=None):
-        """
-        :param curve:
-            A PrimeCurve object
+    if not isinstance(value, str_cls):
+        raise TypeError(unwrap(
+            '''
+            value must be a unicode string, not %s
+            ''',
+            type_name(value)
+        ))
 
-        :param x:
-            The x coordinate of the point as an integer
+    scheme = None
+    # Python 2.6 doesn't split properly is the URL doesn't start with http:// or https://
+    if sys.version_info < (2, 7) and not value.startswith('http://') and not value.startswith('https://'):
+        real_prefix = None
+        prefix_match = re.match('^[^:]*://', value)
+        if prefix_match:
+            real_prefix = prefix_match.group(0)
+            value = 'http://' + value[len(real_prefix):]
+        parsed = urlsplit(value)
+        if real_prefix:
+            value = real_prefix + value[7:]
+            scheme = _urlquote(real_prefix[:-3])
+    else:
+        parsed = urlsplit(value)
 
-        :param y:
-            The y coordinate of the point as an integer
+    if scheme is None:
+        scheme = _urlquote(parsed.scheme)
+    hostname = parsed.hostname
+    if hostname is not None:
+        hostname = hostname.encode('idna')
+    # RFC 3986 allows userinfo to contain sub-delims
+    username = _urlquote(parsed.username, safe='!$&\'()*+,;=')
+    password = _urlquote(parsed.password, safe='!$&\'()*+,;=')
+    port = parsed.port
+    if port is not None:
+        port = str_cls(port).encode('ascii')
 
-        :param order:
-            The order of the point, as an integer - optional
-        """
+    netloc = b''
+    if username is not None:
+        netloc += username
+        if password:
+            netloc += b':' + password
+        netloc += b'@'
+    if hostname is not None:
+        netloc += hostname
+    if port is not None:
+        default_http = scheme == b'http' and port == b'80'
+        default_https = scheme == b'https' and port == b'443'
+        if not default_http and not default_https:
+            netloc += b':' + port
 
-        self.curve = curve
-        self.x = x
-        self.y = y
-        self.order = order
+    # RFC 3986 allows a path to contain sub-delims, plus "@" and ":"
+    path = _urlquote(parsed.path, safe='/!$&\'()*+,;=@:')
+    # RFC 3986 allows the query to contain sub-delims, plus "@", ":" , "/" and "?"
+    query = _urlquote(parsed.query, safe='/?!$&\'()*+,;=@:')
+    # RFC 3986 allows the fragment to contain sub-delims, plus "@", ":" , "/" and "?"
+    fragment = _urlquote(parsed.fragment, safe='/?!$&\'()*+,;=@:')
 
-        # self.curve is allowed to be None only for INFINITY:
-        if self.curve:
-            if not self.curve.contains(self):
-                raise ValueError('Invalid EC point')
+    if query is None and fragment is None and path == b'/':
+        path = None
 
-        if self.order:
-            if self * self.order != INFINITY:
-                raise ValueError('Invalid EC point')
+    # Python 2.7 compat
+    if path is None:
+        path = ''
 
-    def __cmp__(self, other):
-        """
-        :param other:
-            A PrimePoint object
-
-        :return:
-            0 if identical, 1 otherwise
-        """
-        if self.curve == other.curve and self.x == other.x and self.y == other.y:
-            return 0
-        else:
-            return 1
-
-    def __add__(self, other):
-        """
-        :param other:
-            A PrimePoint object
-
-        :return:
-            A PrimePoint object
-        """
-
-        # X9.62 B.3:
-
-        if other == INFINITY:
-            return self
-        if self == INFINITY:
-            return other
-        assert self.curve == other.curve
-        if self.x == other.x:
-            if (self.y + other.y) % self.curve.p == 0:
-                return INFINITY
-            else:
-                return self.double()
-
-        p = self.curve.p
-
-        l_ = ((other.y - self.y) * inverse_mod(other.x - self.x, p)) % p
-
-        x3 = (l_ * l_ - self.x - other.x) % p
-        y3 = (l_ * (self.x - x3) - self.y) % p
-
-        return PrimePoint(self.curve, x3, y3)
-
-    def __mul__(self, other):
-        """
-        :param other:
-            An integer to multiple the Point by
-
-        :return:
-            A PrimePoint object
-        """
-
-        def leftmost_bit(x):
-            assert x > 0
-            result = 1
-            while result <= x:
-                result = 2 * result
-            return result // 2
-
-        e = other
-        if self.order:
-            e = e % self.order
-        if e == 0:
-            return INFINITY
-        if self == INFINITY:
-            return INFINITY
-        assert e > 0
-
-        # From X9.62 D.3.2:
-
-        e3 = 3 * e
-        negative_self = PrimePoint(self.curve, self.x, -self.y, self.order)
-        i = leftmost_bit(e3) // 2
-        result = self
-        # print "Multiplying %s by %d (e3 = %d):" % ( self, other, e3 )
-        while i > 1:
-            result = result.double()
-            if (e3 & i) != 0 and (e & i) == 0:
-                result = result + self
-            if (e3 & i) == 0 and (e & i) != 0:
-                result = result + negative_self
-            # print ". . . i = %d, result = %s" % ( i, result )
-            i = i // 2
-
-        return result
-
-    def __rmul__(self, other):
-        """
-        :param other:
-            An integer to multiple the Point by
-
-        :return:
-            A PrimePoint object
-        """
-
-        return self * other
-
-    def double(self):
-        """
-        :return:
-            A PrimePoint object that is twice this point
-        """
-
-        # X9.62 B.3:
-
-        p = self.curve.p
-        a = self.curve.a
-
-        l_ = ((3 * self.x * self.x + a) * inverse_mod(2 * self.y, p)) % p
-
-        x3 = (l_ * l_ - 2 * self.x) % p
-        y3 = (l_ * (self.x - x3) - self.y) % p
-
-        return PrimePoint(self.curve, x3, y3)
+    output = urlunsplit((scheme, netloc, path, query, fragment))
+    if isinstance(output, str_cls):
+        output = output.encode('latin1')
+    return output
 
 
-# This one point is the Point At Infinity for all purposes:
-INFINITY = PrimePoint(None, None, None)
+def uri_to_iri(value):
+    """
+    Converts an ASCII URI byte string into a unicode IRI
+
+    :param value:
+        An ASCII-encoded byte string of the URI
+
+    :return:
+        A unicode string of the IRI
+    """
+
+    if not isinstance(value, byte_cls):
+        raise TypeError(unwrap(
+            '''
+            value must be a byte string, not %s
+            ''',
+            type_name(value)
+        ))
+
+    parsed = urlsplit(value)
+
+    scheme = parsed.scheme
+    if scheme is not None:
+        scheme = scheme.decode('ascii')
+
+    username = _urlunquote(parsed.username, remap=[':', '@'])
+    password = _urlunquote(parsed.password, remap=[':', '@'])
+    hostname = parsed.hostname
+    if hostname:
+        hostname = hostname.decode('idna')
+    port = parsed.port
+    if port and not isinstance(port, int_types):
+        port = port.decode('ascii')
+
+    netloc = ''
+    if username is not None:
+        netloc += username
+        if password:
+            netloc += ':' + password
+        netloc += '@'
+    if hostname is not None:
+        netloc += hostname
+    if port is not None:
+        netloc += ':' + str_cls(port)
+
+    path = _urlunquote(parsed.path, remap=['/'], preserve=True)
+    query = _urlunquote(parsed.query, remap=['&', '='], preserve=True)
+    fragment = _urlunquote(parsed.fragment)
+
+    return urlunsplit((scheme, netloc, path, query, fragment))
 
 
-# NIST Curve P-192:
-SECP192R1_CURVE = PrimeCurve(
-    6277101735386680763835789423207666416083908700390324961279,
-    -3,
-    0x64210519e59c80e70fa7e9ab72243049feb8deecc146b9b1
-)
-SECP192R1_BASE_POINT = PrimePoint(
-    SECP192R1_CURVE,
-    0x188da80eb03090f67cbf20eb43a18800f4ff0afd82ff1012,
-    0x07192b95ffc8da78631011ed6b24cdd573f977a11e794811,
-    6277101735386680763835789423176059013767194773182842284081
-)
+def _iri_utf8_errors_handler(exc):
+    """
+    Error handler for decoding UTF-8 parts of a URI into an IRI. Leaves byte
+    sequences encoded in %XX format, but as part of a unicode string.
+
+    :param exc:
+        The UnicodeDecodeError exception
+
+    :return:
+        A 2-element tuple of (replacement unicode string, integer index to
+        resume at)
+    """
+
+    bytes_as_ints = bytes_to_list(exc.object[exc.start:exc.end])
+    replacements = ['%%%02x' % num for num in bytes_as_ints]
+    return (''.join(replacements), exc.end)
 
 
-# NIST Curve P-224:
-SECP224R1_CURVE = PrimeCurve(
-    26959946667150639794667015087019630673557916260026308143510066298881,
-    -3,
-    0xb4050a850c04b3abf54132565044b0b7d7bfd8ba270b39432355ffb4
-)
-SECP224R1_BASE_POINT = PrimePoint(
-    SECP224R1_CURVE,
-    0xb70e0cbd6bb4bf7f321390b94a03c1d356c21122343280d6115c1d21,
-    0xbd376388b5f723fb4c22dfe6cd4375a05a07476444d5819985007e34,
-    26959946667150639794667015087019625940457807714424391721682722368061
-)
+codecs.register_error('iriutf8', _iri_utf8_errors_handler)
 
 
-# NIST Curve P-256:
-SECP256R1_CURVE = PrimeCurve(
-    115792089210356248762697446949407573530086143415290314195533631308867097853951,
-    -3,
-    0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b
-)
-SECP256R1_BASE_POINT = PrimePoint(
-    SECP256R1_CURVE,
-    0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296,
-    0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5,
-    115792089210356248762697446949407573529996955224135760342422259061068512044369
-)
+def _urlquote(string, safe=''):
+    """
+    Quotes a unicode string for use in a URL
+
+    :param string:
+        A unicode string
+
+    :param safe:
+        A unicode string of character to not encode
+
+    :return:
+        None (if string is None) or an ASCII byte string of the quoted string
+    """
+
+    if string is None or string == '':
+        return None
+
+    # Anything already hex quoted is pulled out of the URL and unquoted if
+    # possible
+    escapes = []
+    if re.search('%[0-9a-fA-F]{2}', string):
+        # Try to unquote any percent values, restoring them if they are not
+        # valid UTF-8. Also, requote any safe chars since encoded versions of
+        # those are functionally different than the unquoted ones.
+        def _try_unescape(match):
+            byte_string = unquote_to_bytes(match.group(0))
+            unicode_string = byte_string.decode('utf-8', 'iriutf8')
+            for safe_char in list(safe):
+                unicode_string = unicode_string.replace(safe_char, '%%%02x' % ord(safe_char))
+            return unicode_string
+        string = re.sub('(?:%[0-9a-fA-F]{2})+', _try_unescape, string)
+
+        # Once we have the minimal set of hex quoted values, removed them from
+        # the string so that they are not double quoted
+        def _extract_escape(match):
+            escapes.append(match.group(0).encode('ascii'))
+            return '\x00'
+        string = re.sub('%[0-9a-fA-F]{2}', _extract_escape, string)
+
+    output = urlquote(string.encode('utf-8'), safe=safe.encode('utf-8'))
+    if not isinstance(output, byte_cls):
+        output = output.encode('ascii')
+
+    # Restore the existing quoted values that we extracted
+    if len(escapes) > 0:
+        def _return_escape(_):
+            return escapes.pop(0)
+        output = re.sub(b'%00', _return_escape, output)
+
+    return output
 
 
-# NIST Curve P-384:
-SECP384R1_CURVE = PrimeCurve(
-    39402006196394479212279040100143613805079739270465446667948293404245721771496870329047266088258938001861606973112319,  # noqa
-    -3,
-    0xb3312fa7e23ee7e4988e056be3f82d19181d9c6efe8141120314088f5013875ac656398d8a2ed19d2a85c8edd3ec2aef
-)
-SECP384R1_BASE_POINT = PrimePoint(
-    SECP384R1_CURVE,
-    0xaa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385502f25dbf55296c3a545e3872760ab7,
-    0x3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c00a60b1ce1d7e819d7a431d7c90ea0e5f,
-    39402006196394479212279040100143613805079739270465446667946905279627659399113263569398956308152294913554433653942643
-)
+def _urlunquote(byte_string, remap=None, preserve=None):
+    """
+    Unquotes a URI portion from a byte string into unicode using UTF-8
 
+    :param byte_string:
+        A byte string of the data to unquote
 
-# NIST Curve P-521:
-SECP521R1_CURVE = PrimeCurve(
-    6864797660130609714981900799081393217269435300143305409394463459185543183397656052122559640661454554977296311391480858037121987999716643812574028291115057151,  # noqa
-    -3,
-    0x051953eb9618e1c9a1f929a21a0b68540eea2da725b99b315f3b8b489918ef109e156193951ec7e937b1652c0bd3bb1bf073573df883d2c34f1ef451fd46b503f00  # noqa
-)
-SECP521R1_BASE_POINT = PrimePoint(
-    SECP521R1_CURVE,
-    0xc6858e06b70404e9cd9e3ecb662395b4429c648139053fb521f828af606b4d3dbaa14b5e77efe75928fe1dc127a2ffa8de3348b3c1856a429bf97e7e31c2e5bd66,  # noqa
-    0x11839296a789a3bc0045c8a5fb42c7d1bd998f54449579b446817afbd17273e662c97ee72995ef42640c550b9013fad0761353c7086a272c24088be94769fd16650,  # noqa
-    6864797660130609714981900799081393217269435300143305409394463459185543183397655394245057746333217197532963996371363321113864768612440380340372808892707005449  # noqa
-)
+    :param remap:
+        A list of characters (as unicode) that should be re-mapped to a
+        %XX encoding. This is used when characters are not valid in part of a
+        URL.
+
+    :param preserve:
+        A bool - indicates that the chars to be remapped if they occur in
+        non-hex form, should be preserved. E.g. / for URL path.
+
+    :return:
+        A unicode string
+    """
+
+    if byte_string is None:
+        return byte_string
+
+    if byte_string == b'':
+        return ''
+
+    if preserve:
+        replacements = ['\x1A', '\x1C', '\x1D', '\x1E', '\x1F']
+        preserve_unmap = {}
+        for char in remap:
+            replacement = replacements.pop(0)
+            preserve_unmap[replacement] = char
+            byte_string = byte_string.replace(char.encode('ascii'), replacement.encode('ascii'))
+
+    byte_string = unquote_to_bytes(byte_string)
+
+    if remap:
+        for char in remap:
+            byte_string = byte_string.replace(char.encode('ascii'), ('%%%02x' % ord(char)).encode('ascii'))
+
+    output = byte_string.decode('utf-8', 'iriutf8')
+
+    if preserve:
+        for replacement, original in preserve_unmap.items():
+            output = output.replace(replacement, original)
+
+    return output

@@ -1,1 +1,1 @@
-òaIvenv/lib/python3.6/site-packages/docutils/parsers/rst/directives/parts.py 2pyXh
+òaDvenv/lib/python3.6/site-packages/docutils/parsers/rst/tableparser.py 2pyX¡h

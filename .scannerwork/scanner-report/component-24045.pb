@@ -1,1 +1,1 @@
-í»<venv/lib/python3.6/site-packages/django_extensions/models.py 2pyXh
+í»Fvenv/lib/python3.6/site-packages/django_extensions/utils/dia2django.py 2pyXÜh

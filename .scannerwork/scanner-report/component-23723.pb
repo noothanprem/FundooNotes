@@ -1,1 +1,1 @@
-«¹?venv/lib/python3.6/site-packages/social_core/backends/edmodo.py 2pyX#h
+«¹Avenv/lib/python3.6/site-packages/social_core/backends/coinbase.py 2pyX&h

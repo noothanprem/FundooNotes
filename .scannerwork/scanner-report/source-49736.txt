@@ -1,40 +1,47 @@
 """
-Behance OAuth2 backend, docs at:
-    https://python-social-auth.readthedocs.io/en/latest/backends/behance.html
+RunKeeper OAuth2 backend, docs at:
+    https://python-social-auth.readthedocs.io/en/latest/backends/runkeeper.html
 """
 from .oauth import BaseOAuth2
 
 
-class BehanceOAuth2(BaseOAuth2):
-    """Behance OAuth authentication backend"""
-    name = 'behance'
-    AUTHORIZATION_URL = 'https://www.behance.net/v2/oauth/authenticate'
-    ACCESS_TOKEN_URL = 'https://www.behance.net/v2/oauth/token'
+class RunKeeperOAuth2(BaseOAuth2):
+    """RunKeeper OAuth authentication backend"""
+    name = 'runkeeper'
+    AUTHORIZATION_URL = 'https://runkeeper.com/apps/authorize'
+    ACCESS_TOKEN_URL = 'https://runkeeper.com/apps/token'
     ACCESS_TOKEN_METHOD = 'POST'
-    SCOPE_SEPARATOR = '|'
-    EXTRA_DATA = [('username', 'username')]
-    REDIRECT_STATE = False
+    EXTRA_DATA = [
+        ('userID', 'id'),
+    ]
 
     def get_user_id(self, details, response):
-        return response['user']['id']
+        return response['userID']
 
     def get_user_details(self, response):
-        """Return user details from Behance account"""
-        user = response['user']
+        """Parse username from profile link"""
+        username = None
+        profile_url = response.get('profile')
+        if len(profile_url):
+            profile_url_parts = profile_url.split('http://runkeeper.com/user/')
+            if len(profile_url_parts) > 1 and len(profile_url_parts[1]):
+                username = profile_url_parts[1]
         fullname, first_name, last_name = self.get_user_names(
-            user['display_name'], user['first_name'], user['last_name']
+            fullname=response.get('name')
         )
-        return {'username': user['username'],
+        return {'username': username,
+                'email': response.get('email') or '',
                 'fullname': fullname,
                 'first_name': first_name,
-                'last_name': last_name,
-                'email': ''}
+                'last_name': last_name}
 
-    def extra_data(self, user, uid, response, details=None, *args, **kwargs):
-        # Pull up the embedded user attributes so they can be found as extra
-        # data. See the example token response for possible attributes:
-        # http://www.behance.net/dev/authentication#step-by-step
-        data = response.copy()
-        data.update(response['user'])
-        return super(BehanceOAuth2, self).extra_data(user, uid, data, details,
-                                                     *args, **kwargs)
+    def user_data(self, access_token, *args, **kwargs):
+        # We need to use the /user endpoint to get the user id, the /profile
+        # endpoint contains name, user name, location, gender
+        user_data = self._user_data(access_token, '/user')
+        profile_data = self._user_data(access_token, '/profile')
+        return dict(user_data, **profile_data)
+
+    def _user_data(self, access_token, path):
+        url = 'https://api.runkeeper.com{0}'.format(path)
+        return self.get_json(url, params={'access_token': access_token})

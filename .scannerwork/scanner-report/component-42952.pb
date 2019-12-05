@@ -1,1 +1,1 @@
-хоAvenv/lib64/python3.6/site-packages/google/protobuf/json_format.py 2pyX≥h
+хо2venv/lib64/python3.6/site-packages/google/protobuf :rгоиойоколотоуожовоьоыозоДоЕоФоГоХоИоЙоКоЛоМоНоОоПоЯоРоСоТоУо┌я┐я└я┘я├я┤я┬я┴я

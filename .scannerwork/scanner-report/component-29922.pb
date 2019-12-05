@@ -1,1 +1,1 @@
-גי@venv/lib64/python3.6/site-packages/django/db/models/sql/where.py 2pyXוh
+גי7venv/lib64/python3.6/site-packages/django/db/models/sql :בידיהיויזיחיןי

@@ -1,1 +1,1 @@
-ќР;venv/lib64/python3.6/site-packages/google/protobuf/internal :~њРџР РЎРўРЈР¤РҐР¦Р§РЁР©РЄР«Р¬РґР¶Р·Р№РёРєР»РјРЅРїРАРБРВРГРДРЕРЖРЗРИРфРхРцРчРшРщРъРыР
+ќРOvenv/lib64/python3.6/site-packages/google/protobuf/internal/json_format_test.py 2pyX°h

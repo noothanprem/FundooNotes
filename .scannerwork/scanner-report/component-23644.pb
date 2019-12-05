@@ -1,1 +1,1 @@
-ܸ;venv/lib/python3.6/site-packages/social_core/backends/vk.py 2pyX�h
+ܸAvenv/lib/python3.6/site-packages/social_core/backends/keycloak.py 2pyXxh

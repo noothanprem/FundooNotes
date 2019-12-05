@@ -1,1 +1,1 @@
-´ƒ5venv/lib/python3.6/site-packages/more_itertools/tests :	³ƒµƒºƒ
+´ƒ5venv/lib/python3.6/site-packages/more_itertools/tests :	²ƒµƒºƒ

@@ -1,1 +1,1 @@
-è3venv/lib/python3.6/site-packages/celery/app/task.py 2pyXìh
+è5venv/lib/python3.6/site-packages/celery/app/routes.py 2pyXñh

@@ -1,1 +1,1 @@
-Ö…3venv/lib/python3.6/site-packages/attr/validators.py 2pyXõh
+Ö…%venv/lib/python3.6/site-packages/attr :Ñ…Ü…à…å…ã…ç…ô…ö…õ…

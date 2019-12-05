@@ -1,1 +1,1 @@
-¾d@venv/lib/python3.6/site-packages/macaroonbakery/bakery/_internal :½d¿d
+¾dLvenv/lib/python3.6/site-packages/macaroonbakery/bakery/_internal/__init__.py 2pyXh

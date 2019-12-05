@@ -1,1 +1,1 @@
-ĽGvenv/lib/python3.6/site-packages/django_extensions/import_subclasses.py 2pyX:h
+ĽTvenv/lib/python3.6/site-packages/django_extensions/management/email_notifications.py 2pyX�h

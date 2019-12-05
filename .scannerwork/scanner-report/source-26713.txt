@@ -1,183 +1,110 @@
-"""Fixtures and testing utilities for :pypi:`py.test <pytest>`."""
+# -*- coding: utf-8 -*-
+"""Sphinx documentation plugin used to document tasks.
+
+Introduction
+============
+
+Usage
+-----
+
+Add the extension to your :file:`docs/conf.py` configuration module:
+
+.. code-block:: python
+
+    extensions = (...,
+                  'celery.contrib.sphinx')
+
+If you'd like to change the prefix for tasks in reference documentation
+then you can change the ``celery_task_prefix`` configuration value:
+
+.. code-block:: python
+
+    celery_task_prefix = '(task)'  # < default
+
+With the extension installed `autodoc` will automatically find
+task decorated objects (e.g. when using the automodule directive)
+and generate the correct (as well as add a ``(task)`` prefix),
+and you can also refer to the tasks using `:task:proj.tasks.add`
+syntax.
+
+Use ``.. autotask::`` to alternatively manually document a task.
+"""
 from __future__ import absolute_import, unicode_literals
 
-import os
-from contextlib import contextmanager
+from sphinx.domains.python import PyModulelevel
+from sphinx.ext.autodoc import FunctionDocumenter
 
-import pytest
+from celery.app.task import BaseTask
 
-from .testing import worker
-from .testing.app import TestApp, setup_default_app
-
-NO_WORKER = os.environ.get('NO_WORKER')
-
-# pylint: disable=redefined-outer-name
-# Well, they're called fixtures....
+try:  # pragma: no cover
+    from inspect import formatargspec, getfullargspec
+except ImportError:  # Py2
+    from inspect import formatargspec, getargspec as getfullargspec  # noqa
 
 
-@contextmanager
-def _create_app(enable_logging=False,
-                use_trap=False,
-                parameters={},
-                **config):
-    # type: (Any, **Any) -> Celery
-    """Utility context used to setup Celery app for pytest fixtures."""
-    test_app = TestApp(
-        set_as_current=False,
-        enable_logging=enable_logging,
-        config=config,
-        **parameters
-    )
-    with setup_default_app(test_app, use_trap=use_trap):
-        yield test_app
+class TaskDocumenter(FunctionDocumenter):
+    """Document task definitions."""
+
+    objtype = 'task'
+    member_order = 11
+
+    @classmethod
+    def can_document_member(cls, member, membername, isattr, parent):
+        return isinstance(member, BaseTask) and getattr(member, '__wrapped__')
+
+    def format_args(self):
+        wrapped = getattr(self.object, '__wrapped__', None)
+        if wrapped is not None:
+            argspec = getfullargspec(wrapped)
+            if argspec[0] and argspec[0][0] in ('cls', 'self'):
+                del argspec[0][0]
+            fmt = formatargspec(*argspec)
+            fmt = fmt.replace('\\', '\\\\')
+            return fmt
+        return ''
+
+    def document_members(self, all_members=False):
+        pass
+
+    def check_module(self):
+        # Normally checks if *self.object* is really defined in the module
+        # given by *self.modname*. But since functions decorated with the @task
+        # decorator are instances living in the celery.local, we have to check
+        # the wrapped function instead.
+        wrapped = getattr(self.object, '__wrapped__', None)
+        if wrapped and getattr(wrapped, '__module__') == self.modname:
+            return True
+        return super(TaskDocumenter, self).check_module()
 
 
-@pytest.fixture(scope='session')
-def use_celery_app_trap():
-    # type: () -> bool
-    """You can override this fixture to enable the app trap.
+class TaskDirective(PyModulelevel):
+    """Sphinx task directive."""
 
-    The app trap raises an exception whenever something attempts
-    to use the current or default apps.
-    """
-    return False
+    def get_signature_prefix(self, sig):
+        return self.env.config.celery_task_prefix
 
 
-@pytest.fixture(scope='session')
-def celery_session_app(request,
-                       celery_config,
-                       celery_parameters,
-                       celery_enable_logging,
-                       use_celery_app_trap):
-    # type: (Any) -> Celery
-    """Session Fixture: Return app for session fixtures."""
-    mark = request.node.get_closest_marker('celery')
-    config = dict(celery_config, **mark.kwargs if mark else {})
-    with _create_app(enable_logging=celery_enable_logging,
-                     use_trap=use_celery_app_trap,
-                     parameters=celery_parameters,
-                     **config) as app:
-        if not use_celery_app_trap:
-            app.set_default()
-            app.set_current()
-        yield app
+def autodoc_skip_member_handler(app, what, name, obj, skip, options):
+    """Handler for autodoc-skip-member event."""
+    # Celery tasks created with the @task decorator have the property
+    # that *obj.__doc__* and *obj.__class__.__doc__* are equal, which
+    # trips up the logic in sphinx.ext.autodoc that is supposed to
+    # suppress repetition of class documentation in an instance of the
+    # class. This overrides that behavior.
+    if isinstance(obj, BaseTask) and getattr(obj, '__wrapped__'):
+        if skip:
+            return False
+    return None
 
 
-@pytest.fixture(scope='session')
-def celery_session_worker(request,
-                          celery_session_app,
-                          celery_includes,
-                          celery_worker_pool,
-                          celery_worker_parameters):
-    # type: (Any, Celery, Sequence[str], str) -> WorkController
-    """Session Fixture: Start worker that lives throughout test suite."""
-    if not NO_WORKER:
-        for module in celery_includes:
-            celery_session_app.loader.import_task_module(module)
-        with worker.start_worker(celery_session_app,
-                                 pool=celery_worker_pool,
-                                 **celery_worker_parameters) as w:
-            yield w
+def setup(app):
+    """Setup Sphinx extension."""
+    app.setup_extension('sphinx.ext.autodoc')
+    app.add_autodocumenter(TaskDocumenter)
+    app.add_directive_to_domain('py', 'task', TaskDirective)
+    app.add_config_value('celery_task_prefix', '(task)', True)
+    app.connect('autodoc-skip-member', autodoc_skip_member_handler)
 
-
-@pytest.fixture(scope='session')
-def celery_enable_logging():
-    # type: () -> bool
-    """You can override this fixture to enable logging."""
-    return False
-
-
-@pytest.fixture(scope='session')
-def celery_includes():
-    # type: () -> Sequence[str]
-    """You can override this include modules when a worker start.
-
-    You can have this return a list of module names to import,
-    these can be task modules, modules registering signals, and so on.
-    """
-    return ()
-
-
-@pytest.fixture(scope='session')
-def celery_worker_pool():
-    # type: () -> Union[str, Any]
-    """You can override this fixture to set the worker pool.
-
-    The "solo" pool is used by default, but you can set this to
-    return e.g. "prefork".
-    """
-    return 'solo'
-
-
-@pytest.fixture(scope='session')
-def celery_config():
-    # type: () -> Mapping[str, Any]
-    """Redefine this fixture to configure the test Celery app.
-
-    The config returned by your fixture will then be used
-    to configure the :func:`celery_app` fixture.
-    """
-    return {}
-
-
-@pytest.fixture(scope='session')
-def celery_parameters():
-    # type: () -> Mapping[str, Any]
-    """Redefine this fixture to change the init parameters of test Celery app.
-
-    The dict returned by your fixture will then be used
-    as parameters when instantiating :class:`~celery.Celery`.
-    """
-    return {}
-
-
-@pytest.fixture(scope='session')
-def celery_worker_parameters():
-    # type: () -> Mapping[str, Any]
-    """Redefine this fixture to change the init parameters of Celery workers.
-
-    This can be used e. g. to define queues the worker will consume tasks from.
-
-    The dict returned by your fixture will then be used
-    as parameters when instantiating :class:`~celery.worker.WorkController`.
-    """
-    return {}
-
-
-@pytest.fixture()
-def celery_app(request,
-               celery_config,
-               celery_parameters,
-               celery_enable_logging,
-               use_celery_app_trap):
-    """Fixture creating a Celery application instance."""
-    mark = request.node.get_closest_marker('celery')
-    config = dict(celery_config, **mark.kwargs if mark else {})
-    with _create_app(enable_logging=celery_enable_logging,
-                     use_trap=use_celery_app_trap,
-                     parameters=celery_parameters,
-                     **config) as app:
-        yield app
-
-
-@pytest.fixture()
-def celery_worker(request,
-                  celery_app,
-                  celery_includes,
-                  celery_worker_pool,
-                  celery_worker_parameters):
-    # type: (Any, Celery, Sequence[str], str) -> WorkController
-    """Fixture: Start worker in a thread, stop it when the test returns."""
-    if not NO_WORKER:
-        for module in celery_includes:
-            celery_app.loader.import_task_module(module)
-        with worker.start_worker(celery_app,
-                                 pool=celery_worker_pool,
-                                 **celery_worker_parameters) as w:
-            yield w
-
-
-@pytest.fixture()
-def depends_on_current_app(celery_app):
-    """Fixture that sets app as current."""
-    celery_app.set_current()
+    return {
+        'parallel_read_safe': True
+    }

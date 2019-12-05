@@ -1,1 +1,0 @@
-Àæuvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/management/commands/flushexpiredtokens.py 2pyXh

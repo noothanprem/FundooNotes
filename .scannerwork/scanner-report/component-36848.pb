@@ -1,1 +1,1 @@
-ğŸAvenv/lib64/python3.6/site-packages/faker/providers/internet/hr_HR :îŸ
+ğŸAvenv/lib64/python3.6/site-packages/faker/providers/internet/hr_HR :ïŸ

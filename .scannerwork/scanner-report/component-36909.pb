@@ -1,1 +1,0 @@
-наNvenv/lib64/python3.6/site-packages/faker/providers/date_time/sl_SI/__init__.py 2pyX'h

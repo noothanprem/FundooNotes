@@ -1,1 +1,1 @@
-«—Cvenv/lib/python3.6/site-packages/jwt/contrib/algorithms/pycrypto.py 2pyX/h
+«—7venv/lib/python3.6/site-packages/jwt/contrib/algorithms :	ª—¬—­—

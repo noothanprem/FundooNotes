@@ -19,52 +19,145 @@ from nacl._sodium import ffi, lib
 from nacl.exceptions import ensure
 
 
-# crypto_hash_BYTES = lib.crypto_hash_bytes()
-crypto_hash_BYTES = lib.crypto_hash_sha512_bytes()
-crypto_hash_sha256_BYTES = lib.crypto_hash_sha256_bytes()
-crypto_hash_sha512_BYTES = lib.crypto_hash_sha512_bytes()
+crypto_sign_BYTES = lib.crypto_sign_bytes()
+# crypto_sign_SEEDBYTES = lib.crypto_sign_seedbytes()
+crypto_sign_SEEDBYTES = lib.crypto_sign_secretkeybytes() // 2
+crypto_sign_PUBLICKEYBYTES = lib.crypto_sign_publickeybytes()
+crypto_sign_SECRETKEYBYTES = lib.crypto_sign_secretkeybytes()
+
+crypto_sign_curve25519_BYTES = lib.crypto_box_secretkeybytes()
 
 
-def crypto_hash(message):
+def crypto_sign_keypair():
     """
-    Hashes and returns the message ``message``.
+    Returns a randomly generated public key and secret key.
 
-    :param message: bytes
-    :rtype: bytes
+    :rtype: (bytes(public_key), bytes(secret_key))
     """
-    digest = ffi.new("unsigned char[]", crypto_hash_BYTES)
-    rc = lib.crypto_hash(digest, message, len(message))
+    pk = ffi.new("unsigned char[]", crypto_sign_PUBLICKEYBYTES)
+    sk = ffi.new("unsigned char[]", crypto_sign_SECRETKEYBYTES)
+
+    rc = lib.crypto_sign_keypair(pk, sk)
     ensure(rc == 0,
            'Unexpected library error',
            raising=exc.RuntimeError)
-    return ffi.buffer(digest, crypto_hash_BYTES)[:]
+
+    return (
+        ffi.buffer(pk, crypto_sign_PUBLICKEYBYTES)[:],
+        ffi.buffer(sk, crypto_sign_SECRETKEYBYTES)[:],
+    )
 
 
-def crypto_hash_sha256(message):
+def crypto_sign_seed_keypair(seed):
     """
-    Hashes and returns the message ``message``.
+    Computes and returns the public key and secret key using the seed ``seed``.
 
-    :param message: bytes
-    :rtype: bytes
+    :param seed: bytes
+    :rtype: (bytes(public_key), bytes(secret_key))
     """
-    digest = ffi.new("unsigned char[]", crypto_hash_sha256_BYTES)
-    rc = lib.crypto_hash_sha256(digest, message, len(message))
+    if len(seed) != crypto_sign_SEEDBYTES:
+        raise exc.ValueError("Invalid seed")
+
+    pk = ffi.new("unsigned char[]", crypto_sign_PUBLICKEYBYTES)
+    sk = ffi.new("unsigned char[]", crypto_sign_SECRETKEYBYTES)
+
+    rc = lib.crypto_sign_seed_keypair(pk, sk, seed)
     ensure(rc == 0,
            'Unexpected library error',
            raising=exc.RuntimeError)
-    return ffi.buffer(digest, crypto_hash_sha256_BYTES)[:]
+
+    return (
+        ffi.buffer(pk, crypto_sign_PUBLICKEYBYTES)[:],
+        ffi.buffer(sk, crypto_sign_SECRETKEYBYTES)[:],
+    )
 
 
-def crypto_hash_sha512(message):
+def crypto_sign(message, sk):
     """
-    Hashes and returns the message ``message``.
+    Signs the message ``message`` using the secret key ``sk`` and returns the
+    signed message.
 
     :param message: bytes
+    :param sk: bytes
     :rtype: bytes
     """
-    digest = ffi.new("unsigned char[]", crypto_hash_sha512_BYTES)
-    rc = lib.crypto_hash_sha512(digest, message, len(message))
+    signed = ffi.new("unsigned char[]", len(message) + crypto_sign_BYTES)
+    signed_len = ffi.new("unsigned long long *")
+
+    rc = lib.crypto_sign(signed, signed_len, message, len(message), sk)
     ensure(rc == 0,
            'Unexpected library error',
            raising=exc.RuntimeError)
-    return ffi.buffer(digest, crypto_hash_sha512_BYTES)[:]
+
+    return ffi.buffer(signed, signed_len[0])[:]
+
+
+def crypto_sign_open(signed, pk):
+    """
+    Verifies the signature of the signed message ``signed`` using the public
+    key ``pk`` and returns the unsigned message.
+
+    :param signed: bytes
+    :param pk: bytes
+    :rtype: bytes
+    """
+    message = ffi.new("unsigned char[]", len(signed))
+    message_len = ffi.new("unsigned long long *")
+
+    if lib.crypto_sign_open(
+            message, message_len, signed, len(signed), pk) != 0:
+        raise exc.BadSignatureError("Signature was forged or corrupt")
+
+    return ffi.buffer(message, message_len[0])[:]
+
+
+def crypto_sign_ed25519_pk_to_curve25519(public_key_bytes):
+    """
+    Converts a public Ed25519 key (encoded as bytes ``public_key_bytes``) to
+    a public Curve25519 key as bytes.
+
+    Raises a ValueError if ``public_key_bytes`` is not of length
+    ``crypto_sign_PUBLICKEYBYTES``
+
+    :param public_key_bytes: bytes
+    :rtype: bytes
+    """
+    if len(public_key_bytes) != crypto_sign_PUBLICKEYBYTES:
+        raise exc.ValueError("Invalid curve public key")
+
+    curve_public_key_len = crypto_sign_curve25519_BYTES
+    curve_public_key = ffi.new("unsigned char[]", curve_public_key_len)
+
+    rc = lib.crypto_sign_ed25519_pk_to_curve25519(curve_public_key,
+                                                  public_key_bytes)
+    ensure(rc == 0,
+           'Unexpected library error',
+           raising=exc.RuntimeError)
+
+    return ffi.buffer(curve_public_key, curve_public_key_len)[:]
+
+
+def crypto_sign_ed25519_sk_to_curve25519(secret_key_bytes):
+    """
+    Converts a secret Ed25519 key (encoded as bytes ``secret_key_bytes``) to
+    a secret Curve25519 key as bytes.
+
+    Raises a ValueError if ``secret_key_bytes``is not of length
+    ``crypto_sign_SECRETKEYBYTES``
+
+    :param public_key_bytes: bytes
+    :rtype: bytes
+    """
+    if len(secret_key_bytes) != crypto_sign_SECRETKEYBYTES:
+        raise exc.ValueError("Invalid curve public key")
+
+    curve_secret_key_len = crypto_sign_curve25519_BYTES
+    curve_secret_key = ffi.new("unsigned char[]", curve_secret_key_len)
+
+    rc = lib.crypto_sign_ed25519_sk_to_curve25519(curve_secret_key,
+                                                  secret_key_bytes)
+    ensure(rc == 0,
+           'Unexpected library error',
+           raising=exc.RuntimeError)
+
+    return ffi.buffer(curve_secret_key, curve_secret_key_len)[:]

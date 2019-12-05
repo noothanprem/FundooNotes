@@ -1,1 +1,1 @@
-ı‚8venv/lib/python3.6/site-packages/gi/overrides/GObject.py 2pyXÜh
+ı‚-venv/lib/python3.6/site-packages/gi/overrides :ü‚ş‚ÿ‚€ƒƒ‚ƒ…ƒƒƒ‘ƒ

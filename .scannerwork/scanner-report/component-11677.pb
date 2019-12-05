@@ -1,1 +1,1 @@
-ù[<venv/lib/python3.6/site-packages/faker/providers/color/uk_UA :ú[
+ù[Hvenv/lib/python3.6/site-packages/faker/providers/color/uk_UA/__init__.py 2pyX€h

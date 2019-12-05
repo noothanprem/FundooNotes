@@ -1,1 +1,1 @@
-Èç>venv/lib64/python3.6/site-packages/django/utils/lorem_ipsum.py 2pyXsh
+Èç7venv/lib64/python3.6/site-packages/django/utils/text.py 2pyX¡h

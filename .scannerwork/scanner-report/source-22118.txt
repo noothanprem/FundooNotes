@@ -1,90 +1,47 @@
+# -*- test-case-name: twisted.test.test_stdio.StandardInputOutputTests.test_lastWriteReceived -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-
 """
-Test cases for twisted.protocols.stateful
+Main program for the child process run by
+L{twisted.test.test_stdio.StandardInputOutputTests.test_lastWriteReceived}
+to test that L{os.write} can be reliably used after
+L{twisted.internet.stdio.StandardIO} has finished.
 """
 
-from twisted.trial.unittest import TestCase
-from twisted.protocols.test import test_basic
-from twisted.protocols.stateful import StatefulProtocol
+from __future__ import absolute_import, division
 
-from struct import pack, unpack, calcsize
+import sys
 
-
-class MyInt32StringReceiver(StatefulProtocol):
-    """
-    A stateful Int32StringReceiver.
-    """
-    MAX_LENGTH = 99999
-    structFormat = "!I"
-    prefixLength = calcsize(structFormat)
-
-    def getInitialState(self):
-        return self._getHeader, 4
+from twisted.internet.protocol import Protocol
+from twisted.internet.stdio import StandardIO
+from twisted.python.reflect import namedAny
 
 
-    def lengthLimitExceeded(self, length):
+class LastWriteChild(Protocol):
+    def __init__(self, reactor, magicString):
+        self.reactor = reactor
+        self.magicString = magicString
+
+
+    def connectionMade(self):
+        self.transport.write(self.magicString)
         self.transport.loseConnection()
 
 
-    def _getHeader(self, msg):
-        length, = unpack("!i", msg)
-        if length > self.MAX_LENGTH:
-            self.lengthLimitExceeded(length)
-            return
-        return self._getString, length
-
-
-    def _getString(self, msg):
-        self.stringReceived(msg)
-        return self._getHeader, 4
-
-
-    def stringReceived(self, msg):
-        """
-        Override this.
-        """
-        raise NotImplementedError
-
-
-    def sendString(self, data):
-        """
-        Send an int32-prefixed string to the other end of the connection.
-        """
-        self.transport.write(pack(self.structFormat, len(data)) + data)
-
-
-
-class TestInt32(MyInt32StringReceiver):
-    def connectionMade(self):
-        self.received = []
-
-
-    def stringReceived(self, s):
-        self.received.append(s)
-
-    MAX_LENGTH = 50
-    closed = 0
-
-
     def connectionLost(self, reason):
-        self.closed = 1
+        self.reactor.stop()
 
 
 
-class Int32Tests(TestCase, test_basic.IntNTestCaseMixin):
-    protocol = TestInt32
-    strings = [b"a", b"b" * 16]
-    illegalStrings = [b"\x10\x00\x00\x00aaaaaa"]
-    partialStrings = [b"\x00\x00\x00", b"hello there", ""]
+def main(reactor, magicString):
+    p = LastWriteChild(reactor, magicString.encode('ascii'))
+    StandardIO(p)
+    reactor.run()
 
-    def test_bigReceive(self):
-        r = self.getProtocol()
-        big = b""
-        for s in self.strings * 4:
-            big += pack("!i", len(s)) + s
-        r.dataReceived(big)
-        self.assertEqual(r.received, self.strings * 4)
 
+
+if __name__ == '__main__':
+    namedAny(sys.argv[1]).install()
+    from twisted.internet import reactor
+    main(reactor, sys.argv[2])

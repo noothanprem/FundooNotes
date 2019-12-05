@@ -1,184 +1,271 @@
-"""Pyro transport, and Kombu Broker daemon.
+"""Etcd Transport.
 
-Requires the :mod:`Pyro4` library to be installed.
+It uses Etcd as a store to transport messages in Queues
 
-To use the Pyro transport with Kombu, use an url of the form:
-``pyro://localhost/kombu.broker``
-
-The hostname is where the transport will be looking for a Pyro name server,
-which is used in turn to locate the kombu.broker Pyro service.
-This broker can be launched by simply executing this transport module directly,
-with the command: ``python -m kombu.transport.pyro``
+It uses python-etcd for talking to Etcd's HTTP API
 """
-
 from __future__ import absolute_import, unicode_literals
 
-import sys
+import os
+import socket
 
-from kombu.five import reraise, Queue, Empty
-from kombu.utils.objects import cached_property
+from collections import defaultdict
+from contextlib import contextmanager
+
+from kombu.exceptions import ChannelError
+from kombu.five import Empty
 from kombu.log import get_logger
+from kombu.utils.json import loads, dumps
+from kombu.utils.objects import cached_property
+
 from . import virtual
 
 try:
-    import Pyro4 as pyro
-    from Pyro4.errors import NamingError
-    from Pyro4.util import SerializerBase
-except ImportError:          # pragma: no cover
-    pyro = NamingError = SerializerBase = None  # noqa
+    import etcd
+except ImportError:
+    etcd = None
 
-DEFAULT_PORT = 9090
-E_NAMESERVER = """\
-Unable to locate pyro nameserver on host {0.hostname}\
-"""
-E_LOOKUP = """\
-Unable to lookup '{0.virtual_host}' in pyro nameserver on host {0.hostname}\
-"""
+logger = get_logger('kombu.transport.etcd')
 
-logger = get_logger(__name__)
+DEFAULT_PORT = 2379
+DEFAULT_HOST = 'localhost'
 
 
 class Channel(virtual.Channel):
-    """Pyro Channel."""
+    """Etcd Channel class which talks to the Etcd."""
 
-    def close(self):
-        super(Channel, self).close()
-        if self.shared_queues:
-            self.shared_queues._pyroRelease()
+    prefix = 'kombu'
+    index = None
+    timeout = 10
+    session_ttl = 30
+    lock_ttl = 10
 
-    def queues(self):
-        return self.shared_queues.get_queue_names()
+    def __init__(self, *args, **kwargs):
+        if etcd is None:
+            raise ImportError('Missing python-etcd library')
 
-    def _new_queue(self, queue, **kwargs):
-        if queue not in self.queues():
-            self.shared_queues.new_queue(queue)
+        super(Channel, self).__init__(*args, **kwargs)
+
+        port = self.connection.client.port or self.connection.default_port
+        host = self.connection.client.hostname or DEFAULT_HOST
+
+        logger.debug('Host: %s Port: %s Timeout: %s', host, port, self.timeout)
+
+        self.queues = defaultdict(dict)
+
+        self.client = etcd.Client(host=host, port=int(port))
+
+    def _key_prefix(self, queue):
+        """Create and return the `queue` with the proper prefix.
+
+        Arguments:
+            queue (str): The name of the queue.
+        """
+        return '{0}/{1}'.format(self.prefix, queue)
+
+    @contextmanager
+    def _queue_lock(self, queue):
+        """Try to acquire a lock on the Queue.
+
+        It does so by creating a object called 'lock' which is locked by the
+        current session..
+
+        This way other nodes are not able to write to the lock object which
+        means that they have to wait before the lock is released.
+
+        Arguments:
+            queue (str): The name of the queue.
+        """
+        lock = etcd.Lock(self.client, queue)
+        lock._uuid = self.lock_value
+        logger.debug('Acquiring lock {0}'.format(lock.name))
+        lock.acquire(blocking=True, lock_ttl=self.lock_ttl)
+        try:
+            yield
+        finally:
+            logger.debug('Releasing lock {0}'.format(lock.name))
+            lock.release()
+
+    def _new_queue(self, queue, **_):
+        """Create a new `queue` if the `queue` doesn't already exist.
+
+        Arguments:
+            queue (str): The name of the queue.
+        """
+        self.queues[queue] = queue
+        with self._queue_lock(queue):
+            try:
+                return self.client.write(
+                    key=self._key_prefix(queue), dir=True, value=None)
+            except etcd.EtcdNotFile:
+                logger.debug('Queue "{0}" already exists'.format(queue))
+                return self.client.read(key=self._key_prefix(queue))
 
     def _has_queue(self, queue, **kwargs):
-        return self.shared_queues.has_queue(queue)
+        """Verify that queue exists.
+
+        Returns:
+            bool: Should return :const:`True` if the queue exists
+                or :const:`False` otherwise.
+        """
+        try:
+            self.client.read(self._key_prefix(queue))
+            return True
+        except etcd.EtcdKeyNotFound:
+            return False
+
+    def _delete(self, queue, *args, **_):
+        """Delete a `queue`.
+
+        Arguments:
+            queue (str): The name of the queue.
+        """
+        self.queues.pop(queue, None)
+        self._purge(queue)
+
+    def _put(self, queue, payload, **_):
+        """Put `message` onto `queue`.
+
+        This simply writes a key to the Etcd store
+
+        Arguments:
+            queue (str): The name of the queue.
+            payload (dict): Message data which will be dumped to etcd.
+        """
+        with self._queue_lock(queue):
+            key = self._key_prefix(queue)
+            if not self.client.write(
+                    key=key,
+                    value=dumps(payload),
+                    append=True):
+                raise ChannelError('Cannot add key {0!r} to etcd'.format(key))
 
     def _get(self, queue, timeout=None):
-        queue = self._queue_for(queue)
-        return self.shared_queues.get(queue)
+        """Get the first available message from the queue.
 
-    def _queue_for(self, queue):
-        if queue not in self.queues():
-            self.shared_queues.new_queue(queue)
-        return queue
+        Before it does so it acquires a lock on the store so
+        only one node reads at the same time. This is for read consistency
 
-    def _put(self, queue, message, **kwargs):
-        queue = self._queue_for(queue)
-        self.shared_queues.put(queue, message)
+        Arguments:
+            queue (str): The name of the queue.
+            timeout (int): Optional seconds to wait for a response.
+        """
+        with self._queue_lock(queue):
+            key = self._key_prefix(queue)
+            logger.debug('Fetching key %s with index %s', key, self.index)
 
-    def _size(self, queue):
-        return self.shared_queues.size(queue)
+            try:
+                result = self.client.read(
+                    key=key, recursive=True,
+                    index=self.index, timeout=self.timeout)
 
-    def _delete(self, queue, *args, **kwargs):
-        self.shared_queues.delete(queue)
+                if result is None:
+                    raise Empty()
+
+                item = result._children[-1]
+                logger.debug('Removing key {0}'.format(item['key']))
+
+                msg_content = loads(item['value'])
+                self.client.delete(key=item['key'])
+                return msg_content
+            except (TypeError, IndexError, etcd.EtcdException) as error:
+                logger.debug('_get failed: {0}:{1}'.format(type(error), error))
+
+            raise Empty()
 
     def _purge(self, queue):
-        return self.shared_queues.purge(queue)
+        """Remove all `message`s from a `queue`.
 
-    def after_reply_message_received(self, queue):
-        pass
+        Arguments:
+            queue (str): The name of the queue.
+        """
+        with self._queue_lock(queue):
+            key = self._key_prefix(queue)
+            logger.debug('Purging queue at key {0}'.format(key))
+            return self.client.delete(key=key, recursive=True)
+
+    def _size(self, queue):
+        """Return the size of the `queue`.
+
+        Arguments:
+            queue (str): The name of the queue.
+        """
+        with self._queue_lock(queue):
+            size = 0
+            try:
+                key = self._key_prefix(queue)
+                logger.debug('Fetching key recursively %s with index %s',
+                             key, self.index)
+                result = self.client.read(
+                    key=key, recursive=True,
+                    index=self.index)
+                size = len(result._children)
+            except TypeError:
+                pass
+
+            logger.debug('Found %s keys under %s with index %s',
+                         size, key, self.index)
+            return size
 
     @cached_property
-    def shared_queues(self):
-        return self.connection.shared_queues
+    def lock_value(self):
+        return '{0}.{1}'.format(socket.gethostname(), os.getpid())
 
 
 class Transport(virtual.Transport):
-    """Pyro Transport."""
+    """Etcd storage Transport for Kombu."""
 
     Channel = Channel
 
-    #: memory backend state is global.
-    state = virtual.BrokerState()
-
     default_port = DEFAULT_PORT
+    driver_type = 'etcd'
+    driver_name = 'python-etcd'
+    polling_interval = 3
 
-    driver_type = driver_name = 'pyro'
+    implements = virtual.Transport.implements.extend(
+        exchange_type=frozenset(['direct']))
 
-    def _open(self):
-        logger.debug("trying Pyro nameserver to find the broker daemon")
-        conninfo = self.client
+    def __init__(self, *args, **kwargs):
+        """Create a new instance of etcd.Transport."""
+        if etcd is None:
+            raise ImportError('Missing python-etcd library')
+
+        super(Transport, self).__init__(*args, **kwargs)
+
+        self.connection_errors = (
+            virtual.Transport.connection_errors + (etcd.EtcdException, )
+        )
+
+        self.channel_errors = (
+            virtual.Transport.channel_errors + (etcd.EtcdException, )
+        )
+
+    def verify_connection(self, connection):
+        """Verify the connection works."""
+        port = connection.client.port or self.default_port
+        host = connection.client.hostname or DEFAULT_HOST
+
+        logger.debug('Verify Etcd connection to %s:%s', host, port)
+
         try:
-            nameserver = pyro.locateNS(host=conninfo.hostname,
-                                       port=self.default_port)
-        except NamingError:
-            reraise(NamingError, NamingError(E_NAMESERVER.format(conninfo)),
-                    sys.exc_info()[2])
-        try:
-            # name of registered pyro object
-            uri = nameserver.lookup(conninfo.virtual_host)
-            return pyro.Proxy(uri)
-        except NamingError:
-            reraise(NamingError, NamingError(E_LOOKUP.format(conninfo)),
-                    sys.exc_info()[2])
+            etcd.Client(host=host, port=int(port))
+            return True
+        except ValueError:
+            pass
+
+        return False
 
     def driver_version(self):
-        return pyro.__version__
+        """Return the version of the etcd library.
 
-    @cached_property
-    def shared_queues(self):
-        return self._open()
-
-
-if pyro is not None:
-    SerializerBase.register_dict_to_class("queue.Empty",
-                                          lambda cls, data: Empty())
-
-    @pyro.expose
-    @pyro.behavior(instance_mode="single")
-    class KombuBroker(object):
-        """Kombu Broker used by the Pyro transport.
-
-        You have to run this as a separate (Pyro) service.
+        .. note::
+           python-etcd has no __version__. This is a workaround.
         """
-
-        def __init__(self):
-            self.queues = {}
-
-        def get_queue_names(self):
-            return list(self.queues)
-
-        def new_queue(self, queue):
-            if queue in self.queues:
-                return   # silently ignore the fact that queue already exists
-            self.queues[queue] = Queue()
-
-        def has_queue(self, queue):
-            return queue in self.queues
-
-        def get(self, queue):
-            return self.queues[queue].get(block=False)
-
-        def put(self, queue, message):
-            self.queues[queue].put(message)
-
-        def size(self, queue):
-            return self.queues[queue].qsize()
-
-        def delete(self, queue):
-            del self.queues[queue]
-
-        def purge(self, queue):
-            while True:
-                try:
-                    self.queues[queue].get(blocking=False)
-                except Empty:
-                    break
-
-
-# launch a Kombu Broker daemon with the command:
-# ``python -m kombu.transport.pyro``
-if __name__ == "__main__":
-    print("Launching Broker for Kombu's Pyro transport.")
-    with pyro.Daemon() as daemon:
-        print("(Expecting a Pyro name server at {0}:{1})"
-              .format(pyro.config.NS_HOST, pyro.config.NS_PORT))
-        with pyro.locateNS() as ns:
-            print("You can connect with Kombu using the url "
-                  "'pyro://{0}/kombu.broker'".format(pyro.config.NS_HOST))
-            uri = daemon.register(KombuBroker)
-            ns.register("kombu.broker", uri)
-        daemon.requestLoop()
+        try:
+            import pip.commands.freeze
+            for x in pip.commands.freeze.freeze():
+                if x.startswith('python-etcd'):
+                    return x.split('==')[1]
+        except (ImportError, IndexError):
+            logger.warning('Unable to find the python-etcd version.')
+            return 'Unknown'

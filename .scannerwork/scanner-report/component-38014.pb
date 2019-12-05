@@ -1,1 +1,0 @@
-ş¨+venv/lib64/python3.6/site-packages/boto3/s3 :	ı¨©ƒ©

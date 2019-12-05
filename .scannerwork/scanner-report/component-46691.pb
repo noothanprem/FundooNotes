@@ -1,1 +1,1 @@
-γμ0venv/lib64/python3.6/site-packages/xdg/Locale.py 2pyXPh
+γμ?venv/lib64/python3.6/site-packages/django_social_share/views.py 2pyXh

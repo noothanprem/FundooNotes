@@ -1,1 +1,1 @@
-¥+venv/lib64/python3.6/site-packages/channels :0¤¦§¨©ª«ÂÃÄÅŞßáâã
+¥+venv/lib64/python3.6/site-packages/channels :0¤§¦¨©ª«ÂÃÄÅŞàáâã

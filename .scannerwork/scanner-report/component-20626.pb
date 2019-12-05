@@ -1,1 +1,1 @@
-’¡4venv/lib/python3.6/site-packages/django_social_share :	‘¡ª¡®¡
+’¡4venv/lib/python3.6/site-packages/django_social_share :	‘¡ª¡¯¡

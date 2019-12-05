@@ -1,1 +1,1 @@
-ž¼Ovenv/lib/python3.6/site-packages/django_extensions/templatetags/syntax_color.py 2pyXph
+ž¼Kvenv/lib/python3.6/site-packages/django_extensions/templatetags/__init__.py 2pyXh

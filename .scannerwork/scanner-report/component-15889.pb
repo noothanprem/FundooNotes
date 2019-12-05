@@ -1,1 +1,1 @@
-‘|ovenv/lib/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lib/jquery.slideto.min.js 2jsXh
+‘|gvenv/lib/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lib/lodash.min.js 2jsXfh

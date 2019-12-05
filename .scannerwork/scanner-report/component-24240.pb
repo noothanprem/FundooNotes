@@ -1,1 +1,1 @@
-°½Evenv/lib/python3.6/site-packages/django_extensions/management/base.py 2pyX6h
+°½Svenv/lib/python3.6/site-packages/django_extensions/management/technical_response.py 2pyX&h

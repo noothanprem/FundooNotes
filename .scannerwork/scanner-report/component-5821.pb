@@ -1,1 +1,1 @@
-Ω-Rvenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/postgis/adapter.py 2pyXBh
+Ω-Uvenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/postgis/operations.py 2pyXçh

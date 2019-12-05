@@ -1,1 +1,1 @@
-Âš.venv/lib64/python3.6/site-packages/libfuturize :	ÁšÃšÈš
+Âš.venv/lib64/python3.6/site-packages/libfuturize :	ÁšÃšÇš

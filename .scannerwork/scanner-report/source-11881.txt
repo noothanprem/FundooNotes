@@ -10,82 +10,62 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-from botocore import xform_name
-from botocore.utils import get_service_module_name
 from botocore.docs.method import document_model_driven_method
 
-from boto3.docs.base import BaseDocumenter
-from boto3.docs.utils import get_resource_ignore_params
-from boto3.docs.utils import add_resource_type_overview
 
+def document_model_driven_resource_method(
+        section, method_name, operation_model, event_emitter,
+        method_description=None, example_prefix=None, include_input=None,
+        include_output=None, exclude_input=None, exclude_output=None,
+        document_output=True, resource_action_model=None,
+        include_signature=True):
 
-class WaiterResourceDocumenter(BaseDocumenter):
-    def __init__(self, resource, service_waiter_model):
-        super(WaiterResourceDocumenter, self).__init__(resource)
-        self._service_waiter_model = service_waiter_model
-
-    def document_resource_waiters(self, section):
-        waiters = self._resource.meta.resource_model.waiters
-        add_resource_type_overview(
-            section=section,
-            resource_type='Waiters',
-            description=(
-                'Waiters provide an interface to wait for a resource'
-                ' to reach a specific state.'),
-            intro_link='waiters_intro')
-        waiter_list = []
-        self.member_map['waiters'] = waiter_list
-        for waiter in waiters:
-            waiter_section = section.add_new_section(waiter.name)
-            waiter_list.append(waiter.name)
-            document_resource_waiter(
-                section=waiter_section,
-                resource_name=self._resource_name,
-                event_emitter=self._resource.meta.client.meta.events,
-                service_model=self._service_model,
-                resource_waiter_model=waiter,
-                service_waiter_model=self._service_waiter_model
-            )
-
-
-def document_resource_waiter(section, resource_name, event_emitter,
-                             service_model, resource_waiter_model,
-                             service_waiter_model, include_signature=True):
-    waiter_model = service_waiter_model.get_waiter(
-        resource_waiter_model.waiter_name)
-    operation_model = service_model.operation_model(
-        waiter_model.operation)
-
-    ignore_params = get_resource_ignore_params(resource_waiter_model.params)
-    service_module_name = get_service_module_name(service_model)
-    description = (
-        'Waits until this %s is %s. This method calls '
-        ':py:meth:`%s.Waiter.%s.wait` which polls. '
-        ':py:meth:`%s.Client.%s` every %s seconds until '
-        'a successful state is reached. An error is returned '
-        'after %s failed checks.' % (
-            resource_name, ' '.join(resource_waiter_model.name.split('_')[2:]),
-            service_module_name,
-            xform_name(resource_waiter_model.waiter_name),
-            service_module_name,
-            xform_name(waiter_model.operation),
-            waiter_model.delay, waiter_model.max_attempts))
-    example_prefix = '%s.%s' % (
-        xform_name(resource_name), resource_waiter_model.name)
     document_model_driven_method(
-        section=section, method_name=resource_waiter_model.name,
+        section=section, method_name=method_name,
         operation_model=operation_model,
         event_emitter=event_emitter,
+        method_description=method_description,
         example_prefix=example_prefix,
-        method_description=description,
-        exclude_input=ignore_params,
+        include_input=include_input,
+        include_output=include_output,
+        exclude_input=exclude_input,
+        exclude_output=exclude_output,
+        document_output=document_output,
         include_signature=include_signature
     )
-    if 'return' in section.available_sections:
-        # Waiters do not return anything so we should remove
-        # any sections that may document the underlying return
-        # value of the client method.
-        return_section = section.get_section('return')
-        return_section.clear_text()
-        return_section.remove_all_sections()
-        return_section.write(':returns: None')
+
+    # If this action returns a resource modify the return example to
+    # appropriately reflect that.
+    if resource_action_model.resource:
+        if 'return' in section.available_sections:
+            section.delete_section('return')
+        resource_type = resource_action_model.resource.type
+
+        new_return_section = section.add_new_section('return')
+        return_resource_type = '%s.%s' % (
+            operation_model.service_model.service_name,
+            resource_type)
+
+        return_type = ':py:class:`%s`' % return_resource_type
+        return_description = '%s resource' % (resource_type)
+
+        if _method_returns_resource_list(resource_action_model.resource):
+            return_type = 'list(%s)' % return_type
+            return_description = 'A list of %s resources' % (
+                resource_type)
+
+        new_return_section.style.new_line()
+        new_return_section.write(
+            ':rtype: %s' % return_type)
+        new_return_section.style.new_line()
+        new_return_section.write(
+            ':returns: %s' % return_description)
+        new_return_section.style.new_line()
+
+
+def _method_returns_resource_list(resource):
+    for identifier in resource.identifiers:
+        if identifier.path and '[]' in identifier.path:
+            return True
+
+    return False

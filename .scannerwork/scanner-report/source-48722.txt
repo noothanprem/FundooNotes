@@ -1,362 +1,262 @@
-# -*- coding: utf-8 -*-
-r"""
-    werkzeug.contrib.securecookie
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-    This module implements a cookie that is not alterable from the client
-    because it adds a checksum the server checks for.  You can use it as
-    session replacement if all you have is a user id or something to mark
-    a logged in user.
-
-    Keep in mind that the data is still readable from the client as a
-    normal cookie is.  However you don't have to store and flush the
-    sessions you have at the server.
-
-    Example usage:
-
-    >>> from werkzeug.contrib.securecookie import SecureCookie
-    >>> x = SecureCookie({"foo": 42, "baz": (1, 2, 3)}, "deadbeef")
-
-    Dumping into a string so that one can store it in a cookie:
-
-    >>> value = x.serialize()
-
-    Loading from that string again:
-
-    >>> x = SecureCookie.unserialize(value, "deadbeef")
-    >>> x["baz"]
-    (1, 2, 3)
-
-    If someone modifies the cookie and the checksum is wrong the unserialize
-    method will fail silently and return a new empty `SecureCookie` object.
-
-    Keep in mind that the values will be visible in the cookie so do not
-    store data in a cookie you don't want the user to see.
-
-    Application Integration
-    =======================
-
-    If you are using the werkzeug request objects you could integrate the
-    secure cookie into your application like this::
-
-        from werkzeug.utils import cached_property
-        from werkzeug.wrappers import BaseRequest
-        from werkzeug.contrib.securecookie import SecureCookie
-
-        # don't use this key but a different one; you could just use
-        # os.urandom(20) to get something random
-        SECRET_KEY = '\xfa\xdd\xb8z\xae\xe0}4\x8b\xea'
-
-        class Request(BaseRequest):
-
-            @cached_property
-            def client_session(self):
-                data = self.cookies.get('session_data')
-                if not data:
-                    return SecureCookie(secret_key=SECRET_KEY)
-                return SecureCookie.unserialize(data, SECRET_KEY)
-
-        def application(environ, start_response):
-            request = Request(environ)
-
-            # get a response object here
-            response = ...
-
-            if request.client_session.should_save:
-                session_data = request.client_session.serialize()
-                response.set_cookie('session_data', session_data,
-                                    httponly=True)
-            return response(environ, start_response)
-
-    A less verbose integration can be achieved by using shorthand methods::
-
-        class Request(BaseRequest):
-
-            @cached_property
-            def client_session(self):
-                return SecureCookie.load_cookie(self, secret_key=COOKIE_SECRET)
-
-        def application(environ, start_response):
-            request = Request(environ)
-
-            # get a response object here
-            response = ...
-
-            request.client_session.save_cookie(response)
-            return response(environ, start_response)
-
-    :copyright: 2007 Pallets
-    :license: BSD-3-Clause
 """
-import base64
-import pickle
+Fixers
+======
+
+.. warning::
+    .. deprecated:: 0.15
+        ``ProxyFix`` has moved to :mod:`werkzeug.middleware.proxy_fix`.
+        All other code in this module is deprecated and will be removed
+        in version 1.0.
+
+.. versionadded:: 0.5
+
+This module includes various helpers that fix web server behavior.
+
+.. autoclass:: ProxyFix
+   :members:
+
+.. autoclass:: CGIRootFix
+
+.. autoclass:: PathInfoFromRequestUriFix
+
+.. autoclass:: HeaderRewriterFix
+
+.. autoclass:: InternetExplorerFix
+
+:copyright: 2007 Pallets
+:license: BSD-3-Clause
+"""
 import warnings
-from hashlib import sha1 as _default_hash
-from hmac import new as hmac
-from time import time
 
-from .._compat import iteritems
-from .._compat import text_type
-from .._compat import to_bytes
-from .._compat import to_native
-from .._internal import _date_to_unix
-from ..contrib.sessions import ModificationTrackingDict
-from ..security import safe_str_cmp
-from ..urls import url_quote_plus
-from ..urls import url_unquote_plus
+from ..datastructures import Headers
+from ..datastructures import ResponseCacheControl
+from ..http import parse_cache_control_header
+from ..http import parse_options_header
+from ..http import parse_set_header
+from ..middleware.proxy_fix import ProxyFix as _ProxyFix
+from ..useragents import UserAgent
 
-warnings.warn(
-    "'werkzeug.contrib.securecookie' is deprecated as of version 0.15"
-    " and will be removed in version 1.0. It has moved to"
-    " https://github.com/pallets/secure-cookie.",
-    DeprecationWarning,
-    stacklevel=2,
-)
+try:
+    from urllib.parse import unquote
+except ImportError:
+    from urllib import unquote
 
 
-class UnquoteError(Exception):
-    """Internal exception used to signal failures on quoting."""
+class CGIRootFix(object):
+    """Wrap the application in this middleware if you are using FastCGI
+    or CGI and you have problems with your app root being set to the CGI
+    script's path instead of the path users are going to visit.
 
+    :param app: the WSGI application
+    :param app_root: Defaulting to ``'/'``, you can set this to
+        something else if your app is mounted somewhere else.
 
-class SecureCookie(ModificationTrackingDict):
-    """Represents a secure cookie.  You can subclass this class and provide
-    an alternative mac method.  The import thing is that the mac method
-    is a function with a similar interface to the hashlib.  Required
-    methods are update() and digest().
+    .. deprecated:: 0.15
+        This middleware will be removed in version 1.0.
 
-    Example usage:
-
-    >>> x = SecureCookie({"foo": 42, "baz": (1, 2, 3)}, "deadbeef")
-    >>> x["foo"]
-    42
-    >>> x["baz"]
-    (1, 2, 3)
-    >>> x["blafasel"] = 23
-    >>> x.should_save
-    True
-
-    :param data: the initial data.  Either a dict, list of tuples or `None`.
-    :param secret_key: the secret key.  If not set `None` or not specified
-                       it has to be set before :meth:`serialize` is called.
-    :param new: The initial value of the `new` flag.
+    .. versionchanged:: 0.9
+        Added `app_root` parameter and renamed from
+        ``LighttpdCGIRootFix``.
     """
 
-    #: The hash method to use.  This has to be a module with a new function
-    #: or a function that creates a hashlib object.  Such as `hashlib.md5`
-    #: Subclasses can override this attribute.  The default hash is sha1.
-    #: Make sure to wrap this in staticmethod() if you store an arbitrary
-    #: function there such as hashlib.sha1 which  might be implemented
-    #: as a function.
-    hash_method = staticmethod(_default_hash)
-
-    #: The module used for serialization. Should have a ``dumps`` and a
-    #: ``loads`` method that takes bytes. The default is :mod:`pickle`.
-    #:
-    #: .. versionchanged:: 0.15
-    #:     The default of ``pickle`` will change to :mod:`json` in 1.0.
-    serialization_method = pickle
-
-    #: if the contents should be base64 quoted.  This can be disabled if the
-    #: serialization process returns cookie safe strings only.
-    quote_base64 = True
-
-    def __init__(self, data=None, secret_key=None, new=True):
-        ModificationTrackingDict.__init__(self, data or ())
-        # explicitly convert it into a bytestring because python 2.6
-        # no longer performs an implicit string conversion on hmac
-        if secret_key is not None:
-            secret_key = to_bytes(secret_key, "utf-8")
-        self.secret_key = secret_key
-        self.new = new
-
-        if self.serialization_method is pickle:
-            warnings.warn(
-                "The default 'SecureCookie.serialization_method' will"
-                " change from pickle to json in version 1.0. To upgrade"
-                " existing tokens, override 'unquote' to try pickle if"
-                " json fails.",
-                stacklevel=2,
-            )
-
-    def __repr__(self):
-        return "<%s %s%s>" % (
-            self.__class__.__name__,
-            dict.__repr__(self),
-            "*" if self.should_save else "",
+    def __init__(self, app, app_root="/"):
+        warnings.warn(
+            "'CGIRootFix' is deprecated as of version 0.15 and will be"
+            " removed in version 1.0.",
+            DeprecationWarning,
+            stacklevel=2,
         )
+        self.app = app
+        self.app_root = app_root.strip("/")
 
-    @property
-    def should_save(self):
-        """True if the session should be saved.  By default this is only true
-        for :attr:`modified` cookies, not :attr:`new`.
-        """
-        return self.modified
+    def __call__(self, environ, start_response):
+        environ["SCRIPT_NAME"] = self.app_root
+        return self.app(environ, start_response)
 
-    @classmethod
-    def quote(cls, value):
-        """Quote the value for the cookie.  This can be any object supported
-        by :attr:`serialization_method`.
 
-        :param value: the value to quote.
-        """
-        if cls.serialization_method is not None:
-            value = cls.serialization_method.dumps(value)
-        if cls.quote_base64:
-            value = b"".join(
-                base64.b64encode(to_bytes(value, "utf8")).splitlines()
-            ).strip()
-        return value
+class LighttpdCGIRootFix(CGIRootFix):
+    def __init__(self, *args, **kwargs):
+        warnings.warn(
+            "'LighttpdCGIRootFix' is renamed 'CGIRootFix'. Both will be"
+            " removed in version 1.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super(LighttpdCGIRootFix, self).__init__(*args, **kwargs)
 
-    @classmethod
-    def unquote(cls, value):
-        """Unquote the value for the cookie.  If unquoting does not work a
-        :exc:`UnquoteError` is raised.
 
-        :param value: the value to unquote.
-        """
-        try:
-            if cls.quote_base64:
-                value = base64.b64decode(value)
-            if cls.serialization_method is not None:
-                value = cls.serialization_method.loads(value)
-            return value
-        except Exception:
-            # unfortunately pickle and other serialization modules can
-            # cause pretty every error here.  if we get one we catch it
-            # and convert it into an UnquoteError
-            raise UnquoteError()
+class PathInfoFromRequestUriFix(object):
+    """On windows environment variables are limited to the system charset
+    which makes it impossible to store the `PATH_INFO` variable in the
+    environment without loss of information on some systems.
 
-    def serialize(self, expires=None):
-        """Serialize the secure cookie into a string.
+    This is for example a problem for CGI scripts on a Windows Apache.
 
-        If expires is provided, the session will be automatically invalidated
-        after expiration when you unseralize it. This provides better
-        protection against session cookie theft.
+    This fixer works by recreating the `PATH_INFO` from `REQUEST_URI`,
+    `REQUEST_URL`, or `UNENCODED_URL` (whatever is available).  Thus the
+    fix can only be applied if the webserver supports either of these
+    variables.
 
-        :param expires: an optional expiration date for the cookie (a
-                        :class:`datetime.datetime` object)
-        """
-        if self.secret_key is None:
-            raise RuntimeError("no secret key defined")
-        if expires:
-            self["_expires"] = _date_to_unix(expires)
-        result = []
-        mac = hmac(self.secret_key, None, self.hash_method)
-        for key, value in sorted(self.items()):
-            result.append(
-                (
-                    "%s=%s" % (url_quote_plus(key), self.quote(value).decode("ascii"))
-                ).encode("ascii")
-            )
-            mac.update(b"|" + result[-1])
-        return b"?".join([base64.b64encode(mac.digest()).strip(), b"&".join(result)])
+    :param app: the WSGI application
 
-    @classmethod
-    def unserialize(cls, string, secret_key):
-        """Load the secure cookie from a serialized string.
+    .. deprecated:: 0.15
+        This middleware will be removed in version 1.0.
+    """
 
-        :param string: the cookie value to unserialize.
-        :param secret_key: the secret key used to serialize the cookie.
-        :return: a new :class:`SecureCookie`.
-        """
-        if isinstance(string, text_type):
-            string = string.encode("utf-8", "replace")
-        if isinstance(secret_key, text_type):
-            secret_key = secret_key.encode("utf-8", "replace")
-        try:
-            base64_hash, data = string.split(b"?", 1)
-        except (ValueError, IndexError):
-            items = ()
-        else:
-            items = {}
-            mac = hmac(secret_key, None, cls.hash_method)
-            for item in data.split(b"&"):
-                mac.update(b"|" + item)
-                if b"=" not in item:
-                    items = None
-                    break
-                key, value = item.split(b"=", 1)
-                # try to make the key a string
-                key = url_unquote_plus(key.decode("ascii"))
-                try:
-                    key = to_native(key)
-                except UnicodeError:
-                    pass
-                items[key] = value
+    def __init__(self, app):
+        warnings.warn(
+            "'PathInfoFromRequestUriFix' is deprecated as of version"
+            " 0.15 and will be removed in version 1.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.app = app
 
-            # no parsing error and the mac looks okay, we can now
-            # sercurely unpickle our cookie.
-            try:
-                client_hash = base64.b64decode(base64_hash)
-            except TypeError:
-                items = client_hash = None
-            if items is not None and safe_str_cmp(client_hash, mac.digest()):
-                try:
-                    for key, value in iteritems(items):
-                        items[key] = cls.unquote(value)
-                except UnquoteError:
-                    items = ()
-                else:
-                    if "_expires" in items:
-                        if time() > items["_expires"]:
-                            items = ()
-                        else:
-                            del items["_expires"]
+    def __call__(self, environ, start_response):
+        for key in "REQUEST_URL", "REQUEST_URI", "UNENCODED_URL":
+            if key not in environ:
+                continue
+            request_uri = unquote(environ[key])
+            script_name = unquote(environ.get("SCRIPT_NAME", ""))
+            if request_uri.startswith(script_name):
+                environ["PATH_INFO"] = request_uri[len(script_name) :].split("?", 1)[0]
+                break
+        return self.app(environ, start_response)
+
+
+class ProxyFix(_ProxyFix):
+    """
+    .. deprecated:: 0.15
+        ``werkzeug.contrib.fixers.ProxyFix`` has moved to
+        :mod:`werkzeug.middleware.proxy_fix`. This import will be
+        removed in 1.0.
+    """
+
+    def __init__(self, *args, **kwargs):
+        warnings.warn(
+            "'werkzeug.contrib.fixers.ProxyFix' has moved to 'werkzeug"
+            ".middleware.proxy_fix.ProxyFix'. This import is deprecated"
+            " as of version 0.15 and will be removed in 1.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super(ProxyFix, self).__init__(*args, **kwargs)
+
+
+class HeaderRewriterFix(object):
+    """This middleware can remove response headers and add others.  This
+    is for example useful to remove the `Date` header from responses if you
+    are using a server that adds that header, no matter if it's present or
+    not or to add `X-Powered-By` headers::
+
+        app = HeaderRewriterFix(app, remove_headers=['Date'],
+                                add_headers=[('X-Powered-By', 'WSGI')])
+
+    :param app: the WSGI application
+    :param remove_headers: a sequence of header keys that should be
+                           removed.
+    :param add_headers: a sequence of ``(key, value)`` tuples that should
+                        be added.
+
+    .. deprecated:: 0.15
+        This middleware will be removed in 1.0.
+    """
+
+    def __init__(self, app, remove_headers=None, add_headers=None):
+        warnings.warn(
+            "'HeaderRewriterFix' is deprecated as of version 0.15 and"
+            " will be removed in version 1.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.app = app
+        self.remove_headers = set(x.lower() for x in (remove_headers or ()))
+        self.add_headers = list(add_headers or ())
+
+    def __call__(self, environ, start_response):
+        def rewriting_start_response(status, headers, exc_info=None):
+            new_headers = []
+            for key, value in headers:
+                if key.lower() not in self.remove_headers:
+                    new_headers.append((key, value))
+            new_headers += self.add_headers
+            return start_response(status, new_headers, exc_info)
+
+        return self.app(environ, rewriting_start_response)
+
+
+class InternetExplorerFix(object):
+    """This middleware fixes a couple of bugs with Microsoft Internet
+    Explorer.  Currently the following fixes are applied:
+
+    -   removing of `Vary` headers for unsupported mimetypes which
+        causes troubles with caching.  Can be disabled by passing
+        ``fix_vary=False`` to the constructor.
+        see: https://support.microsoft.com/en-us/help/824847
+
+    -   removes offending headers to work around caching bugs in
+        Internet Explorer if `Content-Disposition` is set.  Can be
+        disabled by passing ``fix_attach=False`` to the constructor.
+
+    If it does not detect affected Internet Explorer versions it won't touch
+    the request / response.
+
+    .. deprecated:: 0.15
+        This middleware will be removed in 1.0.
+    """
+
+    # This code was inspired by Django fixers for the same bugs.  The
+    # fix_vary and fix_attach fixers were originally implemented in Django
+    # by Michael Axiak and is available as part of the Django project:
+    #     https://code.djangoproject.com/ticket/4148
+
+    def __init__(self, app, fix_vary=True, fix_attach=True):
+        warnings.warn(
+            "'InternetExplorerFix' is deprecated as of version 0.15 and"
+            " will be removed in version 1.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.app = app
+        self.fix_vary = fix_vary
+        self.fix_attach = fix_attach
+
+    def fix_headers(self, environ, headers, status=None):
+        if self.fix_vary:
+            header = headers.get("content-type", "")
+            mimetype, options = parse_options_header(header)
+            if mimetype not in ("text/html", "text/plain", "text/sgml"):
+                headers.pop("vary", None)
+
+        if self.fix_attach and "content-disposition" in headers:
+            pragma = parse_set_header(headers.get("pragma", ""))
+            pragma.discard("no-cache")
+            header = pragma.to_header()
+            if not header:
+                headers.pop("pragma", "")
             else:
-                items = ()
-        return cls(items, secret_key, False)
+                headers["Pragma"] = header
+            header = headers.get("cache-control", "")
+            if header:
+                cc = parse_cache_control_header(header, cls=ResponseCacheControl)
+                cc.no_cache = None
+                cc.no_store = False
+                header = cc.to_header()
+                if not header:
+                    headers.pop("cache-control", "")
+                else:
+                    headers["Cache-Control"] = header
 
-    @classmethod
-    def load_cookie(cls, request, key="session", secret_key=None):
-        """Loads a :class:`SecureCookie` from a cookie in request.  If the
-        cookie is not set, a new :class:`SecureCookie` instanced is
-        returned.
+    def run_fixed(self, environ, start_response):
+        def fixing_start_response(status, headers, exc_info=None):
+            headers = Headers(headers)
+            self.fix_headers(environ, headers, status)
+            return start_response(status, headers.to_wsgi_list(), exc_info)
 
-        :param request: a request object that has a `cookies` attribute
-                        which is a dict of all cookie values.
-        :param key: the name of the cookie.
-        :param secret_key: the secret key used to unquote the cookie.
-                           Always provide the value even though it has
-                           no default!
-        """
-        data = request.cookies.get(key)
-        if not data:
-            return cls(secret_key=secret_key)
-        return cls.unserialize(data, secret_key)
+        return self.app(environ, fixing_start_response)
 
-    def save_cookie(
-        self,
-        response,
-        key="session",
-        expires=None,
-        session_expires=None,
-        max_age=None,
-        path="/",
-        domain=None,
-        secure=None,
-        httponly=False,
-        force=False,
-    ):
-        """Saves the SecureCookie in a cookie on response object.  All
-        parameters that are not described here are forwarded directly
-        to :meth:`~BaseResponse.set_cookie`.
-
-        :param response: a response object that has a
-                         :meth:`~BaseResponse.set_cookie` method.
-        :param key: the name of the cookie.
-        :param session_expires: the expiration date of the secure cookie
-                                stored information.  If this is not provided
-                                the cookie `expires` date is used instead.
-        """
-        if force or self.should_save:
-            data = self.serialize(session_expires or expires)
-            response.set_cookie(
-                key,
-                data,
-                expires=expires,
-                max_age=max_age,
-                path=path,
-                domain=domain,
-                secure=secure,
-                httponly=httponly,
-            )
+    def __call__(self, environ, start_response):
+        ua = UserAgent(environ)
+        if ua.browser != "msie":
+            return self.app(environ, start_response)
+        return self.run_fixed(environ, start_response)

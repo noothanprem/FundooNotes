@@ -1,1 +1,0 @@
-¾ÆNvenv/lib64/python3.6/site-packages/pymacaroons/caveat_delegates/first_party.py 2pyX4h

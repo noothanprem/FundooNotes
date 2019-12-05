@@ -1,1 +1,1 @@
-„ÑBvenv/lib64/python3.6/site-packages/google/protobuf/any_test_pb2.py 2pyXXh
+„Ñ=venv/lib64/python3.6/site-packages/google/protobuf/message.py 2pyX¨h

@@ -1,1 +1,1 @@
-ší<venv/lib64/python3.6/site-packages/twisted/web/_responses.py 2pyXsh
+ší6venv/lib64/python3.6/site-packages/twisted/web/http.py 2pyX¼h

@@ -1,1 +1,2 @@
-ä>venv/lib/python3.6/site-packages/django/db/migrations/graph.py 2pyXÀh
+ä3venv/lib/python3.6/site-packages/django/__main__.py 2pyX
+h

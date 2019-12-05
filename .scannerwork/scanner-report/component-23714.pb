@@ -1,1 +1,1 @@
-¢¹Avenv/lib/python3.6/site-packages/social_core/backends/mendeley.py 2pyXDh
+¢¹Avenv/lib/python3.6/site-packages/social_core/backends/telegram.py 2pyX<h

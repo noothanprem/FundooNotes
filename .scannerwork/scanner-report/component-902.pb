@@ -1,1 +1,1 @@
-Ü%venv/lib/python3.6/site-packages/mako :"Öáàâäãåçéèêë£∏π∫ª
+Ü%venv/lib/python3.6/site-packages/mako :"Öáàâäãåçéèêë§π∫ªº

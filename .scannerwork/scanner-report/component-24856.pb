@@ -1,1 +1,1 @@
-˜ÂSvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/utils.py 2pyXÒh
+˜ÂVvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/adapters.py 2pyX–h

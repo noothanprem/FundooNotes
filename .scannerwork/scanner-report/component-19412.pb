@@ -1,1 +1,1 @@
-ԗ&venv/lib/python3.6/site-packages/isort :!ӗ՗֗חؗٗڗۗ���
+ԗ1venv/lib/python3.6/site-packages/isort/natural.py 2pyX0h

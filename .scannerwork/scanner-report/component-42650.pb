@@ -1,1 +1,1 @@
-šÍ.venv/lib64/python3.6/site-packages/django_cron :˜Í£Í¤Í¥Í¯ÍÆÍ
+šÍ.venv/lib64/python3.6/site-packages/django_cron :™Í¢Í£Í¥Í¬ÍÆÍ

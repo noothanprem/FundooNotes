@@ -1,1 +1,0 @@
-µÙ/venv/lib64/python3.6/site-packages/launchpadlib :´ÙÀÙÁÙÌÙÍÙæÙ

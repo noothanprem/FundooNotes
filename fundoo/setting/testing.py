@@ -6,3 +6,4 @@ try:
 except ImportError:
     print("Import error")
 
+TEST_TOKEN = os.getenv('TEST_TOKEN')

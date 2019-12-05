@@ -1,155 +1,170 @@
 """
-Classes to represent the definitions of aggregate functions.
+Useful auxiliary data structures for query construction. Not useful outside
+the SQL domain.
 """
-from django.core.exceptions import FieldError
-from django.db.models.expressions import Case, Func, Star, When
-from django.db.models.fields import IntegerField
-from django.db.models.functions.mixins import (
-    FixDurationInputMixin, NumericOutputFieldMixin,
-)
-
-__all__ = [
-    'Aggregate', 'Avg', 'Count', 'Max', 'Min', 'StdDev', 'Sum', 'Variance',
-]
+# for backwards-compatibility in Django 1.11
+from django.core.exceptions import EmptyResultSet  # NOQA: F401
+from django.db.models.sql.constants import INNER, LOUTER
 
 
-class Aggregate(Func):
-    template = '%(function)s(%(distinct)s%(expressions)s)'
-    contains_aggregate = True
-    name = None
-    filter_template = '%s FILTER (WHERE %%(filter)s)'
-    window_compatible = True
-    allow_distinct = False
-
-    def __init__(self, *expressions, distinct=False, filter=None, **extra):
-        if distinct and not self.allow_distinct:
-            raise TypeError("%s does not allow distinct." % self.__class__.__name__)
-        self.distinct = distinct
-        self.filter = filter
-        super().__init__(*expressions, **extra)
-
-    def get_source_fields(self):
-        # Don't return the filter expression since it's not a source field.
-        return [e._output_field_or_none for e in super().get_source_expressions()]
-
-    def get_source_expressions(self):
-        source_expressions = super().get_source_expressions()
-        if self.filter:
-            return source_expressions + [self.filter]
-        return source_expressions
-
-    def set_source_expressions(self, exprs):
-        self.filter = self.filter and exprs.pop()
-        return super().set_source_expressions(exprs)
-
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
-        # Aggregates are not allowed in UPDATE queries, so ignore for_save
-        c = super().resolve_expression(query, allow_joins, reuse, summarize)
-        c.filter = c.filter and c.filter.resolve_expression(query, allow_joins, reuse, summarize)
-        if not summarize:
-            # Call Aggregate.get_source_expressions() to avoid
-            # returning self.filter and including that in this loop.
-            expressions = super(Aggregate, c).get_source_expressions()
-            for index, expr in enumerate(expressions):
-                if expr.contains_aggregate:
-                    before_resolved = self.get_source_expressions()[index]
-                    name = before_resolved.name if hasattr(before_resolved, 'name') else repr(before_resolved)
-                    raise FieldError("Cannot compute %s('%s'): '%s' is an aggregate" % (c.name, name, name))
-        return c
-
-    @property
-    def default_alias(self):
-        expressions = self.get_source_expressions()
-        if len(expressions) == 1 and hasattr(expressions[0], 'name'):
-            return '%s__%s' % (expressions[0].name, self.name.lower())
-        raise TypeError("Complex expressions require an alias")
-
-    def get_group_by_cols(self):
-        return []
-
-    def as_sql(self, compiler, connection, **extra_context):
-        extra_context['distinct'] = 'DISTINCT ' if self.distinct else ''
-        if self.filter:
-            if connection.features.supports_aggregate_filter_clause:
-                filter_sql, filter_params = self.filter.as_sql(compiler, connection)
-                template = self.filter_template % extra_context.get('template', self.template)
-                sql, params = super().as_sql(
-                    compiler, connection, template=template, filter=filter_sql,
-                    **extra_context
-                )
-                return sql, params + filter_params
-            else:
-                copy = self.copy()
-                copy.filter = None
-                source_expressions = copy.get_source_expressions()
-                condition = When(self.filter, then=source_expressions[0])
-                copy.set_source_expressions([Case(condition)] + source_expressions[1:])
-                return super(Aggregate, copy).as_sql(compiler, connection, **extra_context)
-        return super().as_sql(compiler, connection, **extra_context)
-
-    def _get_repr_options(self):
-        options = super()._get_repr_options()
-        if self.distinct:
-            options['distinct'] = self.distinct
-        if self.filter:
-            options['filter'] = self.filter
-        return options
+class MultiJoin(Exception):
+    """
+    Used by join construction code to indicate the point at which a
+    multi-valued join was attempted (if the caller wants to treat that
+    exceptionally).
+    """
+    def __init__(self, names_pos, path_with_names):
+        self.level = names_pos
+        # The path travelled, this includes the path to the multijoin.
+        self.names_with_path = path_with_names
 
 
-class Avg(FixDurationInputMixin, NumericOutputFieldMixin, Aggregate):
-    function = 'AVG'
-    name = 'Avg'
+class Empty:
+    pass
 
 
-class Count(Aggregate):
-    function = 'COUNT'
-    name = 'Count'
-    output_field = IntegerField()
-    allow_distinct = True
+class Join:
+    """
+    Used by sql.Query and sql.SQLCompiler to generate JOIN clauses into the
+    FROM entry. For example, the SQL generated could be
+        LEFT OUTER JOIN "sometable" T1 ON ("othertable"."sometable_id" = "sometable"."id")
 
-    def __init__(self, expression, filter=None, **extra):
-        if expression == '*':
-            expression = Star()
-        if isinstance(expression, Star) and filter is not None:
-            raise ValueError('Star cannot be used with filter. Please specify a field.')
-        super().__init__(expression, filter=filter, **extra)
+    This class is primarily used in Query.alias_map. All entries in alias_map
+    must be Join compatible by providing the following attributes and methods:
+        - table_name (string)
+        - table_alias (possible alias for the table, can be None)
+        - join_type (can be None for those entries that aren't joined from
+          anything)
+        - parent_alias (which table is this join's parent, can be None similarly
+          to join_type)
+        - as_sql()
+        - relabeled_clone()
+    """
+    def __init__(self, table_name, parent_alias, table_alias, join_type,
+                 join_field, nullable, filtered_relation=None):
+        # Join table
+        self.table_name = table_name
+        self.parent_alias = parent_alias
+        # Note: table_alias is not necessarily known at instantiation time.
+        self.table_alias = table_alias
+        # LOUTER or INNER
+        self.join_type = join_type
+        # A list of 2-tuples to use in the ON clause of the JOIN.
+        # Each 2-tuple will create one join condition in the ON clause.
+        self.join_cols = join_field.get_joining_columns()
+        # Along which field (or ForeignObjectRel in the reverse join case)
+        self.join_field = join_field
+        # Is this join nullabled?
+        self.nullable = nullable
+        self.filtered_relation = filtered_relation
 
-    def convert_value(self, value, expression, connection):
-        return 0 if value is None else value
+    def as_sql(self, compiler, connection):
+        """
+        Generate the full
+           LEFT OUTER JOIN sometable ON sometable.somecol = othertable.othercol, params
+        clause for this join.
+        """
+        join_conditions = []
+        params = []
+        qn = compiler.quote_name_unless_alias
+        qn2 = connection.ops.quote_name
+
+        # Add a join condition for each pair of joining columns.
+        for lhs_col, rhs_col in self.join_cols:
+            join_conditions.append('%s.%s = %s.%s' % (
+                qn(self.parent_alias),
+                qn2(lhs_col),
+                qn(self.table_alias),
+                qn2(rhs_col),
+            ))
+
+        # Add a single condition inside parentheses for whatever
+        # get_extra_restriction() returns.
+        extra_cond = self.join_field.get_extra_restriction(
+            compiler.query.where_class, self.table_alias, self.parent_alias)
+        if extra_cond:
+            extra_sql, extra_params = compiler.compile(extra_cond)
+            join_conditions.append('(%s)' % extra_sql)
+            params.extend(extra_params)
+        if self.filtered_relation:
+            extra_sql, extra_params = compiler.compile(self.filtered_relation)
+            if extra_sql:
+                join_conditions.append('(%s)' % extra_sql)
+                params.extend(extra_params)
+        if not join_conditions:
+            # This might be a rel on the other end of an actual declared field.
+            declared_field = getattr(self.join_field, 'field', self.join_field)
+            raise ValueError(
+                "Join generated an empty ON clause. %s did not yield either "
+                "joining columns or extra restrictions." % declared_field.__class__
+            )
+        on_clause_sql = ' AND '.join(join_conditions)
+        alias_str = '' if self.table_alias == self.table_name else (' %s' % self.table_alias)
+        sql = '%s %s%s ON (%s)' % (self.join_type, qn(self.table_name), alias_str, on_clause_sql)
+        return sql, params
+
+    def relabeled_clone(self, change_map):
+        new_parent_alias = change_map.get(self.parent_alias, self.parent_alias)
+        new_table_alias = change_map.get(self.table_alias, self.table_alias)
+        if self.filtered_relation is not None:
+            filtered_relation = self.filtered_relation.clone()
+            filtered_relation.path = [change_map.get(p, p) for p in self.filtered_relation.path]
+        else:
+            filtered_relation = None
+        return self.__class__(
+            self.table_name, new_parent_alias, new_table_alias, self.join_type,
+            self.join_field, self.nullable, filtered_relation=filtered_relation,
+        )
+
+    def equals(self, other, with_filtered_relation):
+        return (
+            isinstance(other, self.__class__) and
+            self.table_name == other.table_name and
+            self.parent_alias == other.parent_alias and
+            self.join_field == other.join_field and
+            (not with_filtered_relation or self.filtered_relation == other.filtered_relation)
+        )
+
+    def __eq__(self, other):
+        return self.equals(other, with_filtered_relation=True)
+
+    def demote(self):
+        new = self.relabeled_clone({})
+        new.join_type = INNER
+        return new
+
+    def promote(self):
+        new = self.relabeled_clone({})
+        new.join_type = LOUTER
+        return new
 
 
-class Max(Aggregate):
-    function = 'MAX'
-    name = 'Max'
+class BaseTable:
+    """
+    The BaseTable class is used for base table references in FROM clause. For
+    example, the SQL "foo" in
+        SELECT * FROM "foo" WHERE somecond
+    could be generated by this class.
+    """
+    join_type = None
+    parent_alias = None
+    filtered_relation = None
 
+    def __init__(self, table_name, alias):
+        self.table_name = table_name
+        self.table_alias = alias
 
-class Min(Aggregate):
-    function = 'MIN'
-    name = 'Min'
+    def as_sql(self, compiler, connection):
+        alias_str = '' if self.table_alias == self.table_name else (' %s' % self.table_alias)
+        base_sql = compiler.quote_name_unless_alias(self.table_name)
+        return base_sql + alias_str, []
 
+    def relabeled_clone(self, change_map):
+        return self.__class__(self.table_name, change_map.get(self.table_alias, self.table_alias))
 
-class StdDev(NumericOutputFieldMixin, Aggregate):
-    name = 'StdDev'
-
-    def __init__(self, expression, sample=False, **extra):
-        self.function = 'STDDEV_SAMP' if sample else 'STDDEV_POP'
-        super().__init__(expression, **extra)
-
-    def _get_repr_options(self):
-        return {**super()._get_repr_options(), 'sample': self.function == 'STDDEV_SAMP'}
-
-
-class Sum(FixDurationInputMixin, Aggregate):
-    function = 'SUM'
-    name = 'Sum'
-
-
-class Variance(NumericOutputFieldMixin, Aggregate):
-    name = 'Variance'
-
-    def __init__(self, expression, sample=False, **extra):
-        self.function = 'VAR_SAMP' if sample else 'VAR_POP'
-        super().__init__(expression, **extra)
-
-    def _get_repr_options(self):
-        return {**super()._get_repr_options(), 'sample': self.function == 'VAR_SAMP'}
+    def equals(self, other, with_filtered_relation):
+        return (
+            isinstance(self, other.__class__) and
+            self.table_name == other.table_name and
+            self.table_alias == other.table_alias
+        )

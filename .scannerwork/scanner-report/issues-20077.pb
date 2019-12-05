@@ -1,3 +1,15 @@
-…
-pythonS117iRename this local variable "GenerateConsoleCtrlEvent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2++  g
-pythonS1542JRename function "_" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 	
+K
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2* ;K
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2  ( 9K
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2!!( 9K
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2$$ 3K
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2%%  4K
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2&&  4M
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2
+®®+ <M
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2
+¯¯, =M
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2
+¶¶ &M
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2
+·· &

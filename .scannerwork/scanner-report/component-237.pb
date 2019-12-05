@@ -1,1 +1,1 @@
-í>venv/lib/python3.6/site-packages/oauth2_provider/decorators.py 2pyXUh
+í8venv/lib/python3.6/site-packages/oauth2_provider/apps.py 2pyXh

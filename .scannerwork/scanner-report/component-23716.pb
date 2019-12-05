@@ -1,1 +1,1 @@
-คนDvenv/lib/python3.6/site-packages/social_core/backends/thisismyjam.py 2pyX"h
+คนJvenv/lib/python3.6/site-packages/social_core/backends/github_enterprise.py 2pyX+h

@@ -1,1 +1,0 @@
-¾ØEvenv/lib64/python3.6/site-packages/geventhttpclient/tests/test_url.py 2pyXvh

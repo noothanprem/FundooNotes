@@ -1,1 +1,1 @@
-¢8venv/lib/python3.6/site-packages/MySQLdb/constants/ER.py 2pyXºh
+¢6venv/lib/python3.6/site-packages/MySQLdb/converters.py 2pyXh

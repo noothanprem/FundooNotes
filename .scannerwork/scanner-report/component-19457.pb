@@ -1,1 +1,1 @@
-˜2venv/lib/python3.6/site-packages/daphne/testing.py 2pyXüh
+˜8venv/lib/python3.6/site-packages/daphne/http_protocol.py 2pyXh

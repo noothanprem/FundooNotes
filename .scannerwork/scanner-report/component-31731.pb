@@ -1,1 +1,1 @@
-σχ>venv/lib64/python3.6/site-packages/django/contrib/gis/feeds.py 2pyXh
+σχ5venv/lib64/python3.6/site-packages/django/contrib/gis :ςχ‚ψψψΠϋόό ό

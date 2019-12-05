@@ -1,24 +1,27 @@
-q
-pythonS100URename method "pauseProducing" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2** r
-pythonS100VRename method "resumeProducing" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2// p
-pythonS100TRename method "stopProducing" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2<< s
-pythonS100WRename method "registerProducer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2RR u
-pythonS100YRename method "unregisterProducer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2VV q
-pythonS100URename method "pauseProducing" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2mm r
-pythonS100VRename method "resumeProducing" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2rr u
-pythonS100WRename method "registerProducer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-µµ w
-pythonS100YRename method "unregisterProducer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-»» s
-pythonS100URename method "_writeSomeData" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÃÃ v
-pythonS117ZRename this local variable "bytesSent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2vv |
-pythonS117^Rename this local variable "bytesBuffered" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-‰‰ x
-pythonS117ZRename this local variable "bytesSent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-§§ |
-pythonS117^Rename this local variable "bytesBuffered" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-¯¯ w
-pythonS116[Rename this field "producerIsStreaming" to match the regular expression ^[_a-z][_a-z0-9]*$. 2 p
-pythonS116TRename this field "iAmStreaming" to match the regular expression ^[_a-z][_a-z0-9]*$. 2 s
-pythonS116WRename this field "outstandingPull" to match the regular expression ^[_a-z][_a-z0-9]*$. 2 
+r
+pythonS100VRename method "writeRunningPID" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2$$ l
+pythonS100PRename method "isRunning" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 244 t
+pythonS100VRename method "writeRunningPID" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+šš n
+pythonS100PRename method "isRunning" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¢¢ w
+pythonS100YRename method "_pidIsRunningPOSIX" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+±± t
+pythonS100VRename method "writeRunningPID" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ýý n
+pythonS100PRename method "isRunning" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+…… o
+pythonS117SRename this parameter "excType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2OO p
+pythonS117TRename this parameter "excValue" to match the regular expression ^[_a-z][a-z0-9_]*$. 2OO "p
+pythonS117TRename this parameter "filePath" to match the regular expression ^[_a-z][a-z0-9_]*$. 2ss v
+pythonS117ZRename this local variable "pidString" to match the regular expression ^[_a-z][a-z0-9_]*$. 2 q
+pythonS117SRename this parameter "excType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÙÙ r
+pythonS117TRename this parameter "excValue" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÙÙ  (q
+pythonS117SRename this parameter "excType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ r
+pythonS117TRename this parameter "excValue" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+  (l
+pythonS116PRename this field "filePath" to match the regular expression ^[_a-z][_a-z0-9]*$. 2xx 6
+pythonS2733Add the missing argument. 2OO .

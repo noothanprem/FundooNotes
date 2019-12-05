@@ -1,1 +1,1 @@
-ù1venv/lib/python3.6/site-packages/reportlab/pdfgen :úûü†°©
+ù?venv/lib/python3.6/site-packages/reportlab/pdfgen/textobject.py 2pyX„h

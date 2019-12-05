@@ -1,1 +1,1 @@
-íÄAvenv/lib64/python3.6/site-packages/awscli/customizations/s3/s3.py 2pyXFh
+íÄGvenv/lib64/python3.6/site-packages/awscli/customizations/s3/__init__.py 2pyXh

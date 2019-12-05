@@ -1,1 +1,1 @@
-¬¹Cvenv/lib/python3.6/site-packages/social_core/backends/justgiving.py 2pyX9h
+¬¹?venv/lib/python3.6/site-packages/social_core/backends/edmodo.py 2pyX#h

@@ -1,1 +1,1 @@
-¬`6venv/lib/python3.6/site-packages/PIL/GifImagePlugin.py 2pyX¯h
+¬`1venv/lib/python3.6/site-packages/PIL/ImageMode.py 2pyX8h

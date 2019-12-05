@@ -1,1 +1,1 @@
-Ö?Cvenv/lib/python3.6/site-packages/django/core/checks/model_checks.py 2pyXµh
+Ö?@venv/lib/python3.6/site-packages/django/core/checks/templates.py 2pyX$h

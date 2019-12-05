@@ -1,1 +1,0 @@
-Ççavenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/treewalkers/etree.py 2pyXÉh

@@ -1,1 +1,1 @@
-šKGvenv/lib/python3.6/site-packages/libpasteurize/fixes/fix_annotations.py 2pyX1h
+šKDvenv/lib/python3.6/site-packages/libpasteurize/fixes/fix_newstyle.py 2pyX"h

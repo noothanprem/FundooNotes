@@ -1,303 +1,226 @@
-# -*- coding: utf-8 -*-
-"""Mixins."""
+"""Message class."""
 from __future__ import absolute_import, unicode_literals
 
-import socket
+import sys
 
-from contextlib import contextmanager
-from functools import partial
-from itertools import count
-from time import sleep
+from .compression import decompress
+from .exceptions import MessageStateError
+from .five import python_2_unicode_compatible, reraise, text_t
+from .serialization import loads
+from .utils.functional import dictfilter
 
-from .common import ignore_errors
-from .five import range
-from .messaging import Consumer, Producer
-from .log import get_logger
-from .utils.compat import nested
-from .utils.encoding import safe_repr
-from .utils.limits import TokenBucket
-from .utils.objects import cached_property
+__all__ = ('Message',)
 
-__all__ = ('ConsumerMixin', 'ConsumerProducerMixin')
-
-logger = get_logger(__name__)
-debug, info, warn, error = (
-    logger.debug,
-    logger.info,
-    logger.warning,
-    logger.error
-)
-
-W_CONN_LOST = """\
-Connection to broker lost, trying to re-establish connection...\
-"""
-
-W_CONN_ERROR = """\
-Broker connection error, trying again in %s seconds: %r.\
-"""
+ACK_STATES = {'ACK', 'REJECTED', 'REQUEUED'}
+IS_PYPY = hasattr(sys, 'pypy_version_info')
 
 
-class ConsumerMixin(object):
-    """Convenience mixin for implementing consumer programs.
+@python_2_unicode_compatible
+class Message(object):
+    """Base class for received messages.
 
-    It can be used outside of threads, with threads, or greenthreads
-    (eventlet/gevent) too.
+    Keyword Arguments:
 
-    The basic class would need a :attr:`connection` attribute
-    which must be a :class:`~kombu.Connection` instance,
-    and define a :meth:`get_consumers` method that returns a list
-    of :class:`kombu.Consumer` instances to use.
-    Supporting multiple consumers is important so that multiple
-    channels can be used for different QoS requirements.
+        channel (ChannelT): If message was received, this should be the
+            channel that the message was received on.
 
-    Example:
-        .. code-block:: python
+        body (str): Message body.
 
-            class Worker(ConsumerMixin):
-                task_queue = Queue('tasks', Exchange('tasks'), 'tasks')
+        delivery_mode (bool): Set custom delivery mode.
+            Defaults to :attr:`delivery_mode`.
 
-                def __init__(self, connection):
-                    self.connection = None
+        priority (int): Message priority, 0 to broker configured
+            max priority, where higher is better.
 
-                def get_consumers(self, Consumer, channel):
-                    return [Consumer(queues=[self.task_queue],
-                                     callbacks=[self.on_task])]
+        content_type (str): The messages content_type.  If content_type
+            is set, no serialization occurs as it is assumed this is either
+            a binary object, or you've done your own serialization.
+            Leave blank if using built-in serialization as our library
+            properly sets content_type.
 
-                def on_task(self, body, message):
-                    print('Got task: {0!r}'.format(body))
-                    message.ack()
+        content_encoding (str): The character set in which this object
+            is encoded. Use "binary" if sending in raw binary objects.
+            Leave blank if using built-in serialization as our library
+            properly sets content_encoding.
 
-    Methods:
+        properties (Dict): Message properties.
 
-        * :meth:`extra_context`
-
-            Optional extra context manager that will be entered
-            after the connection and consumers have been set up.
-
-            Takes arguments ``(connection, channel)``.
-
-        * :meth:`on_connection_error`
-
-            Handler called if the connection is lost/ or
-            is unavailable.
-
-            Takes arguments ``(exc, interval)``, where interval
-            is the time in seconds when the connection will be retried.
-
-            The default handler will log the exception.
-
-        * :meth:`on_connection_revived`
-
-            Handler called as soon as the connection is re-established
-            after connection failure.
-
-            Takes no arguments.
-
-        * :meth:`on_consume_ready`
-
-            Handler called when the consumer is ready to accept
-            messages.
-
-            Takes arguments ``(connection, channel, consumers)``.
-            Also keyword arguments to ``consume`` are forwarded
-            to this handler.
-
-        * :meth:`on_consume_end`
-
-            Handler called after the consumers are canceled.
-            Takes arguments ``(connection, channel)``.
-
-        * :meth:`on_iteration`
-
-            Handler called for every iteration while draining
-            events.
-
-            Takes no arguments.
-
-        * :meth:`on_decode_error`
-
-            Handler called if a consumer was unable to decode
-            the body of a message.
-
-            Takes arguments ``(message, exc)`` where message is the
-            original message object.
-
-            The default handler will log the error and
-            acknowledge the message, so if you override make
-            sure to call super, or perform these steps yourself.
-
+        headers (Dict): Message headers.
     """
 
-    #: maximum number of retries trying to re-establish the connection,
-    #: if the connection is lost/unavailable.
-    connect_max_retries = None
+    MessageStateError = MessageStateError
 
-    #: When this is set to true the consumer should stop consuming
-    #: and return, so that it can be joined if it is the implementation
-    #: of a thread.
-    should_stop = False
+    errors = None
 
-    def get_consumers(self, Consumer, channel):
-        raise NotImplementedError('Subclass responsibility')
+    if not IS_PYPY:  # pragma: no cover
+        __slots__ = (
+            '_state', 'channel', 'delivery_tag',
+            'content_type', 'content_encoding',
+            'delivery_info', 'headers', 'properties',
+            'body', '_decoded_cache', 'accept', '__dict__',
+        )
 
-    def on_connection_revived(self):
-        pass
+    def __init__(self, body=None, delivery_tag=None,
+                 content_type=None, content_encoding=None, delivery_info=None,
+                 properties=None, headers=None, postencode=None,
+                 accept=None, channel=None, **kwargs):
+        delivery_info = {} if not delivery_info else delivery_info
+        self.errors = [] if self.errors is None else self.errors
+        self.channel = channel
+        self.delivery_tag = delivery_tag
+        self.content_type = content_type
+        self.content_encoding = content_encoding
+        self.delivery_info = delivery_info
+        self.headers = headers or {}
+        self.properties = properties or {}
+        self._decoded_cache = None
+        self._state = 'RECEIVED'
+        self.accept = accept
 
-    def on_consume_ready(self, connection, channel, consumers, **kwargs):
-        pass
-
-    def on_consume_end(self, connection, channel):
-        pass
-
-    def on_iteration(self):
-        pass
-
-    def on_decode_error(self, message, exc):
-        error("Can't decode message body: %r (type:%r encoding:%r raw:%r')",
-              exc, message.content_type, message.content_encoding,
-              safe_repr(message.body))
-        message.ack()
-
-    def on_connection_error(self, exc, interval):
-        warn(W_CONN_ERROR, interval, exc, exc_info=1)
-
-    @contextmanager
-    def extra_context(self, connection, channel):
-        yield
-
-    def run(self, _tokens=1, **kwargs):
-        restart_limit = self.restart_limit
-        errors = (self.connection.connection_errors +
-                  self.connection.channel_errors)
-        while not self.should_stop:
+        compression = self.headers.get('compression')
+        if not self.errors and compression:
             try:
-                if restart_limit.can_consume(_tokens):  # pragma: no cover
-                    for _ in self.consume(limit=None, **kwargs):
-                        pass
-                else:
-                    sleep(restart_limit.expected_time(_tokens))
-            except errors:
-                warn(W_CONN_LOST, exc_info=1)
+                body = decompress(body, compression)
+            except Exception:
+                self.errors.append(sys.exc_info())
 
-    @contextmanager
-    def consumer_context(self, **kwargs):
-        with self.Consumer() as (connection, channel, consumers):
-            with self.extra_context(connection, channel):
-                self.on_consume_ready(connection, channel, consumers, **kwargs)
-                yield connection, channel, consumers
+        if not self.errors and postencode and isinstance(body, text_t):
+            try:
+                body = body.encode(postencode)
+            except Exception:
+                self.errors.append(sys.exc_info())
+        self.body = body
 
-    def consume(self, limit=None, timeout=None, safety_interval=1, **kwargs):
-        elapsed = 0
-        with self.consumer_context(**kwargs) as (conn, channel, consumers):
-            for i in limit and range(limit) or count():
-                if self.should_stop:
-                    break
-                self.on_iteration()
-                try:
-                    conn.drain_events(timeout=safety_interval)
-                except socket.timeout:
-                    conn.heartbeat_check()
-                    elapsed += safety_interval
-                    if timeout and elapsed >= timeout:
-                        raise
-                except socket.error:
-                    if not self.should_stop:
-                        raise
-                else:
-                    yield
-                    elapsed = 0
-        debug('consume exiting')
+    def _reraise_error(self, callback=None):
+        try:
+            reraise(*self.errors[0])
+        except Exception as exc:
+            if not callback:
+                raise
+            callback(self, exc)
 
-    def maybe_conn_error(self, fun):
-        """Use :func:`kombu.common.ignore_errors` instead."""
-        return ignore_errors(self, fun)
+    def ack(self, multiple=False):
+        """Acknowledge this message as being processed.
 
-    def create_connection(self):
-        return self.connection.clone()
+        This will remove the message from the queue.
 
-    @contextmanager
-    def establish_connection(self):
-        with self.create_connection() as conn:
-            conn.ensure_connection(self.on_connection_error,
-                                   self.connect_max_retries)
-            yield conn
+        Raises:
+            MessageStateError: If the message has already been
+                acknowledged/requeued/rejected.
+        """
+        if self.channel is None:
+            raise self.MessageStateError(
+                'This message does not have a receiving channel')
+        if self.channel.no_ack_consumers is not None:
+            try:
+                consumer_tag = self.delivery_info['consumer_tag']
+            except KeyError:
+                pass
+            else:
+                if consumer_tag in self.channel.no_ack_consumers:
+                    return
+        if self.acknowledged:
+            raise self.MessageStateError(
+                'Message already acknowledged with state: {0._state}'.format(
+                    self))
+        self.channel.basic_ack(self.delivery_tag, multiple=multiple)
+        self._state = 'ACK'
 
-    @contextmanager
-    def Consumer(self):
-        with self.establish_connection() as conn:
-            self.on_connection_revived()
-            info('Connected to %s', conn.as_uri())
-            channel = conn.default_channel
-            cls = partial(Consumer, channel,
-                          on_decode_error=self.on_decode_error)
-            with self._consume_from(*self.get_consumers(cls, channel)) as c:
-                yield conn, channel, c
-            debug('Consumers canceled')
-            self.on_consume_end(conn, channel)
-        debug('Connection closed')
+    def ack_log_error(self, logger, errors, multiple=False):
+        try:
+            self.ack(multiple=multiple)
+        except errors as exc:
+            logger.critical("Couldn't ack %r, reason:%r",
+                            self.delivery_tag, exc, exc_info=True)
 
-    def _consume_from(self, *consumers):
-        return nested(*consumers)
+    def reject_log_error(self, logger, errors, requeue=False):
+        try:
+            self.reject(requeue=requeue)
+        except errors as exc:
+            logger.critical("Couldn't reject %r, reason: %r",
+                            self.delivery_tag, exc, exc_info=True)
 
-    @cached_property
-    def restart_limit(self):
-        return TokenBucket(1)
+    def reject(self, requeue=False):
+        """Reject this message.
 
-    @cached_property
-    def connection_errors(self):
-        return self.connection.connection_errors
+        The message will be discarded by the server.
 
-    @cached_property
-    def channel_errors(self):
-        return self.connection.channel_errors
+        Raises:
+            MessageStateError: If the message has already been
+                acknowledged/requeued/rejected.
+        """
+        if self.channel is None:
+            raise self.MessageStateError(
+                'This message does not have a receiving channel')
+        if self.acknowledged:
+            raise self.MessageStateError(
+                'Message already acknowledged with state: {0._state}'.format(
+                    self))
+        self.channel.basic_reject(self.delivery_tag, requeue=requeue)
+        self._state = 'REJECTED'
 
+    def requeue(self):
+        """Reject this message and put it back on the queue.
 
-class ConsumerProducerMixin(ConsumerMixin):
-    """Consumer and Producer mixin.
+        Warning:
+            You must not use this method as a means of selecting messages
+            to process.
 
-    Version of ConsumerMixin having separate connection for also
-    publishing messages.
+        Raises:
+            MessageStateError: If the message has already been
+                acknowledged/requeued/rejected.
+        """
+        if self.channel is None:
+            raise self.MessageStateError(
+                'This message does not have a receiving channel')
+        if self.acknowledged:
+            raise self.MessageStateError(
+                'Message already acknowledged with state: {0._state}'.format(
+                    self))
+        self.channel.basic_reject(self.delivery_tag, requeue=True)
+        self._state = 'REQUEUED'
 
-    Example:
-        .. code-block:: python
+    def decode(self):
+        """Deserialize the message body.
 
-            class Worker(ConsumerProducerMixin):
+        Returning the original python structure sent by the publisher.
 
-                def __init__(self, connection):
-                    self.connection = connection
+        Note:
+            The return value is memoized, use `_decode` to force
+            re-evaluation.
+        """
+        if not self._decoded_cache:
+            self._decoded_cache = self._decode()
+        return self._decoded_cache
 
-                def get_consumers(self, Consumer, channel):
-                    return [Consumer(queues=Queue('foo'),
-                                     on_message=self.handle_message,
-                                     accept='application/json',
-                                     prefetch_count=10)]
-
-                def handle_message(self, message):
-                    self.producer.publish(
-                        {'message': 'hello to you'},
-                        exchange='',
-                        routing_key=message.properties['reply_to'],
-                        correlation_id=message.properties['correlation_id'],
-                        retry=True,
-                    )
-    """
-
-    _producer_connection = None
-
-    def on_consume_end(self, connection, channel):
-        if self._producer_connection is not None:
-            self._producer_connection.close()
-            self._producer_connection = None
-
-    @property
-    def producer(self):
-        return Producer(self.producer_connection)
+    def _decode(self):
+        return loads(self.body, self.content_type,
+                     self.content_encoding, accept=self.accept)
 
     @property
-    def producer_connection(self):
-        if self._producer_connection is None:
-            conn = self.connection.clone()
-            conn.ensure_connection(self.on_connection_error,
-                                   self.connect_max_retries)
-            self._producer_connection = conn
-        return self._producer_connection
+    def acknowledged(self):
+        """Set to true if the message has been acknowledged."""
+        return self._state in ACK_STATES
+
+    @property
+    def payload(self):
+        """The decoded message body."""
+        return self._decoded_cache if self._decoded_cache else self.decode()
+
+    def __repr__(self):
+        return '<{0} object at {1:#x} with details {2!r}>'.format(
+            type(self).__name__, id(self), dictfilter(
+                state=self._state,
+                content_type=self.content_type,
+                delivery_tag=self.delivery_tag,
+                body_length=len(self.body) if self.body is not None else None,
+                properties=dictfilter(
+                    correlation_id=self.properties.get('correlation_id'),
+                    type=self.properties.get('type'),
+                ),
+                delivery_info=dictfilter(
+                    exchange=self.delivery_info.get('exchange'),
+                    routing_key=self.delivery_info.get('routing_key'),
+                ),
+            ),
+        )

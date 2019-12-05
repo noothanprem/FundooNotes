@@ -1,4 +1,4 @@
-# Copyright 2014 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2013 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -10,111 +10,101 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-import sys
-import os
+from botocore.model import Shape
 
-from botocore.client import Config
-from botocore.endpoint import DEFAULT_TIMEOUT
-from botocore.handlers import disable_signing
-import jmespath
-
-from awscli.compat import urlparse
+from awscli.arguments import BaseCLIArgument
 
 
-def register_parse_global_args(cli):
-    cli.register('top-level-args-parsed', resolve_types,
-                 unique_id='resolve-types')
-    cli.register('top-level-args-parsed', no_sign_request,
-                 unique_id='no-sign')
-    cli.register('top-level-args-parsed', resolve_verify_ssl,
-                 unique_id='resolve-verify-ssl')
-    cli.register('top-level-args-parsed', resolve_cli_read_timeout,
-                 unique_id='resolve-cli-read-timeout')
-    cli.register('top-level-args-parsed', resolve_cli_connect_timeout,
-                 unique_id='resolve-cli-connect-timeout')
+def add_streaming_output_arg(argument_table, operation_model,
+                             session, **kwargs):
+    # Implementation detail:  hooked up to 'building-argument-table'
+    # event.
+    if _has_streaming_output(operation_model):
+        streaming_argument_name = _get_streaming_argument_name(operation_model)
+        argument_table['outfile'] = StreamingOutputArgument(
+            response_key=streaming_argument_name,
+            operation_model=operation_model,
+            session=session, name='outfile')
 
 
-def resolve_types(parsed_args, **kwargs):
-    # This emulates the "type" arg from argparse, but does so in a way
-    # that plugins can also hook into this process.
-    _resolve_arg(parsed_args, 'query')
-    _resolve_arg(parsed_args, 'endpoint_url')
+def _has_streaming_output(model):
+    return model.has_streaming_output
 
 
-def _resolve_arg(parsed_args, name):
-    value = getattr(parsed_args, name, None)
-    if value is not None:
-        new_value = getattr(sys.modules[__name__], '_resolve_%s' % name)(value)
-        setattr(parsed_args, name, new_value)
+def _get_streaming_argument_name(model):
+    return model.output_shape.serialization['payload']
 
 
-def _resolve_query(value):
-    try:
-        return jmespath.compile(value)
-    except Exception as e:
-        raise ValueError("Bad value for --query %s: %s" % (value, str(e)))
+class StreamingOutputArgument(BaseCLIArgument):
 
+    BUFFER_SIZE = 32768
+    HELP = 'Filename where the content will be saved'
 
-def _resolve_endpoint_url(value):
-    parsed = urlparse.urlparse(value)
-    # Our http library requires you specify an endpoint url
-    # that contains a scheme, so we'll verify that up front.
-    if not parsed.scheme:
-        raise ValueError('Bad value for --endpoint-url "%s": scheme is '
-                         'missing.  Must be of the form '
-                         'http://<hostname>/ or https://<hostname>/' % value)
-    return value
+    def __init__(self, response_key, operation_model, name,
+                 session, buffer_size=None):
+        self._name = name
+        self.argument_model = Shape('StreamingOutputArgument',
+                                    {'type': 'string'})
+        if buffer_size is None:
+            buffer_size = self.BUFFER_SIZE
+        self._buffer_size = buffer_size
+        # This is the key in the response body where we can find the
+        # streamed contents.
+        self._response_key = response_key
+        self._output_file = None
+        self._name = name
+        self._required = True
+        self._operation_model = operation_model
+        self._session = session
 
+    @property
+    def cli_name(self):
+        # Because this is a parameter, not an option, it shouldn't have the
+        # '--' prefix. We want to use the self.py_name to indicate that it's an
+        # argument.
+        return self._name
 
-def resolve_verify_ssl(parsed_args, session, **kwargs):
-    arg_name = 'verify_ssl'
-    arg_value = getattr(parsed_args, arg_name, None)
-    if arg_value is not None:
-        verify = None
-        # Only consider setting a custom ca_bundle if they
-        # haven't provided --no-verify-ssl.
-        if not arg_value:
-            verify = False
-        else:
-            verify = getattr(parsed_args, 'ca_bundle', None) or \
-                        session.get_config_variable('ca_bundle')
-        setattr(parsed_args, arg_name, verify)
+    @property
+    def cli_type_name(self):
+        return 'string'
 
+    @property
+    def required(self):
+        return self._required
 
-def no_sign_request(parsed_args, session, **kwargs):
-    if not parsed_args.sign_request:
-        # In order to make signing disabled for all requests
-        # we need to use botocore's ``disable_signing()`` handler.
-        session.register(
-            'choose-signer', disable_signing, unique_id='disable-signing')
+    @required.setter
+    def required(self, value):
+        self._required = value
 
+    @property
+    def documentation(self):
+        return self.HELP
 
-def resolve_cli_connect_timeout(parsed_args, session, **kwargs):
-    arg_name = 'connect_timeout'
-    _resolve_timeout(session, parsed_args, arg_name)
+    def add_to_parser(self, parser):
+        parser.add_argument(self._name, metavar=self.py_name,
+                            help=self.HELP)
 
+    def add_to_params(self, parameters, value):
+        self._output_file = value
+        service_id = self._operation_model.service_model.service_id.hyphenize()
+        operation_name = self._operation_model.name
+        self._session.register('after-call.%s.%s' % (
+            service_id, operation_name), self.save_file)
 
-def resolve_cli_read_timeout(parsed_args, session, **kwargs):
-    arg_name = 'read_timeout'
-    _resolve_timeout(session, parsed_args, arg_name)
-
-
-def _resolve_timeout(session, parsed_args, arg_name):
-    arg_value = getattr(parsed_args, arg_name, None)
-    if arg_value is None:
-        arg_value = DEFAULT_TIMEOUT
-    arg_value = int(arg_value)
-    if arg_value == 0:
-        arg_value = None
-    setattr(parsed_args, arg_name, arg_value)
-    # Update in the default client config so that the timeout will be used
-    # by all clients created from then on.
-    _update_default_client_config(session, arg_name, arg_value)
-
-
-def _update_default_client_config(session, arg_name, arg_value):
-    current_default_config = session.get_default_client_config()
-    new_default_config = Config(**{arg_name: arg_value})
-    if current_default_config is not None:
-        new_default_config = current_default_config.merge(new_default_config)
-    session.set_default_client_config(new_default_config)
+    def save_file(self, parsed, **kwargs):
+        if self._response_key not in parsed:
+            # If the response key is not in parsed, then
+            # we've received an error message and we'll let the AWS CLI
+            # error handler print out an error message.  We have no
+            # file to save in this situation.
+            return
+        body = parsed[self._response_key]
+        buffer_size = self._buffer_size
+        with open(self._output_file, 'wb') as fp:
+            data = body.read(buffer_size)
+            while data:
+                fp.write(data)
+                data = body.read(buffer_size)
+        # We don't want to include the streaming param in
+        # the returned response.
+        del parsed[self._response_key]

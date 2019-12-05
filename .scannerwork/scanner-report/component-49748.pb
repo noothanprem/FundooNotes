@@ -1,1 +1,1 @@
-ԄCvenv/lib64/python3.6/site-packages/social_core/backends/coursera.py 2pyX,h
+Ԅ?venv/lib64/python3.6/site-packages/social_core/backends/clef.py 2pyX7h

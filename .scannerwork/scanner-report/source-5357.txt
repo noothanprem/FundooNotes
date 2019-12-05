@@ -1,14 +1,13 @@
-from django.contrib.staticfiles.finders import get_finders
+from django.apps import AppConfig
+from django.contrib.staticfiles.checks import check_finders
+from django.core import checks
+from django.utils.translation import gettext_lazy as _
 
 
-def check_finders(app_configs=None, **kwargs):
-    """Check all registered staticfiles finders."""
-    errors = []
-    for finder in get_finders():
-        try:
-            finder_errors = finder.check()
-        except NotImplementedError:
-            pass
-        else:
-            errors.extend(finder_errors)
-    return errors
+class StaticFilesConfig(AppConfig):
+    name = 'django.contrib.staticfiles'
+    verbose_name = _("Static Files")
+    ignore_patterns = ['CVS', '.*', '*~']
+
+    def ready(self):
+        checks.register(check_finders, 'staticfiles')

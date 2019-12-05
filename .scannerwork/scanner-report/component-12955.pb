@@ -1,1 +1,0 @@
-›eLvenv/lib/python3.6/site-packages/django_admin/templatetags/djadmin_modify.py 2pyX>h

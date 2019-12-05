@@ -1,1 +1,0 @@
-Ýd8venv/lib/python3.6/site-packages/macaroonbakery/checkers :Üdàdâdãdädådñdòdód¤g

@@ -1,457 +1,486 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-from __future__ import absolute_import, division
-
-import sys
-from functools import partial
-from io import BytesIO
-
+"""
+Tests for error handling in PB.
+"""
+from twisted.internet import reactor, defer
+from twisted.python import log
+from twisted.python.compat import NativeStringIO
+from twisted.python.reflect import qual
+from twisted.spread import pb, flavors, jelly
 from twisted.trial import unittest
-from twisted.spread import banana
-from twisted.python import failure
-from twisted.python.compat import long, iterbytes, _bytesChr as chr, _PY3
-from twisted.internet import protocol, main
-from twisted.test.proto_helpers import StringTransport
 
-if _PY3:
-    _maxint = 9223372036854775807
-else:
-    from sys import maxint as _maxint
-
-
-class MathTests(unittest.TestCase):
-    def test_int2b128(self):
-        funkylist = (list(range(0,100)) + list(range(1000,1100)) +
-                    list(range(1000000,1000100)) + [1024 **10])
-        for i in funkylist:
-            x = BytesIO()
-            banana.int2b128(i, x.write)
-            v = x.getvalue()
-            y = banana.b1282int(v)
-            self.assertEqual(y, i)
-
-
-
-def selectDialect(protocol, dialect):
+# Test exceptions
+class AsynchronousException(Exception):
     """
-    Dictate a Banana dialect to use.
-
-    @param protocol: A L{banana.Banana} instance which has not yet had a
-        dialect negotiated.
-
-    @param dialect: A L{bytes} instance naming a Banana dialect to select.
+    Helper used to test remote methods which return Deferreds which fail with
+    exceptions which are not L{pb.Error} subclasses.
     """
-    # We can't do this the normal way by delivering bytes because other setup
-    # stuff gets in the way (for example, clients and servers have incompatible
-    # negotiations for this step).  So use the private API to make this happen.
-    protocol._selectDialect(dialect)
 
 
 
-def encode(bananaFactory, obj):
+class SynchronousException(Exception):
     """
-    Banana encode an object using L{banana.Banana.sendEncoded}.
-
-    @param bananaFactory: A no-argument callable which will return a new,
-        unconnected protocol instance to use to do the encoding (this should
-        most likely be a L{banana.Banana} instance).
-
-    @param obj: The object to encode.
-    @type obj: Any type supported by Banana.
-
-    @return: A L{bytes} instance giving the encoded form of C{obj}.
+    Helper used to test remote methods which raise exceptions which are not
+    L{pb.Error} subclasses.
     """
-    transport = StringTransport()
-    banana = bananaFactory()
-    banana.makeConnection(transport)
-    transport.clear()
-
-    banana.sendEncoded(obj)
-    return transport.value()
 
 
 
-class BananaTestBase(unittest.TestCase):
+class AsynchronousError(pb.Error):
     """
-    The base for test classes. It defines commonly used things and sets up a
-    connection for testing.
+    Helper used to test remote methods which return Deferreds which fail with
+    exceptions which are L{pb.Error} subclasses.
     """
-    encClass = banana.Banana
+
+
+
+class SynchronousError(pb.Error):
+    """
+    Helper used to test remote methods which raise exceptions which are
+    L{pb.Error} subclasses.
+    """
+
+
+
+class JellyError(flavors.Jellyable, pb.Error, pb.RemoteCopy):
+    pass
+
+
+
+class SecurityError(pb.Error, pb.RemoteCopy):
+    pass
+
+
+
+pb.setUnjellyableForClass(JellyError, JellyError)
+pb.setUnjellyableForClass(SecurityError, SecurityError)
+pb.globalSecurity.allowInstancesOf(SecurityError)
+
+
+# Server-side
+class SimpleRoot(pb.Root):
+    def remote_asynchronousException(self):
+        """
+        Fail asynchronously with a non-pb.Error exception.
+        """
+        return defer.fail(AsynchronousException("remote asynchronous exception"))
+
+
+    def remote_synchronousException(self):
+        """
+        Fail synchronously with a non-pb.Error exception.
+        """
+        raise SynchronousException("remote synchronous exception")
+
+
+    def remote_asynchronousError(self):
+        """
+        Fail asynchronously with a pb.Error exception.
+        """
+        return defer.fail(AsynchronousError("remote asynchronous error"))
+
+
+    def remote_synchronousError(self):
+        """
+        Fail synchronously with a pb.Error exception.
+        """
+        raise SynchronousError("remote synchronous error")
+
+
+    def remote_unknownError(self):
+        """
+        Fail with error that is not known to client.
+        """
+        class UnknownError(pb.Error):
+            pass
+        raise UnknownError("I'm not known to client!")
+
+
+    def remote_jelly(self):
+        self.raiseJelly()
+
+
+    def remote_security(self):
+        self.raiseSecurity()
+
+
+    def remote_deferredJelly(self):
+        d = defer.Deferred()
+        d.addCallback(self.raiseJelly)
+        d.callback(None)
+        return d
+
+
+    def remote_deferredSecurity(self):
+        d = defer.Deferred()
+        d.addCallback(self.raiseSecurity)
+        d.callback(None)
+        return d
+
+
+    def raiseJelly(self, results=None):
+        raise JellyError("I'm jellyable!")
+
+
+    def raiseSecurity(self, results=None):
+        raise SecurityError("I'm secure!")
+
+
+
+class SaveProtocolServerFactory(pb.PBServerFactory):
+    """
+    A L{pb.PBServerFactory} that saves the latest connected client in
+    C{protocolInstance}.
+    """
+    protocolInstance = None
+
+    def clientConnectionMade(self, protocol):
+        """
+        Keep track of the given protocol.
+        """
+        self.protocolInstance = protocol
+
+
+
+class PBConnTestCase(unittest.TestCase):
+    unsafeTracebacks = 0
 
     def setUp(self):
-        self.io = BytesIO()
-        self.enc = self.encClass()
-        self.enc.makeConnection(protocol.FileWrapper(self.io))
-        selectDialect(self.enc, b"none")
-        self.enc.expressionReceived = self.putResult
-        self.encode = partial(encode, self.encClass)
+        self._setUpServer()
+        self._setUpClient()
 
 
-    def putResult(self, result):
-        """
-        Store an expression received by C{self.enc}.
+    def _setUpServer(self):
+        self.serverFactory = SaveProtocolServerFactory(SimpleRoot())
+        self.serverFactory.unsafeTracebacks = self.unsafeTracebacks
+        self.serverPort = reactor.listenTCP(0, self.serverFactory, interface="127.0.0.1")
 
-        @param result: The object that was received.
-        @type result: Any type supported by Banana.
-        """
-        self.result = result
+
+    def _setUpClient(self):
+        portNo = self.serverPort.getHost().port
+        self.clientFactory = pb.PBClientFactory()
+        self.clientConnector = reactor.connectTCP("127.0.0.1", portNo, self.clientFactory)
 
 
     def tearDown(self):
-        self.enc.connectionLost(failure.Failure(main.CONNECTION_DONE))
-        del self.enc
+        if self.serverFactory.protocolInstance is not None:
+            self.serverFactory.protocolInstance.transport.loseConnection()
+        return defer.gatherResults([
+            self._tearDownServer(),
+            self._tearDownClient()])
+
+
+    def _tearDownServer(self):
+        return defer.maybeDeferred(self.serverPort.stopListening)
+
+
+    def _tearDownClient(self):
+        self.clientConnector.disconnect()
+        return defer.succeed(None)
 
 
 
-class BananaTests(BananaTestBase):
+class PBFailureTests(PBConnTestCase):
+    compare = unittest.TestCase.assertEqual
+
+
+    def _exceptionTest(self, method, exceptionType, flush):
+        def eb(err):
+            err.trap(exceptionType)
+            self.compare(err.traceback, "Traceback unavailable\n")
+            if flush:
+                errs = self.flushLoggedErrors(exceptionType)
+                self.assertEqual(len(errs), 1)
+            return (err.type, err.value, err.traceback)
+        d = self.clientFactory.getRootObject()
+        def gotRootObject(root):
+            d = root.callRemote(method)
+            d.addErrback(eb)
+            return d
+        d.addCallback(gotRootObject)
+        return d
+
+
+    def test_asynchronousException(self):
+        """
+        Test that a Deferred returned by a remote method which already has a
+        Failure correctly has that error passed back to the calling side.
+        """
+        return self._exceptionTest(
+            'asynchronousException', AsynchronousException, True)
+
+
+    def test_synchronousException(self):
+        """
+        Like L{test_asynchronousException}, but for a method which raises an
+        exception synchronously.
+        """
+        return self._exceptionTest(
+            'synchronousException', SynchronousException, True)
+
+
+    def test_asynchronousError(self):
+        """
+        Like L{test_asynchronousException}, but for a method which returns a
+        Deferred failing with an L{pb.Error} subclass.
+        """
+        return self._exceptionTest(
+            'asynchronousError', AsynchronousError, False)
+
+
+    def test_synchronousError(self):
+        """
+        Like L{test_asynchronousError}, but for a method which synchronously
+        raises a L{pb.Error} subclass.
+        """
+        return self._exceptionTest(
+            'synchronousError', SynchronousError, False)
+
+
+    def _success(self, result, expectedResult):
+        self.assertEqual(result, expectedResult)
+        return result
+
+
+    def _addFailingCallbacks(self, remoteCall, expectedResult, eb):
+        remoteCall.addCallbacks(self._success, eb,
+                                callbackArgs=(expectedResult,))
+        return remoteCall
+
+
+    def _testImpl(self, method, expected, eb, exc=None):
+        """
+        Call the given remote method and attach the given errback to the
+        resulting Deferred.  If C{exc} is not None, also assert that one
+        exception of that type was logged.
+        """
+        rootDeferred = self.clientFactory.getRootObject()
+        def gotRootObj(obj):
+            failureDeferred = self._addFailingCallbacks(obj.callRemote(method), expected, eb)
+            if exc is not None:
+                def gotFailure(err):
+                    self.assertEqual(len(self.flushLoggedErrors(exc)), 1)
+                    return err
+                failureDeferred.addBoth(gotFailure)
+            return failureDeferred
+        rootDeferred.addCallback(gotRootObj)
+        return rootDeferred
+
+
+    def test_jellyFailure(self):
+        """
+        Test that an exception which is a subclass of L{pb.Error} has more
+        information passed across the network to the calling side.
+        """
+        def failureJelly(fail):
+            fail.trap(JellyError)
+            self.assertNotIsInstance(fail.type, str)
+            self.assertIsInstance(fail.value, fail.type)
+            return 43
+        return self._testImpl('jelly', 43, failureJelly)
+
+
+    def test_deferredJellyFailure(self):
+        """
+        Test that a Deferred which fails with a L{pb.Error} is treated in
+        the same way as a synchronously raised L{pb.Error}.
+        """
+        def failureDeferredJelly(fail):
+            fail.trap(JellyError)
+            self.assertNotIsInstance(fail.type, str)
+            self.assertIsInstance(fail.value, fail.type)
+            return 430
+        return self._testImpl('deferredJelly', 430, failureDeferredJelly)
+
+
+    def test_unjellyableFailure(self):
+        """
+        A non-jellyable L{pb.Error} subclass raised by a remote method is
+        turned into a Failure with a type set to the FQPN of the exception
+        type.
+        """
+        def failureUnjellyable(fail):
+            self.assertEqual(
+                fail.type,
+                b'twisted.spread.test.test_pbfailure.SynchronousError')
+            return 431
+        return self._testImpl('synchronousError', 431, failureUnjellyable)
+
+
+    def test_unknownFailure(self):
+        """
+        Test that an exception which is a subclass of L{pb.Error} but not
+        known on the client side has its type set properly.
+        """
+        def failureUnknown(fail):
+            self.assertEqual(
+                fail.type, b'twisted.spread.test.test_pbfailure.UnknownError')
+            return 4310
+        return self._testImpl('unknownError', 4310, failureUnknown)
+
+
+    def test_securityFailure(self):
+        """
+        Test that even if an exception is not explicitly jellyable (by being
+        a L{pb.Jellyable} subclass), as long as it is an L{pb.Error}
+        subclass it receives the same special treatment.
+        """
+        def failureSecurity(fail):
+            fail.trap(SecurityError)
+            self.assertNotIsInstance(fail.type, str)
+            self.assertIsInstance(fail.value, fail.type)
+            return 4300
+        return self._testImpl('security', 4300, failureSecurity)
+
+
+    def test_deferredSecurity(self):
+        """
+        Test that a Deferred which fails with a L{pb.Error} which is not
+        also a L{pb.Jellyable} is treated in the same way as a synchronously
+        raised exception of the same type.
+        """
+        def failureDeferredSecurity(fail):
+            fail.trap(SecurityError)
+            self.assertNotIsInstance(fail.type, str)
+            self.assertIsInstance(fail.value, fail.type)
+            return 43000
+        return self._testImpl('deferredSecurity', 43000,
+                              failureDeferredSecurity)
+
+
+    def test_noSuchMethodFailure(self):
+        """
+        Test that attempting to call a method which is not defined correctly
+        results in an AttributeError on the calling side.
+        """
+        def failureNoSuch(fail):
+            fail.trap(pb.NoSuchMethod)
+            self.compare(fail.traceback, "Traceback unavailable\n")
+            return 42000
+        return self._testImpl('nosuch', 42000, failureNoSuch, AttributeError)
+
+
+    def test_copiedFailureLogging(self):
+        """
+        Test that a copied failure received from a PB call can be logged
+        locally.
+
+        Note: this test needs some serious help: all it really tests is that
+        log.err(copiedFailure) doesn't raise an exception.
+        """
+        d = self.clientFactory.getRootObject()
+
+        def connected(rootObj):
+            return rootObj.callRemote('synchronousException')
+        d.addCallback(connected)
+
+        def exception(failure):
+            log.err(failure)
+            errs = self.flushLoggedErrors(SynchronousException)
+            self.assertEqual(len(errs), 2)
+        d.addErrback(exception)
+
+        return d
+
+
+    def test_throwExceptionIntoGenerator(self):
+        """
+        L{pb.CopiedFailure.throwExceptionIntoGenerator} will throw a
+        L{RemoteError} into the given paused generator at the point where it
+        last yielded.
+        """
+        original = pb.CopyableFailure(AttributeError("foo"))
+        copy = jelly.unjelly(jelly.jelly(original, invoker=DummyInvoker()))
+        exception = []
+        def generatorFunc():
+            try:
+                yield None
+            except pb.RemoteError as exc:
+                exception.append(exc)
+            else:
+                self.fail("RemoteError not raised")
+        gen = generatorFunc()
+        gen.send(None)
+        self.assertRaises(StopIteration, copy.throwExceptionIntoGenerator, gen)
+        self.assertEqual(len(exception), 1)
+        exc = exception[0]
+        self.assertEqual(exc.remoteType, qual(AttributeError).encode("ascii"))
+        self.assertEqual(exc.args, ("foo",))
+        self.assertEqual(exc.remoteTraceback, 'Traceback unavailable\n')
+
+
+
+class PBFailureUnsafeTests(PBFailureTests):
+    compare = unittest.TestCase.failIfEquals
+    unsafeTracebacks = 1
+
+
+
+class DummyInvoker(object):
     """
-    General banana tests.
+    A behaviorless object to be used as the invoker parameter to
+    L{jelly.jelly}.
     """
-
-    def test_string(self):
-        self.enc.sendEncoded(b"hello")
-        self.enc.dataReceived(self.io.getvalue())
-        assert self.result == b'hello'
-
-
-    def test_unsupportedUnicode(self):
-        """
-        Banana does not support unicode.  ``Banana.sendEncoded`` raises
-        ``BananaError`` if called with an instance of ``unicode``.
-        """
-        if _PY3:
-            self._unsupportedTypeTest(u"hello", "builtins.str")
-        else:
-            self._unsupportedTypeTest(u"hello", "__builtin__.unicode")
-
-
-    def test_unsupportedBuiltinType(self):
-        """
-        Banana does not support arbitrary builtin types like L{type}.
-        L{banana.Banana.sendEncoded} raises L{banana.BananaError} if called
-        with an instance of L{type}.
-        """
-        # type is an instance of type
-        if _PY3:
-            self._unsupportedTypeTest(type, "builtins.type")
-        else:
-            self._unsupportedTypeTest(type, "__builtin__.type")
-
-
-    def test_unsupportedUserType(self):
-        """
-        Banana does not support arbitrary user-defined types (such as those
-        defined with the ``class`` statement).  ``Banana.sendEncoded`` raises
-        ``BananaError`` if called with an instance of such a type.
-        """
-        self._unsupportedTypeTest(MathTests(), __name__ + ".MathTests")
-
-
-    def _unsupportedTypeTest(self, obj, name):
-        """
-        Assert that L{banana.Banana.sendEncoded} raises L{banana.BananaError}
-        if called with the given object.
-
-        @param obj: Some object that Banana does not support.
-        @param name: The name of the type of the object.
-
-        @raise: The failure exception is raised if L{Banana.sendEncoded} does
-            not raise L{banana.BananaError} or if the message associated with the
-            exception is not formatted to include the type of the unsupported
-            object.
-        """
-        exc = self.assertRaises(banana.BananaError, self.enc.sendEncoded, obj)
-        self.assertIn("Banana cannot send {0} objects".format(name), str(exc))
-
-
-    def test_int(self):
-        """
-        A positive integer less than 2 ** 32 should round-trip through
-        banana without changing value and should come out represented
-        as an C{int} (regardless of the type which was encoded).
-        """
-        for value in (10151, long(10151)):
-            self.enc.sendEncoded(value)
-            self.enc.dataReceived(self.io.getvalue())
-            self.assertEqual(self.result, 10151)
-            self.assertIsInstance(self.result, int)
-
-
-    def test_largeLong(self):
-        """
-        Integers greater than 2 ** 32 and less than -2 ** 32 should
-        round-trip through banana without changing value and should
-        come out represented as C{int} instances if the value fits
-        into that type on the receiving platform.
-        """
-        for exp in (32, 64, 128, 256):
-            for add in (0, 1):
-                m = 2 ** exp + add
-                for n in (m, -m-1):
-                    self.enc.dataReceived(self.encode(n))
-                    self.assertEqual(self.result, n)
-                    if n > _maxint or n < -_maxint - 1:
-                        self.assertIsInstance(self.result, long)
-                    else:
-                        self.assertIsInstance(self.result, int)
-
-    if _PY3:
-        test_largeLong.skip = (
-            "Python 3 has unified int/long into an int type of unlimited size")
-
-
-    def _getSmallest(self):
-        # How many bytes of prefix our implementation allows
-        bytes = self.enc.prefixLimit
-        # How many useful bits we can extract from that based on Banana's
-        # base-128 representation.
-        bits = bytes * 7
-        # The largest number we _should_ be able to encode
-        largest = 2 ** bits - 1
-        # The smallest number we _shouldn't_ be able to encode
-        smallest = largest + 1
-        return smallest
-
-
-    def test_encodeTooLargeLong(self):
-        """
-        Test that a long above the implementation-specific limit is rejected
-        as too large to be encoded.
-        """
-        smallest = self._getSmallest()
-        self.assertRaises(banana.BananaError, self.enc.sendEncoded, smallest)
-
-
-    def test_decodeTooLargeLong(self):
-        """
-        Test that a long above the implementation specific limit is rejected
-        as too large to be decoded.
-        """
-        smallest = self._getSmallest()
-        self.enc.setPrefixLimit(self.enc.prefixLimit * 2)
-        self.enc.sendEncoded(smallest)
-        encoded = self.io.getvalue()
-        self.io.truncate(0)
-        self.enc.setPrefixLimit(self.enc.prefixLimit // 2)
-
-        self.assertRaises(banana.BananaError, self.enc.dataReceived, encoded)
-
-
-    def _getLargest(self):
-        return -self._getSmallest()
-
-
-    def test_encodeTooSmallLong(self):
-        """
-        Test that a negative long below the implementation-specific limit is
-        rejected as too small to be encoded.
-        """
-        largest = self._getLargest()
-        self.assertRaises(banana.BananaError, self.enc.sendEncoded, largest)
-
-
-    def test_decodeTooSmallLong(self):
-        """
-        Test that a negative long below the implementation specific limit is
-        rejected as too small to be decoded.
-        """
-        largest = self._getLargest()
-        self.enc.setPrefixLimit(self.enc.prefixLimit * 2)
-        self.enc.sendEncoded(largest)
-        encoded = self.io.getvalue()
-        self.io.truncate(0)
-        self.enc.setPrefixLimit(self.enc.prefixLimit // 2)
-
-        self.assertRaises(banana.BananaError, self.enc.dataReceived, encoded)
-
-
-    def test_integer(self):
-        self.enc.sendEncoded(1015)
-        self.enc.dataReceived(self.io.getvalue())
-        self.assertEqual(self.result, 1015)
-
-
-    def test_negative(self):
-        self.enc.sendEncoded(-1015)
-        self.enc.dataReceived(self.io.getvalue())
-        self.assertEqual(self.result, -1015)
-
-
-    def test_float(self):
-        self.enc.sendEncoded(1015.)
-        self.enc.dataReceived(self.io.getvalue())
-        self.assertEqual(self.result, 1015.0)
-
-
-    def test_list(self):
-        foo = ([1, 2, [3, 4], [30.5, 40.2], 5,
-               [b"six", b"seven", [b"eight", 9]], [10], []])
-        self.enc.sendEncoded(foo)
-        self.enc.dataReceived(self.io.getvalue())
-        self.assertEqual(self.result, foo)
-
-
-    def test_partial(self):
-        """
-        Test feeding the data byte per byte to the receiver. Normally
-        data is not split.
-        """
-        foo = [1, 2, [3, 4], [30.5, 40.2], 5,
-               [b"six", b"seven", [b"eight", 9]], [10],
-               # TODO: currently the C implementation's a bit buggy...
-               sys.maxsize * 3, sys.maxsize * 2, sys.maxsize * -2]
-        self.enc.sendEncoded(foo)
-        self.feed(self.io.getvalue())
-        self.assertEqual(self.result, foo)
-
-
-    def feed(self, data):
-        """
-        Feed the data byte per byte to the receiver.
-
-        @param data: The bytes to deliver.
-        @type data: L{bytes}
-        """
-        for byte in iterbytes(data):
-            self.enc.dataReceived(byte)
-
-
-    def test_oversizedList(self):
-        data = b'\x02\x01\x01\x01\x01\x80'
-        # list(size=0x0101010102, about 4.3e9)
-        self.assertRaises(banana.BananaError, self.feed, data)
-
-
-    def test_oversizedString(self):
-        data = b'\x02\x01\x01\x01\x01\x82'
-        # string(size=0x0101010102, about 4.3e9)
-        self.assertRaises(banana.BananaError, self.feed, data)
-
-
-    def test_crashString(self):
-        crashString = b'\x00\x00\x00\x00\x04\x80'
-        # string(size=0x0400000000, about 17.2e9)
-
-        #  cBanana would fold that into a 32-bit 'int', then try to allocate
-        #  a list with PyList_New(). cBanana ignored the NULL return value,
-        #  so it would segfault when trying to free the imaginary list.
-
-        # This variant doesn't segfault straight out in my environment.
-        # Instead, it takes up large amounts of CPU and memory...
-        #crashString = '\x00\x00\x00\x00\x01\x80'
-        # print repr(crashString)
-        #self.failUnlessRaises(Exception, self.enc.dataReceived, crashString)
-        try:
-            # should now raise MemoryError
-            self.enc.dataReceived(crashString)
-        except banana.BananaError:
-            pass
-
-    def test_crashNegativeLong(self):
-        # There was a bug in cBanana which relied on negating a negative integer
-        # always giving a positive result, but for the lowest possible number in
-        # 2s-complement arithmetic, that's not true, i.e.
-        #     long x = -2147483648;
-        #     long y = -x;
-        #     x == y;  /* true! */
-        # (assuming 32-bit longs)
-        self.enc.sendEncoded(-2147483648)
-        self.enc.dataReceived(self.io.getvalue())
-        self.assertEqual(self.result, -2147483648)
-
-
-    def test_sizedIntegerTypes(self):
-        """
-        Test that integers below the maximum C{INT} token size cutoff are
-        serialized as C{INT} or C{NEG} and that larger integers are
-        serialized as C{LONGINT} or C{LONGNEG}.
-        """
-        baseIntIn = +2147483647
-        baseNegIn = -2147483648
-
-        baseIntOut = b'\x7f\x7f\x7f\x07\x81'
-        self.assertEqual(self.encode(baseIntIn - 2), b'\x7d' + baseIntOut)
-        self.assertEqual(self.encode(baseIntIn - 1), b'\x7e' + baseIntOut)
-        self.assertEqual(self.encode(baseIntIn - 0), b'\x7f' + baseIntOut)
-
-        baseLongIntOut = b'\x00\x00\x00\x08\x85'
-        self.assertEqual(self.encode(baseIntIn + 1), b'\x00' + baseLongIntOut)
-        self.assertEqual(self.encode(baseIntIn + 2), b'\x01' + baseLongIntOut)
-        self.assertEqual(self.encode(baseIntIn + 3), b'\x02' + baseLongIntOut)
-
-        baseNegOut = b'\x7f\x7f\x7f\x07\x83'
-        self.assertEqual(self.encode(baseNegIn + 2), b'\x7e' + baseNegOut)
-        self.assertEqual(self.encode(baseNegIn + 1), b'\x7f' + baseNegOut)
-        self.assertEqual(self.encode(baseNegIn + 0), b'\x00\x00\x00\x00\x08\x83')
-
-        baseLongNegOut = b'\x00\x00\x00\x08\x86'
-        self.assertEqual(self.encode(baseNegIn - 1), b'\x01' + baseLongNegOut)
-        self.assertEqual(self.encode(baseNegIn - 2), b'\x02' + baseLongNegOut)
-        self.assertEqual(self.encode(baseNegIn - 3), b'\x03' + baseLongNegOut)
+    serializingPerspective = None
 
 
 
-class DialectTests(BananaTestBase):
+class FailureJellyingTests(unittest.TestCase):
     """
-    Tests for Banana's handling of dialects.
+    Tests for the interaction of jelly and failures.
     """
-    vocab = b'remote'
-    legalPbItem = chr(banana.Banana.outgoingVocabulary[vocab]) + banana.VOCAB
-    illegalPbItem = chr(122) + banana.VOCAB
-
-    def test_dialectNotSet(self):
+    def test_unjelliedFailureCheck(self):
         """
-        If no dialect has been selected and a PB VOCAB item is received,
-        L{NotImplementedError} is raised.
+        An unjellied L{CopyableFailure} has a check method which behaves the
+        same way as the original L{CopyableFailure}'s check method.
         """
-        self.assertRaises(
-            NotImplementedError,
-            self.enc.dataReceived, self.legalPbItem)
+        original = pb.CopyableFailure(ZeroDivisionError())
+        self.assertIs(
+            original.check(ZeroDivisionError), ZeroDivisionError)
+        self.assertIs(original.check(ArithmeticError), ArithmeticError)
+        copied = jelly.unjelly(jelly.jelly(original, invoker=DummyInvoker()))
+        self.assertIs(
+            copied.check(ZeroDivisionError), ZeroDivisionError)
+        self.assertIs(copied.check(ArithmeticError), ArithmeticError)
 
 
-    def test_receivePb(self):
+    def test_twiceUnjelliedFailureCheck(self):
         """
-        If the PB dialect has been selected, a PB VOCAB item is accepted.
+        The object which results from jellying a L{CopyableFailure}, unjellying
+        the result, creating a new L{CopyableFailure} from the result of that,
+        jellying it, and finally unjellying the result of that has a check
+        method which behaves the same way as the original L{CopyableFailure}'s
+        check method.
         """
-        selectDialect(self.enc, b'pb')
-        self.enc.dataReceived(self.legalPbItem)
-        self.assertEqual(self.result, self.vocab)
+        original = pb.CopyableFailure(ZeroDivisionError())
+        self.assertIs(
+            original.check(ZeroDivisionError), ZeroDivisionError)
+        self.assertIs(original.check(ArithmeticError), ArithmeticError)
+        copiedOnce = jelly.unjelly(
+            jelly.jelly(original, invoker=DummyInvoker()))
+        derivative = pb.CopyableFailure(copiedOnce)
+        copiedTwice = jelly.unjelly(
+            jelly.jelly(derivative, invoker=DummyInvoker()))
+        self.assertIs(
+            copiedTwice.check(ZeroDivisionError), ZeroDivisionError)
+        self.assertIs(
+            copiedTwice.check(ArithmeticError), ArithmeticError)
 
 
-    def test_receiveIllegalPb(self):
+    def test_printTracebackIncludesValue(self):
         """
-        If the PB dialect has been selected and an unrecognized PB VOCAB item
-        is received, L{banana.Banana.dataReceived} raises L{KeyError}.
+        When L{CopiedFailure.printTraceback} is used to print a copied failure
+        which was unjellied from a L{CopyableFailure} with C{unsafeTracebacks}
+        set to C{False}, the string representation of the exception value is
+        included in the output.
         """
-        selectDialect(self.enc, b'pb')
-        self.assertRaises(KeyError, self.enc.dataReceived, self.illegalPbItem)
-
-
-    def test_sendPb(self):
-        """
-        if pb dialect is selected, the sender must be able to send things in
-        that dialect.
-        """
-        selectDialect(self.enc, b'pb')
-        self.enc.sendEncoded(self.vocab)
-        self.assertEqual(self.legalPbItem, self.io.getvalue())
-
-
-
-class GlobalCoderTests(unittest.TestCase):
-    """
-    Tests for the free functions L{banana.encode} and L{banana.decode}.
-    """
-    def test_statelessDecode(self):
-        """
-        Calls to L{banana.decode} are independent of each other.
-        """
-        # Banana encoding of 2 ** 449
-        undecodable = b'\x7f' * 65 + b'\x85'
-        self.assertRaises(banana.BananaError, banana.decode, undecodable)
-
-        # Banana encoding of 1.  This should be decodable even though the
-        # previous call passed un-decodable data and triggered an exception.
-        decodable = b'\x01\x81'
-        self.assertEqual(banana.decode(decodable), 1)
+        original = pb.CopyableFailure(Exception("some reason"))
+        copied = jelly.unjelly(jelly.jelly(original, invoker=DummyInvoker()))
+        output = NativeStringIO()
+        copied.printTraceback(output)
+        exception = qual(Exception)
+        expectedOutput = ("Traceback from remote host -- "
+                         "{}: some reason\n".format(exception))
+        self.assertEqual(expectedOutput, output.getvalue())

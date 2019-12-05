@@ -1,545 +1,480 @@
-import types
 import asyncio
-import socket
-from functools import partial
-from collections import deque
-from contextlib import contextmanager
+import collections
+import types
 
-from .util import (
-    encode_command,
-    wait_ok,
-    _NOTSET,
-    _set_result,
-    _set_exception,
-    coerced_keys_dict,
-    decode,
-    parse_url,
-    )
-from .parser import Reader
-from .stream import open_connection, open_unix_connection
-from .errors import (
-    ConnectionClosedError,
-    ConnectionForcedCloseError,
-    RedisError,
-    ProtocolError,
-    ReplyError,
-    WatchVariableError,
-    ReadOnlyError,
-    MaxClientsError
-    )
-from .pubsub import Channel
-from .abc import AbcChannel
-from .abc import AbcConnection
+from .connection import create_connection, _PUBSUB_COMMANDS
 from .log import logger
+from .util import parse_url, CloseEvent
+from .errors import PoolClosedError
+from .abc import AbcPool
+from .locks import Lock
 
 
-__all__ = ['create_connection', 'RedisConnection']
+async def create_pool(address, *, db=None, password=None, ssl=None,
+                      encoding=None, minsize=1, maxsize=10,
+                      parser=None, loop=None, create_connection_timeout=None,
+                      pool_cls=None, connection_cls=None):
+    # FIXME: rewrite docstring
+    """Creates Redis Pool.
 
-MAX_CHUNK_SIZE = 65536
+    By default it creates pool of Redis instances, but it is
+    also possible to create pool of plain connections by passing
+    ``lambda conn: conn`` as commands_factory.
 
-_PUBSUB_COMMANDS = (
-    'SUBSCRIBE', b'SUBSCRIBE',
-    'PSUBSCRIBE', b'PSUBSCRIBE',
-    'UNSUBSCRIBE', b'UNSUBSCRIBE',
-    'PUNSUBSCRIBE', b'PUNSUBSCRIBE',
-    )
+    *commands_factory* parameter is deprecated since v0.2.9
 
+    All arguments are the same as for create_connection.
 
-async def create_connection(address, *, db=None, password=None, ssl=None,
-                            encoding=None, parser=None, loop=None,
-                            timeout=None, connection_cls=None):
-    """Creates redis connection.
-
-    Opens connection to Redis server specified by address argument.
-    Address argument can be one of the following:
-    * A tuple representing (host, port) pair for TCP connections;
-    * A string representing either Redis URI or unix domain socket path.
-
-    SSL argument is passed through to asyncio.create_connection.
-    By default SSL/TLS is not used.
-
-    By default any timeout is applied at the connection stage, however
-    you can set a limitted time used trying to open a connection via
-    the `timeout` Kw.
-
-    Encoding argument can be used to decode byte-replies to strings.
-    By default no decoding is done.
-
-    Parser parameter can be used to pass custom Redis protocol parser class.
-    By default hiredis.Reader is used (unless it is missing or platform
-    is not CPython).
-
-    Return value is RedisConnection instance or a connection_cls if it is
-    given.
-
-    This function is a coroutine.
+    Returns RedisPool instance or a pool_cls if it is given.
     """
-    assert isinstance(address, (tuple, list, str)), "tuple or str expected"
+    if pool_cls:
+        assert issubclass(pool_cls, AbcPool),\
+                "pool_class does not meet the AbcPool contract"
+        cls = pool_cls
+    else:
+        cls = ConnectionsPool
     if isinstance(address, str):
         address, options = parse_url(address)
-        logger.debug("Parsed Redis URI %r", address)
         db = options.setdefault('db', db)
         password = options.setdefault('password', password)
         encoding = options.setdefault('encoding', encoding)
-        timeout = options.setdefault('timeout', timeout)
+        create_connection_timeout = options.setdefault(
+            'timeout', create_connection_timeout)
         if 'ssl' in options:
             assert options['ssl'] or (not options['ssl'] and not ssl), (
                 "Conflicting ssl options are set", options['ssl'], ssl)
             ssl = ssl or options['ssl']
+        # TODO: minsize/maxsize
 
-    if timeout is not None and timeout <= 0:
-        raise ValueError("Timeout has to be None or a number greater than 0")
-
-    if connection_cls:
-        assert issubclass(connection_cls, AbcConnection),\
-                "connection_class does not meet the AbcConnection contract"
-        cls = connection_cls
-    else:
-        cls = RedisConnection
-
-    if loop is None:
-        loop = asyncio.get_event_loop()
-
-    if isinstance(address, (list, tuple)):
-        host, port = address
-        logger.debug("Creating tcp connection to %r", address)
-        reader, writer = await asyncio.wait_for(open_connection(
-            host, port, limit=MAX_CHUNK_SIZE, ssl=ssl, loop=loop),
-            timeout, loop=loop)
-        sock = writer.transport.get_extra_info('socket')
-        if sock is not None:
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            address = sock.getpeername()
-        address = tuple(address[:2])
-    else:
-        logger.debug("Creating unix connection to %r", address)
-        reader, writer = await asyncio.wait_for(open_unix_connection(
-            address, ssl=ssl, limit=MAX_CHUNK_SIZE, loop=loop),
-            timeout, loop=loop)
-        sock = writer.transport.get_extra_info('socket')
-        if sock is not None:
-            address = sock.getpeername()
-
-    conn = cls(reader, writer, encoding=encoding,
-               address=address, parser=parser,
+    pool = cls(address, db, password, encoding,
+               minsize=minsize, maxsize=maxsize,
+               ssl=ssl, parser=parser,
+               create_connection_timeout=create_connection_timeout,
+               connection_cls=connection_cls,
                loop=loop)
-
     try:
-        if password is not None:
-            await conn.auth(password)
-        if db is not None:
-            await conn.select(db)
+        await pool._fill_free(override_min=False)
     except Exception:
-        conn.close()
-        await conn.wait_closed()
+        pool.close()
+        await pool.wait_closed()
+        await pool.wait_closed()
         raise
-    return conn
+    return pool
 
 
-class RedisConnection(AbcConnection):
-    """Redis connection."""
+class ConnectionsPool(AbcPool):
+    """Redis connections pool."""
 
-    def __init__(self, reader, writer, *, address, encoding=None,
-                 parser=None, loop=None):
+    def __init__(self, address, db=None, password=None, encoding=None,
+                 *, minsize, maxsize, ssl=None, parser=None,
+                 create_connection_timeout=None,
+                 connection_cls=None,
+                 loop=None):
+        assert isinstance(minsize, int) and minsize >= 0, (
+            "minsize must be int >= 0", minsize, type(minsize))
+        assert maxsize is not None, "Arbitrary pool size is disallowed."
+        assert isinstance(maxsize, int) and maxsize > 0, (
+            "maxsize must be int > 0", maxsize, type(maxsize))
+        assert minsize <= maxsize, (
+            "Invalid pool min/max sizes", minsize, maxsize)
         if loop is None:
             loop = asyncio.get_event_loop()
-        if parser is None:
-            parser = Reader
-        assert callable(parser), (
-            "Parser argument is not callable", parser)
-        self._reader = reader
-        self._writer = writer
         self._address = address
-        self._loop = loop
-        self._waiters = deque()
-        self._reader.set_parser(
-            parser(protocolError=ProtocolError, replyError=ReplyError)
-        )
-        self._reader_task = asyncio.ensure_future(self._read_data(),
-                                                  loop=self._loop)
-        self._close_msg = None
-        self._db = 0
-        self._closing = False
-        self._closed = False
-        self._close_state = asyncio.Event()
-        self._reader_task.add_done_callback(lambda x: self._close_state.set())
-        self._in_transaction = None
-        self._transaction_error = None  # XXX: never used?
-        self._in_pubsub = 0
-        self._pubsub_channels = coerced_keys_dict()
-        self._pubsub_patterns = coerced_keys_dict()
+        self._db = db
+        self._password = password
+        self._ssl = ssl
         self._encoding = encoding
-        self._pipeline_buffer = None
+        self._parser_class = parser
+        self._minsize = minsize
+        self._create_connection_timeout = create_connection_timeout
+        self._loop = loop
+        self._pool = collections.deque(maxlen=maxsize)
+        self._used = set()
+        self._acquiring = 0
+        self._cond = asyncio.Condition(lock=Lock(loop=loop), loop=loop)
+        self._close_state = CloseEvent(self._do_close, loop=loop)
+        self._pubsub_conn = None
+        self._connection_cls = connection_cls
 
     def __repr__(self):
-        return '<RedisConnection [db:{}]>'.format(self._db)
+        return '<{} [db:{}, size:[{}:{}], free:{}]>'.format(
+            self.__class__.__name__, self.db,
+            self.minsize, self.maxsize, self.freesize)
 
-    async def _read_data(self):
-        """Response reader task."""
-        last_error = ConnectionClosedError(
-            "Connection has been closed by server")
-        while not self._reader.at_eof():
-            try:
-                obj = await self._reader.readobj()
-            except asyncio.CancelledError:
-                # NOTE: reader can get cancelled from `close()` method only.
-                last_error = RuntimeError('this is unexpected')
-                break
-            except ProtocolError as exc:
-                # ProtocolError is fatal
-                # so connection must be closed
-                if self._in_transaction is not None:
-                    self._transaction_error = exc
-                last_error = exc
-                break
-            except Exception as exc:
-                # NOTE: for QUIT command connection error can be received
-                #       before response
-                last_error = exc
-                break
-            else:
-                if (obj == b'' or obj is None) and self._reader.at_eof():
-                    logger.debug("Connection has been closed by server,"
-                                 " response: %r", obj)
-                    last_error = ConnectionClosedError("Reader at end of file")
-                    break
+    @property
+    def minsize(self):
+        """Minimum pool size."""
+        return self._minsize
 
-                if isinstance(obj, MaxClientsError):
-                    last_error = obj
-                    break
-                if self._in_pubsub:
-                    self._process_pubsub(obj)
-                else:
-                    self._process_data(obj)
-        self._closing = True
-        self._loop.call_soon(self._do_close, last_error)
+    @property
+    def maxsize(self):
+        """Maximum pool size."""
+        return self._pool.maxlen
 
-    def _process_data(self, obj):
-        """Processes command results."""
-        assert len(self._waiters) > 0, (type(obj), obj)
-        waiter, encoding, cb = self._waiters.popleft()
-        if isinstance(obj, RedisError):
-            if isinstance(obj, ReplyError):
-                if obj.args[0].startswith('READONLY'):
-                    obj = ReadOnlyError(obj.args[0])
-            _set_exception(waiter, obj)
-            if self._in_transaction is not None:
-                self._transaction_error = obj
-        else:
-            if encoding is not None:
-                try:
-                    obj = decode(obj, encoding)
-                except Exception as exc:
-                    _set_exception(waiter, exc)
-                    return
-            if cb is not None:
-                try:
-                    obj = cb(obj)
-                except Exception as exc:
-                    _set_exception(waiter, exc)
-                    return
-            _set_result(waiter, obj)
-            if self._in_transaction is not None:
-                self._in_transaction.append((encoding, cb))
+    @property
+    def size(self):
+        """Current pool size."""
+        return self.freesize + len(self._used) + self._acquiring
 
-    def _process_pubsub(self, obj, *, process_waiters=True):
-        """Processes pubsub messages."""
-        kind, *args, data = obj
-        if kind in (b'subscribe', b'unsubscribe'):
-            chan, = args
-            if process_waiters and self._in_pubsub and self._waiters:
-                self._process_data(obj)
-            if kind == b'unsubscribe':
-                ch = self._pubsub_channels.pop(chan, None)
-                if ch:
-                    ch.close()
-            self._in_pubsub = data
-        elif kind in (b'psubscribe', b'punsubscribe'):
-            chan, = args
-            if process_waiters and self._in_pubsub and self._waiters:
-                self._process_data(obj)
-            if kind == b'punsubscribe':
-                ch = self._pubsub_patterns.pop(chan, None)
-                if ch:
-                    ch.close()
-            self._in_pubsub = data
-        elif kind == b'message':
-            chan, = args
-            self._pubsub_channels[chan].put_nowait(data)
-        elif kind == b'pmessage':
-            pattern, chan = args
-            self._pubsub_patterns[pattern].put_nowait((chan, data))
-        elif kind == b'pong':
-            if process_waiters and self._in_pubsub and self._waiters:
-                self._process_data(data or b'PONG')
-        else:
-            logger.warning("Unknown pubsub message received %r", obj)
+    @property
+    def freesize(self):
+        """Current number of free connections."""
+        return len(self._pool)
 
-    @contextmanager
-    def _buffered(self):
-        # XXX: we must ensure that no await happens
-        #   as long as we buffer commands.
-        #   Probably we can set some error-raising callback on enter
-        #   and remove it on exit
-        #   if some await happens in between -> throw an error.
-        #   This is creepy solution, 'cause some one might want to await
-        #   on some other source except redis.
-        #   So we must only raise error we someone tries to await
-        #   pending aioredis future
-        # One of solutions is to return coroutine instead of a future
-        # in `execute` method.
-        # In a coroutine we can check if buffering is enabled and raise error.
+    @property
+    def address(self):
+        return self._address
 
-        # TODO: describe in docs difference in pipeline mode for
-        #   conn.execute vs pipeline.execute()
-        if self._pipeline_buffer is None:
-            self._pipeline_buffer = bytearray()
-            try:
-                yield self
-                buf = self._pipeline_buffer
-                self._writer.write(buf)
-            finally:
-                self._pipeline_buffer = None
-        else:
-            yield self
+    async def clear(self):
+        """Clear pool connections.
 
-    def execute(self, command, *args, encoding=_NOTSET):
-        """Executes redis command and returns Future waiting for the answer.
-
-        Raises:
-        * TypeError if any of args can not be encoded as bytes.
-        * ReplyError on redis '-ERR' responses.
-        * ProtocolError when response can not be decoded meaning connection
-          is broken.
-        * ConnectionClosedError when either client or server has closed the
-          connection.
+        Close and remove all free connections.
         """
-        if self._reader is None or self._reader.at_eof():
-            msg = self._close_msg or "Connection closed or corrupted"
-            raise ConnectionClosedError(msg)
-        if command is None:
-            raise TypeError("command must not be None")
-        if None in args:
-            raise TypeError("args must not contain None")
-        command = command.upper().strip()
-        is_pubsub = command in _PUBSUB_COMMANDS
-        is_ping = command in ('PING', b'PING')
-        if self._in_pubsub and not (is_pubsub or is_ping):
-            raise RedisError("Connection in SUBSCRIBE mode")
-        elif is_pubsub:
-            logger.warning("Deprecated. Use `execute_pubsub` method directly")
-            return self.execute_pubsub(command, *args)
+        async with self._cond:
+            await self._do_clear()
 
-        if command in ('SELECT', b'SELECT'):
-            cb = partial(self._set_db, args=args)
-        elif command in ('MULTI', b'MULTI'):
-            cb = self._start_transaction
-        elif command in ('EXEC', b'EXEC'):
-            cb = partial(self._end_transaction, discard=False)
-        elif command in ('DISCARD', b'DISCARD'):
-            cb = partial(self._end_transaction, discard=True)
-        else:
-            cb = None
-        if encoding is _NOTSET:
-            encoding = self._encoding
-        fut = self._loop.create_future()
-        if self._pipeline_buffer is None:
-            self._writer.write(encode_command(command, *args))
-        else:
-            encode_command(command, *args, buf=self._pipeline_buffer)
-        self._waiters.append((fut, encoding, cb))
-        return fut
+    async def _do_clear(self):
+        waiters = []
+        while self._pool:
+            conn = self._pool.popleft()
+            conn.close()
+            waiters.append(conn.wait_closed())
+        await asyncio.gather(*waiters, loop=self._loop)
 
-    def execute_pubsub(self, command, *channels):
-        """Executes redis (p)subscribe/(p)unsubscribe commands.
-
-        Returns asyncio.gather coroutine waiting for all channels/patterns
-        to receive answers.
-        """
-        command = command.upper().strip()
-        assert command in _PUBSUB_COMMANDS, (
-            "Pub/Sub command expected", command)
-        if self._reader is None or self._reader.at_eof():
-            raise ConnectionClosedError("Connection closed or corrupted")
-        if None in set(channels):
-            raise TypeError("args must not contain None")
-        if not len(channels):
-            raise TypeError("No channels/patterns supplied")
-        is_pattern = len(command) in (10, 12)
-        mkchannel = partial(Channel, is_pattern=is_pattern, loop=self._loop)
-        channels = [ch if isinstance(ch, AbcChannel) else mkchannel(ch)
-                    for ch in channels]
-        if not all(ch.is_pattern == is_pattern for ch in channels):
-            raise ValueError("Not all channels {} match command {}"
-                             .format(channels, command))
-        cmd = encode_command(command, *(ch.name for ch in channels))
-        res = []
-        for ch in channels:
-            fut = self._loop.create_future()
-            res.append(fut)
-            cb = partial(self._update_pubsub, ch=ch)
-            self._waiters.append((fut, None, cb))
-        if self._pipeline_buffer is None:
-            self._writer.write(cmd)
-        else:
-            self._pipeline_buffer.extend(cmd)
-        return asyncio.gather(*res, loop=self._loop)
+    async def _do_close(self):
+        async with self._cond:
+            assert not self._acquiring, self._acquiring
+            waiters = []
+            while self._pool:
+                conn = self._pool.popleft()
+                conn.close()
+                waiters.append(conn.wait_closed())
+            for conn in self._used:
+                conn.close()
+                waiters.append(conn.wait_closed())
+            await asyncio.gather(*waiters, loop=self._loop)
+            # TODO: close _pubsub_conn connection
+            logger.debug("Closed %d connection(s)", len(waiters))
 
     def close(self):
-        """Close connection."""
-        self._do_close(ConnectionForcedCloseError())
-
-    def _do_close(self, exc):
-        if self._closed:
-            return
-        self._closed = True
-        self._closing = False
-        self._writer.transport.close()
-        self._reader_task.cancel()
-        self._reader_task = None
-        self._writer = None
-        self._reader = None
-        self._pipeline_buffer = None
-
-        if exc is not None:
-            self._close_msg = str(exc)
-
-        while self._waiters:
-            waiter, *spam = self._waiters.popleft()
-            logger.debug("Cancelling waiter %r", (waiter, spam))
-            if exc is None:
-                _set_exception(waiter, ConnectionForcedCloseError())
-            else:
-                _set_exception(waiter, exc)
-        while self._pubsub_channels:
-            _, ch = self._pubsub_channels.popitem()
-            logger.debug("Closing pubsub channel %r", ch)
-            ch.close(exc)
-        while self._pubsub_patterns:
-            _, ch = self._pubsub_patterns.popitem()
-            logger.debug("Closing pubsub pattern %r", ch)
-            ch.close(exc)
+        """Close all free and in-progress connections and mark pool as closed.
+        """
+        if not self._close_state.is_set():
+            self._close_state.set()
 
     @property
     def closed(self):
-        """True if connection is closed."""
-        closed = self._closing or self._closed
-        if not closed and self._reader and self._reader.at_eof():
-            self._closing = closed = True
-            self._loop.call_soon(self._do_close, None)
-        return closed
+        """True if pool is closed."""
+        return self._close_state.is_set()
 
     async def wait_closed(self):
-        """Coroutine waiting until connection is closed."""
+        """Wait until pool gets closed."""
         await self._close_state.wait()
 
     @property
     def db(self):
         """Currently selected db index."""
-        return self._db
+        return self._db or 0
 
     @property
     def encoding(self):
         """Current set codec or None."""
         return self._encoding
 
-    @property
-    def address(self):
-        """Redis server address, either host-port tuple or str."""
-        return self._address
+    def execute(self, command, *args, **kw):
+        """Executes redis command in a free connection and returns
+        future waiting for result.
 
-    def select(self, db):
-        """Change the selected database for the current connection."""
-        if not isinstance(db, int):
-            raise TypeError("DB must be of int type, not {!r}".format(db))
-        if db < 0:
-            raise ValueError("DB must be greater or equal 0, got {!r}"
-                             .format(db))
-        fut = self.execute('SELECT', db)
-        return wait_ok(fut)
+        Picks connection from free pool and send command through
+        that connection.
+        If no connection is found, returns coroutine waiting for
+        free connection to execute command.
+        """
+        conn, address = self.get_connection(command, args)
+        if conn is not None:
+            fut = conn.execute(command, *args, **kw)
+            return self._check_result(fut, command, args, kw)
+        else:
+            coro = self._wait_execute(address, command, args, kw)
+            return self._check_result(coro, command, args, kw)
 
-    def _set_db(self, ok, args):
-        assert ok in {b'OK', 'OK'}, ("Unexpected result of SELECT", ok)
-        self._db = args[0]
-        return ok
+    def execute_pubsub(self, command, *channels):
+        """Executes Redis (p)subscribe/(p)unsubscribe commands.
 
-    def _start_transaction(self, ok):
-        assert self._in_transaction is None, (
-            "Connection is already in transaction", self._in_transaction)
-        self._in_transaction = deque()
-        self._transaction_error = None
-        return ok
+        ConnectionsPool picks separate connection for pub/sub
+        and uses it until explicitly closed or disconnected
+        (unsubscribing from all channels/patterns will leave connection
+         locked for pub/sub use).
 
-    def _end_transaction(self, obj, discard):
-        assert self._in_transaction is not None, (
-            "Connection is not in transaction", obj)
-        self._transaction_error = None
-        recall, self._in_transaction = self._in_transaction, None
-        recall.popleft()  # ignore first (its _start_transaction)
-        if discard:
-            return obj
-        assert isinstance(obj, list) or (obj is None and not discard), (
-            "Unexpected MULTI/EXEC result", obj, recall)
-        # TODO: need to be able to re-try transaction
-        if obj is None:
-            err = WatchVariableError("WATCH variable has changed")
-            obj = [err] * len(recall)
-        assert len(obj) == len(recall), (
-            "Wrong number of result items in mutli-exec", obj, recall)
-        res = []
-        for o, (encoding, cb) in zip(obj, recall):
-            if not isinstance(o, RedisError):
-                try:
-                    if encoding:
-                        o = decode(o, encoding)
-                    if cb:
-                        o = cb(o)
-                except Exception as err:
-                    res.append(err)
-                    continue
-            res.append(o)
+        There is no auto-reconnect for this PUB/SUB connection.
+
+        Returns asyncio.gather coroutine waiting for all channels/patterns
+        to receive answers.
+        """
+        conn, address = self.get_connection(command)
+        if conn is not None:
+            return conn.execute_pubsub(command, *channels)
+        else:
+            return self._wait_execute_pubsub(address, command, channels, {})
+
+    def get_connection(self, command, args=()):
+        """Get free connection from pool.
+
+        Returns connection.
+        """
+        # TODO: find a better way to determine if connection is free
+        #       and not havily used.
+        command = command.upper().strip()
+        is_pubsub = command in _PUBSUB_COMMANDS
+        if is_pubsub and self._pubsub_conn:
+            if not self._pubsub_conn.closed:
+                return self._pubsub_conn, self._pubsub_conn.address
+            self._pubsub_conn = None
+        for i in range(self.freesize):
+            conn = self._pool[0]
+            self._pool.rotate(1)
+            if conn.closed:  # or conn._waiters: (eg: busy connection)
+                continue
+            if conn.in_pubsub:
+                continue
+            if is_pubsub:
+                self._pubsub_conn = conn
+                self._pool.remove(conn)
+                self._used.add(conn)
+            return conn, conn.address
+        return None, self._address  # figure out
+
+    def _check_result(self, fut, *data):
+        """Hook to check result or catch exception (like MovedError).
+
+        This method can be coroutine.
+        """
+        return fut
+
+    async def _wait_execute(self, address, command, args, kw):
+        """Acquire connection and execute command."""
+        conn = await self.acquire(command, args)
+        try:
+            return (await conn.execute(command, *args, **kw))
+        finally:
+            self.release(conn)
+
+    async def _wait_execute_pubsub(self, address, command, args, kw):
+        if self.closed:
+            raise PoolClosedError("Pool is closed")
+        assert self._pubsub_conn is None or self._pubsub_conn.closed, (
+            "Expected no or closed connection", self._pubsub_conn)
+        async with self._cond:
+            if self.closed:
+                raise PoolClosedError("Pool is closed")
+            if self._pubsub_conn is None or self._pubsub_conn.closed:
+                conn = await self._create_new_connection(address)
+                self._pubsub_conn = conn
+            conn = self._pubsub_conn
+            return (await conn.execute_pubsub(command, *args, **kw))
+
+    async def select(self, db):
+        """Changes db index for all free connections.
+
+        All previously acquired connections will be closed when released.
+        """
+        res = True
+        async with self._cond:
+            for i in range(self.freesize):
+                res = res and (await self._pool[i].select(db))
+            else:
+                self._db = db
         return res
 
-    def _update_pubsub(self, obj, *, ch):
-        kind, *pattern, channel, subscriptions = obj
-        self._in_pubsub, was_in_pubsub = subscriptions, self._in_pubsub
-        # XXX: the channels/patterns storage should be refactored.
-        #   if code which supposed to read from channel/pattern
-        #   failed (exception in reader or else) than
-        #   the channel object will still reside in memory
-        #   and leak memory (messages will be put in queue).
-        if kind == b'subscribe' and channel not in self._pubsub_channels:
-            self._pubsub_channels[channel] = ch
-        elif kind == b'psubscribe' and channel not in self._pubsub_patterns:
-            self._pubsub_patterns[channel] = ch
-        if not was_in_pubsub:
-            self._process_pubsub(obj, process_waiters=False)
-        return obj
-
-    @property
-    def in_transaction(self):
-        """Set to True when MULTI command was issued."""
-        return self._in_transaction is not None
+    async def auth(self, password):
+        self._password = password
+        async with self._cond:
+            for i in range(self.freesize):
+                await self._pool[i].auth(password)
 
     @property
     def in_pubsub(self):
-        """Indicates that connection is in PUB/SUB mode.
-
-        Provides the number of subscribed channels.
-        """
-        return self._in_pubsub
+        if self._pubsub_conn and not self._pubsub_conn.closed:
+            return self._pubsub_conn.in_pubsub
+        return 0
 
     @property
     def pubsub_channels(self):
-        """Returns read-only channels dict."""
-        return types.MappingProxyType(self._pubsub_channels)
+        if self._pubsub_conn and not self._pubsub_conn.closed:
+            return self._pubsub_conn.pubsub_channels
+        return types.MappingProxyType({})
 
     @property
     def pubsub_patterns(self):
-        """Returns read-only patterns dict."""
-        return types.MappingProxyType(self._pubsub_patterns)
+        if self._pubsub_conn and not self._pubsub_conn.closed:
+            return self._pubsub_conn.pubsub_patterns
+        return types.MappingProxyType({})
 
-    def auth(self, password):
-        """Authenticate to server."""
-        fut = self.execute('AUTH', password)
-        return wait_ok(fut)
+    async def acquire(self, command=None, args=()):
+        """Acquires a connection from free pool.
+
+        Creates new connection if needed.
+        """
+        if self.closed:
+            raise PoolClosedError("Pool is closed")
+        async with self._cond:
+            if self.closed:
+                raise PoolClosedError("Pool is closed")
+            while True:
+                await self._fill_free(override_min=True)
+                if self.freesize:
+                    conn = self._pool.popleft()
+                    assert not conn.closed, conn
+                    assert conn not in self._used, (conn, self._used)
+                    self._used.add(conn)
+                    return conn
+                else:
+                    await self._cond.wait()
+
+    def release(self, conn):
+        """Returns used connection back into pool.
+
+        When returned connection has db index that differs from one in pool
+        the connection will be closed and dropped.
+        When queue of free connections is full the connection will be dropped.
+        """
+        assert conn in self._used, (
+            "Invalid connection, maybe from other pool", conn)
+        self._used.remove(conn)
+        if not conn.closed:
+            if conn.in_transaction:
+                logger.warning(
+                    "Connection %r is in transaction, closing it.", conn)
+                conn.close()
+            elif conn.in_pubsub:
+                logger.warning(
+                    "Connection %r is in subscribe mode, closing it.", conn)
+                conn.close()
+            elif conn._waiters:
+                logger.warning(
+                    "Connection %r has pending commands, closing it.", conn)
+                conn.close()
+            elif conn.db == self.db:
+                if self.maxsize and self.freesize < self.maxsize:
+                    self._pool.append(conn)
+                else:
+                    # consider this connection as old and close it.
+                    conn.close()
+            else:
+                conn.close()
+        # FIXME: check event loop is not closed
+        asyncio.ensure_future(self._wakeup(), loop=self._loop)
+
+    def _drop_closed(self):
+        for i in range(self.freesize):
+            conn = self._pool[0]
+            if conn.closed:
+                self._pool.popleft()
+            else:
+                self._pool.rotate(-1)
+
+    async def _fill_free(self, *, override_min):
+        # drop closed connections first
+        self._drop_closed()
+        # address = self._address
+        while self.size < self.minsize:
+            self._acquiring += 1
+            try:
+                conn = await self._create_new_connection(self._address)
+                # check the healthy of that connection, if
+                # something went wrong just trigger the Exception
+                await conn.execute('ping')
+                self._pool.append(conn)
+            finally:
+                self._acquiring -= 1
+                # connection may be closed at yield point
+                self._drop_closed()
+        if self.freesize:
+            return
+        if override_min:
+            while not self._pool and self.size < self.maxsize:
+                self._acquiring += 1
+                try:
+                    conn = await self._create_new_connection(self._address)
+                    self._pool.append(conn)
+                finally:
+                    self._acquiring -= 1
+                    # connection may be closed at yield point
+                    self._drop_closed()
+
+    def _create_new_connection(self, address):
+        return create_connection(address,
+                                 db=self._db,
+                                 password=self._password,
+                                 ssl=self._ssl,
+                                 encoding=self._encoding,
+                                 parser=self._parser_class,
+                                 timeout=self._create_connection_timeout,
+                                 connection_cls=self._connection_cls,
+                                 loop=self._loop)
+
+    async def _wakeup(self, closing_conn=None):
+        async with self._cond:
+            self._cond.notify()
+        if closing_conn is not None:
+            await closing_conn.wait_closed()
+
+    def __enter__(self):
+        raise RuntimeError(
+            "'await' should be used as a context manager expression")
+
+    def __exit__(self, *args):
+        pass    # pragma: nocover
+
+    def __await__(self):
+        # To make `with await pool` work
+        conn = yield from self.acquire().__await__()
+        return _ConnectionContextManager(self, conn)
+
+    def get(self):
+        '''Return async context manager for working with connection.
+
+        async with pool.get() as conn:
+            await conn.execute('get', 'my-key')
+        '''
+        return _AsyncConnectionContextManager(self)
+
+
+class _ConnectionContextManager:
+
+    __slots__ = ('_pool', '_conn')
+
+    def __init__(self, pool, conn):
+        self._pool = pool
+        self._conn = conn
+
+    def __enter__(self):
+        return self._conn
+
+    def __exit__(self, exc_type, exc_value, tb):
+        try:
+            self._pool.release(self._conn)
+        finally:
+            self._pool = None
+            self._conn = None
+
+
+class _AsyncConnectionContextManager:
+
+    __slots__ = ('_pool', '_conn')
+
+    def __init__(self, pool):
+        self._pool = pool
+        self._conn = None
+
+    async def __aenter__(self):
+        conn = await self._pool.acquire()
+        self._conn = conn
+        return self._conn
+
+    async def __aexit__(self, exc_type, exc_value, tb):
+        try:
+            self._pool.release(self._conn)
+        finally:
+            self._pool = None
+            self._conn = None

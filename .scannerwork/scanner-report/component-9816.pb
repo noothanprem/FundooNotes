@@ -1,1 +1,1 @@
-ØLHvenv/lib/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/Goodbye.py 2pyX/h
+ØLOvenv/lib/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/AuthCraRequest.py 2pyXh

@@ -1,1 +1,1 @@
-œ—Uvenv/lib64/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/SubscriberFeatures.py 2pyXWh
+œ—Ovenv/lib64/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/Unregistered.py 2pyX/h

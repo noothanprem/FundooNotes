@@ -1,1 +1,1 @@
-ªLvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests :6©«¬­®¯°±²³´µ¶ÉÊËÌÍ
+ªZvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/exceptions.py 2pyXh

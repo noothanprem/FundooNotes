@@ -3,49 +3,78 @@
 # This file is part of gunicorn released under the MIT license.
 # See the NOTICE for more information.
 
-from gunicorn.http.message import Request
-from gunicorn.http.unreader import SocketUnreader, IterUnreader
+import os
+
+from gunicorn import six
+
+# Classes that can undo reading data from
+# a given type of data source.
 
 
-class Parser(object):
+class Unreader(object):
+    def __init__(self):
+        self.buf = six.BytesIO()
 
-    mesg_class = None
+    def chunk(self):
+        raise NotImplementedError()
 
-    def __init__(self, cfg, source):
-        self.cfg = cfg
-        if hasattr(source, "recv"):
-            self.unreader = SocketUnreader(source)
-        else:
-            self.unreader = IterUnreader(source)
-        self.mesg = None
+    def read(self, size=None):
+        if size is not None and not isinstance(size, six.integer_types):
+            raise TypeError("size parameter must be an int or long.")
 
-        # request counter (for keepalive connetions)
-        self.req_count = 0
+        if size is not None:
+            if size == 0:
+                return b""
+            if size < 0:
+                size = None
 
-    def __iter__(self):
-        return self
+        self.buf.seek(0, os.SEEK_END)
 
-    def __next__(self):
-        # Stop if HTTP dictates a stop.
-        if self.mesg and self.mesg.should_close():
-            raise StopIteration()
+        if size is None and self.buf.tell():
+            ret = self.buf.getvalue()
+            self.buf = six.BytesIO()
+            return ret
+        if size is None:
+            d = self.chunk()
+            return d
 
-        # Discard any unread body of the previous message
-        if self.mesg:
-            data = self.mesg.body.read(8192)
-            while data:
-                data = self.mesg.body.read(8192)
+        while self.buf.tell() < size:
+            chunk = self.chunk()
+            if not chunk:
+                ret = self.buf.getvalue()
+                self.buf = six.BytesIO()
+                return ret
+            self.buf.write(chunk)
+        data = self.buf.getvalue()
+        self.buf = six.BytesIO()
+        self.buf.write(data[size:])
+        return data[:size]
 
-        # Parse the next request
-        self.req_count += 1
-        self.mesg = self.mesg_class(self.cfg, self.unreader, self.req_count)
-        if not self.mesg:
-            raise StopIteration()
-        return self.mesg
-
-    next = __next__
+    def unread(self, data):
+        self.buf.seek(0, os.SEEK_END)
+        self.buf.write(data)
 
 
-class RequestParser(Parser):
+class SocketUnreader(Unreader):
+    def __init__(self, sock, max_chunk=8192):
+        super(SocketUnreader, self).__init__()
+        self.sock = sock
+        self.mxchunk = max_chunk
 
-    mesg_class = Request
+    def chunk(self):
+        return self.sock.recv(self.mxchunk)
+
+
+class IterUnreader(Unreader):
+    def __init__(self, iterable):
+        super(IterUnreader, self).__init__()
+        self.iter = iter(iterable)
+
+    def chunk(self):
+        if not self.iter:
+            return b""
+        try:
+            return six.next(self.iter)
+        except StopIteration:
+            self.iter = None
+            return b""

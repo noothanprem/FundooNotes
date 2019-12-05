@@ -1,1 +1,1 @@
-ÝFvenv/lib/python3.6/site-packages/django/db/backends/oracle/creation.py 2pyX‘h
+Ý:venv/lib/python3.6/site-packages/django/db/backends/oracle :ÜÞßàáâãäåóôõ

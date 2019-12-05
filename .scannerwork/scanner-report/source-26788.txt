@@ -1,104 +1,126 @@
-# -*- coding: utf-8 -*-
-"""CouchDB result store backend."""
+"""The consumers highly-optimized inner loop."""
 from __future__ import absolute_import, unicode_literals
 
-from kombu.utils.encoding import bytes_to_str
-from kombu.utils.url import _parse_url
+import errno
+import socket
 
-from celery.exceptions import ImproperlyConfigured
+from celery import bootsteps
+from celery.exceptions import WorkerLostError, WorkerShutdown, WorkerTerminate
+from celery.utils.log import get_logger
 
-from .base import KeyValueStoreBackend
+from . import state
 
-try:
-    import pycouchdb
-except ImportError:
-    pycouchdb = None  # noqa
+__all__ = ('asynloop', 'synloop')
 
-__all__ = ('CouchBackend',)
+# pylint: disable=redefined-outer-name
+# We cache globals and attribute lookups, so disable this warning.
 
-ERR_LIB_MISSING = """\
-You need to install the pycouchdb library to use the CouchDB result backend\
-"""
+logger = get_logger(__name__)
 
 
-class CouchBackend(KeyValueStoreBackend):
-    """CouchDB backend.
+def _quick_drain(connection, timeout=0.1):
+    try:
+        connection.drain_events(timeout=timeout)
+    except Exception as exc:  # pylint: disable=broad-except
+        exc_errno = getattr(exc, 'errno', None)
+        if exc_errno is not None and exc_errno != errno.EAGAIN:
+            raise
 
-    Raises:
-        celery.exceptions.ImproperlyConfigured:
-            if module :pypi:`pycouchdb` is not available.
-    """
 
-    container = 'default'
-    scheme = 'http'
-    host = 'localhost'
-    port = 5984
-    username = None
-    password = None
+def _enable_amqheartbeats(timer, connection, rate=2.0):
+    if connection:
+        tick = connection.heartbeat_check
+        heartbeat = connection.get_heartbeat_interval()  # negotiated
+        if heartbeat and connection.supports_heartbeats:
+            timer.call_repeatedly(heartbeat / rate, tick, (rate,))
 
-    def __init__(self, url=None, *args, **kwargs):
-        super(CouchBackend, self).__init__(*args, **kwargs)
-        self.url = url
 
-        if pycouchdb is None:
-            raise ImproperlyConfigured(ERR_LIB_MISSING)
+def asynloop(obj, connection, consumer, blueprint, hub, qos,
+             heartbeat, clock, hbrate=2.0):
+    """Non-blocking event loop."""
+    RUN = bootsteps.RUN
+    update_qos = qos.update
+    errors = connection.connection_errors
 
-        uscheme = uhost = uport = uname = upass = ucontainer = None
-        if url:
-            _, uhost, uport, uname, upass, ucontainer, _ = _parse_url(url)  # noqa
-            ucontainer = ucontainer.strip('/') if ucontainer else None
+    on_task_received = obj.create_task_handler()
 
-        self.scheme = uscheme or self.scheme
-        self.host = uhost or self.host
-        self.port = int(uport or self.port)
-        self.container = ucontainer or self.container
-        self.username = uname or self.username
-        self.password = upass or self.password
+    _enable_amqheartbeats(hub.timer, connection, rate=hbrate)
 
-        self._connection = None
+    consumer.on_message = on_task_received
+    obj.controller.register_with_event_loop(hub)
+    obj.register_with_event_loop(hub)
+    consumer.consume()
+    obj.on_ready()
 
-    def _get_connection(self):
-        """Connect to the CouchDB server."""
-        if self.username and self.password:
-            conn_string = '%s://%s:%s@%s:%s' % (
-                self.scheme, self.username, self.password,
-                self.host, str(self.port))
-            server = pycouchdb.Server(conn_string, authmethod='basic')
-        else:
-            conn_string = '%s://%s:%s' % (
-                self.scheme, self.host, str(self.port))
-            server = pycouchdb.Server(conn_string)
+    # did_start_ok will verify that pool processes were able to start,
+    # but this will only work the first time we start, as
+    # maxtasksperchild will mess up metrics.
+    if not obj.restart_count and not obj.pool.did_start_ok():
+        raise WorkerLostError('Could not start worker processes')
 
+    # consumer.consume() may have prefetched up to our
+    # limit - drain an event so we're in a clean state
+    # prior to starting our event loop.
+    if connection.transport.driver_type == 'amqp':
+        hub.call_soon(_quick_drain, connection)
+
+    # FIXME: Use loop.run_forever
+    # Tried and works, but no time to test properly before release.
+    hub.propagate_errors = errors
+    loop = hub.create_loop()
+
+    try:
+        while blueprint.state == RUN and obj.connection:
+            # shutdown if signal handlers told us to.
+            should_stop, should_terminate = (
+                state.should_stop, state.should_terminate,
+            )
+            # False == EX_OK, so must use is not False
+            if should_stop is not None and should_stop is not False:
+                raise WorkerShutdown(should_stop)
+            elif should_terminate is not None and should_stop is not False:
+                raise WorkerTerminate(should_terminate)
+
+            # We only update QoS when there's no more messages to read.
+            # This groups together qos calls, and makes sure that remote
+            # control commands will be prioritized over task messages.
+            if qos.prev != qos.value:
+                update_qos()
+
+            try:
+                next(loop)
+            except StopIteration:
+                loop = hub.create_loop()
+    finally:
         try:
-            return server.database(self.container)
-        except pycouchdb.exceptions.NotFound:
-            return server.create(self.container)
+            hub.reset()
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.exception(
+                'Error cleaning up after event loop: %r', exc)
 
-    @property
-    def connection(self):
-        if self._connection is None:
-            self._connection = self._get_connection()
-        return self._connection
 
-    def get(self, key):
+def synloop(obj, connection, consumer, blueprint, hub, qos,
+            heartbeat, clock, hbrate=2.0, **kwargs):
+    """Fallback blocking event loop for transports that doesn't support AIO."""
+    RUN = bootsteps.RUN
+    on_task_received = obj.create_task_handler()
+    perform_pending_operations = obj.perform_pending_operations
+    if getattr(obj.pool, 'is_green', False):
+        _enable_amqheartbeats(obj.timer, connection, rate=hbrate)
+    consumer.on_message = on_task_received
+    consumer.consume()
+
+    obj.on_ready()
+
+    while blueprint.state == RUN and obj.connection:
+        state.maybe_shutdown()
+        if qos.prev != qos.value:
+            qos.update()
         try:
-            return self.connection.get(key)['value']
-        except pycouchdb.exceptions.NotFound:
-            return None
-
-    def set(self, key, value):
-        key = bytes_to_str(key)
-        data = {'_id': key, 'value': value}
-        try:
-            self.connection.save(data)
-        except pycouchdb.exceptions.Conflict:
-            # document already exists, update it
-            data = self.connection.get(key)
-            data['value'] = value
-            self.connection.save(data)
-
-    def mget(self, keys):
-        return [self.get(key) for key in keys]
-
-    def delete(self, key):
-        self.connection.delete(key)
+            perform_pending_operations()
+            connection.drain_events(timeout=2.0)
+        except socket.timeout:
+            pass
+        except socket.error:
+            if blueprint.state == RUN:
+                raise

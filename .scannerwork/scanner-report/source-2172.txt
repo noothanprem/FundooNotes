@@ -1,390 +1,412 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/graphics/charts/utils.py
+#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/graphics/charts/doughnut.py
+# doughnut chart
 
 __version__='3.3.0'
-__doc__="Utilities used here and there."
-from time import mktime, gmtime, strftime
-from math import log10, pi, floor, sin, cos, sqrt, hypot
-import weakref
-from reportlab.graphics.shapes import transformPoint, transformPoints, inverse, Ellipse, Group, String, Path, numericXShift
-from reportlab.lib.utils import flatten
-from reportlab.pdfbase.pdfmetrics import stringWidth
+__doc__="""Doughnut chart
 
-### Dinu's stuff used in some line plots (likely to vansih).
-def mkTimeTuple(timeString):
-    "Convert a 'dd/mm/yyyy' formatted string to a tuple for use in the time module."
+Produces a circular chart like the doughnut charts produced by Excel.
+Can handle multiple series (which produce concentric 'rings' in the chart).
 
-    list = [0] * 9
-    dd, mm, yyyy = list(map(int, timeString.split('/')))
-    list[:3] = [yyyy, mm, dd]
+"""
 
-    return tuple(list)
+import copy
+from math import sin, cos, pi
+from reportlab.lib import colors
+from reportlab.lib.validators import isColor, isNumber, isListOfNumbersOrNone,\
+                                    isListOfNumbers, isColorOrNone, isString,\
+                                    isListOfStringsOrNone, OneOf, SequenceOf,\
+                                    isBoolean, isListOfColors,\
+                                    isNoneOrListOfNoneOrStrings,\
+                                    isNoneOrListOfNoneOrNumbers,\
+                                    isNumberOrNone
+from reportlab.lib.attrmap import *
+from reportlab.pdfgen.canvas import Canvas
+from reportlab.graphics.shapes import Group, Drawing, Line, Rect, Polygon, Ellipse, \
+    Wedge, String, SolidShape, UserNode, STATE_DEFAULTS
+from reportlab.graphics.widgetbase import Widget, TypedPropertyCollection, PropHolder
+from reportlab.graphics.charts.piecharts import AbstractPieChart, WedgeProperties, _addWedgeLabel, fixLabelOverlaps
+from reportlab.graphics.charts.textlabels import Label
+from reportlab.graphics.widgets.markers import Marker
+from functools import reduce
 
-def str2seconds(timeString):
-    "Convert a number of seconds since the epoch into a date string."
+class SectorProperties(WedgeProperties):
+    """This holds descriptive information about the sectors in a doughnut chart.
 
-    return mktime(mkTimeTuple(timeString))
-
-def seconds2str(seconds):
-    "Convert a date string into the number of seconds since the epoch."
-
-    return strftime('%Y-%m-%d', gmtime(seconds))
-
-### Aaron's rounding function for making nice values on axes.
-def nextRoundNumber(x):
-    """Return the first 'nice round number' greater than or equal to x
-
-    Used in selecting apropriate tick mark intervals; we say we want
-    an interval which places ticks at least 10 points apart, work out
-    what that is in chart space, and ask for the nextRoundNumber().
-    Tries the series 1,2,5,10,20,50,100.., going up or down as needed.
+    It is not to be confused with the 'sector itself'; this just holds
+    a recipe for how to format one, and does not allow you to hack the
+    angles.  It can format a genuine Sector object for you with its
+    format method.
     """
+    _attrMap = AttrMap(BASE=WedgeProperties,
+            )
 
-    #guess to nearest order of magnitude
-    if x in (0, 1):
-        return x
+class Doughnut(AbstractPieChart):
+    _attrMap = AttrMap(
+        x = AttrMapValue(isNumber, desc='X position of the chart within its container.'),
+        y = AttrMapValue(isNumber, desc='Y position of the chart within its container.'),
+        width = AttrMapValue(isNumber, desc='width of doughnut bounding box. Need not be same as width.'),
+        height = AttrMapValue(isNumber, desc='height of doughnut bounding box.  Need not be same as height.'),
+        data = AttrMapValue(None, desc='list of numbers defining sector sizes; need not sum to 1'),
+        labels = AttrMapValue(isListOfStringsOrNone, desc="optional list of labels to use for each data point"),
+        startAngle = AttrMapValue(isNumber, desc="angle of first slice; like the compass, 0 is due North"),
+        direction = AttrMapValue(OneOf('clockwise', 'anticlockwise'), desc="'clockwise' or 'anticlockwise'"),
+        slices = AttrMapValue(None, desc="collection of sector descriptor objects"),
+        simpleLabels = AttrMapValue(isBoolean, desc="If true(default) use String not super duper WedgeLabel"),
+        # advanced usage
+        checkLabelOverlap = AttrMapValue(isBoolean, desc="If true check and attempt to fix\n standard label overlaps(default off)",advancedUsage=1),
+        sideLabels = AttrMapValue(isBoolean, desc="If true attempt to make chart with labels along side and pointers", advancedUsage=1),
+        innerRadiusFraction = AttrMapValue(isNumberOrNone,
+                desc='None or the fraction of the radius to be used as the inner hole.\nIf not a suitable default will be used.'),
+        )
 
-    if x < 0:
-        return -1.0 * nextRoundNumber(-x)
-    else:
-        lg = int(log10(x))
-
-        if lg == 0:
-            if x < 1:
-                base = 0.1
-            else:
-                base = 1.0
-        elif lg < 0:
-            base = 10.0 ** (lg - 1)
-        else:
-            base = 10.0 ** lg    # e.g. base(153) = 100
-        # base will always be lower than x
-
-        if base >= x:
-            return base * 1.0
-        elif (base * 2) >= x:
-            return base * 2.0
-        elif (base * 5) >= x:
-            return base * 5.0
-        else:
-            return base * 10.0
-
-_intervals=(.1, .2, .25, .5)
-_j_max=len(_intervals)-1
-def find_interval(lo,hi,I=5):
-    'determine tick parameters for range [lo, hi] using I intervals'
-
-    if lo >= hi:
-        if lo==hi:
-            if lo==0:
-                lo = -.1
-                hi =  .1
-            else:
-                lo = 0.9*lo
-                hi = 1.1*hi
-        else:
-            raise ValueError("lo>hi")
-    x=(hi - lo)/float(I)
-    b= (x>0 and (x<1 or x>10)) and 10**floor(log10(x)) or 1
-    b = b
-    while 1:
-        a = x/b
-        if a<=_intervals[-1]: break
-        b = b*10
-
-    j = 0
-    while a>_intervals[j]: j = j + 1
-
-    while 1:
-        ss = _intervals[j]*b
-        n = lo/ss
-        l = int(n)-(n<0)
-        n = ss*l
-        x = ss*(l+I)
-        a = I*ss
-        if n>0:
-            if a>=hi:
-                n = 0.0
-                x = a
-        elif hi<0:
-            a = -a
-            if lo>a:
-                n = a
-                x = 0
-        if hi<=x and n<=lo: break
-        j = j + 1
-        if j>_j_max:
-            j = 0
-            b = b*10
-    return n, x, ss, lo - n + x - hi
-
-def find_good_grid(lower,upper,n=(4,5,6,7,8,9), grid=None):
-    if grid:
-        t = divmod(lower,grid)[0] * grid
-        hi, z = divmod(upper,grid)
-        if z>1e-8: hi = hi+1
-        hi = hi*grid
-    else:
-        try:
-            n[0]
-        except TypeError:
-            n = range(max(1,n-2),max(n+3,2))
-
-        w = 1e308
-        for i in n:
-            z=find_interval(lower,upper,i)
-            if z[3]<w:
-                t, hi, grid = z[:3]
-                w=z[3]
-    return t, hi, grid
-
-def ticks(lower, upper, n=(4,5,6,7,8,9), split=1, percent=0, grid=None, labelVOffset=0):
-    '''
-    return tick positions and labels for range lower<=x<=upper
-    n=number of intervals to try (can be a list or sequence)
-    split=1 return ticks then labels else (tick,label) pairs
-    '''
-    t, hi, grid = find_good_grid(lower, upper, n, grid)
-    power = floor(log10(grid))
-    if power==0: power = 1
-    w = grid/10.**power
-    w = int(w)!=w
-
-    if power > 3 or power < -3:
-        format = '%+'+repr(w+7)+'.0e'
-    else:
-        if power >= 0:
-            digits = int(power)+w
-            format = '%' + repr(digits)+'.0f'
-        else:
-            digits = w-int(power)
-            format = '%'+repr(digits+2)+'.'+repr(digits)+'f'
-
-    if percent: format=format+'%%'
-    T = []
-    n = int(float(hi-t)/grid+0.1)+1
-    if split:
-        labels = []
-        for i in range(n):
-            v = t+grid*i
-            T.append(v)
-            labels.append(format % (v+labelVOffset))
-        return T, labels
-    else:
-        for i in range(n):
-            v = t+grid*i
-            T.append((v, format % (v+labelVOffset)))
-        return T
-
-def findNones(data):
-    m = len(data)
-    if None in data:
-        b = 0
-        while b<m and data[b] is None:
-            b += 1
-        if b==m: return data
-        l = m-1
-        while data[l] is None:
-            l -= 1
-        l+=1
-        if b or l: data = data[b:l]
-        I = [i for i in range(len(data)) if data[i] is None]
-        for i in I:
-            data[i] = 0.5*(data[i-1]+data[i+1])
-        return b, l, data
-    return 0,m,data
-
-def pairFixNones(pairs):
-    Y = [x[1] for x in pairs]
-    b,l,nY = findNones(Y)
-    m = len(Y)
-    if b or l<m or nY!=Y:
-        if b or l<m: pairs = pairs[b:l]
-        pairs = [(x[0],y) for x,y in zip(pairs,nY)]
-    return pairs
-
-def maverage(data,n=6):
-    data = (n-1)*[data[0]]+data
-    data = [float(sum(data[i-n:i]))/n for i in range(n,len(data)+1)]
-    return data
-
-def pairMaverage(data,n=6):
-    return [(x[0],s) for x,s in zip(data, maverage([x[1] for x in data],n))]
-
-class DrawTimeCollector(object):
-    '''
-    generic mechanism for collecting information about nodes at the time they are about to be drawn
-    '''
-    def __init__(self,formats=['gif']):
-        self._nodes = weakref.WeakKeyDictionary()
-        self.clear()
-        self._pmcanv = None
-        self.formats = formats
-        self.disabled = False
-
-    def clear(self):
-        self._info = []
-        self._info_append = self._info.append
-
-    def record(self,func,node,*args,**kwds):
-        self._nodes[node] = (func,args,kwds)
-        node.__dict__['_drawTimeCallback'] = self
-
-    def __call__(self,node,canvas,renderer):
-        func = self._nodes.get(node,None)
-        if func:
-            func, args, kwds = func
-            i = func(node,canvas,renderer, *args, **kwds)
-            if i is not None: self._info_append(i)
-
-    @staticmethod
-    def rectDrawTimeCallback(node,canvas,renderer,**kwds):
-        A = getattr(canvas,'ctm',None)
-        if not A: return
-        x1 = node.x
-        y1 = node.y
-        x2 = x1 + node.width
-        y2 = y1 + node.height
-
-        D = kwds.copy()
-        D['rect']=DrawTimeCollector.transformAndFlatten(A,((x1,y1),(x2,y2)))
-        return D
-
-    @staticmethod
-    def transformAndFlatten(A,p):
-        ''' transform an flatten a list of points
-        A   transformation matrix
-        p   points [(x0,y0),....(xk,yk).....]
-        '''
-        if tuple(A)!=(1,0,0,1,0,0):
-            iA = inverse(A)
-            p = transformPoints(iA,p)
-        return tuple(flatten(p))
-
-    @property
-    def pmcanv(self):
-        if not self._pmcanv:
-            import renderPM
-            self._pmcanv = renderPM.PMCanvas(1,1)
-        return self._pmcanv
-
-    def wedgeDrawTimeCallback(self,node,canvas,renderer,**kwds):
-        A = getattr(canvas,'ctm',None)
-        if not A: return
-        if isinstance(node,Ellipse):
-            c = self.pmcanv
-            c.ellipse(node.cx, node.cy, node.rx,node.ry)
-            p = c.vpath
-            p = [(x[1],x[2]) for x in p]
-        else:
-            p = node.asPolygon().points
-            p = [(p[i],p[i+1]) for i in range(0,len(p),2)]
-
-        D = kwds.copy()
-        D['poly'] = self.transformAndFlatten(A,p)
-        return D
-
-    def save(self,fnroot):
-        '''
-        save the current information known to this collector
-        fnroot is the root name of a resource to name the saved info
-        override this to get the right semantics for your collector
-        '''
-        import pprint
-        f=open(fnroot+'.default-collector.out','w')
-        try:
-            pprint.pprint(self._info,f)
-        finally:
-            f.close()
-
-def xyDist(xxx_todo_changeme, xxx_todo_changeme1 ):
-    '''return distance between two points'''
-    (x0,y0) = xxx_todo_changeme
-    (x1,y1) = xxx_todo_changeme1
-    return hypot((x1-x0),(y1-y0))
-
-def lineSegmentIntersect(xxx_todo_changeme2, xxx_todo_changeme3, xxx_todo_changeme4, xxx_todo_changeme5
-                ):
-    (x00,y00) = xxx_todo_changeme2
-    (x01,y01) = xxx_todo_changeme3
-    (x10,y10) = xxx_todo_changeme4
-    (x11,y11) = xxx_todo_changeme5
-    p = x00,y00
-    r = x01-x00,y01-y00
-
-    
-    q = x10,y10
-    s = x11-x10,y11-y10
-
-    rs = float(r[0]*s[1]-r[1]*s[0])
-    qp = q[0]-p[0],q[1]-p[1]
-
-    qpr = qp[0]*r[1]-qp[1]*r[0]
-    qps = qp[0]*s[1]-qp[1]*s[0]
-
-    if abs(rs)<1e-8:
-        if abs(qpr)<1e-8: return 'collinear'
-        return None
-
-    t = qps/rs
-    u = qpr/rs
-
-    if 0<=t<=1 and 0<=u<=1:
-        return p[0]+t*r[0], p[1]+t*r[1]
-
-def makeCircularString(x, y, radius, angle, text, fontName, fontSize, inside=0, G=None,textAnchor='start'):
-    '''make a group with circular text in it'''
-    if not G: G = Group()
-
-    angle %= 360
-    pi180 = pi/180
-    phi = angle*pi180
-    width = stringWidth(text, fontName, fontSize)
-    sig = inside and -1 or 1
-    hsig = sig*0.5
-    sig90 = sig*90
-
-    if textAnchor!='start':
-        if textAnchor=='middle':
-            phi += sig*(0.5*width)/radius
-        elif textAnchor=='end':
-            phi += sig*float(width)/radius
-        elif textAnchor=='numeric':
-            phi += sig*float(numericXShift(textAnchor,text,width,fontName,fontSize,None))/radius
-
-    for letter in text:
-        width = stringWidth(letter, fontName, fontSize)
-        beta = float(width)/radius
-        h = Group()
-        h.add(String(0, 0, letter, fontName=fontName,fontSize=fontSize,textAnchor="start"))
-        h.translate(x+cos(phi)*radius,y+sin(phi)*radius)    #translate to radius and angle
-        h.rotate((phi-hsig*beta)/pi180-sig90)               # rotate as needed
-        G.add(h)                                            #add to main group
-        phi -= sig*beta                                     #increment
-
-    return G
-
-class CustomDrawChanger:
-    '''
-    a class to simplify making changes at draw time
-    '''
     def __init__(self):
-        self.store = None
+        self.x = 0
+        self.y = 0
+        self.width = 100
+        self.height = 100
+        self.data = [1,1]
+        self.labels = None  # or list of strings
+        self.startAngle = 90
+        self.direction = "clockwise"
+        self.simpleLabels = 1
+        self.checkLabelOverlap = 0
+        self.sideLabels = 0
+        self.innerRadiusFraction = None
 
-    def __call__(self,change,obj):
-        if change:
-            self.store = self._changer(obj)
-            assert isinstance(self.store,dict), '%s.changer should return a dict of changed attributes' % self.__class__.__name__
-        elif self.store is not None:
-            for a,v in self.store.items():
-                setattr(obj,a,v)
-            self.store = None
+        self.slices = TypedPropertyCollection(SectorProperties)
+        self.slices[0].fillColor = colors.darkcyan
+        self.slices[1].fillColor = colors.blueviolet
+        self.slices[2].fillColor = colors.blue
+        self.slices[3].fillColor = colors.cyan
+        self.slices[4].fillColor = colors.pink
+        self.slices[5].fillColor = colors.magenta
+        self.slices[6].fillColor = colors.yellow
+        
+        
+    def demo(self):
+        d = Drawing(200, 100)
 
-    def _changer(self,obj):
-        '''
-        When implemented this method should return a dictionary of
-        original attribute values so that a future self(False,obj)
-        can restore them.
-        '''
-        raise RuntimeError('Abstract method _changer called')
+        dn = Doughnut()
+        dn.x = 50
+        dn.y = 10
+        dn.width = 100
+        dn.height = 80
+        dn.data = [10,20,30,40,50,60]
+        dn.labels = ['a','b','c','d','e','f']
+
+        dn.slices.strokeWidth=0.5
+        dn.slices[3].popout = 10
+        dn.slices[3].strokeWidth = 2
+        dn.slices[3].strokeDashArray = [2,2]
+        dn.slices[3].labelRadius = 1.75
+        dn.slices[3].fontColor = colors.red
+        dn.slices[0].fillColor = colors.darkcyan
+        dn.slices[1].fillColor = colors.blueviolet
+        dn.slices[2].fillColor = colors.blue
+        dn.slices[3].fillColor = colors.cyan
+        dn.slices[4].fillColor = colors.aquamarine
+        dn.slices[5].fillColor = colors.cadetblue
+        dn.slices[6].fillColor = colors.lightcoral
+
+        d.add(dn)
+        return d
+
+    def normalizeData(self, data=None):
+        from operator import add
+        sum = float(reduce(add,data,0))
+        return abs(sum)>=1e-8 and list(map(lambda x,f=360./sum: f*x, data)) or len(data)*[0]
+
+    def makeSectors(self):
+        # normalize slice data
+        if isinstance(self.data,(list,tuple)) and isinstance(self.data[0],(list,tuple)):
+            #it's a nested list, more than one sequence
+            normData = []
+            n = []
+            for l in self.data:
+                t = self.normalizeData(l)
+                normData.append(t)
+                n.append(len(t))
+            self._seriesCount = max(n)
+        else:
+            normData = self.normalizeData(self.data)
+            n = len(normData)
+            self._seriesCount = n
+        
+        #labels
+        checkLabelOverlap = self.checkLabelOverlap
+        L = []
+        L_add = L.append
+        
+        if self.labels is None:
+            labels = []
+            if not isinstance(n,(list,tuple)):
+                labels = [''] * n
+            else:
+                for m in n:
+                    labels = list(labels) + [''] * m
+        else:
+            labels = self.labels
+            #there's no point in raising errors for less than enough labels if
+            #we silently create all for the extreme case of no labels.
+            if not isinstance(n,(list,tuple)):
+                i = n-len(labels)
+                if i>0:
+                    labels = list(labels) + [''] * i
+            else:
+                tlab = 0
+                for m in n:
+                    tlab += m
+                i = tlab-len(labels)
+                if i>0:
+                    labels = list(labels) + [''] * i
+
+        xradius = self.width/2.0
+        yradius = self.height/2.0
+        centerx = self.x + xradius
+        centery = self.y + yradius
+
+        if self.direction == "anticlockwise":
+            whichWay = 1
+        else:
+            whichWay = -1
+
+        g  = Group()
+        
+        startAngle = self.startAngle #% 360
+        styleCount = len(self.slices)
+        irf = self.innerRadiusFraction
+        if isinstance(self.data[0],(list,tuple)):
+            #multi-series doughnut
+            ndata = len(self.data)
+            if irf is None:
+                yir = (yradius/2.5)/ndata
+                xir = (xradius/2.5)/ndata
+            else:
+                yir = yradius*irf
+                xir = xradius*irf
+            ydr = (yradius-yir)/ndata
+            xdr = (xradius-xir)/ndata
+            for sn,series in enumerate(normData):
+                for i,angle in enumerate(series):
+                    endAngle = (startAngle + (angle * whichWay)) #% 360
+                    if abs(startAngle-endAngle)<1e-5:
+                        startAngle = endAngle
+                        continue
+                    if startAngle < endAngle:
+                        a1 = startAngle
+                        a2 = endAngle
+                    else:
+                        a1 = endAngle
+                        a2 = startAngle
+                    startAngle = endAngle
+
+                    #if we didn't use %stylecount here we'd end up with the later sectors
+                    #all having the default style
+                    sectorStyle = self.slices[i%styleCount]
+
+                    # is it a popout?
+                    cx, cy = centerx, centery
+                    if sectorStyle.popout != 0:
+                        # pop out the sector
+                        averageAngle = (a1+a2)/2.0
+                        aveAngleRadians = averageAngle * pi/180.0
+                        popdistance = sectorStyle.popout
+                        cx = centerx + popdistance * cos(aveAngleRadians)
+                        cy = centery + popdistance * sin(aveAngleRadians)
+
+                    yr1 = yir+sn*ydr
+                    yr = yr1 + ydr
+                    xr1 = xir+sn*xdr
+                    xr = xr1 + xdr
+                    if isinstance(n,(list,tuple)):
+                        theSector = Wedge(cx, cy, xr, a1, a2, yradius=yr, radius1=xr1, yradius1=yr1)
+                    else:
+                        theSector = Wedge(cx, cy, xr, a1, a2, yradius=yr, radius1=xr1, yradius1=yr1, annular=True)
+
+                    theSector.fillColor = sectorStyle.fillColor
+                    theSector.strokeColor = sectorStyle.strokeColor
+                    theSector.strokeWidth = sectorStyle.strokeWidth
+                    theSector.strokeDashArray = sectorStyle.strokeDashArray
+
+                    g.add(theSector)
+
+                    if sn == 0 and sectorStyle.visible and sectorStyle.label_visible:
+                        text = self.getSeriesName(i,'')
+                        if text:
+                            averageAngle = (a1+a2)/2.0
+                            aveAngleRadians = averageAngle*pi/180.0
+                            labelRadius = sectorStyle.labelRadius
+                            rx = xradius*labelRadius
+                            ry = yradius*labelRadius
+                            labelX = centerx + (0.5 * self.width * cos(aveAngleRadians) * labelRadius)
+                            labelY = centery + (0.5 * self.height * sin(aveAngleRadians) * labelRadius)
+                            l = _addWedgeLabel(self,text,averageAngle,labelX,labelY,sectorStyle)
+                            if checkLabelOverlap:
+                                l._origdata = { 'x': labelX, 'y':labelY, 'angle': averageAngle,
+                                            'rx': rx, 'ry':ry, 'cx':cx, 'cy':cy,
+                                            'bounds': l.getBounds(),
+                                            }
+                            L_add(l)
+
+        else:
+            #single series doughnut
+            if irf is None:
+                yir = yradius/2.5
+                xir = xradius/2.5
+            else:
+                yir = yradius*irf
+                xir = xradius*irf
+            for i,angle in enumerate(normData):
+                endAngle = (startAngle + (angle * whichWay)) #% 360
+                if abs(startAngle-endAngle)<1e-5:
+                    startAngle = endAngle
+                    continue
+                if startAngle < endAngle:
+                    a1 = startAngle
+                    a2 = endAngle
+                else:
+                    a1 = endAngle
+                    a2 = startAngle
+                startAngle = endAngle
+
+                #if we didn't use %stylecount here we'd end up with the later sectors
+                #all having the default style
+                sectorStyle = self.slices[i%styleCount]
+
+                # is it a popout?
+                cx, cy = centerx, centery
+                if sectorStyle.popout != 0:
+                    # pop out the sector
+                    averageAngle = (a1+a2)/2.0
+                    aveAngleRadians = averageAngle * pi/180.0
+                    popdistance = sectorStyle.popout
+                    cx = centerx + popdistance * cos(aveAngleRadians)
+                    cy = centery + popdistance * sin(aveAngleRadians)
+
+                if n > 1:
+                    theSector = Wedge(cx, cy, xradius, a1, a2, yradius=yradius, radius1=xir, yradius1=yir)
+                elif n==1:
+                    theSector = Wedge(cx, cy, xradius, a1, a2, yradius=yradius, radius1=xir, yradius1=yir, annular=True)
+
+                theSector.fillColor = sectorStyle.fillColor
+                theSector.strokeColor = sectorStyle.strokeColor
+                theSector.strokeWidth = sectorStyle.strokeWidth
+                theSector.strokeDashArray = sectorStyle.strokeDashArray
+
+                g.add(theSector)
+
+                # now draw a label
+                if labels[i] and sectorStyle.visible and sectorStyle.label_visible:
+                    averageAngle = (a1+a2)/2.0
+                    aveAngleRadians = averageAngle*pi/180.0
+                    labelRadius = sectorStyle.labelRadius
+                    labelX = centerx + (0.5 * self.width * cos(aveAngleRadians) * labelRadius)
+                    labelY = centery + (0.5 * self.height * sin(aveAngleRadians) * labelRadius)
+                    rx = xradius*labelRadius
+                    ry = yradius*labelRadius
+                    l = _addWedgeLabel(self,labels[i],averageAngle,labelX,labelY,sectorStyle)
+                    if checkLabelOverlap:
+                        l._origdata = { 'x': labelX, 'y':labelY, 'angle': averageAngle,
+                                        'rx': rx, 'ry':ry, 'cx':cx, 'cy':cy,
+                                        'bounds': l.getBounds(),
+                                        }
+                    L_add(l)
+
+        if checkLabelOverlap and L:
+            fixLabelOverlaps(L)
+        
+        for l in L: g.add(l)
+        
+        return g
+        
+    def draw(self):
+        g = Group()
+        g.add(self.makeSectors())
+        return g
+
+
+def sample1():
+    "Make up something from the individual Sectors"
+
+    d = Drawing(400, 400)
+    g = Group()
+
+    s1 = Wedge(centerx=200, centery=200, radius=150, startangledegrees=0, endangledegrees=120, radius1=100)
+    s1.fillColor=colors.red
+    s1.strokeColor=None
+    d.add(s1)
+    s2 = Wedge(centerx=200, centery=200, radius=150, startangledegrees=120, endangledegrees=240, radius1=100)
+    s2.fillColor=colors.green
+    s2.strokeColor=None
+    d.add(s2)
+    s3 = Wedge(centerx=200, centery=200, radius=150, startangledegrees=240, endangledegrees=260, radius1=100)
+    s3.fillColor=colors.blue
+    s3.strokeColor=None
+    d.add(s3)
+    s4 = Wedge(centerx=200, centery=200, radius=150, startangledegrees=260, endangledegrees=360, radius1=100)
+    s4.fillColor=colors.gray
+    s4.strokeColor=None
+    d.add(s4)
+
+    return d
+
+def sample2():
+    "Make a simple demo"
+
+    d = Drawing(400, 400)
+
+    dn = Doughnut()
+    dn.x = 50
+    dn.y = 50
+    dn.width = 300
+    dn.height = 300
+    dn.data = [10,20,30,40,50,60]
+
+    d.add(dn)
+
+    return d
+
+def sample3():
+    "Make a more complex demo"
+
+    d = Drawing(400, 400)
+    dn = Doughnut()
+    dn.x = 50
+    dn.y = 50
+    dn.width = 300
+    dn.height = 300
+    dn.data = [[10,20,30,40,50,60], [10,20,30,40]]
+    dn.labels = ['a','b','c','d','e','f']
+
+    d.add(dn)
+
+    return d
+
+def sample4():
+    "Make a more complex demo with Label Overlap fixing"
+
+    d = Drawing(400, 400)
+    dn = Doughnut()
+    dn.x = 50
+    dn.y = 50
+    dn.width = 300
+    dn.height = 300
+    dn.data = [[10,20,30,40,50,60], [10,20,30,40]]
+    dn.labels = ['a','b','c','d','e','f']
+    dn.checkLabelOverlap = True
+
+    d.add(dn)
+
+    return d
+
+if __name__=='__main__':
+
+    from reportlab.graphics.renderPDF import drawToFile
+    d = sample1()
+    drawToFile(d, 'doughnut1.pdf')
+    d = sample2()
+    drawToFile(d, 'doughnut2.pdf')
+    d = sample3()
+    drawToFile(d, 'doughnut3.pdf')

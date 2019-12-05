@@ -1,1 +1,1 @@
-ÀR+venv/lib/python3.6/site-packages/bootstrap3 :¿RÁRÂRÃRÄRÐRÑRÒRÞRßR
+ÀR.venv/lib/python3.6/site-packages/django_six.py 2pyXMh

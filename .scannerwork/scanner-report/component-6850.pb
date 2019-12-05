@@ -1,1 +1,1 @@
-Â55venv/lib/python3.6/site-packages/django/contrib/sites :Á5Ã5Ä5Å5Æ5Ç5à7á7â7
+Â5Cvenv/lib/python3.6/site-packages/django/contrib/sites/management.py 2pyX'h

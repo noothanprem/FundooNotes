@@ -1,1 +1,1 @@
-ç;venv/lib/python3.6/site-packages/celery/loaders/__init__.py 2pyXh
+ç6venv/lib/python3.6/site-packages/celery/loaders/app.py 2pyXh

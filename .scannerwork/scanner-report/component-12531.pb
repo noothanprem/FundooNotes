@@ -1,1 +1,1 @@
-óa@venv/lib/python3.6/site-packages/docutils/parsers/rst/directives :òaôaõaöa÷aøaùa„b…b
+óaIvenv/lib/python3.6/site-packages/docutils/parsers/rst/directives/parts.py 2pyXh

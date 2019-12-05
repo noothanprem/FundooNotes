@@ -1,1 +1,0 @@
-Ÿ\:venv/lib/python3.6/site-packages/faker/providers/job/ar_AA :ž\

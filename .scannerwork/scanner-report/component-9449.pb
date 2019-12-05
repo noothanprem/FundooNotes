@@ -1,1 +1,1 @@
-éIGvenv/lib/python3.6/site-packages/django_elasticsearch_dsl/exceptions.py 2pyXh
+éI9venv/lib/python3.6/site-packages/django_elasticsearch_dsl :èIêIëIìIíIøIùIúIûIˆJJ

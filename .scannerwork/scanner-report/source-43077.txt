@@ -28,588 +28,827 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Contains container classes to represent different protocol buffer types.
+"""Code for decoding protocol buffer primitives.
 
-This file defines container classes which represent categories of protocol
-buffer field types which need extra maintenance. Currently these categories
-are:
-  - Repeated scalar fields - These are all repeated fields which aren't
-    composite (e.g. they are of simple types like int32, string, etc).
-  - Repeated composite fields - Repeated fields which are composite. This
-    includes groups and nested messages.
+This code is very similar to encoder.py -- read the docs for that module first.
+
+A "decoder" is a function with the signature:
+  Decode(buffer, pos, end, message, field_dict)
+The arguments are:
+  buffer:     The string containing the encoded message.
+  pos:        The current position in the string.
+  end:        The position in the string where the current message ends.  May be
+              less than len(buffer) if we're reading a sub-message.
+  message:    The message object into which we're parsing.
+  field_dict: message._fields (avoids a hashtable lookup).
+The decoder reads the field and stores it into field_dict, returning the new
+buffer position.  A decoder for a repeated field may proactively decode all of
+the elements of that field, if they appear consecutively.
+
+Note that decoders may throw any of the following:
+  IndexError:  Indicates a truncated message.
+  struct.error:  Unpacking of a fixed-width field failed.
+  message.DecodeError:  Other errors.
+
+Decoders are expected to raise an exception if they are called with pos > end.
+This allows callers to be lax about bounds checking:  it's fineto read past
+"end" as long as you are sure that someone else will notice and throw an
+exception later on.
+
+Something up the call stack is expected to catch IndexError and struct.error
+and convert them to message.DecodeError.
+
+Decoders are constructed using decoder constructors with the signature:
+  MakeDecoder(field_number, is_repeated, is_packed, key, new_default)
+The arguments are:
+  field_number:  The field number of the field we want to decode.
+  is_repeated:   Is the field a repeated field? (bool)
+  is_packed:     Is the field a packed field? (bool)
+  key:           The key to use when looking up the field within field_dict.
+                 (This is actually the FieldDescriptor but nothing in this
+                 file should depend on that.)
+  new_default:   A function which takes a message object as a parameter and
+                 returns a new instance of the default value for this field.
+                 (This is called for repeated fields and sub-messages, when an
+                 instance does not already exist.)
+
+As with encoders, we define a decoder constructor for every type of field.
+Then, for every field of every message class we construct an actual decoder.
+That decoder goes into a dict indexed by tag, so when we decode a message
+we repeatedly read a tag, look up the corresponding decoder, and invoke it.
 """
 
-__author__ = 'petar@google.com (Petar Petrov)'
+__author__ = 'kenton@google.com (Kenton Varda)'
 
-import collections
-import sys
+import struct
 
-if sys.version_info[0] < 3:
-  # We would use collections.MutableMapping all the time, but in Python 2 it
-  # doesn't define __slots__.  This causes two significant problems:
-  #
-  # 1. we can't disallow arbitrary attribute assignment, even if our derived
-  #    classes *do* define __slots__.
-  #
-  # 2. we can't safely derive a C type from it without __slots__ defined (the
-  #    interpreter expects to find a dict at tp_dictoffset, which we can't
-  #    robustly provide.  And we don't want an instance dict anyway.
-  #
-  # So this is the Python 2.7 definition of Mapping/MutableMapping functions
-  # verbatim, except that:
-  # 1. We declare __slots__.
-  # 2. We don't declare this as a virtual base class.  The classes defined
-  #    in collections are the interesting base classes, not us.
-  #
-  # Note: deriving from object is critical.  It is the only thing that makes
-  # this a true type, allowing us to derive from it in C++ cleanly and making
-  # __slots__ properly disallow arbitrary element assignment.
+import six
 
-  class Mapping(object):
-    __slots__ = ()
+if six.PY3:
+  long = int
 
-    def get(self, key, default=None):
-      try:
-        return self[key]
-      except KeyError:
-        return default
+from google.protobuf.internal import encoder
+from google.protobuf.internal import wire_format
+from google.protobuf import message
 
-    def __contains__(self, key):
-      try:
-        self[key]
-      except KeyError:
-        return False
+
+# This will overflow and thus become IEEE-754 "infinity".  We would use
+# "float('inf')" but it doesn't work on Windows pre-Python-2.6.
+_POS_INF = 1e10000
+_NEG_INF = -_POS_INF
+_NAN = _POS_INF * 0
+
+
+# This is not for optimization, but rather to avoid conflicts with local
+# variables named "message".
+_DecodeError = message.DecodeError
+
+
+def _VarintDecoder(mask, result_type):
+  """Return an encoder for a basic varint value (does not include tag).
+
+  Decoded values will be bitwise-anded with the given mask before being
+  returned, e.g. to limit them to 32 bits.  The returned decoder does not
+  take the usual "end" parameter -- the caller is expected to do bounds checking
+  after the fact (often the caller can defer such checking until later).  The
+  decoder returns a (value, new_pos) pair.
+  """
+
+  def DecodeVarint(buffer, pos):
+    result = 0
+    shift = 0
+    while 1:
+      b = six.indexbytes(buffer, pos)
+      result |= ((b & 0x7f) << shift)
+      pos += 1
+      if not (b & 0x80):
+        result &= mask
+        result = result_type(result)
+        return (result, pos)
+      shift += 7
+      if shift >= 64:
+        raise _DecodeError('Too many bytes when decoding varint.')
+  return DecodeVarint
+
+
+def _SignedVarintDecoder(mask, result_type):
+  """Like _VarintDecoder() but decodes signed values."""
+
+  def DecodeVarint(buffer, pos):
+    result = 0
+    shift = 0
+    while 1:
+      b = six.indexbytes(buffer, pos)
+      result |= ((b & 0x7f) << shift)
+      pos += 1
+      if not (b & 0x80):
+        if result > 0x7fffffffffffffff:
+          result -= (1 << 64)
+          result |= ~mask
+        else:
+          result &= mask
+        result = result_type(result)
+        return (result, pos)
+      shift += 7
+      if shift >= 64:
+        raise _DecodeError('Too many bytes when decoding varint.')
+  return DecodeVarint
+
+# We force 32-bit values to int and 64-bit values to long to make
+# alternate implementations where the distinction is more significant
+# (e.g. the C++ implementation) simpler.
+
+_DecodeVarint = _VarintDecoder((1 << 64) - 1, int)
+_DecodeSignedVarint = _SignedVarintDecoder((1 << 64) - 1, int)
+
+# Use these versions for values which must be limited to 32 bits.
+_DecodeVarint32 = _VarintDecoder((1 << 32) - 1, int)
+_DecodeSignedVarint32 = _SignedVarintDecoder((1 << 32) - 1, int)
+
+
+def ReadTag(buffer, pos):
+  """Read a tag from the buffer, and return a (tag_bytes, new_pos) tuple.
+
+  We return the raw bytes of the tag rather than decoding them.  The raw
+  bytes can then be used to look up the proper decoder.  This effectively allows
+  us to trade some work that would be done in pure-python (decoding a varint)
+  for work that is done in C (searching for a byte string in a hash table).
+  In a low-level language it would be much cheaper to decode the varint and
+  use that, but not in Python.
+  """
+
+  start = pos
+  while six.indexbytes(buffer, pos) & 0x80:
+    pos += 1
+  pos += 1
+  return (buffer[start:pos], pos)
+
+
+# --------------------------------------------------------------------
+
+
+def _SimpleDecoder(wire_type, decode_value):
+  """Return a constructor for a decoder for fields of a particular type.
+
+  Args:
+      wire_type:  The field's wire type.
+      decode_value:  A function which decodes an individual value, e.g.
+        _DecodeVarint()
+  """
+
+  def SpecificDecoder(field_number, is_repeated, is_packed, key, new_default):
+    if is_packed:
+      local_DecodeVarint = _DecodeVarint
+      def DecodePackedField(buffer, pos, end, message, field_dict):
+        value = field_dict.get(key)
+        if value is None:
+          value = field_dict.setdefault(key, new_default(message))
+        (endpoint, pos) = local_DecodeVarint(buffer, pos)
+        endpoint += pos
+        if endpoint > end:
+          raise _DecodeError('Truncated message.')
+        while pos < endpoint:
+          (element, pos) = decode_value(buffer, pos)
+          value.append(element)
+        if pos > endpoint:
+          del value[-1]   # Discard corrupt value.
+          raise _DecodeError('Packed element was truncated.')
+        return pos
+      return DecodePackedField
+    elif is_repeated:
+      tag_bytes = encoder.TagBytes(field_number, wire_type)
+      tag_len = len(tag_bytes)
+      def DecodeRepeatedField(buffer, pos, end, message, field_dict):
+        value = field_dict.get(key)
+        if value is None:
+          value = field_dict.setdefault(key, new_default(message))
+        while 1:
+          (element, new_pos) = decode_value(buffer, pos)
+          value.append(element)
+          # Predict that the next tag is another copy of the same repeated
+          # field.
+          pos = new_pos + tag_len
+          if buffer[new_pos:pos] != tag_bytes or new_pos >= end:
+            # Prediction failed.  Return.
+            if new_pos > end:
+              raise _DecodeError('Truncated message.')
+            return new_pos
+      return DecodeRepeatedField
+    else:
+      def DecodeField(buffer, pos, end, message, field_dict):
+        (field_dict[key], pos) = decode_value(buffer, pos)
+        if pos > end:
+          del field_dict[key]  # Discard corrupt value.
+          raise _DecodeError('Truncated message.')
+        return pos
+      return DecodeField
+
+  return SpecificDecoder
+
+
+def _ModifiedDecoder(wire_type, decode_value, modify_value):
+  """Like SimpleDecoder but additionally invokes modify_value on every value
+  before storing it.  Usually modify_value is ZigZagDecode.
+  """
+
+  # Reusing _SimpleDecoder is slightly slower than copying a bunch of code, but
+  # not enough to make a significant difference.
+
+  def InnerDecode(buffer, pos):
+    (result, new_pos) = decode_value(buffer, pos)
+    return (modify_value(result), new_pos)
+  return _SimpleDecoder(wire_type, InnerDecode)
+
+
+def _StructPackDecoder(wire_type, format):
+  """Return a constructor for a decoder for a fixed-width field.
+
+  Args:
+      wire_type:  The field's wire type.
+      format:  The format string to pass to struct.unpack().
+  """
+
+  value_size = struct.calcsize(format)
+  local_unpack = struct.unpack
+
+  # Reusing _SimpleDecoder is slightly slower than copying a bunch of code, but
+  # not enough to make a significant difference.
+
+  # Note that we expect someone up-stack to catch struct.error and convert
+  # it to _DecodeError -- this way we don't have to set up exception-
+  # handling blocks every time we parse one value.
+
+  def InnerDecode(buffer, pos):
+    new_pos = pos + value_size
+    result = local_unpack(format, buffer[pos:new_pos])[0]
+    return (result, new_pos)
+  return _SimpleDecoder(wire_type, InnerDecode)
+
+
+def _FloatDecoder():
+  """Returns a decoder for a float field.
+
+  This code works around a bug in struct.unpack for non-finite 32-bit
+  floating-point values.
+  """
+
+  local_unpack = struct.unpack
+
+  def InnerDecode(buffer, pos):
+    # We expect a 32-bit value in little-endian byte order.  Bit 1 is the sign
+    # bit, bits 2-9 represent the exponent, and bits 10-32 are the significand.
+    new_pos = pos + 4
+    float_bytes = buffer[pos:new_pos]
+
+    # If this value has all its exponent bits set, then it's non-finite.
+    # In Python 2.4, struct.unpack will convert it to a finite 64-bit value.
+    # To avoid that, we parse it specially.
+    if (float_bytes[3:4] in b'\x7F\xFF' and float_bytes[2:3] >= b'\x80'):
+      # If at least one significand bit is set...
+      if float_bytes[0:3] != b'\x00\x00\x80':
+        return (_NAN, new_pos)
+      # If sign bit is set...
+      if float_bytes[3:4] == b'\xFF':
+        return (_NEG_INF, new_pos)
+      return (_POS_INF, new_pos)
+
+    # Note that we expect someone up-stack to catch struct.error and convert
+    # it to _DecodeError -- this way we don't have to set up exception-
+    # handling blocks every time we parse one value.
+    result = local_unpack('<f', float_bytes)[0]
+    return (result, new_pos)
+  return _SimpleDecoder(wire_format.WIRETYPE_FIXED32, InnerDecode)
+
+
+def _DoubleDecoder():
+  """Returns a decoder for a double field.
+
+  This code works around a bug in struct.unpack for not-a-number.
+  """
+
+  local_unpack = struct.unpack
+
+  def InnerDecode(buffer, pos):
+    # We expect a 64-bit value in little-endian byte order.  Bit 1 is the sign
+    # bit, bits 2-12 represent the exponent, and bits 13-64 are the significand.
+    new_pos = pos + 8
+    double_bytes = buffer[pos:new_pos]
+
+    # If this value has all its exponent bits set and at least one significand
+    # bit set, it's not a number.  In Python 2.4, struct.unpack will treat it
+    # as inf or -inf.  To avoid that, we treat it specially.
+    if ((double_bytes[7:8] in b'\x7F\xFF')
+        and (double_bytes[6:7] >= b'\xF0')
+        and (double_bytes[0:7] != b'\x00\x00\x00\x00\x00\x00\xF0')):
+      return (_NAN, new_pos)
+
+    # Note that we expect someone up-stack to catch struct.error and convert
+    # it to _DecodeError -- this way we don't have to set up exception-
+    # handling blocks every time we parse one value.
+    result = local_unpack('<d', double_bytes)[0]
+    return (result, new_pos)
+  return _SimpleDecoder(wire_format.WIRETYPE_FIXED64, InnerDecode)
+
+
+def EnumDecoder(field_number, is_repeated, is_packed, key, new_default):
+  enum_type = key.enum_type
+  if is_packed:
+    local_DecodeVarint = _DecodeVarint
+    def DecodePackedField(buffer, pos, end, message, field_dict):
+      value = field_dict.get(key)
+      if value is None:
+        value = field_dict.setdefault(key, new_default(message))
+      (endpoint, pos) = local_DecodeVarint(buffer, pos)
+      endpoint += pos
+      if endpoint > end:
+        raise _DecodeError('Truncated message.')
+      while pos < endpoint:
+        value_start_pos = pos
+        (element, pos) = _DecodeSignedVarint32(buffer, pos)
+        if element in enum_type.values_by_number:
+          value.append(element)
+        else:
+          if not message._unknown_fields:
+            message._unknown_fields = []
+          tag_bytes = encoder.TagBytes(field_number,
+                                       wire_format.WIRETYPE_VARINT)
+          message._unknown_fields.append(
+              (tag_bytes, buffer[value_start_pos:pos]))
+      if pos > endpoint:
+        if element in enum_type.values_by_number:
+          del value[-1]   # Discard corrupt value.
+        else:
+          del message._unknown_fields[-1]
+        raise _DecodeError('Packed element was truncated.')
+      return pos
+    return DecodePackedField
+  elif is_repeated:
+    tag_bytes = encoder.TagBytes(field_number, wire_format.WIRETYPE_VARINT)
+    tag_len = len(tag_bytes)
+    def DecodeRepeatedField(buffer, pos, end, message, field_dict):
+      value = field_dict.get(key)
+      if value is None:
+        value = field_dict.setdefault(key, new_default(message))
+      while 1:
+        (element, new_pos) = _DecodeSignedVarint32(buffer, pos)
+        if element in enum_type.values_by_number:
+          value.append(element)
+        else:
+          if not message._unknown_fields:
+            message._unknown_fields = []
+          message._unknown_fields.append(
+              (tag_bytes, buffer[pos:new_pos]))
+        # Predict that the next tag is another copy of the same repeated
+        # field.
+        pos = new_pos + tag_len
+        if buffer[new_pos:pos] != tag_bytes or new_pos >= end:
+          # Prediction failed.  Return.
+          if new_pos > end:
+            raise _DecodeError('Truncated message.')
+          return new_pos
+    return DecodeRepeatedField
+  else:
+    def DecodeField(buffer, pos, end, message, field_dict):
+      value_start_pos = pos
+      (enum_value, pos) = _DecodeSignedVarint32(buffer, pos)
+      if pos > end:
+        raise _DecodeError('Truncated message.')
+      if enum_value in enum_type.values_by_number:
+        field_dict[key] = enum_value
       else:
-        return True
-
-    def iterkeys(self):
-      return iter(self)
-
-    def itervalues(self):
-      for key in self:
-        yield self[key]
-
-    def iteritems(self):
-      for key in self:
-        yield (key, self[key])
-
-    def keys(self):
-      return list(self)
-
-    def items(self):
-      return [(key, self[key]) for key in self]
-
-    def values(self):
-      return [self[key] for key in self]
-
-    # Mappings are not hashable by default, but subclasses can change this
-    __hash__ = None
-
-    def __eq__(self, other):
-      if not isinstance(other, collections.Mapping):
-        return NotImplemented
-      return dict(list(self.items())) == dict(list(other.items()))
-
-    def __ne__(self, other):
-      return not (self == other)
-
-  class MutableMapping(Mapping):
-    __slots__ = ()
-
-    __marker = object()
-
-    def pop(self, key, default=__marker):
-      try:
-        value = self[key]
-      except KeyError:
-        if default is self.__marker:
-          raise
-        return default
-      else:
-        del self[key]
-        return value
-
-    def popitem(self):
-      try:
-        key = next(iter(self))
-      except StopIteration:
-        raise KeyError
-      value = self[key]
-      del self[key]
-      return key, value
-
-    def clear(self):
-      try:
-        while True:
-          self.popitem()
-      except KeyError:
-        pass
-
-    def update(*args, **kwds):
-      if len(args) > 2:
-        raise TypeError("update() takes at most 2 positional "
-                        "arguments ({} given)".format(len(args)))
-      elif not args:
-        raise TypeError("update() takes at least 1 argument (0 given)")
-      self = args[0]
-      other = args[1] if len(args) >= 2 else ()
-
-      if isinstance(other, Mapping):
-        for key in other:
-          self[key] = other[key]
-      elif hasattr(other, "keys"):
-        for key in list(other.keys()):
-          self[key] = other[key]
-      else:
-        for key, value in other:
-          self[key] = value
-      for key, value in list(kwds.items()):
-        self[key] = value
-
-    def setdefault(self, key, default=None):
-      try:
-        return self[key]
-      except KeyError:
-        self[key] = default
-      return default
-
-  collections.Mapping.register(Mapping)
-  collections.MutableMapping.register(MutableMapping)
-
-else:
-  # In Python 3 we can just use MutableMapping directly, because it defines
-  # __slots__.
-  MutableMapping = collections.MutableMapping
+        if not message._unknown_fields:
+          message._unknown_fields = []
+        tag_bytes = encoder.TagBytes(field_number,
+                                     wire_format.WIRETYPE_VARINT)
+        message._unknown_fields.append(
+          (tag_bytes, buffer[value_start_pos:pos]))
+      return pos
+    return DecodeField
 
 
-class BaseContainer(object):
-
-  """Base container class."""
-
-  # Minimizes memory usage and disallows assignment to other attributes.
-  __slots__ = ['_message_listener', '_values']
-
-  def __init__(self, message_listener):
-    """
-    Args:
-      message_listener: A MessageListener implementation.
-        The RepeatedScalarFieldContainer will call this object's
-        Modified() method when it is modified.
-    """
-    self._message_listener = message_listener
-    self._values = []
-
-  def __getitem__(self, key):
-    """Retrieves item by the specified key."""
-    return self._values[key]
-
-  def __len__(self):
-    """Returns the number of elements in the container."""
-    return len(self._values)
-
-  def __ne__(self, other):
-    """Checks if another instance isn't equal to this one."""
-    # The concrete classes should define __eq__.
-    return not self == other
-
-  def __hash__(self):
-    raise TypeError('unhashable object')
-
-  def __repr__(self):
-    return repr(self._values)
-
-  def sort(self, *args, **kwargs):
-    # Continue to support the old sort_function keyword argument.
-    # This is expected to be a rare occurrence, so use LBYL to avoid
-    # the overhead of actually catching KeyError.
-    if 'sort_function' in kwargs:
-      kwargs['cmp'] = kwargs.pop('sort_function')
-    self._values.sort(*args, **kwargs)
+# --------------------------------------------------------------------
 
 
-class RepeatedScalarFieldContainer(BaseContainer):
+Int32Decoder = _SimpleDecoder(
+    wire_format.WIRETYPE_VARINT, _DecodeSignedVarint32)
 
-  """Simple, type-checked, list-like container for holding repeated scalars."""
+Int64Decoder = _SimpleDecoder(
+    wire_format.WIRETYPE_VARINT, _DecodeSignedVarint)
 
-  # Disallows assignment to other attributes.
-  __slots__ = ['_type_checker']
+UInt32Decoder = _SimpleDecoder(wire_format.WIRETYPE_VARINT, _DecodeVarint32)
+UInt64Decoder = _SimpleDecoder(wire_format.WIRETYPE_VARINT, _DecodeVarint)
 
-  def __init__(self, message_listener, type_checker):
-    """
-    Args:
-      message_listener: A MessageListener implementation.
-        The RepeatedScalarFieldContainer will call this object's
-        Modified() method when it is modified.
-      type_checker: A type_checkers.ValueChecker instance to run on elements
-        inserted into this container.
-    """
-    super(RepeatedScalarFieldContainer, self).__init__(message_listener)
-    self._type_checker = type_checker
+SInt32Decoder = _ModifiedDecoder(
+    wire_format.WIRETYPE_VARINT, _DecodeVarint32, wire_format.ZigZagDecode)
+SInt64Decoder = _ModifiedDecoder(
+    wire_format.WIRETYPE_VARINT, _DecodeVarint, wire_format.ZigZagDecode)
 
-  def append(self, value):
-    """Appends an item to the list. Similar to list.append()."""
-    self._values.append(self._type_checker.CheckValue(value))
-    if not self._message_listener.dirty:
-      self._message_listener.Modified()
+# Note that Python conveniently guarantees that when using the '<' prefix on
+# formats, they will also have the same size across all platforms (as opposed
+# to without the prefix, where their sizes depend on the C compiler's basic
+# type sizes).
+Fixed32Decoder  = _StructPackDecoder(wire_format.WIRETYPE_FIXED32, '<I')
+Fixed64Decoder  = _StructPackDecoder(wire_format.WIRETYPE_FIXED64, '<Q')
+SFixed32Decoder = _StructPackDecoder(wire_format.WIRETYPE_FIXED32, '<i')
+SFixed64Decoder = _StructPackDecoder(wire_format.WIRETYPE_FIXED64, '<q')
+FloatDecoder = _FloatDecoder()
+DoubleDecoder = _DoubleDecoder()
 
-  def insert(self, key, value):
-    """Inserts the item at the specified position. Similar to list.insert()."""
-    self._values.insert(key, self._type_checker.CheckValue(value))
-    if not self._message_listener.dirty:
-      self._message_listener.Modified()
+BoolDecoder = _ModifiedDecoder(
+    wire_format.WIRETYPE_VARINT, _DecodeVarint, bool)
 
-  def extend(self, elem_seq):
-    """Extends by appending the given iterable. Similar to list.extend()."""
 
-    if elem_seq is None:
-      return
+def StringDecoder(field_number, is_repeated, is_packed, key, new_default):
+  """Returns a decoder for a string field."""
+
+  local_DecodeVarint = _DecodeVarint
+  local_unicode = six.text_type
+
+  def _ConvertToUnicode(byte_str):
     try:
-      elem_seq_iter = iter(elem_seq)
-    except TypeError:
-      if not elem_seq:
-        # silently ignore falsy inputs :-/.
-        # TODO(ptucker): Deprecate this behavior. b/18413862
-        return
+      return local_unicode(byte_str, 'utf-8')
+    except UnicodeDecodeError as e:
+      # add more information to the error message and re-raise it.
+      e.reason = '%s in field: %s' % (e, key.full_name)
       raise
 
-    new_values = [self._type_checker.CheckValue(elem) for elem in elem_seq_iter]
-    if new_values:
-      self._values.extend(new_values)
-      self._message_listener.Modified()
+  assert not is_packed
+  if is_repeated:
+    tag_bytes = encoder.TagBytes(field_number,
+                                 wire_format.WIRETYPE_LENGTH_DELIMITED)
+    tag_len = len(tag_bytes)
+    def DecodeRepeatedField(buffer, pos, end, message, field_dict):
+      value = field_dict.get(key)
+      if value is None:
+        value = field_dict.setdefault(key, new_default(message))
+      while 1:
+        (size, pos) = local_DecodeVarint(buffer, pos)
+        new_pos = pos + size
+        if new_pos > end:
+          raise _DecodeError('Truncated string.')
+        value.append(_ConvertToUnicode(buffer[pos:new_pos]))
+        # Predict that the next tag is another copy of the same repeated field.
+        pos = new_pos + tag_len
+        if buffer[new_pos:pos] != tag_bytes or new_pos == end:
+          # Prediction failed.  Return.
+          return new_pos
+    return DecodeRepeatedField
+  else:
+    def DecodeField(buffer, pos, end, message, field_dict):
+      (size, pos) = local_DecodeVarint(buffer, pos)
+      new_pos = pos + size
+      if new_pos > end:
+        raise _DecodeError('Truncated string.')
+      field_dict[key] = _ConvertToUnicode(buffer[pos:new_pos])
+      return new_pos
+    return DecodeField
 
-  def MergeFrom(self, other):
-    """Appends the contents of another repeated field of the same type to this
-    one. We do not check the types of the individual fields.
-    """
-    self._values.extend(other._values)
-    self._message_listener.Modified()
 
-  def remove(self, elem):
-    """Removes an item from the list. Similar to list.remove()."""
-    self._values.remove(elem)
-    self._message_listener.Modified()
+def BytesDecoder(field_number, is_repeated, is_packed, key, new_default):
+  """Returns a decoder for a bytes field."""
 
-  def pop(self, key=-1):
-    """Removes and returns an item at a given index. Similar to list.pop()."""
-    value = self._values[key]
-    self.__delitem__(key)
-    return value
+  local_DecodeVarint = _DecodeVarint
 
-  def __setitem__(self, key, value):
-    """Sets the item on the specified position."""
-    if isinstance(key, slice):  # PY3
-      if key.step is not None:
-        raise ValueError('Extended slices not supported')
-      self.__setslice__(key.start, key.stop, value)
+  assert not is_packed
+  if is_repeated:
+    tag_bytes = encoder.TagBytes(field_number,
+                                 wire_format.WIRETYPE_LENGTH_DELIMITED)
+    tag_len = len(tag_bytes)
+    def DecodeRepeatedField(buffer, pos, end, message, field_dict):
+      value = field_dict.get(key)
+      if value is None:
+        value = field_dict.setdefault(key, new_default(message))
+      while 1:
+        (size, pos) = local_DecodeVarint(buffer, pos)
+        new_pos = pos + size
+        if new_pos > end:
+          raise _DecodeError('Truncated string.')
+        value.append(buffer[pos:new_pos])
+        # Predict that the next tag is another copy of the same repeated field.
+        pos = new_pos + tag_len
+        if buffer[new_pos:pos] != tag_bytes or new_pos == end:
+          # Prediction failed.  Return.
+          return new_pos
+    return DecodeRepeatedField
+  else:
+    def DecodeField(buffer, pos, end, message, field_dict):
+      (size, pos) = local_DecodeVarint(buffer, pos)
+      new_pos = pos + size
+      if new_pos > end:
+        raise _DecodeError('Truncated string.')
+      field_dict[key] = buffer[pos:new_pos]
+      return new_pos
+    return DecodeField
+
+
+def GroupDecoder(field_number, is_repeated, is_packed, key, new_default):
+  """Returns a decoder for a group field."""
+
+  end_tag_bytes = encoder.TagBytes(field_number,
+                                   wire_format.WIRETYPE_END_GROUP)
+  end_tag_len = len(end_tag_bytes)
+
+  assert not is_packed
+  if is_repeated:
+    tag_bytes = encoder.TagBytes(field_number,
+                                 wire_format.WIRETYPE_START_GROUP)
+    tag_len = len(tag_bytes)
+    def DecodeRepeatedField(buffer, pos, end, message, field_dict):
+      value = field_dict.get(key)
+      if value is None:
+        value = field_dict.setdefault(key, new_default(message))
+      while 1:
+        value = field_dict.get(key)
+        if value is None:
+          value = field_dict.setdefault(key, new_default(message))
+        # Read sub-message.
+        pos = value.add()._InternalParse(buffer, pos, end)
+        # Read end tag.
+        new_pos = pos+end_tag_len
+        if buffer[pos:new_pos] != end_tag_bytes or new_pos > end:
+          raise _DecodeError('Missing group end tag.')
+        # Predict that the next tag is another copy of the same repeated field.
+        pos = new_pos + tag_len
+        if buffer[new_pos:pos] != tag_bytes or new_pos == end:
+          # Prediction failed.  Return.
+          return new_pos
+    return DecodeRepeatedField
+  else:
+    def DecodeField(buffer, pos, end, message, field_dict):
+      value = field_dict.get(key)
+      if value is None:
+        value = field_dict.setdefault(key, new_default(message))
+      # Read sub-message.
+      pos = value._InternalParse(buffer, pos, end)
+      # Read end tag.
+      new_pos = pos+end_tag_len
+      if buffer[pos:new_pos] != end_tag_bytes or new_pos > end:
+        raise _DecodeError('Missing group end tag.')
+      return new_pos
+    return DecodeField
+
+
+def MessageDecoder(field_number, is_repeated, is_packed, key, new_default):
+  """Returns a decoder for a message field."""
+
+  local_DecodeVarint = _DecodeVarint
+
+  assert not is_packed
+  if is_repeated:
+    tag_bytes = encoder.TagBytes(field_number,
+                                 wire_format.WIRETYPE_LENGTH_DELIMITED)
+    tag_len = len(tag_bytes)
+    def DecodeRepeatedField(buffer, pos, end, message, field_dict):
+      value = field_dict.get(key)
+      if value is None:
+        value = field_dict.setdefault(key, new_default(message))
+      while 1:
+        # Read length.
+        (size, pos) = local_DecodeVarint(buffer, pos)
+        new_pos = pos + size
+        if new_pos > end:
+          raise _DecodeError('Truncated message.')
+        # Read sub-message.
+        if value.add()._InternalParse(buffer, pos, new_pos) != new_pos:
+          # The only reason _InternalParse would return early is if it
+          # encountered an end-group tag.
+          raise _DecodeError('Unexpected end-group tag.')
+        # Predict that the next tag is another copy of the same repeated field.
+        pos = new_pos + tag_len
+        if buffer[new_pos:pos] != tag_bytes or new_pos == end:
+          # Prediction failed.  Return.
+          return new_pos
+    return DecodeRepeatedField
+  else:
+    def DecodeField(buffer, pos, end, message, field_dict):
+      value = field_dict.get(key)
+      if value is None:
+        value = field_dict.setdefault(key, new_default(message))
+      # Read length.
+      (size, pos) = local_DecodeVarint(buffer, pos)
+      new_pos = pos + size
+      if new_pos > end:
+        raise _DecodeError('Truncated message.')
+      # Read sub-message.
+      if value._InternalParse(buffer, pos, new_pos) != new_pos:
+        # The only reason _InternalParse would return early is if it encountered
+        # an end-group tag.
+        raise _DecodeError('Unexpected end-group tag.')
+      return new_pos
+    return DecodeField
+
+
+# --------------------------------------------------------------------
+
+MESSAGE_SET_ITEM_TAG = encoder.TagBytes(1, wire_format.WIRETYPE_START_GROUP)
+
+def MessageSetItemDecoder(extensions_by_number):
+  """Returns a decoder for a MessageSet item.
+
+  The parameter is the _extensions_by_number map for the message class.
+
+  The message set message looks like this:
+    message MessageSet {
+      repeated group Item = 1 {
+        required int32 type_id = 2;
+        required string message = 3;
+      }
+    }
+  """
+
+  type_id_tag_bytes = encoder.TagBytes(2, wire_format.WIRETYPE_VARINT)
+  message_tag_bytes = encoder.TagBytes(3, wire_format.WIRETYPE_LENGTH_DELIMITED)
+  item_end_tag_bytes = encoder.TagBytes(1, wire_format.WIRETYPE_END_GROUP)
+
+  local_ReadTag = ReadTag
+  local_DecodeVarint = _DecodeVarint
+  local_SkipField = SkipField
+
+  def DecodeItem(buffer, pos, end, message, field_dict):
+    message_set_item_start = pos
+    type_id = -1
+    message_start = -1
+    message_end = -1
+
+    # Technically, type_id and message can appear in any order, so we need
+    # a little loop here.
+    while 1:
+      (tag_bytes, pos) = local_ReadTag(buffer, pos)
+      if tag_bytes == type_id_tag_bytes:
+        (type_id, pos) = local_DecodeVarint(buffer, pos)
+      elif tag_bytes == message_tag_bytes:
+        (size, message_start) = local_DecodeVarint(buffer, pos)
+        pos = message_end = message_start + size
+      elif tag_bytes == item_end_tag_bytes:
+        break
+      else:
+        pos = SkipField(buffer, pos, end, tag_bytes)
+        if pos == -1:
+          raise _DecodeError('Missing group end tag.')
+
+    if pos > end:
+      raise _DecodeError('Truncated message.')
+
+    if type_id == -1:
+      raise _DecodeError('MessageSet item missing type_id.')
+    if message_start == -1:
+      raise _DecodeError('MessageSet item missing message.')
+
+    extension = extensions_by_number.get(type_id)
+    if extension is not None:
+      value = field_dict.get(extension)
+      if value is None:
+        value = field_dict.setdefault(
+            extension, extension.message_type._concrete_class())
+      if value._InternalParse(buffer, message_start,message_end) != message_end:
+        # The only reason _InternalParse would return early is if it encountered
+        # an end-group tag.
+        raise _DecodeError('Unexpected end-group tag.')
     else:
-      self._values[key] = self._type_checker.CheckValue(value)
-      self._message_listener.Modified()
+      if not message._unknown_fields:
+        message._unknown_fields = []
+      message._unknown_fields.append((MESSAGE_SET_ITEM_TAG,
+                                      buffer[message_set_item_start:pos]))
 
-  def __getslice__(self, start, stop):
-    """Retrieves the subset of items from between the specified indices."""
-    return self._values[start:stop]
+    return pos
 
-  def __setslice__(self, start, stop, values):
-    """Sets the subset of items from between the specified indices."""
-    new_values = []
-    for value in values:
-      new_values.append(self._type_checker.CheckValue(value))
-    self._values[start:stop] = new_values
-    self._message_listener.Modified()
+  return DecodeItem
 
-  def __delitem__(self, key):
-    """Deletes the item at the specified position."""
-    del self._values[key]
-    self._message_listener.Modified()
+# --------------------------------------------------------------------
 
-  def __delslice__(self, start, stop):
-    """Deletes the subset of items from between the specified indices."""
-    del self._values[start:stop]
-    self._message_listener.Modified()
+def MapDecoder(field_descriptor, new_default, is_message_map):
+  """Returns a decoder for a map field."""
 
-  def __eq__(self, other):
-    """Compares the current instance with another one."""
-    if self is other:
-      return True
-    # Special case for the same type which should be common and fast.
-    if isinstance(other, self.__class__):
-      return other._values == self._values
-    # We are presumably comparing against some other sequence type.
-    return other == self._values
+  key = field_descriptor
+  tag_bytes = encoder.TagBytes(field_descriptor.number,
+                               wire_format.WIRETYPE_LENGTH_DELIMITED)
+  tag_len = len(tag_bytes)
+  local_DecodeVarint = _DecodeVarint
+  # Can't read _concrete_class yet; might not be initialized.
+  message_type = field_descriptor.message_type
 
-collections.MutableSequence.register(BaseContainer)
+  def DecodeMap(buffer, pos, end, message, field_dict):
+    submsg = message_type._concrete_class()
+    value = field_dict.get(key)
+    if value is None:
+      value = field_dict.setdefault(key, new_default(message))
+    while 1:
+      # Read length.
+      (size, pos) = local_DecodeVarint(buffer, pos)
+      new_pos = pos + size
+      if new_pos > end:
+        raise _DecodeError('Truncated message.')
+      # Read sub-message.
+      submsg.Clear()
+      if submsg._InternalParse(buffer, pos, new_pos) != new_pos:
+        # The only reason _InternalParse would return early is if it
+        # encountered an end-group tag.
+        raise _DecodeError('Unexpected end-group tag.')
 
+      if is_message_map:
+        value[submsg.key].MergeFrom(submsg.value)
+      else:
+        value[submsg.key] = submsg.value
 
-class RepeatedCompositeFieldContainer(BaseContainer):
+      # Predict that the next tag is another copy of the same repeated field.
+      pos = new_pos + tag_len
+      if buffer[new_pos:pos] != tag_bytes or new_pos == end:
+        # Prediction failed.  Return.
+        return new_pos
 
-  """Simple, list-like container for holding repeated composite fields."""
+  return DecodeMap
 
-  # Disallows assignment to other attributes.
-  __slots__ = ['_message_descriptor']
+# --------------------------------------------------------------------
+# Optimization is not as heavy here because calls to SkipField() are rare,
+# except for handling end-group tags.
 
-  def __init__(self, message_listener, message_descriptor):
+def _SkipVarint(buffer, pos, end):
+  """Skip a varint value.  Returns the new position."""
+  # Previously ord(buffer[pos]) raised IndexError when pos is out of range.
+  # With this code, ord(b'') raises TypeError.  Both are handled in
+  # python_message.py to generate a 'Truncated message' error.
+  while ord(buffer[pos:pos+1]) & 0x80:
+    pos += 1
+  pos += 1
+  if pos > end:
+    raise _DecodeError('Truncated message.')
+  return pos
+
+def _SkipFixed64(buffer, pos, end):
+  """Skip a fixed64 value.  Returns the new position."""
+
+  pos += 8
+  if pos > end:
+    raise _DecodeError('Truncated message.')
+  return pos
+
+def _SkipLengthDelimited(buffer, pos, end):
+  """Skip a length-delimited value.  Returns the new position."""
+
+  (size, pos) = _DecodeVarint(buffer, pos)
+  pos += size
+  if pos > end:
+    raise _DecodeError('Truncated message.')
+  return pos
+
+def _SkipGroup(buffer, pos, end):
+  """Skip sub-group.  Returns the new position."""
+
+  while 1:
+    (tag_bytes, pos) = ReadTag(buffer, pos)
+    new_pos = SkipField(buffer, pos, end, tag_bytes)
+    if new_pos == -1:
+      return pos
+    pos = new_pos
+
+def _EndGroup(buffer, pos, end):
+  """Skipping an END_GROUP tag returns -1 to tell the parent loop to break."""
+
+  return -1
+
+def _SkipFixed32(buffer, pos, end):
+  """Skip a fixed32 value.  Returns the new position."""
+
+  pos += 4
+  if pos > end:
+    raise _DecodeError('Truncated message.')
+  return pos
+
+def _RaiseInvalidWireType(buffer, pos, end):
+  """Skip function for unknown wire types.  Raises an exception."""
+
+  raise _DecodeError('Tag had invalid wire type.')
+
+def _FieldSkipper():
+  """Constructs the SkipField function."""
+
+  WIRETYPE_TO_SKIPPER = [
+      _SkipVarint,
+      _SkipFixed64,
+      _SkipLengthDelimited,
+      _SkipGroup,
+      _EndGroup,
+      _SkipFixed32,
+      _RaiseInvalidWireType,
+      _RaiseInvalidWireType,
+      ]
+
+  wiretype_mask = wire_format.TAG_TYPE_MASK
+
+  def SkipField(buffer, pos, end, tag_bytes):
+    """Skips a field with the specified tag.
+
+    |pos| should point to the byte immediately after the tag.
+
+    Returns:
+        The new position (after the tag value), or -1 if the tag is an end-group
+        tag (in which case the calling loop should break).
     """
-    Note that we pass in a descriptor instead of the generated directly,
-    since at the time we construct a _RepeatedCompositeFieldContainer we
-    haven't yet necessarily initialized the type that will be contained in the
-    container.
 
-    Args:
-      message_listener: A MessageListener implementation.
-        The RepeatedCompositeFieldContainer will call this object's
-        Modified() method when it is modified.
-      message_descriptor: A Descriptor instance describing the protocol type
-        that should be present in this container.  We'll use the
-        _concrete_class field of this descriptor when the client calls add().
-    """
-    super(RepeatedCompositeFieldContainer, self).__init__(message_listener)
-    self._message_descriptor = message_descriptor
+    # The wire type is always in the first byte since varints are little-endian.
+    wire_type = ord(tag_bytes[0:1]) & wiretype_mask
+    return WIRETYPE_TO_SKIPPER[wire_type](buffer, pos, end)
 
-  def add(self, **kwargs):
-    """Adds a new element at the end of the list and returns it. Keyword
-    arguments may be used to initialize the element.
-    """
-    new_element = self._message_descriptor._concrete_class(**kwargs)
-    new_element._SetListener(self._message_listener)
-    self._values.append(new_element)
-    if not self._message_listener.dirty:
-      self._message_listener.Modified()
-    return new_element
+  return SkipField
 
-  def extend(self, elem_seq):
-    """Extends by appending the given sequence of elements of the same type
-    as this one, copying each individual message.
-    """
-    message_class = self._message_descriptor._concrete_class
-    listener = self._message_listener
-    values = self._values
-    for message in elem_seq:
-      new_element = message_class()
-      new_element._SetListener(listener)
-      new_element.MergeFrom(message)
-      values.append(new_element)
-    listener.Modified()
-
-  def MergeFrom(self, other):
-    """Appends the contents of another repeated field of the same type to this
-    one, copying each individual message.
-    """
-    self.extend(other._values)
-
-  def remove(self, elem):
-    """Removes an item from the list. Similar to list.remove()."""
-    self._values.remove(elem)
-    self._message_listener.Modified()
-
-  def pop(self, key=-1):
-    """Removes and returns an item at a given index. Similar to list.pop()."""
-    value = self._values[key]
-    self.__delitem__(key)
-    return value
-
-  def __getslice__(self, start, stop):
-    """Retrieves the subset of items from between the specified indices."""
-    return self._values[start:stop]
-
-  def __delitem__(self, key):
-    """Deletes the item at the specified position."""
-    del self._values[key]
-    self._message_listener.Modified()
-
-  def __delslice__(self, start, stop):
-    """Deletes the subset of items from between the specified indices."""
-    del self._values[start:stop]
-    self._message_listener.Modified()
-
-  def __eq__(self, other):
-    """Compares the current instance with another one."""
-    if self is other:
-      return True
-    if not isinstance(other, self.__class__):
-      raise TypeError('Can only compare repeated composite fields against '
-                      'other repeated composite fields.')
-    return self._values == other._values
-
-
-class ScalarMap(MutableMapping):
-
-  """Simple, type-checked, dict-like container for holding repeated scalars."""
-
-  # Disallows assignment to other attributes.
-  __slots__ = ['_key_checker', '_value_checker', '_values', '_message_listener']
-
-  def __init__(self, message_listener, key_checker, value_checker):
-    """
-    Args:
-      message_listener: A MessageListener implementation.
-        The ScalarMap will call this object's Modified() method when it
-        is modified.
-      key_checker: A type_checkers.ValueChecker instance to run on keys
-        inserted into this container.
-      value_checker: A type_checkers.ValueChecker instance to run on values
-        inserted into this container.
-    """
-    self._message_listener = message_listener
-    self._key_checker = key_checker
-    self._value_checker = value_checker
-    self._values = {}
-
-  def __getitem__(self, key):
-    try:
-      return self._values[key]
-    except KeyError:
-      key = self._key_checker.CheckValue(key)
-      val = self._value_checker.DefaultValue()
-      self._values[key] = val
-      return val
-
-  def __contains__(self, item):
-    # We check the key's type to match the strong-typing flavor of the API.
-    # Also this makes it easier to match the behavior of the C++ implementation.
-    self._key_checker.CheckValue(item)
-    return item in self._values
-
-  # We need to override this explicitly, because our defaultdict-like behavior
-  # will make the default implementation (from our base class) always insert
-  # the key.
-  def get(self, key, default=None):
-    if key in self:
-      return self[key]
-    else:
-      return default
-
-  def __setitem__(self, key, value):
-    checked_key = self._key_checker.CheckValue(key)
-    checked_value = self._value_checker.CheckValue(value)
-    self._values[checked_key] = checked_value
-    self._message_listener.Modified()
-
-  def __delitem__(self, key):
-    del self._values[key]
-    self._message_listener.Modified()
-
-  def __len__(self):
-    return len(self._values)
-
-  def __iter__(self):
-    return iter(self._values)
-
-  def __repr__(self):
-    return repr(self._values)
-
-  def MergeFrom(self, other):
-    self._values.update(other._values)
-    self._message_listener.Modified()
-
-  def InvalidateIterators(self):
-    # It appears that the only way to reliably invalidate iterators to
-    # self._values is to ensure that its size changes.
-    original = self._values
-    self._values = original.copy()
-    original[None] = None
-
-  # This is defined in the abstract base, but we can do it much more cheaply.
-  def clear(self):
-    self._values.clear()
-    self._message_listener.Modified()
-
-
-class MessageMap(MutableMapping):
-
-  """Simple, type-checked, dict-like container for with submessage values."""
-
-  # Disallows assignment to other attributes.
-  __slots__ = ['_key_checker', '_values', '_message_listener',
-               '_message_descriptor']
-
-  def __init__(self, message_listener, message_descriptor, key_checker):
-    """
-    Args:
-      message_listener: A MessageListener implementation.
-        The ScalarMap will call this object's Modified() method when it
-        is modified.
-      key_checker: A type_checkers.ValueChecker instance to run on keys
-        inserted into this container.
-      value_checker: A type_checkers.ValueChecker instance to run on values
-        inserted into this container.
-    """
-    self._message_listener = message_listener
-    self._message_descriptor = message_descriptor
-    self._key_checker = key_checker
-    self._values = {}
-
-  def __getitem__(self, key):
-    try:
-      return self._values[key]
-    except KeyError:
-      key = self._key_checker.CheckValue(key)
-      new_element = self._message_descriptor._concrete_class()
-      new_element._SetListener(self._message_listener)
-      self._values[key] = new_element
-      self._message_listener.Modified()
-
-      return new_element
-
-  def get_or_create(self, key):
-    """get_or_create() is an alias for getitem (ie. map[key]).
-
-    Args:
-      key: The key to get or create in the map.
-
-    This is useful in cases where you want to be explicit that the call is
-    mutating the map.  This can avoid lint errors for statements like this
-    that otherwise would appear to be pointless statements:
-
-      msg.my_map[key]
-    """
-    return self[key]
-
-  # We need to override this explicitly, because our defaultdict-like behavior
-  # will make the default implementation (from our base class) always insert
-  # the key.
-  def get(self, key, default=None):
-    if key in self:
-      return self[key]
-    else:
-      return default
-
-  def __contains__(self, item):
-    return item in self._values
-
-  def __setitem__(self, key, value):
-    raise ValueError('May not set values directly, call my_map[key].foo = 5')
-
-  def __delitem__(self, key):
-    del self._values[key]
-    self._message_listener.Modified()
-
-  def __len__(self):
-    return len(self._values)
-
-  def __iter__(self):
-    return iter(self._values)
-
-  def __repr__(self):
-    return repr(self._values)
-
-  def MergeFrom(self, other):
-    for key in other:
-      # According to documentation: "When parsing from the wire or when merging,
-      # if there are duplicate map keys the last key seen is used".
-      if key in self:
-        del self[key]
-      self[key].CopyFrom(other[key])
-    # self._message_listener.Modified() not required here, because
-    # mutations to submessages already propagate.
-
-  def InvalidateIterators(self):
-    # It appears that the only way to reliably invalidate iterators to
-    # self._values is to ensure that its size changes.
-    original = self._values
-    self._values = original.copy()
-    original[None] = None
-
-  # This is defined in the abstract base, but we can do it much more cheaply.
-  def clear(self):
-    self._values.clear()
-    self._message_listener.Modified()
+SkipField = _FieldSkipper()

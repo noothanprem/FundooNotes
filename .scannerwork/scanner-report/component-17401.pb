@@ -1,1 +1,1 @@
-ù‡4venv/lib/python3.6/site-packages/kombu/exceptions.py 2pyX\h
+ù‡0venv/lib/python3.6/site-packages/kombu/pidbox.py 2pyX¥h

@@ -1,1 +1,1 @@
-«<venv/lib/python3.6/site-packages/oauth2_provider/settings.py 2pyX­h
+«Evenv/lib/python3.6/site-packages/oauth2_provider/oauth2_validators.py 2pyXöh

@@ -1,1 +1,1 @@
-¹¸Ivenv/lib/python3.6/site-packages/social_core/tests/backends/test_email.py 2pyXh
+¹¸Mvenv/lib/python3.6/site-packages/social_core/tests/backends/test_bitbucket.py 2pyX¨h

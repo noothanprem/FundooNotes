@@ -1,1 +1,1 @@
-ºÃRvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/colorama/ansi.py 2pyXgh
+ºÃJvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/colorama :¹Ã»Ã¼Ã½ÃÄÃÆÃ

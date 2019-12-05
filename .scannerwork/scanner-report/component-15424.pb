@@ -1,1 +1,1 @@
-ÀxNvenv/lib/python3.6/site-packages/awscli/customizations/cloudtrail/subscribe.py 2pyXåh
+ÀxDvenv/lib/python3.6/site-packages/awscli/customizations/assumerole.py 2pyX*h

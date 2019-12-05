@@ -1,1 +1,1 @@
-ול?venv/lib64/python3.6/site-packages/django_social_share/views.py 2pyXh
+ול&venv/lib64/python3.6/site-packages/xdg :'הלזלחלטלילךלכלללûלüל‎ל‏לÿל

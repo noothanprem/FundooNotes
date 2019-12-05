@@ -1,1 +1,0 @@
-™°;venv/lib/python3.6/site-packages/lazr/uri/tests/test_uri.py 2pyX’h

@@ -1,1 +1,1 @@
-³Gvenv/lib/python3.6/site-packages/django/db/backends/mysql/validation.py 2pyX=h
+³Avenv/lib/python3.6/site-packages/django/db/backends/mysql/base.py 2pyXÙh

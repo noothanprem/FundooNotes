@@ -1,1 +1,1 @@
-•‚4venv/lib64/python3.6/site-packages/social_core/tests :š‚›‚œ‚‚Ÿ‚ñƒüƒ‰„Š„
+•‚4venv/lib64/python3.6/site-packages/social_core/tests :š‚›‚‚‚Ÿ‚ğƒúƒˆ„‰„

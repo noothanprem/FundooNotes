@@ -1,1 +1,1 @@
-ø)Hvenv/lib/python3.6/site-packages/django/contrib/sessions/base_session.py 2pyX0h
+ø)8venv/lib/python3.6/site-packages/django/contrib/sessions :÷)ù)ú)û)ü)ý)¨,

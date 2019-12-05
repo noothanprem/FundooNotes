@@ -1,1 +1,1 @@
-ü{7venv/lib/python3.6/site-packages/rest_framework_swagger :û{ı{|¼|
+ü{7venv/lib/python3.6/site-packages/rest_framework_swagger :û{ı{|½|

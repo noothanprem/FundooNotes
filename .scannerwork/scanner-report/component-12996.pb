@@ -1,1 +1,0 @@
-Äe,venv/lib/python3.6/site-packages/chardet/cli :ÃeÈe

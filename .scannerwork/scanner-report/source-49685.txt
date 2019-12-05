@@ -1,59 +1,86 @@
-import hashlib
+import time
 
-from ..utils import handle_http_errors
-from .base import BaseAuth
+from jwt import DecodeError, ExpiredSignature
+
+from ..exceptions import AuthTokenError
+from .oauth import BaseOAuth2
+
+"""
+OAuth2 Backend to work with microsoft graph.
+"""
 
 
-class LastFmAuth(BaseAuth):
-    """
-    Last.Fm authentication backend. Requires two settings:
-        SOCIAL_AUTH_LASTFM_KEY
-        SOCIAL_AUTH_LASTFM_SECRET
+class MicrosoftOAuth2(BaseOAuth2):
+    name = 'microsoft-graph'
+    SCOPE_SEPARATOR = ' '
+    AUTHORIZATION_URL = \
+        'https://login.microsoftonline.com/common/oauth2/v2.0/authorize'
+    ACCESS_TOKEN_URL = \
+        'https://login.microsoftonline.com/common/oauth2/v2.0/token'
 
-    Don't forget to set the Last.fm callback to something sensible like
-        http://your.site/lastfm/complete
-    """
-    name = 'lastfm'
-    AUTH_URL = 'http://www.last.fm/api/auth/?api_key={api_key}'
-    EXTRA_DATA = [
-        ('key', 'session_key')
-    ]
+    ACCESS_TOKEN_METHOD = 'POST'
+    REDIRECT_STATE = False
+    DEFAULT_SCOPE = ['User.Read']
 
-    def auth_url(self):
-        return self.AUTH_URL.format(api_key=self.setting('KEY'))
-
-    @handle_http_errors
     def auth_complete(self, *args, **kwargs):
         """Completes login process, must return user instance"""
-        key, secret = self.get_key_and_secret()
-        token = self.data['token']
+        self.process_error(self.data)
+        state = self.validate_state()
 
-        signature = hashlib.md5(''.join(
-            ('api_key', key, 'methodauth.getSession', 'token', token, secret)
-        ).encode()).hexdigest()
+        response = self.request_access_token(
+            self.access_token_url(),
+            data=self.auth_complete_params(state),
+            headers=self.auth_headers(),
+            auth=self.auth_complete_credentials(),
+            method=self.ACCESS_TOKEN_METHOD
+        )
 
-        response = self.get_json('http://ws.audioscrobbler.com/2.0/', data={
-            'method': 'auth.getSession',
-            'api_key': key,
-            'token': token,
-            'api_sig': signature,
-            'format': 'json'
-        }, method='POST')
-
-        kwargs.update({'response': response['session'], 'backend': self})
-        return self.strategy.authenticate(*args, **kwargs)
+        self.process_error(response)
+        return self.do_auth(response['access_token'], response=response,
+                            *args, **kwargs)
 
     def get_user_id(self, details, response):
-        """Return a unique ID for the current user, by default from server
-        response."""
-        return response.get('name')
+        """Use user account id as unique id"""
+        return response.get('id')
 
     def get_user_details(self, response):
-        fullname, first_name, last_name = self.get_user_names(response['name'])
-        return {
-            'username': response['name'],
-            'email': '',
-            'fullname': fullname,
-            'first_name': first_name,
-            'last_name': last_name
-        }
+        """Return user details from Microsoft online account"""
+        email = response.get('mail')
+        username = response.get('userPrincipalName')
+
+        if '@' in username:
+            if not email:
+                email = username
+            username = username.split('@', 1)[0]
+
+        return {'username': username,
+                'email': email,
+                'fullname': response.get('displayName', ''),
+                'first_name': response.get('givenName', ''),
+                'last_name': response.get('surname', '')}
+
+    def user_data(self, access_token, *args, **kwargs):
+        """Return user data by querying Microsoft service"""
+        try:
+            return self.get_json(
+                'https://graph.microsoft.com/v1.0/me',
+                headers={
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept': 'application/json',
+                    'Authorization': 'Bearer ' + access_token
+                },
+                method='GET'
+            )
+        except (DecodeError, ExpiredSignature) as error:
+            raise AuthTokenError(self, error)
+
+    def get_auth_token(self, user_id):
+        """Return the access token for the given user, after ensuring that it
+        has not expired, or refreshing it if so."""
+        user = self.get_user(user_id=user_id)
+        access_token = user.social_user.access_token
+        expires_on = user.social_user.extra_data['expires_on']
+        if expires_on <= int(time.time()):
+            new_token_response = self.refresh_token(token=access_token)
+            access_token = new_token_response['access_token']
+        return access_token

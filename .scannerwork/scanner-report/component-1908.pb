@@ -1,1 +1,0 @@
-ô,venv/lib/python3.6/site-packages/pygtkcompat :óõú

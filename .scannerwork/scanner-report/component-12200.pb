@@ -1,1 +1,1 @@
-¨_;venv/lib/python3.6/site-packages/PIL/Hdf5StubImagePlugin.py 2pyXIh
+¨_3venv/lib/python3.6/site-packages/PIL/PaletteFile.py 2pyX8h

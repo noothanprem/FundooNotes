@@ -1,1 +1,1 @@
-ä@Gvenv/lib/python3.6/site-packages/django/core/cache/backends/__init__.py 2pyXh
+ä@Hvenv/lib/python3.6/site-packages/django/core/cache/backends/memcached.py 2pyX»h

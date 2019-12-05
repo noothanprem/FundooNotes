@@ -1,1 +1,1 @@
-œ»Evenv/lib/python3.6/site-packages/social_core/backends/digitalocean.py 2pyX*h
+œ»?venv/lib/python3.6/site-packages/social_core/backends/fitbit.py 2pyXDh

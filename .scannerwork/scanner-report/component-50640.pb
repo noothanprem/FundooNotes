@@ -1,1 +1,0 @@
-Ћ+venv/lib64/python3.6/site-packages/oauthlib :ϋыҋ׋

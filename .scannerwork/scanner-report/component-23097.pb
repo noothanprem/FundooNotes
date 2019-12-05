@@ -1,1 +1,1 @@
-¹´9venv/lib/python3.6/site-packages/rest_framework/compat.py 2pyXëh
+¹´Tvenv/lib/python3.6/site-packages/rest_framework/authtoken/migrations/0001_initial.py 2pyXh

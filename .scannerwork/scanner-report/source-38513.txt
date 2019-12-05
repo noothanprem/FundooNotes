@@ -1,109 +1,53 @@
-# -*- coding: utf-8 -*-
-# $Id: lt.py 7668 2013-06-04 12:46:30Z milde $
-# Author: Dalius Dobravolskas <dalius.do...@gmail.com>
+# $Id: __init__.py 7646 2013-04-17 14:17:37Z milde $
+# Author: David Goodger <goodger@python.org>
 # Copyright: This module has been placed in the public domain.
 
-# New language mappings are welcome.  Before doing a new translation, please
-# read <http://docutils.sf.net/docs/howto/i18n.html>.  Two files must be
-# translated for each language: one in docutils/languages, the other in
-# docutils/parsers/rst/languages.
-
 """
-Lithuanian-language mappings for language-dependent features of
-reStructuredText.
+This package contains Docutils parser modules.
 """
 
 __docformat__ = 'reStructuredText'
 
+import sys
+from docutils import Component
+if sys.version_info < (2,5):
+    from docutils._compat import __import__
 
-directives = {
-      # language-dependent: fixed
-      'dėmesio': 'attention',
-      'atsargiai': 'caution',
-      'code (translation required)': 'code',
-      'pavojinga': 'danger',
-      'klaida': 'error',
-      'užuomina': 'hint',
-      'svarbu': 'important',
-      'pastaba': 'note',
-      'patarimas': 'tip',
-      'įspėjimas': 'warning',
-      'perspėjimas': 'admonition',
-      'šoninė-juosta': 'sidebar',
-      'tema': 'topic',
-      'linijinis-blokas': 'line-block',
-      'išanalizuotas-literalas': 'parsed-literal',
-      'rubrika': 'rubric',
-      'epigrafas': 'epigraph',
-      'pagridiniai-momentai': 'highlights',
-      'atitraukta-citata': 'pull-quote',
-      'sudėtinis-darinys': 'compound',
-      'konteineris': 'container',
-      #'questions': 'questions',
-      'lentelė': 'table',
-      'csv-lentelė': 'csv-table',
-      'sąrašo-lentelė': 'list-table',
-      #'qa': 'questions',
-      #'faq': 'questions',
-      'meta': 'meta',
-      'matematika': 'math',
-      #'imagemap': 'imagemap',
-      'paveiksliukas': 'image',
-      'iliustracija': 'figure',
-      'pridėti': 'include',
-      'žalia': 'raw',
-      'pakeisti': 'replace',
-      'unikodas': 'unicode',
-      'data': 'date',
-      'klasė': 'class',
-      'rolė': 'role',
-      'numatytoji-rolė': 'default-role',
-      'titulas': 'title',
-      'turinys': 'contents',
-      'seknum': 'sectnum',
-      'sekcijos-numeravimas': 'sectnum',
-      'antraštė': 'header',
-      'poraštė': 'footer',
-      #'footnotes': 'footnotes',
-      #'citations': 'citations',
-      'nutaikytos-pastaba': 'target-notes',
-      'restructuredtext-testinė-direktyva': 'restructuredtext-test-directive'}
-"""Lithuanian name to registered (in directives/__init__.py) directive name
-mapping."""
 
-roles = {
-    # language-dependent: fixed
-    'santrumpa': 'abbreviation',
-    'sa': 'abbreviation',
-    'akronimas': 'acronym',
-    'ak': 'acronym',
-    'code (translation required)': 'code',
-    'indeksas': 'index',
-    'i': 'index',
-    'apatinis-indeksas': 'subscript',
-    'sub': 'subscript',
-    'viršutinis-indeksas': 'superscript',
-    'sup': 'superscript',
-    'antrašės-nuoroda': 'title-reference',
-    'antraštė': 'title-reference',
-    'a': 'title-reference',
-    'pep-nuoroda': 'pep-reference',
-    'pep': 'pep-reference',
-    'rfc-nuoroda': 'rfc-reference',
-    'rfc': 'rfc-reference',
-    'paryškinimas': 'emphasis',
-    'sustiprintas': 'strong',
-    'literalas': 'literal',
-    'matematika': 'math',
-    'vardinė-nuoroda': 'named-reference',
-    'anoniminė-nuoroda': 'anonymous-reference',
-    'išnašos-nuoroda': 'footnote-reference',
-    'citatos-nuoroda': 'citation-reference',
-    'pakeitimo-nuoroda': 'substitution-reference',
-    'taikinys': 'target',
-    'uri-nuoroda': 'uri-reference',
-    'uri': 'uri-reference',
-    'url': 'uri-reference',
-    'žalia': 'raw',}
-"""Mapping of English role names to canonical role names for interpreted text.
-"""
+class Parser(Component):
+
+    component_type = 'parser'
+    config_section = 'parsers'
+
+    def parse(self, inputstring, document):
+        """Override to parse `inputstring` into document tree `document`."""
+        raise NotImplementedError('subclass must override this method')
+
+    def setup_parse(self, inputstring, document):
+        """Initial parse setup.  Call at start of `self.parse()`."""
+        self.inputstring = inputstring
+        self.document = document
+        document.reporter.attach_observer(document.note_parse_message)
+
+    def finish_parse(self):
+        """Finalize parse details.  Call at end of `self.parse()`."""
+        self.document.reporter.detach_observer(
+            self.document.note_parse_message)
+
+
+_parser_aliases = {
+      'restructuredtext': 'rst',
+      'rest': 'rst',
+      'restx': 'rst',
+      'rtxt': 'rst',}
+
+def get_parser_class(parser_name):
+    """Return the Parser class from the `parser_name` module."""
+    parser_name = parser_name.lower()
+    if parser_name in _parser_aliases:
+        parser_name = _parser_aliases[parser_name]
+    try:
+        module = __import__(parser_name, globals(), locals(), level=1)
+    except ImportError:
+        module = __import__(parser_name, globals(), locals(), level=0)
+    return module.Parser

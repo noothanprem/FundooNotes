@@ -1,1 +1,1 @@
-ъж>venv/lib64/python3.6/site-packages/future/moves/tkinter/dnd.py 2pyXh
+ъж:venv/lib64/python3.6/site-packages/future/moves/copyreg.py 2pyX	h

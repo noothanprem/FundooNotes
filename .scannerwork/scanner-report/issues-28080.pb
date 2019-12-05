@@ -20,11 +20,11 @@ r
 pythonS100RRename method "buttonField" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
 …… E
 pythonS1481&Remove the unused local variable "dy". 2
-ìì E
-pythonS1481&Remove the unused local variable "dx". 2
-ëë K
+ìì K
 pythonS1481,Remove the unused local variable "fontSize". 2
-êê j
+êê E
+pythonS1481&Remove the unused local variable "dx". 2
+ëë j
 pythonS117NRename this parameter "xR" to match the regular expression ^[_a-z][a-z0-9_]*$. 288% 'j
 pythonS117NRename this parameter "yR" to match the regular expression ^[_a-z][a-z0-9_]*$. 288) +o
 pythonS117SRename this local variable "xA" to match the regular expression ^[_a-z][a-z0-9_]*$. 2:: o

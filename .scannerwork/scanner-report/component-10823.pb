@@ -1,1 +1,1 @@
-ÇTKvenv/lib/python3.6/site-packages/faker/providers/internet/de_DE/__init__.py 2pyXh
+ÇTKvenv/lib/python3.6/site-packages/faker/providers/internet/id_ID/__init__.py 2pyXh

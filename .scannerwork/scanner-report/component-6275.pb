@@ -1,1 +1,1 @@
-ƒ1Avenv/lib/python3.6/site-packages/django/contrib/admindocs/urls.py 2pyX3h
+ƒ1@venv/lib/python3.6/site-packages/django/contrib/sitemaps/apps.py 2pyXh

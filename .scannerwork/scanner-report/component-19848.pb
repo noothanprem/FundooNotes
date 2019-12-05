@@ -1,1 +1,1 @@
-ˆ›Uvenv/lib/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/__init__.py 2pyXh
+ˆ›ovenv/lib/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/migrations/0003_auto_20171017_2007.py 2pyXh

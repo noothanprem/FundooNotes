@@ -1,73 +1,77 @@
-h
-pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 |
-pythonS100`Rename method "test_initializationErrors" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2%% !t
-pythonS100XRename method "_notificationTest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 244 r
-pythonS100VRename method "test_closeWrite" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2{{ v
-pythonS100XRename method "test_closeNoWrite" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-áá s
-pythonS100URename method "test_movedFrom" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-üü q
-pythonS100SRename method "test_movedTo" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-´´ t
-pythonS100VRename method "test_deleteSelf" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-œœ r
-pythonS100TRename method "test_moveSelf" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-€€ É
-pythonS100eRename method "test_simpleSubdirectoryAutoAdd" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÁÁ &
-pythonS100aRename method "test_simpleDeleteDirectory" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÅÅ "y
-pythonS100[Rename method "test_ignoreDirectory" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-™™ {
-pythonS100]Rename method "test_humanReadableMask" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¥¥ x
-pythonS100ZRename method "test_recursiveWatch" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-√√ }
-pythonS100_Rename method "test_connectionLostError" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‘‘  
-pythonS100aRename method "test_noAutoAddSubdirectory" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ﬂﬂ "Ä
-pythonS100bRename method "test_seriesOfWatchAndIgnore" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-˘˘ #x
-pythonS100ZRename method "test_ignoreFilePath" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-úú ~
-pythonS100`Rename method "test_ignoreNonWatchedFile" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¿¿ !Ñ
-pythonS100fRename method "test_complexSubdirectoryAutoAdd" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÀÀ 't
-pythonS117XRename this parameter "expectedPath" to match the regular expression ^[_a-z][a-z0-9_]*$. 2441 =x
-pythonS117ZRename this local variable "checkMask" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-˜˜ x
-pythonS117ZRename this local variable "checkMask" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-†† x
-pythonS117ZRename this local variable "checkMask" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ºº x
-pythonS117ZRename this local variable "checkMask" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÔÔ {
-pythonS117]Rename this local variable "expectedPath" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-˛˛ {
-pythonS117]Rename this local variable "expectedPath" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-°° |
-pythonS117^Rename this local variable "expectedPath2" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-££ {
-pythonS117]Rename this local variable "expectedPath" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-≈≈ x
-pythonS117ZRename this local variable "checkMask" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÂÂ x
-pythonS117ZRename this local variable "someFiles" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÔÔ p
-pythonS1542SRename function "cbNotified" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2JJ i
-pythonS1542JRename function "_" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÔÔ i
-pythonS1542JRename function "_" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ää i
-pythonS1542JRename function "_" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÁÁ r
-pythonS1542SRename function "cbNotified" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÇÇ n
-pythonS1542ORename function "callIt" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-áá r
-pythonS1542SRename function "cbNotified" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ßß n
-pythonS1542ORename function "callIt" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¨¨ 
+I
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2>>6 ?I
+pythonS1313,Make this IP "1.2.3.4" address configurable. 2CC+ 4I
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2``N WI
+pythonS1313,Make this IP "4.3.2.1" address configurable. 2ff+ 4t
+pythonS100XRename method "_basicConnectTest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2!! r
+pythonS100VRename method "test_connectTCP" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 277 s
+pythonS100WRename method "test_connectUNIX" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2HH r
+pythonS100VRename method "test_connectSSL" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2XX u
+pythonS100YRename method "_cancelConnectTest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2kk z
+pythonS100\Rename method "test_cancelConnectTCP" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÇÇ {
+pythonS100]Rename method "test_cancelConnectUNIX" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+åå z
+pythonS100\Rename method "test_cancelConnectSSL" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ññ ~
+pythonS100`Rename method "_cancelConnectTimeoutTest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+†† !Å
+pythonS100cRename method "test_cancelConnectTCPTimeout" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ºº $Ç
+pythonS100dRename method "test_cancelConnectUNIXTimeout" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+œœ %Å
+pythonS100cRename method "test_cancelConnectSSLTimeout" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‚‚ $Ñ
+pythonS100fRename method "_cancelConnectFailedTimeoutTest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ıı 'á
+pythonS100iRename method "test_cancelConnectTCPFailedTimeout" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+éé *à
+pythonS100jRename method "test_cancelConnectUNIXFailedTimeout" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+öö +á
+pythonS100iRename method "test_cancelConnectSSLFailedTimeout" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¶¶ *s
+pythonS100URename method "test_logPrefix" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¿¿ x
+pythonS100ZRename method "test_makeConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+…… s
+pythonS100URename method "connectionMade" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+–– s
+pythonS100URename method "test_logPrefix" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÈÈ ~
+pythonS100`Rename method "test_defaultBuildProtocol" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÛÛ !u
+pythonS100WRename method "test_forProtocol" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÅÅ Å
+pythonS100cRename method "test_doStartLoggingStatement" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+êê $Ä
+pythonS100bRename method "test_doStopLoggingStatement" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+££ #|
+pythonS100^Rename method "test_protocolToConsumer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ææ |
+pythonS100^Rename method "test_consumerToProtocol" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÃÃ w
+pythonS100YRename method "test_writeSequence" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÙÙ x
+pythonS117\Rename this local variable "bindAddress" to match the regular expression ^[_a-z][a-z0-9_]*$. 2??* 5u
+pythonS117YRename this local variable "checkPID" to match the regular expression ^[_a-z][a-z0-9_]*$. 2PP' /É
+pythonS117gRename this local variable "expectedContextFactory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2__ "{
+pythonS117_Rename this local variable "contextFactory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2aa! /x
+pythonS117\Rename this local variable "bindAddress" to match the regular expression ^[_a-z][a-z0-9_]*$. 2aa: Ez
+pythonS117\Rename this local variable "bindAddress" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+««* 5z
+pythonS117\Rename this local variable "bindAddress" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+⁄⁄' 2}
+pythonS117_Rename this local variable "contextFactory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÌÌ! /z
+pythonS117\Rename this local variable "bindADdress" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÌÌ: Ez
+pythonS117\Rename this local variable "bindAddress" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ïï* 5z
+pythonS117\Rename this local variable "bindAddress" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+°°' 2}
+pythonS117_Rename this local variable "contextFactory" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+≠≠! /z
+pythonS117\Rename this local variable "bindADdress" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+≠≠: Ew
+pythonS117YRename this local variable "numPorts" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÆÆ 

@@ -1,1 +1,1 @@
-àšEvenv/lib/python3.6/site-packages/rest_framework_simplejwt/__init__.py 2pyXh
+àšCvenv/lib/python3.6/site-packages/rest_framework_simplejwt/models.py 2pyXih

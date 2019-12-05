@@ -1,255 +1,415 @@
-# -*- test-case-name: twisted.test.test_socks -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
+
 """
-Implementation of the SOCKSv4 protocol.
+Dict client protocol implementation.
+
+@author: Pavel Pergamenshchik
 """
 
-# python imports
-import struct
-import string
-import socket
-import time
-
-# twisted imports
-from twisted.internet import reactor, protocol, defer
+from twisted.protocols import basic
+from twisted.internet import defer, protocol
 from twisted.python import log
+from io import BytesIO
 
-
-class SOCKSv4Outgoing(protocol.Protocol):
-    def __init__(self, socks):
-        self.socks=socks
-
-
-    def connectionMade(self):
-        peer = self.transport.getPeer()
-        self.socks.makeReply(90, 0, port=peer.port, ip=peer.host)
-        self.socks.otherConn=self
-
-
-    def connectionLost(self, reason):
-        self.socks.transport.loseConnection()
-
-
-    def dataReceived(self, data):
-        self.socks.write(data)
-
-
-    def write(self,data):
-        self.socks.log(self,data)
-        self.transport.write(data)
-
-
-
-class SOCKSv4Incoming(protocol.Protocol):
-    def __init__(self,socks):
-        self.socks=socks
-        self.socks.otherConn=self
-
-
-    def connectionLost(self, reason):
-        self.socks.transport.loseConnection()
-
-
-    def dataReceived(self,data):
-        self.socks.write(data)
-
-
-    def write(self, data):
-        self.socks.log(self,data)
-        self.transport.write(data)
-
-
-
-class SOCKSv4(protocol.Protocol):
-    """
-    An implementation of the SOCKSv4 protocol.
-
-    @type logging: L{str} or L{None}
-    @ivar logging: If not L{None}, the name of the logfile to which connection
-        information will be written.
-
-    @type reactor: object providing L{twisted.internet.interfaces.IReactorTCP}
-    @ivar reactor: The reactor used to create connections.
-
-    @type buf: L{str}
-    @ivar buf: Part of a SOCKSv4 connection request.
-
-    @type otherConn: C{SOCKSv4Incoming}, C{SOCKSv4Outgoing} or L{None}
-    @ivar otherConn: Until the connection has been established, C{otherConn} is
-        L{None}. After that, it is the proxy-to-destination protocol instance
-        along which the client's connection is being forwarded.
-    """
-    def __init__(self, logging=None, reactor=reactor):
-        self.logging = logging
-        self.reactor = reactor
-
-
-    def connectionMade(self):
-        self.buf = b""
-        self.otherConn = None
-
-
-    def dataReceived(self, data):
-        """
-        Called whenever data is received.
-
-        @type data: L{bytes}
-        @param data: Part or all of a SOCKSv4 packet.
-        """
-        if self.otherConn:
-            self.otherConn.write(data)
-            return
-        self.buf = self.buf + data
-        completeBuffer = self.buf
-        if b"\000" in self.buf[8:]:
-            head, self.buf = self.buf[:8], self.buf[8:]
-            version, code, port = struct.unpack("!BBH", head[:4])
-            user, self.buf = self.buf.split(b"\000", 1)
-            if head[4:7] == b"\000\000\000" and head[7:8] != b"\000":
-                # An IP address of the form 0.0.0.X, where X is non-zero,
-                # signifies that this is a SOCKSv4a packet.
-                # If the complete packet hasn't been received, restore the
-                # buffer and wait for it.
-                if b"\000" not in self.buf:
-                    self.buf = completeBuffer
-                    return
-                server, self.buf = self.buf.split(b"\000", 1)
-                d = self.reactor.resolve(server)
-                d.addCallback(self._dataReceived2, user,
-                              version, code, port)
-                d.addErrback(lambda result, self = self: self.makeReply(91))
-                return
+def parseParam(line):
+    """Chew one dqstring or atom from beginning of line and return (param, remaningline)"""
+    if line == b'':
+        return (None, b'')
+    elif line[0:1] != b'"': # atom
+        mode = 1
+    else: # dqstring
+        mode = 2
+    res = b""
+    io = BytesIO(line)
+    if mode == 2: # skip the opening quote
+        io.read(1)
+    while 1:
+        a = io.read(1)
+        if a == b'"':
+            if mode == 2:
+                io.read(1) # skip the separating space
+                return (res, io.read())
+        elif a == b'\\':
+            a = io.read(1)
+            if a == b'':
+                return (None, line) # unexpected end of string
+        elif a == b'':
+            if mode == 1:
+                return (res, io.read())
             else:
-                server = socket.inet_ntoa(head[4:8])
+                return (None, line) # unexpected end of string
+        elif a == b' ':
+            if mode == 1:
+                return (res, io.read())
+        res += a
 
-            self._dataReceived2(server, user, version, code, port)
 
 
-    def _dataReceived2(self, server, user, version, code, port):
-        """
-        The second half of the SOCKS connection setup. For a SOCKSv4 packet this
-        is after the server address has been extracted from the header. For a
-        SOCKSv4a packet this is after the host name has been resolved.
+def makeAtom(line):
+    """Munch a string into an 'atom'"""
+    # FIXME: proper quoting
+    return filter(lambda x: not (x in map(chr, range(33)+[34, 39, 92])), line)
 
-        @type server: L{str}
-        @param server: The IP address of the destination, represented as a
-            dotted quad.
 
-        @type user: L{str}
-        @param user: The username associated with the connection.
 
-        @type version: L{int}
-        @param version: The SOCKS protocol version number.
+def makeWord(s):
+    mustquote = range(33)+[34, 39, 92]
+    result = []
+    for c in s:
+        if ord(c) in mustquote:
+            result.append(b"\\")
+        result.append(c)
+    s = b"".join(result)
+    return s
 
-        @type code: L{int}
-        @param code: The comand code. 1 means establish a TCP/IP stream
-            connection, and 2 means establish a TCP/IP port binding.
 
-        @type port: L{int}
-        @param port: The port number associated with the connection.
-        """
-        assert version == 4, "Bad version code: %s" % version
-        if not self.authorize(code, server, port, user):
-            self.makeReply(91)
+
+def parseText(line):
+    if len(line) == 1 and line == b'.':
+        return None
+    else:
+        if len(line) > 1 and line[0:2] == b'..':
+            line = line[1:]
+        return line
+
+
+
+class Definition:
+    """A word definition"""
+    def __init__(self, name, db, dbdesc, text):
+        self.name = name
+        self.db = db
+        self.dbdesc = dbdesc
+        self.text = text # list of strings not terminated by newline
+
+
+
+class DictClient(basic.LineReceiver):
+    """dict (RFC2229) client"""
+
+    data = None # multiline data
+    MAX_LENGTH = 1024
+    state = None
+    mode = None
+    result = None
+    factory = None
+
+    def __init__(self):
+        self.data = None
+        self.result = None
+
+
+    def connectionMade(self):
+        self.state = "conn"
+        self.mode = "command"
+
+
+    def sendLine(self, line):
+        """Throw up if the line is longer than 1022 characters"""
+        if len(line) > self.MAX_LENGTH - 2:
+            raise ValueError("DictClient tried to send a too long line")
+        basic.LineReceiver.sendLine(self, line)
+
+
+    def lineReceived(self, line):
+        try:
+            line = line.decode("utf-8")
+        except UnicodeError: # garbage received, skip
             return
-        if code == 1: # CONNECT
-            d = self.connectClass(server, port, SOCKSv4Outgoing, self)
-            d.addErrback(lambda result, self = self: self.makeReply(91))
-        elif code == 2: # BIND
-            d = self.listenClass(0, SOCKSv4IncomingFactory, self, server)
-            d.addCallback(lambda x,
-                          self = self: self.makeReply(90, 0, x[1], x[0]))
+        if self.mode == "text": # we are receiving textual data
+            code = "text"
         else:
-            raise RuntimeError("Bad Connect Code: %s" % (code,))
-        assert self.buf == b"", "hmm, still stuff in buffer... %s" % repr(
-            self.buf)
+            if len(line) < 4:
+                log.msg("DictClient got invalid line from server -- %s" % line)
+                self.protocolError("Invalid line from server")
+                self.transport.LoseConnection()
+                return
+            code = int(line[:3])
+            line = line[4:]
+        method = getattr(self, 'dictCode_%s_%s' % (code, self.state), self.dictCode_default)
+        method(line)
 
 
-    def connectionLost(self, reason):
-        if self.otherConn:
-            self.otherConn.transport.loseConnection()
+    def dictCode_default(self, line):
+        """Unknown message"""
+        log.msg("DictClient got unexpected message from server -- %s" % line)
+        self.protocolError("Unexpected server message")
+        self.transport.loseConnection()
 
 
-    def authorize(self,code,server,port,user):
-        log.msg("code %s connection to %s:%s (user %s) authorized" % (code,server,port,user))
-        return 1
+    def dictCode_221_ready(self, line):
+        """We are about to get kicked off, do nothing"""
+        pass
 
 
-    def connectClass(self, host, port, klass, *args):
-        return protocol.ClientCreator(reactor, klass, *args).connectTCP(host,port)
+    def dictCode_220_conn(self, line):
+        """Greeting message"""
+        self.state = "ready"
+        self.dictConnected()
 
 
-    def listenClass(self, port, klass, *args):
-        serv = reactor.listenTCP(port, klass(*args))
-        return defer.succeed(serv.getHost()[1:])
+    def dictCode_530_conn(self):
+        self.protocolError("Access denied")
+        self.transport.loseConnection()
 
 
-    def makeReply(self,reply,version=0,port=0,ip="0.0.0.0"):
-        self.transport.write(struct.pack("!BBH",version,reply,port)+socket.inet_aton(ip))
-        if reply!=90: self.transport.loseConnection()
+    def dictCode_420_conn(self):
+        self.protocolError("Server temporarily unavailable")
+        self.transport.loseConnection()
 
 
-    def write(self,data):
-        self.log(self,data)
-        self.transport.write(data)
+    def dictCode_421_conn(self):
+        self.protocolError("Server shutting down at operator request")
+        self.transport.loseConnection()
 
 
-    def log(self,proto,data):
-        if not self.logging: return
-        peer = self.transport.getPeer()
-        their_peer = self.otherConn.transport.getPeer()
-        f=open(self.logging,"a")
-        f.write("%s\t%s:%d %s %s:%d\n"%(time.ctime(),
-                                        peer.host,peer.port,
-                                        ((proto==self and '<') or '>'),
-                                        their_peer.host,their_peer.port))
-        while data:
-            p,data=data[:16],data[16:]
-            f.write(string.join(map(lambda x:'%02X'%ord(x),p),' ')+' ')
-            f.write((16-len(p))*3*' ')
-            for c in p:
-                if len(repr(c))>3: f.write('.')
-                else: f.write(c)
-            f.write('\n')
-        f.write('\n')
-        f.close()
+    def sendDefine(self, database, word):
+        """Send a dict DEFINE command"""
+        assert self.state == "ready", "DictClient.sendDefine called when not in ready state"
+        self.result = None  # these two are just in case. In "ready" state, result and data
+        self.data = None    # should be None
+        self.state = "define"
+        command = "DEFINE %s %s" % (makeAtom(database.encode("UTF-8")), makeWord(word.encode("UTF-8")))
+        self.sendLine(command)
+
+
+    def sendMatch(self, database, strategy, word):
+        """Send a dict MATCH command"""
+        assert self.state == "ready", "DictClient.sendMatch called when not in ready state"
+        self.result = None
+        self.data = None
+        self.state = "match"
+        command = "MATCH %s %s %s" % (makeAtom(database), makeAtom(strategy), makeAtom(word))
+        self.sendLine(command.encode("UTF-8"))
+
+    def dictCode_550_define(self, line):
+        """Invalid database"""
+        self.mode = "ready"
+        self.defineFailed("Invalid database")
+
+
+    def dictCode_550_match(self, line):
+        """Invalid database"""
+        self.mode = "ready"
+        self.matchFailed("Invalid database")
+
+
+    def dictCode_551_match(self, line):
+        """Invalid strategy"""
+        self.mode = "ready"
+        self.matchFailed("Invalid strategy")
+
+
+    def dictCode_552_define(self, line):
+        """No match"""
+        self.mode = "ready"
+        self.defineFailed("No match")
+
+
+    def dictCode_552_match(self, line):
+        """No match"""
+        self.mode = "ready"
+        self.matchFailed("No match")
+
+
+    def dictCode_150_define(self, line):
+        """n definitions retrieved"""
+        self.result = []
+
+
+    def dictCode_151_define(self, line):
+        """Definition text follows"""
+        self.mode = "text"
+        (word, line) = parseParam(line)
+        (db, line) = parseParam(line)
+        (dbdesc, line) = parseParam(line)
+        if not (word and db and dbdesc):
+            self.protocolError("Invalid server response")
+            self.transport.loseConnection()
+        else:
+            self.result.append(Definition(word, db, dbdesc, []))
+            self.data = []
+
+
+    def dictCode_152_match(self, line):
+        """n matches found, text follows"""
+        self.mode = "text"
+        self.result = []
+        self.data = []
+
+
+    def dictCode_text_define(self, line):
+        """A line of definition text received"""
+        res = parseText(line)
+        if res == None:
+            self.mode = "command"
+            self.result[-1].text = self.data
+            self.data = None
+        else:
+            self.data.append(line)
+
+
+    def dictCode_text_match(self, line):
+        """One line of match text received"""
+        def l(s):
+            p1, t = parseParam(s)
+            p2, t = parseParam(t)
+            return (p1, p2)
+        res = parseText(line)
+        if res == None:
+            self.mode = "command"
+            self.result = map(l, self.data)
+            self.data = None
+        else:
+            self.data.append(line)
+
+
+    def dictCode_250_define(self, line):
+        """ok"""
+        t = self.result
+        self.result = None
+        self.state = "ready"
+        self.defineDone(t)
+
+
+    def dictCode_250_match(self, line):
+        """ok"""
+        t = self.result
+        self.result = None
+        self.state = "ready"
+        self.matchDone(t)
+
+
+    def protocolError(self, reason):
+        """override to catch unexpected dict protocol conditions"""
+        pass
+
+
+    def dictConnected(self):
+        """override to be notified when the server is ready to accept commands"""
+        pass
+
+
+    def defineFailed(self, reason):
+        """override to catch reasonable failure responses to DEFINE"""
+        pass
+
+
+    def defineDone(self, result):
+        """override to catch successful DEFINE"""
+        pass
+
+
+    def matchFailed(self, reason):
+        """override to catch resonable failure responses to MATCH"""
+        pass
+
+
+    def matchDone(self, result):
+        """override to catch successful MATCH"""
+        pass
 
 
 
-class SOCKSv4Factory(protocol.Factory):
-    """
-    A factory for a SOCKSv4 proxy.
+class InvalidResponse(Exception):
+    pass
 
-    Constructor accepts one argument, a log file name.
-    """
-    def __init__(self, log):
-        self.logging = log
+
+
+class DictLookup(DictClient):
+    """Utility class for a single dict transaction. To be used with DictLookupFactory"""
+
+    def protocolError(self, reason):
+        if not self.factory.done:
+            self.factory.d.errback(InvalidResponse(reason))
+            self.factory.clientDone()
+
+
+    def dictConnected(self):
+        if self.factory.queryType == "define":
+            self.sendDefine(*self.factory.param)
+        elif self.factory.queryType == "match":
+            self.sendMatch(*self.factory.param)
+
+
+    def defineFailed(self, reason):
+        self.factory.d.callback([])
+        self.factory.clientDone()
+        self.transport.loseConnection()
+
+
+    def defineDone(self, result):
+        self.factory.d.callback(result)
+        self.factory.clientDone()
+        self.transport.loseConnection()
+
+
+    def matchFailed(self, reason):
+        self.factory.d.callback([])
+        self.factory.clientDone()
+        self.transport.loseConnection()
+
+
+    def matchDone(self, result):
+        self.factory.d.callback(result)
+        self.factory.clientDone()
+        self.transport.loseConnection()
+
+
+
+class DictLookupFactory(protocol.ClientFactory):
+    """Utility factory for a single dict transaction"""
+    protocol = DictLookup
+    done = None
+
+    def __init__(self, queryType, param, d):
+        self.queryType = queryType
+        self.param = param
+        self.d = d
+        self.done = 0
+
+
+    def clientDone(self):
+        """Called by client when done."""
+        self.done = 1
+        del self.d
+
+
+    def clientConnectionFailed(self, connector, error):
+        self.d.errback(error)
+
+
+    def clientConnectionLost(self, connector, error):
+        if not self.done:
+            self.d.errback(error)
 
 
     def buildProtocol(self, addr):
-        return SOCKSv4(self.logging, reactor)
+        p = self.protocol()
+        p.factory = self
+        return p
 
 
 
-class SOCKSv4IncomingFactory(protocol.Factory):
-    """
-    A utility class for building protocols for incoming connections.
-    """
-    def __init__(self, socks, ip):
-        self.socks = socks
-        self.ip = ip
+def define(host, port, database, word):
+    """Look up a word using a dict server"""
+    d = defer.Deferred()
+    factory = DictLookupFactory("define", (database, word), d)
+
+    from twisted.internet import reactor
+    reactor.connectTCP(host, port, factory)
+    return d
 
 
-    def buildProtocol(self, addr):
-        if addr[0] == self.ip:
-            self.ip = ""
-            self.socks.makeReply(90, 0)
-            return SOCKSv4Incoming(self.socks)
-        elif self.ip == "":
-            return None
-        else:
-            self.socks.makeReply(91, 0)
-            self.ip = ""
-            return None
+
+def match(host, port, database, strategy, word):
+    """Match a word using a dict server"""
+    d = defer.Deferred()
+    factory = DictLookupFactory("match", (database, strategy, word), d)
+
+    from twisted.internet import reactor
+    reactor.connectTCP(host, port, factory)
+    return d
+

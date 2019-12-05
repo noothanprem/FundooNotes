@@ -1,1 +1,1 @@
-Áb9venv/lib/python3.6/site-packages/docutils/languages/gl.py 2pyX@h
+Áb9venv/lib/python3.6/site-packages/docutils/languages/he.py 2pyX=h

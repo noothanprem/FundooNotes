@@ -1,1 +1,1 @@
-…=Kvenv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/admin :ƒ=ˆ=
+…=cvenv/lib/python3.6/site-packages/django/contrib/admin/static/admin/js/admin/RelatedObjectLookups.js 2jsX¶h

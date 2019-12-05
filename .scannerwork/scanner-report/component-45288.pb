@@ -1,1 +1,1 @@
-Ë·Xvenv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/chardet/mbcssm.py 2pyXΩh
+Ë·cvenv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/chardet/langcyrillicmodel.py 2pyX h

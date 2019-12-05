@@ -1,1 +1,1 @@
-Ö+venv/lib/python3.6/site-packages/asn1crypto :2ÑÜáàâäãåçéèêëíìîïñó±π∫ªºﬁ
+Ö+venv/lib/python3.6/site-packages/asn1crypto :2ÑÜáàâäãåçéèêëíìîïñóò≥πªºø

@@ -1,1 +1,0 @@
-†¨2venv/lib64/python3.6/site-packages/faker/config.py 2pyXh

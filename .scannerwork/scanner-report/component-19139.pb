@@ -1,1 +1,1 @@
-ÕGvenv/lib/python3.6/site-packages/botocore/vendored/requests/__init__.py 2pyXNh
+ÕEvenv/lib/python3.6/site-packages/botocore/vendored/requests/compat.py 2pyX?h

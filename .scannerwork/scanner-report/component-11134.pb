@@ -1,1 +1,0 @@
-şV=venv/lib/python3.6/site-packages/faker/providers/person/hi_IN :ıV

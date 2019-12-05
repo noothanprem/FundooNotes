@@ -1,1 +1,1 @@
-“J-venv/lib/python3.6/site-packages/django_redis :—J”JﬂJÎJÏJÙJ
+“J-venv/lib/python3.6/site-packages/django_redis :—J”J‡JÎJÏJÙJ

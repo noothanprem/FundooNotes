@@ -1,1 +1,1 @@
-¶8Jvenv/lib/python3.6/site-packages/django/contrib/admin/templatetags/base.py 2pyX"h
+¶8Rvenv/lib/python3.6/site-packages/django/contrib/admin/templatetags/admin_static.py 2pyXh

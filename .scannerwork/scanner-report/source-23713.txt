@@ -1,59 +1,46 @@
-import hmac
-import time
-import hashlib
-
-from .base import BaseAuth
-from ..exceptions import AuthFailed, AuthMissingParameter
-from ..utils import handle_http_errors
+"""
+Docker Hub OAuth2 backend, docs at:
+    https://python-social-auth.readthedocs.io/en/latest/backends/docker.html
+"""
+from .oauth import BaseOAuth2
 
 
-class TelegramAuth(BaseAuth):
-    name = 'telegram'
-    ID_KEY = 'id'
-
-    def verify_data(self, response):
-        bot_token = self.setting('BOT_TOKEN')
-        if bot_token is None:
-            raise AuthMissingParameter('telegram',
-                                       'SOCIAL_AUTH_TELEGRAM_BOT_TOKEN')
-
-        received_hash_string = response.get('hash')
-        auth_date = response.get('auth_date')
-
-        if received_hash_string is None or auth_date is None:
-            raise AuthMissingParameter('telegram', 'hash or auth_date')
-
-        data_check_string = ['{}={}'.format(k, v)
-                             for k, v in response.items() if k != 'hash']
-        data_check_string = '\n'.join(sorted(data_check_string))
-        secret_key = hashlib.sha256(bot_token.encode()).digest()
-        built_hash = hmac.new(secret_key,
-                              msg=data_check_string.encode(),
-                              digestmod=hashlib.sha256).hexdigest()
-        current_timestamp = int(time.time())
-        auth_timestamp = int(auth_date)
-        if current_timestamp - auth_timestamp > 86400:
-            raise AuthFailed('telegram', 'Auth date is outdated')
-        if built_hash != received_hash_string:
-            raise AuthFailed('telegram', 'Invalid hash supplied')
-
-    def extra_data(self, user, uid, response, details=None, *args, **kwargs):
-        return response
+class DockerOAuth2(BaseOAuth2):
+    name = 'docker'
+    ID_KEY = 'user_id'
+    AUTHORIZATION_URL = 'https://hub.docker.com/api/v1.1/o/authorize/'
+    ACCESS_TOKEN_URL = 'https://hub.docker.com/api/v1.1/o/token/'
+    REFRESH_TOKEN_URL = 'https://hub.docker.com/api/v1.1/o/token/'
+    ACCESS_TOKEN_METHOD = 'POST'
+    REDIRECT_STATE = False
+    EXTRA_DATA = [
+        ('refresh_token', 'refresh_token', True),
+        ('user_id', 'user_id'),
+        ('email', 'email'),
+        ('full_name', 'fullname'),
+        ('location', 'location'),
+        ('url', 'url'),
+        ('company', 'company'),
+        ('gravatar_email', 'gravatar_email'),
+    ]
 
     def get_user_details(self, response):
-        first_name = response.get('first_name', '')
-        last_name = response.get('last_name', '')
-        fullname = '{} {}'.format(first_name, last_name).strip()
+        """Return user details from Docker Hub account"""
+        fullname, first_name, last_name = self.get_user_names(
+            response.get('full_name') or response.get('username') or ''
+        )
         return {
-            'username': response.get('username') or response[self.ID_KEY],
+            'username': response.get('username'),
+            'fullname': fullname,
             'first_name': first_name,
             'last_name': last_name,
-            'fullname': fullname
+            'email': response.get('email', '')
         }
 
-    @handle_http_errors
-    def auth_complete(self, *args, **kwargs):
-        response = self.data
-        self.verify_data(response)
-        kwargs.update({'response': self.data, 'backend': self})
-        return self.strategy.authenticate(*args, **kwargs)
+    def user_data(self, access_token, *args, **kwargs):
+        """Grab user profile information from Docker Hub."""
+        username = kwargs['response']['username']
+        return self.get_json(
+            'https://hub.docker.com/api/v1.1/users/%s/' % username,
+            headers={'Authorization': 'Bearer %s' % access_token}
+        )

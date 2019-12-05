@@ -1,1 +1,1 @@
-š›Qvenv/lib/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/apps.py 2pyXh
+š›Rvenv/lib/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/admin.py 2pyX\h

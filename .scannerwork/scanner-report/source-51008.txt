@@ -1,1094 +1,516 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright (C) 2012 The Python Software Foundation.
+# Copyright (C) 2013 Vinay Sajip.
+# Licensed to the Python Software Foundation under a contributor agreement.
 # See LICENSE.txt and CONTRIBUTORS.txt.
 #
-"""Implementation of the Metadata for Python packages PEPs.
-
-Supports all metadata formats (1.0, 1.1, 1.2, and 2.0 experimental).
-"""
-from __future__ import unicode_literals
-
-import codecs
-from email import message_from_file
-import json
+import hashlib
 import logging
-import re
+import os
+import shutil
+import subprocess
+import tempfile
+try:
+    from threading import Thread
+except ImportError:
+    from dummy_threading import Thread
 
-
-from . import DistlibException, __version__
-from .compat import StringIO, string_types, text_type
-from .markers import interpret
-from .util import extract_by_key, get_extras
-from .version import get_scheme, PEP440_VERSION_RE
+from . import DistlibException
+from .compat import (HTTPBasicAuthHandler, Request, HTTPPasswordMgr,
+                     urlparse, build_opener, string_types)
+from .util import cached_property, zip_dir, ServerProxy
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_INDEX = 'https://pypi.python.org/pypi'
+DEFAULT_REALM = 'pypi'
 
-class MetadataMissingError(DistlibException):
-    """A required metadata is missing"""
-
-
-class MetadataConflictError(DistlibException):
-    """Attempt to read or write metadata fields that are conflictual."""
-
-
-class MetadataUnrecognizedVersionError(DistlibException):
-    """Unknown metadata version number."""
-
-
-class MetadataInvalidError(DistlibException):
-    """A metadata value is invalid"""
-
-# public API of this module
-__all__ = ['Metadata', 'PKG_INFO_ENCODING', 'PKG_INFO_PREFERRED_VERSION']
-
-# Encoding used for the PKG-INFO files
-PKG_INFO_ENCODING = 'utf-8'
-
-# preferred version. Hopefully will be changed
-# to 1.2 once PEP 345 is supported everywhere
-PKG_INFO_PREFERRED_VERSION = '1.1'
-
-_LINE_PREFIX_1_2 = re.compile('\n       \\|')
-_LINE_PREFIX_PRE_1_2 = re.compile('\n        ')
-_241_FIELDS = ('Metadata-Version', 'Name', 'Version', 'Platform',
-               'Summary', 'Description',
-               'Keywords', 'Home-page', 'Author', 'Author-email',
-               'License')
-
-_314_FIELDS = ('Metadata-Version', 'Name', 'Version', 'Platform',
-               'Supported-Platform', 'Summary', 'Description',
-               'Keywords', 'Home-page', 'Author', 'Author-email',
-               'License', 'Classifier', 'Download-URL', 'Obsoletes',
-               'Provides', 'Requires')
-
-_314_MARKERS = ('Obsoletes', 'Provides', 'Requires', 'Classifier',
-                'Download-URL')
-
-_345_FIELDS = ('Metadata-Version', 'Name', 'Version', 'Platform',
-               'Supported-Platform', 'Summary', 'Description',
-               'Keywords', 'Home-page', 'Author', 'Author-email',
-               'Maintainer', 'Maintainer-email', 'License',
-               'Classifier', 'Download-URL', 'Obsoletes-Dist',
-               'Project-URL', 'Provides-Dist', 'Requires-Dist',
-               'Requires-Python', 'Requires-External')
-
-_345_MARKERS = ('Provides-Dist', 'Requires-Dist', 'Requires-Python',
-                'Obsoletes-Dist', 'Requires-External', 'Maintainer',
-                'Maintainer-email', 'Project-URL')
-
-_426_FIELDS = ('Metadata-Version', 'Name', 'Version', 'Platform',
-               'Supported-Platform', 'Summary', 'Description',
-               'Keywords', 'Home-page', 'Author', 'Author-email',
-               'Maintainer', 'Maintainer-email', 'License',
-               'Classifier', 'Download-URL', 'Obsoletes-Dist',
-               'Project-URL', 'Provides-Dist', 'Requires-Dist',
-               'Requires-Python', 'Requires-External', 'Private-Version',
-               'Obsoleted-By', 'Setup-Requires-Dist', 'Extension',
-               'Provides-Extra')
-
-_426_MARKERS = ('Private-Version', 'Provides-Extra', 'Obsoleted-By',
-                'Setup-Requires-Dist', 'Extension')
-
-# See issue #106: Sometimes 'Requires' occurs wrongly in the metadata. Include
-# it in the tuple literal below to allow it (for now)
-_566_FIELDS = _426_FIELDS + ('Description-Content-Type', 'Requires')
-
-_566_MARKERS = ('Description-Content-Type',)
-
-_ALL_FIELDS = set()
-_ALL_FIELDS.update(_241_FIELDS)
-_ALL_FIELDS.update(_314_FIELDS)
-_ALL_FIELDS.update(_345_FIELDS)
-_ALL_FIELDS.update(_426_FIELDS)
-_ALL_FIELDS.update(_566_FIELDS)
-
-EXTRA_RE = re.compile(r'''extra\s*==\s*("([^"]+)"|'([^']+)')''')
-
-
-def _version2fieldlist(version):
-    if version == '1.0':
-        return _241_FIELDS
-    elif version == '1.1':
-        return _314_FIELDS
-    elif version == '1.2':
-        return _345_FIELDS
-    elif version in ('1.3', '2.1'):
-        return _345_FIELDS + _566_FIELDS
-    elif version == '2.0':
-        return _426_FIELDS
-    raise MetadataUnrecognizedVersionError(version)
-
-
-def _best_version(fields):
-    """Detect the best version depending on the fields used."""
-    def _has_marker(keys, markers):
-        for marker in markers:
-            if marker in keys:
-                return True
-        return False
-
-    keys = []
-    for key, value in fields.items():
-        if value in ([], 'UNKNOWN', None):
-            continue
-        keys.append(key)
-
-    possible_versions = ['1.0', '1.1', '1.2', '1.3', '2.0', '2.1']
-
-    # first let's try to see if a field is not part of one of the version
-    for key in keys:
-        if key not in _241_FIELDS and '1.0' in possible_versions:
-            possible_versions.remove('1.0')
-            logger.debug('Removed 1.0 due to %s', key)
-        if key not in _314_FIELDS and '1.1' in possible_versions:
-            possible_versions.remove('1.1')
-            logger.debug('Removed 1.1 due to %s', key)
-        if key not in _345_FIELDS and '1.2' in possible_versions:
-            possible_versions.remove('1.2')
-            logger.debug('Removed 1.2 due to %s', key)
-        if key not in _566_FIELDS and '1.3' in possible_versions:
-            possible_versions.remove('1.3')
-            logger.debug('Removed 1.3 due to %s', key)
-        if key not in _566_FIELDS and '2.1' in possible_versions:
-            if key != 'Description':  # In 2.1, description allowed after headers
-                possible_versions.remove('2.1')
-                logger.debug('Removed 2.1 due to %s', key)
-        if key not in _426_FIELDS and '2.0' in possible_versions:
-            possible_versions.remove('2.0')
-            logger.debug('Removed 2.0 due to %s', key)
-
-    # possible_version contains qualified versions
-    if len(possible_versions) == 1:
-        return possible_versions[0]   # found !
-    elif len(possible_versions) == 0:
-        logger.debug('Out of options - unknown metadata set: %s', fields)
-        raise MetadataConflictError('Unknown metadata set')
-
-    # let's see if one unique marker is found
-    is_1_1 = '1.1' in possible_versions and _has_marker(keys, _314_MARKERS)
-    is_1_2 = '1.2' in possible_versions and _has_marker(keys, _345_MARKERS)
-    is_2_1 = '2.1' in possible_versions and _has_marker(keys, _566_MARKERS)
-    is_2_0 = '2.0' in possible_versions and _has_marker(keys, _426_MARKERS)
-    if int(is_1_1) + int(is_1_2) + int(is_2_1) + int(is_2_0) > 1:
-        raise MetadataConflictError('You used incompatible 1.1/1.2/2.0/2.1 fields')
-
-    # we have the choice, 1.0, or 1.2, or 2.0
-    #   - 1.0 has a broken Summary field but works with all tools
-    #   - 1.1 is to avoid
-    #   - 1.2 fixes Summary but has little adoption
-    #   - 2.0 adds more features and is very new
-    if not is_1_1 and not is_1_2 and not is_2_1 and not is_2_0:
-        # we couldn't find any specific marker
-        if PKG_INFO_PREFERRED_VERSION in possible_versions:
-            return PKG_INFO_PREFERRED_VERSION
-    if is_1_1:
-        return '1.1'
-    if is_1_2:
-        return '1.2'
-    if is_2_1:
-        return '2.1'
-
-    return '2.0'
-
-_ATTR2FIELD = {
-    'metadata_version': 'Metadata-Version',
-    'name': 'Name',
-    'version': 'Version',
-    'platform': 'Platform',
-    'supported_platform': 'Supported-Platform',
-    'summary': 'Summary',
-    'description': 'Description',
-    'keywords': 'Keywords',
-    'home_page': 'Home-page',
-    'author': 'Author',
-    'author_email': 'Author-email',
-    'maintainer': 'Maintainer',
-    'maintainer_email': 'Maintainer-email',
-    'license': 'License',
-    'classifier': 'Classifier',
-    'download_url': 'Download-URL',
-    'obsoletes_dist': 'Obsoletes-Dist',
-    'provides_dist': 'Provides-Dist',
-    'requires_dist': 'Requires-Dist',
-    'setup_requires_dist': 'Setup-Requires-Dist',
-    'requires_python': 'Requires-Python',
-    'requires_external': 'Requires-External',
-    'requires': 'Requires',
-    'provides': 'Provides',
-    'obsoletes': 'Obsoletes',
-    'project_url': 'Project-URL',
-    'private_version': 'Private-Version',
-    'obsoleted_by': 'Obsoleted-By',
-    'extension': 'Extension',
-    'provides_extra': 'Provides-Extra',
-}
-
-_PREDICATE_FIELDS = ('Requires-Dist', 'Obsoletes-Dist', 'Provides-Dist')
-_VERSIONS_FIELDS = ('Requires-Python',)
-_VERSION_FIELDS = ('Version',)
-_LISTFIELDS = ('Platform', 'Classifier', 'Obsoletes',
-               'Requires', 'Provides', 'Obsoletes-Dist',
-               'Provides-Dist', 'Requires-Dist', 'Requires-External',
-               'Project-URL', 'Supported-Platform', 'Setup-Requires-Dist',
-               'Provides-Extra', 'Extension')
-_LISTTUPLEFIELDS = ('Project-URL',)
-
-_ELEMENTSFIELD = ('Keywords',)
-
-_UNICODEFIELDS = ('Author', 'Maintainer', 'Summary', 'Description')
-
-_MISSING = object()
-
-_FILESAFE = re.compile('[^A-Za-z0-9.]+')
-
-
-def _get_name_and_version(name, version, for_filename=False):
-    """Return the distribution name with version.
-
-    If for_filename is true, return a filename-escaped form."""
-    if for_filename:
-        # For both name and version any runs of non-alphanumeric or '.'
-        # characters are replaced with a single '-'.  Additionally any
-        # spaces in the version string become '.'
-        name = _FILESAFE.sub('-', name)
-        version = _FILESAFE.sub('-', version.replace(' ', '.'))
-    return '%s-%s' % (name, version)
-
-
-class LegacyMetadata(object):
-    """The legacy metadata of a release.
-
-    Supports versions 1.0, 1.1 and 1.2 (auto-detected). You can
-    instantiate the class with one of these arguments (or none):
-    - *path*, the path to a metadata file
-    - *fileobj* give a file-like object with metadata as content
-    - *mapping* is a dict-like object
-    - *scheme* is a version scheme name
+class PackageIndex(object):
     """
-    # TODO document the mapping API and UNKNOWN default key
+    This class represents a package index compatible with PyPI, the Python
+    Package Index.
+    """
 
-    def __init__(self, path=None, fileobj=None, mapping=None,
-                 scheme='default'):
-        if [path, fileobj, mapping].count(None) < 2:
-            raise TypeError('path, fileobj and mapping are exclusive')
-        self._fields = {}
-        self.requires_files = []
-        self._dependencies = None
-        self.scheme = scheme
-        if path is not None:
-            self.read(path)
-        elif fileobj is not None:
-            self.read_file(fileobj)
-        elif mapping is not None:
-            self.update(mapping)
-            self.set_metadata_version()
+    boundary = b'----------ThIs_Is_tHe_distlib_index_bouNdaRY_$'
 
-    def set_metadata_version(self):
-        self._fields['Metadata-Version'] = _best_version(self._fields)
+    def __init__(self, url=None):
+        """
+        Initialise an instance.
 
-    def _write_field(self, fileobj, name, value):
-        fileobj.write('%s: %s\n' % (name, value))
+        :param url: The URL of the index. If not specified, the URL for PyPI is
+                    used.
+        """
+        self.url = url or DEFAULT_INDEX
+        self.read_configuration()
+        scheme, netloc, path, params, query, frag = urlparse(self.url)
+        if params or query or frag or scheme not in ('http', 'https'):
+            raise DistlibException('invalid repository: %s' % self.url)
+        self.password_handler = None
+        self.ssl_verifier = None
+        self.gpg = None
+        self.gpg_home = None
+        with open(os.devnull, 'w') as sink:
+            # Use gpg by default rather than gpg2, as gpg2 insists on
+            # prompting for passwords
+            for s in ('gpg', 'gpg2'):
+                try:
+                    rc = subprocess.check_call([s, '--version'], stdout=sink,
+                                               stderr=sink)
+                    if rc == 0:
+                        self.gpg = s
+                        break
+                except OSError:
+                    pass
 
-    def __getitem__(self, name):
-        return self.get(name)
+    def _get_pypirc_command(self):
+        """
+        Get the distutils command for interacting with PyPI configurations.
+        :return: the command.
+        """
+        from distutils.core import Distribution
+        from distutils.config import PyPIRCCommand
+        d = Distribution()
+        return PyPIRCCommand(d)
 
-    def __setitem__(self, name, value):
-        return self.set(name, value)
+    def read_configuration(self):
+        """
+        Read the PyPI access configuration as supported by distutils, getting
+        PyPI to do the actual work. This populates ``username``, ``password``,
+        ``realm`` and ``url`` attributes from the configuration.
+        """
+        # get distutils to do the work
+        c = self._get_pypirc_command()
+        c.repository = self.url
+        cfg = c._read_pypirc()
+        self.username = cfg.get('username')
+        self.password = cfg.get('password')
+        self.realm = cfg.get('realm', 'pypi')
+        self.url = cfg.get('repository', self.url)
 
-    def __delitem__(self, name):
-        field_name = self._convert_name(name)
-        try:
-            del self._fields[field_name]
-        except KeyError:
-            raise KeyError(name)
+    def save_configuration(self):
+        """
+        Save the PyPI access configuration. You must have set ``username`` and
+        ``password`` attributes before calling this method.
 
-    def __contains__(self, name):
-        return (name in self._fields or
-                self._convert_name(name) in self._fields)
+        Again, distutils is used to do the actual work.
+        """
+        self.check_credentials()
+        # get distutils to do the work
+        c = self._get_pypirc_command()
+        c._store_pypirc(self.username, self.password)
 
-    def _convert_name(self, name):
-        if name in _ALL_FIELDS:
-            return name
-        name = name.replace('-', '_').lower()
-        return _ATTR2FIELD.get(name, name)
+    def check_credentials(self):
+        """
+        Check that ``username`` and ``password`` have been set, and raise an
+        exception if not.
+        """
+        if self.username is None or self.password is None:
+            raise DistlibException('username and password must be set')
+        pm = HTTPPasswordMgr()
+        _, netloc, _, _, _, _ = urlparse(self.url)
+        pm.add_password(self.realm, netloc, self.username, self.password)
+        self.password_handler = HTTPBasicAuthHandler(pm)
 
-    def _default_value(self, name):
-        if name in _LISTFIELDS or name in _ELEMENTSFIELD:
-            return []
-        return 'UNKNOWN'
+    def register(self, metadata):
+        """
+        Register a distribution on PyPI, using the provided metadata.
 
-    def _remove_line_prefix(self, value):
-        if self.metadata_version in ('1.0', '1.1'):
-            return _LINE_PREFIX_PRE_1_2.sub('\n', value)
-        else:
-            return _LINE_PREFIX_1_2.sub('\n', value)
+        :param metadata: A :class:`Metadata` instance defining at least a name
+                         and version number for the distribution to be
+                         registered.
+        :return: The HTTP response received from PyPI upon submission of the
+                request.
+        """
+        self.check_credentials()
+        metadata.validate()
+        d = metadata.todict()
+        d[':action'] = 'verify'
+        request = self.encode_request(d.items(), [])
+        response = self.send_request(request)
+        d[':action'] = 'submit'
+        request = self.encode_request(d.items(), [])
+        return self.send_request(request)
 
-    def __getattr__(self, name):
-        if name in _ATTR2FIELD:
-            return self[name]
-        raise AttributeError(name)
+    def _reader(self, name, stream, outbuf):
+        """
+        Thread runner for reading lines of from a subprocess into a buffer.
 
-    #
-    # Public API
-    #
+        :param name: The logical name of the stream (used for logging only).
+        :param stream: The stream to read from. This will typically a pipe
+                       connected to the output stream of a subprocess.
+        :param outbuf: The list to append the read lines to.
+        """
+        while True:
+            s = stream.readline()
+            if not s:
+                break
+            s = s.decode('utf-8').rstrip()
+            outbuf.append(s)
+            logger.debug('%s: %s' % (name, s))
+        stream.close()
 
-#    dependencies = property(_get_dependencies, _set_dependencies)
+    def get_sign_command(self, filename, signer, sign_password,
+                         keystore=None):
+        """
+        Return a suitable command for signing a file.
 
-    def get_fullname(self, filesafe=False):
-        """Return the distribution name with version.
+        :param filename: The pathname to the file to be signed.
+        :param signer: The identifier of the signer of the file.
+        :param sign_password: The passphrase for the signer's
+                              private key used for signing.
+        :param keystore: The path to a directory which contains the keys
+                         used in verification. If not specified, the
+                         instance's ``gpg_home`` attribute is used instead.
+        :return: The signing command as a list suitable to be
+                 passed to :class:`subprocess.Popen`.
+        """
+        cmd = [self.gpg, '--status-fd', '2', '--no-tty']
+        if keystore is None:
+            keystore = self.gpg_home
+        if keystore:
+            cmd.extend(['--homedir', keystore])
+        if sign_password is not None:
+            cmd.extend(['--batch', '--passphrase-fd', '0'])
+        td = tempfile.mkdtemp()
+        sf = os.path.join(td, os.path.basename(filename) + '.asc')
+        cmd.extend(['--detach-sign', '--armor', '--local-user',
+                    signer, '--output', sf, filename])
+        logger.debug('invoking: %s', ' '.join(cmd))
+        return cmd, sf
 
-        If filesafe is true, return a filename-escaped form."""
-        return _get_name_and_version(self['Name'], self['Version'], filesafe)
+    def run_command(self, cmd, input_data=None):
+        """
+        Run a command in a child process , passing it any input data specified.
 
-    def is_field(self, name):
-        """return True if name is a valid metadata key"""
-        name = self._convert_name(name)
-        return name in _ALL_FIELDS
+        :param cmd: The command to run.
+        :param input_data: If specified, this must be a byte string containing
+                           data to be sent to the child process.
+        :return: A tuple consisting of the subprocess' exit code, a list of
+                 lines read from the subprocess' ``stdout``, and a list of
+                 lines read from the subprocess' ``stderr``.
+        """
+        kwargs = {
+            'stdout': subprocess.PIPE,
+            'stderr': subprocess.PIPE,
+        }
+        if input_data is not None:
+            kwargs['stdin'] = subprocess.PIPE
+        stdout = []
+        stderr = []
+        p = subprocess.Popen(cmd, **kwargs)
+        # We don't use communicate() here because we may need to
+        # get clever with interacting with the command
+        t1 = Thread(target=self._reader, args=('stdout', p.stdout, stdout))
+        t1.start()
+        t2 = Thread(target=self._reader, args=('stderr', p.stderr, stderr))
+        t2.start()
+        if input_data is not None:
+            p.stdin.write(input_data)
+            p.stdin.close()
 
-    def is_multi_field(self, name):
-        name = self._convert_name(name)
-        return name in _LISTFIELDS
+        p.wait()
+        t1.join()
+        t2.join()
+        return p.returncode, stdout, stderr
 
-    def read(self, filepath):
-        """Read the metadata values from a file path."""
-        fp = codecs.open(filepath, 'r', encoding='utf-8')
-        try:
-            self.read_file(fp)
-        finally:
-            fp.close()
+    def sign_file(self, filename, signer, sign_password, keystore=None):
+        """
+        Sign a file.
 
-    def read_file(self, fileob):
-        """Read the metadata values from a file object."""
-        msg = message_from_file(fileob)
-        self._fields['Metadata-Version'] = msg['metadata-version']
+        :param filename: The pathname to the file to be signed.
+        :param signer: The identifier of the signer of the file.
+        :param sign_password: The passphrase for the signer's
+                              private key used for signing.
+        :param keystore: The path to a directory which contains the keys
+                         used in signing. If not specified, the instance's
+                         ``gpg_home`` attribute is used instead.
+        :return: The absolute pathname of the file where the signature is
+                 stored.
+        """
+        cmd, sig_file = self.get_sign_command(filename, signer, sign_password,
+                                              keystore)
+        rc, stdout, stderr = self.run_command(cmd,
+                                              sign_password.encode('utf-8'))
+        if rc != 0:
+            raise DistlibException('sign command failed with error '
+                                   'code %s' % rc)
+        return sig_file
 
-        # When reading, get all the fields we can
-        for field in _ALL_FIELDS:
-            if field not in msg:
-                continue
-            if field in _LISTFIELDS:
-                # we can have multiple lines
-                values = msg.get_all(field)
-                if field in _LISTTUPLEFIELDS and values is not None:
-                    values = [tuple(value.split(',')) for value in values]
-                self.set(field, values)
+    def upload_file(self, metadata, filename, signer=None, sign_password=None,
+                    filetype='sdist', pyversion='source', keystore=None):
+        """
+        Upload a release file to the index.
+
+        :param metadata: A :class:`Metadata` instance defining at least a name
+                         and version number for the file to be uploaded.
+        :param filename: The pathname of the file to be uploaded.
+        :param signer: The identifier of the signer of the file.
+        :param sign_password: The passphrase for the signer's
+                              private key used for signing.
+        :param filetype: The type of the file being uploaded. This is the
+                        distutils command which produced that file, e.g.
+                        ``sdist`` or ``bdist_wheel``.
+        :param pyversion: The version of Python which the release relates
+                          to. For code compatible with any Python, this would
+                          be ``source``, otherwise it would be e.g. ``3.2``.
+        :param keystore: The path to a directory which contains the keys
+                         used in signing. If not specified, the instance's
+                         ``gpg_home`` attribute is used instead.
+        :return: The HTTP response received from PyPI upon submission of the
+                request.
+        """
+        self.check_credentials()
+        if not os.path.exists(filename):
+            raise DistlibException('not found: %s' % filename)
+        metadata.validate()
+        d = metadata.todict()
+        sig_file = None
+        if signer:
+            if not self.gpg:
+                logger.warning('no signing program available - not signed')
             else:
-                # single line
-                value = msg[field]
-                if value is not None and value != 'UNKNOWN':
-                    self.set(field, value)
-        # logger.debug('Attempting to set metadata for %s', self)
-        # self.set_metadata_version()
+                sig_file = self.sign_file(filename, signer, sign_password,
+                                          keystore)
+        with open(filename, 'rb') as f:
+            file_data = f.read()
+        md5_digest = hashlib.md5(file_data).hexdigest()
+        sha256_digest = hashlib.sha256(file_data).hexdigest()
+        d.update({
+            ':action': 'file_upload',
+            'protocol_version': '1',
+            'filetype': filetype,
+            'pyversion': pyversion,
+            'md5_digest': md5_digest,
+            'sha256_digest': sha256_digest,
+        })
+        files = [('content', os.path.basename(filename), file_data)]
+        if sig_file:
+            with open(sig_file, 'rb') as f:
+                sig_data = f.read()
+            files.append(('gpg_signature', os.path.basename(sig_file),
+                         sig_data))
+            shutil.rmtree(os.path.dirname(sig_file))
+        request = self.encode_request(d.items(), files)
+        return self.send_request(request)
 
-    def write(self, filepath, skip_unknown=False):
-        """Write the metadata fields to filepath."""
-        fp = codecs.open(filepath, 'w', encoding='utf-8')
-        try:
-            self.write_file(fp, skip_unknown)
-        finally:
-            fp.close()
+    def upload_documentation(self, metadata, doc_dir):
+        """
+        Upload documentation to the index.
 
-    def write_file(self, fileobject, skip_unknown=False):
-        """Write the PKG-INFO format data to a file object."""
-        self.set_metadata_version()
+        :param metadata: A :class:`Metadata` instance defining at least a name
+                         and version number for the documentation to be
+                         uploaded.
+        :param doc_dir: The pathname of the directory which contains the
+                        documentation. This should be the directory that
+                        contains the ``index.html`` for the documentation.
+        :return: The HTTP response received from PyPI upon submission of the
+                request.
+        """
+        self.check_credentials()
+        if not os.path.isdir(doc_dir):
+            raise DistlibException('not a directory: %r' % doc_dir)
+        fn = os.path.join(doc_dir, 'index.html')
+        if not os.path.exists(fn):
+            raise DistlibException('not found: %r' % fn)
+        metadata.validate()
+        name, version = metadata.name, metadata.version
+        zip_data = zip_dir(doc_dir).getvalue()
+        fields = [(':action', 'doc_upload'),
+                  ('name', name), ('version', version)]
+        files = [('content', name, zip_data)]
+        request = self.encode_request(fields, files)
+        return self.send_request(request)
 
-        for field in _version2fieldlist(self['Metadata-Version']):
-            values = self.get(field)
-            if skip_unknown and values in ('UNKNOWN', [], ['UNKNOWN']):
-                continue
-            if field in _ELEMENTSFIELD:
-                self._write_field(fileobject, field, ','.join(values))
-                continue
-            if field not in _LISTFIELDS:
-                if field == 'Description':
-                    if self.metadata_version in ('1.0', '1.1'):
-                        values = values.replace('\n', '\n        ')
-                    else:
-                        values = values.replace('\n', '\n       |')
+    def get_verify_command(self, signature_filename, data_filename,
+                           keystore=None):
+        """
+        Return a suitable command for verifying a file.
+
+        :param signature_filename: The pathname to the file containing the
+                                   signature.
+        :param data_filename: The pathname to the file containing the
+                              signed data.
+        :param keystore: The path to a directory which contains the keys
+                         used in verification. If not specified, the
+                         instance's ``gpg_home`` attribute is used instead.
+        :return: The verifying command as a list suitable to be
+                 passed to :class:`subprocess.Popen`.
+        """
+        cmd = [self.gpg, '--status-fd', '2', '--no-tty']
+        if keystore is None:
+            keystore = self.gpg_home
+        if keystore:
+            cmd.extend(['--homedir', keystore])
+        cmd.extend(['--verify', signature_filename, data_filename])
+        logger.debug('invoking: %s', ' '.join(cmd))
+        return cmd
+
+    def verify_signature(self, signature_filename, data_filename,
+                         keystore=None):
+        """
+        Verify a signature for a file.
+
+        :param signature_filename: The pathname to the file containing the
+                                   signature.
+        :param data_filename: The pathname to the file containing the
+                              signed data.
+        :param keystore: The path to a directory which contains the keys
+                         used in verification. If not specified, the
+                         instance's ``gpg_home`` attribute is used instead.
+        :return: True if the signature was verified, else False.
+        """
+        if not self.gpg:
+            raise DistlibException('verification unavailable because gpg '
+                                   'unavailable')
+        cmd = self.get_verify_command(signature_filename, data_filename,
+                                      keystore)
+        rc, stdout, stderr = self.run_command(cmd)
+        if rc not in (0, 1):
+            raise DistlibException('verify command failed with error '
+                             'code %s' % rc)
+        return rc == 0
+
+    def download_file(self, url, destfile, digest=None, reporthook=None):
+        """
+        This is a convenience method for downloading a file from an URL.
+        Normally, this will be a file from the index, though currently
+        no check is made for this (i.e. a file can be downloaded from
+        anywhere).
+
+        The method is just like the :func:`urlretrieve` function in the
+        standard library, except that it allows digest computation to be
+        done during download and checking that the downloaded data
+        matched any expected value.
+
+        :param url: The URL of the file to be downloaded (assumed to be
+                    available via an HTTP GET request).
+        :param destfile: The pathname where the downloaded file is to be
+                         saved.
+        :param digest: If specified, this must be a (hasher, value)
+                       tuple, where hasher is the algorithm used (e.g.
+                       ``'md5'``) and ``value`` is the expected value.
+        :param reporthook: The same as for :func:`urlretrieve` in the
+                           standard library.
+        """
+        if digest is None:
+            digester = None
+            logger.debug('No digest specified')
+        else:
+            if isinstance(digest, (list, tuple)):
+                hasher, digest = digest
+            else:
+                hasher = 'md5'
+            digester = getattr(hashlib, hasher)()
+            logger.debug('Digest specified: %s' % digest)
+        # The following code is equivalent to urlretrieve.
+        # We need to do it this way so that we can compute the
+        # digest of the file as we go.
+        with open(destfile, 'wb') as dfp:
+            # addinfourl is not a context manager on 2.x
+            # so we have to use try/finally
+            sfp = self.send_request(Request(url))
+            try:
+                headers = sfp.info()
+                blocksize = 8192
+                size = -1
+                read = 0
+                blocknum = 0
+                if "content-length" in headers:
+                    size = int(headers["Content-Length"])
+                if reporthook:
+                    reporthook(blocknum, blocksize, size)
+                while True:
+                    block = sfp.read(blocksize)
+                    if not block:
+                        break
+                    read += len(block)
+                    dfp.write(block)
+                    if digester:
+                        digester.update(block)
+                    blocknum += 1
+                    if reporthook:
+                        reporthook(blocknum, blocksize, size)
+            finally:
+                sfp.close()
+
+        # check that we got the whole file, if we can
+        if size >= 0 and read < size:
+            raise DistlibException(
+                'retrieval incomplete: got only %d out of %d bytes'
+                % (read, size))
+        # if we have a digest, it must match.
+        if digester:
+            actual = digester.hexdigest()
+            if digest != actual:
+                raise DistlibException('%s digest mismatch for %s: expected '
+                                       '%s, got %s' % (hasher, destfile,
+                                                       digest, actual))
+            logger.debug('Digest verified: %s', digest)
+
+    def send_request(self, req):
+        """
+        Send a standard library :class:`Request` to PyPI and return its
+        response.
+
+        :param req: The request to send.
+        :return: The HTTP response from PyPI (a standard library HTTPResponse).
+        """
+        handlers = []
+        if self.password_handler:
+            handlers.append(self.password_handler)
+        if self.ssl_verifier:
+            handlers.append(self.ssl_verifier)
+        opener = build_opener(*handlers)
+        return opener.open(req)
+
+    def encode_request(self, fields, files):
+        """
+        Encode fields and files for posting to an HTTP server.
+
+        :param fields: The fields to send as a list of (fieldname, value)
+                       tuples.
+        :param files: The files to send as a list of (fieldname, filename,
+                      file_bytes) tuple.
+        """
+        # Adapted from packaging, which in turn was adapted from
+        # http://code.activestate.com/recipes/146306
+
+        parts = []
+        boundary = self.boundary
+        for k, values in fields:
+            if not isinstance(values, (list, tuple)):
                 values = [values]
 
-            if field in _LISTTUPLEFIELDS:
-                values = [','.join(value) for value in values]
-
-            for value in values:
-                self._write_field(fileobject, field, value)
-
-    def update(self, other=None, **kwargs):
-        """Set metadata values from the given iterable `other` and kwargs.
-
-        Behavior is like `dict.update`: If `other` has a ``keys`` method,
-        they are looped over and ``self[key]`` is assigned ``other[key]``.
-        Else, ``other`` is an iterable of ``(key, value)`` iterables.
-
-        Keys that don't match a metadata field or that have an empty value are
-        dropped.
-        """
-        def _set(key, value):
-            if key in _ATTR2FIELD and value:
-                self.set(self._convert_name(key), value)
-
-        if not other:
-            # other is None or empty container
-            pass
-        elif hasattr(other, 'keys'):
-            for k in other.keys():
-                _set(k, other[k])
-        else:
-            for k, v in other:
-                _set(k, v)
-
-        if kwargs:
-            for k, v in kwargs.items():
-                _set(k, v)
-
-    def set(self, name, value):
-        """Control then set a metadata field."""
-        name = self._convert_name(name)
-
-        if ((name in _ELEMENTSFIELD or name == 'Platform') and
-            not isinstance(value, (list, tuple))):
-            if isinstance(value, string_types):
-                value = [v.strip() for v in value.split(',')]
-            else:
-                value = []
-        elif (name in _LISTFIELDS and
-              not isinstance(value, (list, tuple))):
-            if isinstance(value, string_types):
-                value = [value]
-            else:
-                value = []
-
-        if logger.isEnabledFor(logging.WARNING):
-            project_name = self['Name']
-
-            scheme = get_scheme(self.scheme)
-            if name in _PREDICATE_FIELDS and value is not None:
-                for v in value:
-                    # check that the values are valid
-                    if not scheme.is_valid_matcher(v.split(';')[0]):
-                        logger.warning(
-                            "'%s': '%s' is not valid (field '%s')",
-                            project_name, v, name)
-            # FIXME this rejects UNKNOWN, is that right?
-            elif name in _VERSIONS_FIELDS and value is not None:
-                if not scheme.is_valid_constraint_list(value):
-                    logger.warning("'%s': '%s' is not a valid version (field '%s')",
-                                   project_name, value, name)
-            elif name in _VERSION_FIELDS and value is not None:
-                if not scheme.is_valid_version(value):
-                    logger.warning("'%s': '%s' is not a valid version (field '%s')",
-                                   project_name, value, name)
-
-        if name in _UNICODEFIELDS:
-            if name == 'Description':
-                value = self._remove_line_prefix(value)
-
-        self._fields[name] = value
-
-    def get(self, name, default=_MISSING):
-        """Get a metadata field."""
-        name = self._convert_name(name)
-        if name not in self._fields:
-            if default is _MISSING:
-                default = self._default_value(name)
-            return default
-        if name in _UNICODEFIELDS:
-            value = self._fields[name]
-            return value
-        elif name in _LISTFIELDS:
-            value = self._fields[name]
-            if value is None:
-                return []
-            res = []
-            for val in value:
-                if name not in _LISTTUPLEFIELDS:
-                    res.append(val)
-                else:
-                    # That's for Project-URL
-                    res.append((val[0], val[1]))
-            return res
-
-        elif name in _ELEMENTSFIELD:
-            value = self._fields[name]
-            if isinstance(value, string_types):
-                return value.split(',')
-        return self._fields[name]
-
-    def check(self, strict=False):
-        """Check if the metadata is compliant. If strict is True then raise if
-        no Name or Version are provided"""
-        self.set_metadata_version()
-
-        # XXX should check the versions (if the file was loaded)
-        missing, warnings = [], []
-
-        for attr in ('Name', 'Version'):  # required by PEP 345
-            if attr not in self:
-                missing.append(attr)
-
-        if strict and missing != []:
-            msg = 'missing required metadata: %s' % ', '.join(missing)
-            raise MetadataMissingError(msg)
-
-        for attr in ('Home-page', 'Author'):
-            if attr not in self:
-                missing.append(attr)
-
-        # checking metadata 1.2 (XXX needs to check 1.1, 1.0)
-        if self['Metadata-Version'] != '1.2':
-            return missing, warnings
-
-        scheme = get_scheme(self.scheme)
-
-        def are_valid_constraints(value):
-            for v in value:
-                if not scheme.is_valid_matcher(v.split(';')[0]):
-                    return False
-            return True
-
-        for fields, controller in ((_PREDICATE_FIELDS, are_valid_constraints),
-                                   (_VERSIONS_FIELDS,
-                                    scheme.is_valid_constraint_list),
-                                   (_VERSION_FIELDS,
-                                    scheme.is_valid_version)):
-            for field in fields:
-                value = self.get(field, None)
-                if value is not None and not controller(value):
-                    warnings.append("Wrong value for '%s': %s" % (field, value))
-
-        return missing, warnings
-
-    def todict(self, skip_missing=False):
-        """Return fields as a dict.
-
-        Field names will be converted to use the underscore-lowercase style
-        instead of hyphen-mixed case (i.e. home_page instead of Home-page).
-        """
-        self.set_metadata_version()
-
-        mapping_1_0 = (
-            ('metadata_version', 'Metadata-Version'),
-            ('name', 'Name'),
-            ('version', 'Version'),
-            ('summary', 'Summary'),
-            ('home_page', 'Home-page'),
-            ('author', 'Author'),
-            ('author_email', 'Author-email'),
-            ('license', 'License'),
-            ('description', 'Description'),
-            ('keywords', 'Keywords'),
-            ('platform', 'Platform'),
-            ('classifiers', 'Classifier'),
-            ('download_url', 'Download-URL'),
-        )
-
-        data = {}
-        for key, field_name in mapping_1_0:
-            if not skip_missing or field_name in self._fields:
-                data[key] = self[field_name]
-
-        if self['Metadata-Version'] == '1.2':
-            mapping_1_2 = (
-                ('requires_dist', 'Requires-Dist'),
-                ('requires_python', 'Requires-Python'),
-                ('requires_external', 'Requires-External'),
-                ('provides_dist', 'Provides-Dist'),
-                ('obsoletes_dist', 'Obsoletes-Dist'),
-                ('project_url', 'Project-URL'),
-                ('maintainer', 'Maintainer'),
-                ('maintainer_email', 'Maintainer-email'),
-            )
-            for key, field_name in mapping_1_2:
-                if not skip_missing or field_name in self._fields:
-                    if key != 'project_url':
-                        data[key] = self[field_name]
-                    else:
-                        data[key] = [','.join(u) for u in self[field_name]]
-
-        elif self['Metadata-Version'] == '1.1':
-            mapping_1_1 = (
-                ('provides', 'Provides'),
-                ('requires', 'Requires'),
-                ('obsoletes', 'Obsoletes'),
-            )
-            for key, field_name in mapping_1_1:
-                if not skip_missing or field_name in self._fields:
-                    data[key] = self[field_name]
-
-        return data
-
-    def add_requirements(self, requirements):
-        if self['Metadata-Version'] == '1.1':
-            # we can't have 1.1 metadata *and* Setuptools requires
-            for field in ('Obsoletes', 'Requires', 'Provides'):
-                if field in self:
-                    del self[field]
-        self['Requires-Dist'] += requirements
-
-    # Mapping API
-    # TODO could add iter* variants
-
-    def keys(self):
-        return list(_version2fieldlist(self['Metadata-Version']))
-
-    def __iter__(self):
-        for key in self.keys():
-            yield key
-
-    def values(self):
-        return [self[key] for key in self.keys()]
-
-    def items(self):
-        return [(key, self[key]) for key in self.keys()]
-
-    def __repr__(self):
-        return '<%s %s %s>' % (self.__class__.__name__, self.name,
-                               self.version)
-
-
-METADATA_FILENAME = 'pydist.json'
-WHEEL_METADATA_FILENAME = 'metadata.json'
-LEGACY_METADATA_FILENAME = 'METADATA'
-
-
-class Metadata(object):
-    """
-    The metadata of a release. This implementation uses 2.0 (JSON)
-    metadata where possible. If not possible, it wraps a LegacyMetadata
-    instance which handles the key-value metadata format.
-    """
-
-    METADATA_VERSION_MATCHER = re.compile(r'^\d+(\.\d+)*$')
-
-    NAME_MATCHER = re.compile('^[0-9A-Z]([0-9A-Z_.-]*[0-9A-Z])?$', re.I)
-
-    VERSION_MATCHER = PEP440_VERSION_RE
-
-    SUMMARY_MATCHER = re.compile('.{1,2047}')
-
-    METADATA_VERSION = '2.0'
-
-    GENERATOR = 'distlib (%s)' % __version__
-
-    MANDATORY_KEYS = {
-        'name': (),
-        'version': (),
-        'summary': ('legacy',),
-    }
-
-    INDEX_KEYS = ('name version license summary description author '
-                  'author_email keywords platform home_page classifiers '
-                  'download_url')
-
-    DEPENDENCY_KEYS = ('extras run_requires test_requires build_requires '
-                       'dev_requires provides meta_requires obsoleted_by '
-                       'supports_environments')
-
-    SYNTAX_VALIDATORS = {
-        'metadata_version': (METADATA_VERSION_MATCHER, ()),
-        'name': (NAME_MATCHER, ('legacy',)),
-        'version': (VERSION_MATCHER, ('legacy',)),
-        'summary': (SUMMARY_MATCHER, ('legacy',)),
-    }
-
-    __slots__ = ('_legacy', '_data', 'scheme')
-
-    def __init__(self, path=None, fileobj=None, mapping=None,
-                 scheme='default'):
-        if [path, fileobj, mapping].count(None) < 2:
-            raise TypeError('path, fileobj and mapping are exclusive')
-        self._legacy = None
-        self._data = None
-        self.scheme = scheme
-        #import pdb; pdb.set_trace()
-        if mapping is not None:
-            try:
-                self._validate_mapping(mapping, scheme)
-                self._data = mapping
-            except MetadataUnrecognizedVersionError:
-                self._legacy = LegacyMetadata(mapping=mapping, scheme=scheme)
-                self.validate()
-        else:
-            data = None
-            if path:
-                with open(path, 'rb') as f:
-                    data = f.read()
-            elif fileobj:
-                data = fileobj.read()
-            if data is None:
-                # Initialised with no args - to be added
-                self._data = {
-                    'metadata_version': self.METADATA_VERSION,
-                    'generator': self.GENERATOR,
-                }
-            else:
-                if not isinstance(data, text_type):
-                    data = data.decode('utf-8')
-                try:
-                    self._data = json.loads(data)
-                    self._validate_mapping(self._data, scheme)
-                except ValueError:
-                    # Note: MetadataUnrecognizedVersionError does not
-                    # inherit from ValueError (it's a DistlibException,
-                    # which should not inherit from ValueError).
-                    # The ValueError comes from the json.load - if that
-                    # succeeds and we get a validation error, we want
-                    # that to propagate
-                    self._legacy = LegacyMetadata(fileobj=StringIO(data),
-                                                  scheme=scheme)
-                    self.validate()
-
-    common_keys = set(('name', 'version', 'license', 'keywords', 'summary'))
-
-    none_list = (None, list)
-    none_dict = (None, dict)
-
-    mapped_keys = {
-        'run_requires': ('Requires-Dist', list),
-        'build_requires': ('Setup-Requires-Dist', list),
-        'dev_requires': none_list,
-        'test_requires': none_list,
-        'meta_requires': none_list,
-        'extras': ('Provides-Extra', list),
-        'modules': none_list,
-        'namespaces': none_list,
-        'exports': none_dict,
-        'commands': none_dict,
-        'classifiers': ('Classifier', list),
-        'source_url': ('Download-URL', None),
-        'metadata_version': ('Metadata-Version', None),
-    }
-
-    del none_list, none_dict
-
-    def __getattribute__(self, key):
-        common = object.__getattribute__(self, 'common_keys')
-        mapped = object.__getattribute__(self, 'mapped_keys')
-        if key in mapped:
-            lk, maker = mapped[key]
-            if self._legacy:
-                if lk is None:
-                    result = None if maker is None else maker()
-                else:
-                    result = self._legacy.get(lk)
-            else:
-                value = None if maker is None else maker()
-                if key not in ('commands', 'exports', 'modules', 'namespaces',
-                               'classifiers'):
-                    result = self._data.get(key, value)
-                else:
-                    # special cases for PEP 459
-                    sentinel = object()
-                    result = sentinel
-                    d = self._data.get('extensions')
-                    if d:
-                        if key == 'commands':
-                            result = d.get('python.commands', value)
-                        elif key == 'classifiers':
-                            d = d.get('python.details')
-                            if d:
-                                result = d.get(key, value)
-                        else:
-                            d = d.get('python.exports')
-                            if not d:
-                                d = self._data.get('python.exports')
-                            if d:
-                                result = d.get(key, value)
-                    if result is sentinel:
-                        result = value
-        elif key not in common:
-            result = object.__getattribute__(self, key)
-        elif self._legacy:
-            result = self._legacy.get(key)
-        else:
-            result = self._data.get(key)
-        return result
-
-    def _validate_value(self, key, value, scheme=None):
-        if key in self.SYNTAX_VALIDATORS:
-            pattern, exclusions = self.SYNTAX_VALIDATORS[key]
-            if (scheme or self.scheme) not in exclusions:
-                m = pattern.match(value)
-                if not m:
-                    raise MetadataInvalidError("'%s' is an invalid value for "
-                                               "the '%s' property" % (value,
-                                                                    key))
-
-    def __setattr__(self, key, value):
-        self._validate_value(key, value)
-        common = object.__getattribute__(self, 'common_keys')
-        mapped = object.__getattribute__(self, 'mapped_keys')
-        if key in mapped:
-            lk, _ = mapped[key]
-            if self._legacy:
-                if lk is None:
-                    raise NotImplementedError
-                self._legacy[lk] = value
-            elif key not in ('commands', 'exports', 'modules', 'namespaces',
-                             'classifiers'):
-                self._data[key] = value
-            else:
-                # special cases for PEP 459
-                d = self._data.setdefault('extensions', {})
-                if key == 'commands':
-                    d['python.commands'] = value
-                elif key == 'classifiers':
-                    d = d.setdefault('python.details', {})
-                    d[key] = value
-                else:
-                    d = d.setdefault('python.exports', {})
-                    d[key] = value
-        elif key not in common:
-            object.__setattr__(self, key, value)
-        else:
-            if key == 'keywords':
-                if isinstance(value, string_types):
-                    value = value.strip()
-                    if value:
-                        value = value.split()
-                    else:
-                        value = []
-            if self._legacy:
-                self._legacy[key] = value
-            else:
-                self._data[key] = value
-
-    @property
-    def name_and_version(self):
-        return _get_name_and_version(self.name, self.version, True)
-
-    @property
-    def provides(self):
-        if self._legacy:
-            result = self._legacy['Provides-Dist']
-        else:
-            result = self._data.setdefault('provides', [])
-        s = '%s (%s)' % (self.name, self.version)
-        if s not in result:
-            result.append(s)
-        return result
-
-    @provides.setter
-    def provides(self, value):
-        if self._legacy:
-            self._legacy['Provides-Dist'] = value
-        else:
-            self._data['provides'] = value
-
-    def get_requirements(self, reqts, extras=None, env=None):
-        """
-        Base method to get dependencies, given a set of extras
-        to satisfy and an optional environment context.
-        :param reqts: A list of sometimes-wanted dependencies,
-                      perhaps dependent on extras and environment.
-        :param extras: A list of optional components being requested.
-        :param env: An optional environment for marker evaluation.
-        """
-        if self._legacy:
-            result = reqts
-        else:
-            result = []
-            extras = get_extras(extras or [], self.extras)
-            for d in reqts:
-                if 'extra' not in d and 'environment' not in d:
-                    # unconditional
-                    include = True
-                else:
-                    if 'extra' not in d:
-                        # Not extra-dependent - only environment-dependent
-                        include = True
-                    else:
-                        include = d.get('extra') in extras
-                    if include:
-                        # Not excluded because of extras, check environment
-                        marker = d.get('environment')
-                        if marker:
-                            include = interpret(marker, env)
-                if include:
-                    result.extend(d['requires'])
-            for key in ('build', 'dev', 'test'):
-                e = ':%s:' % key
-                if e in extras:
-                    extras.remove(e)
-                    # A recursive call, but it should terminate since 'test'
-                    # has been removed from the extras
-                    reqts = self._data.get('%s_requires' % key, [])
-                    result.extend(self.get_requirements(reqts, extras=extras,
-                                                        env=env))
-        return result
-
-    @property
-    def dictionary(self):
-        if self._legacy:
-            return self._from_legacy()
-        return self._data
-
-    @property
-    def dependencies(self):
-        if self._legacy:
-            raise NotImplementedError
-        else:
-            return extract_by_key(self._data, self.DEPENDENCY_KEYS)
-
-    @dependencies.setter
-    def dependencies(self, value):
-        if self._legacy:
-            raise NotImplementedError
-        else:
-            self._data.update(value)
-
-    def _validate_mapping(self, mapping, scheme):
-        if mapping.get('metadata_version') != self.METADATA_VERSION:
-            raise MetadataUnrecognizedVersionError()
-        missing = []
-        for key, exclusions in self.MANDATORY_KEYS.items():
-            if key not in mapping:
-                if scheme not in exclusions:
-                    missing.append(key)
-        if missing:
-            msg = 'Missing metadata items: %s' % ', '.join(missing)
-            raise MetadataMissingError(msg)
-        for k, v in mapping.items():
-            self._validate_value(k, v, scheme)
-
-    def validate(self):
-        if self._legacy:
-            missing, warnings = self._legacy.check(True)
-            if missing or warnings:
-                logger.warning('Metadata: missing: %s, warnings: %s',
-                               missing, warnings)
-        else:
-            self._validate_mapping(self._data, self.scheme)
-
-    def todict(self):
-        if self._legacy:
-            return self._legacy.todict(True)
-        else:
-            result = extract_by_key(self._data, self.INDEX_KEYS)
-            return result
-
-    def _from_legacy(self):
-        assert self._legacy and not self._data
-        result = {
-            'metadata_version': self.METADATA_VERSION,
-            'generator': self.GENERATOR,
+            for v in values:
+                parts.extend((
+                    b'--' + boundary,
+                    ('Content-Disposition: form-data; name="%s"' %
+                     k).encode('utf-8'),
+                    b'',
+                    v.encode('utf-8')))
+        for key, filename, value in files:
+            parts.extend((
+                b'--' + boundary,
+                ('Content-Disposition: form-data; name="%s"; filename="%s"' %
+                 (key, filename)).encode('utf-8'),
+                b'',
+                value))
+
+        parts.extend((b'--' + boundary + b'--', b''))
+
+        body = b'\r\n'.join(parts)
+        ct = b'multipart/form-data; boundary=' + boundary
+        headers = {
+            'Content-type': ct,
+            'Content-length': str(len(body))
         }
-        lmd = self._legacy.todict(True)     # skip missing ones
-        for k in ('name', 'version', 'license', 'summary', 'description',
-                  'classifier'):
-            if k in lmd:
-                if k == 'classifier':
-                    nk = 'classifiers'
-                else:
-                    nk = k
-                result[nk] = lmd[k]
-        kw = lmd.get('Keywords', [])
-        if kw == ['']:
-            kw = []
-        result['keywords'] = kw
-        keys = (('requires_dist', 'run_requires'),
-                ('setup_requires_dist', 'build_requires'))
-        for ok, nk in keys:
-            if ok in lmd and lmd[ok]:
-                result[nk] = [{'requires': lmd[ok]}]
-        result['provides'] = self.provides
-        author = {}
-        maintainer = {}
-        return result
+        return Request(self.url, body, headers)
 
-    LEGACY_MAPPING = {
-        'name': 'Name',
-        'version': 'Version',
-        'license': 'License',
-        'summary': 'Summary',
-        'description': 'Description',
-        'classifiers': 'Classifier',
-    }
-
-    def _to_legacy(self):
-        def process_entries(entries):
-            reqts = set()
-            for e in entries:
-                extra = e.get('extra')
-                env = e.get('environment')
-                rlist = e['requires']
-                for r in rlist:
-                    if not env and not extra:
-                        reqts.add(r)
-                    else:
-                        marker = ''
-                        if extra:
-                            marker = 'extra == "%s"' % extra
-                        if env:
-                            if marker:
-                                marker = '(%s) and %s' % (env, marker)
-                            else:
-                                marker = env
-                        reqts.add(';'.join((r, marker)))
-            return reqts
-
-        assert self._data and not self._legacy
-        result = LegacyMetadata()
-        nmd = self._data
-        for nk, ok in self.LEGACY_MAPPING.items():
-            if nk in nmd:
-                result[ok] = nmd[nk]
-        r1 = process_entries(self.run_requires + self.meta_requires)
-        r2 = process_entries(self.build_requires + self.dev_requires)
-        if self.extras:
-            result['Provides-Extra'] = sorted(self.extras)
-        result['Requires-Dist'] = sorted(r1)
-        result['Setup-Requires-Dist'] = sorted(r2)
-        # TODO: other fields such as contacts
-        return result
-
-    def write(self, path=None, fileobj=None, legacy=False, skip_unknown=True):
-        if [path, fileobj].count(None) != 1:
-            raise ValueError('Exactly one of path and fileobj is needed')
-        self.validate()
-        if legacy:
-            if self._legacy:
-                legacy_md = self._legacy
-            else:
-                legacy_md = self._to_legacy()
-            if path:
-                legacy_md.write(path, skip_unknown=skip_unknown)
-            else:
-                legacy_md.write_file(fileobj, skip_unknown=skip_unknown)
-        else:
-            if self._legacy:
-                d = self._from_legacy()
-            else:
-                d = self._data
-            if fileobj:
-                json.dump(d, fileobj, ensure_ascii=True, indent=2,
-                          sort_keys=True)
-            else:
-                with codecs.open(path, 'w', 'utf-8') as f:
-                    json.dump(d, f, ensure_ascii=True, indent=2,
-                              sort_keys=True)
-
-    def add_requirements(self, requirements):
-        if self._legacy:
-            self._legacy.add_requirements(requirements)
-        else:
-            run_requires = self._data.setdefault('run_requires', [])
-            always = None
-            for entry in run_requires:
-                if 'environment' not in entry and 'extra' not in entry:
-                    always = entry
-                    break
-            if always is None:
-                always = { 'requires': requirements }
-                run_requires.insert(0, always)
-            else:
-                rset = set(always['requires']) | set(requirements)
-                always['requires'] = sorted(rset)
-
-    def __repr__(self):
-        name = self.name or '(no name)'
-        version = self.version or 'no version'
-        return '<%s %s %s (%s)>' % (self.__class__.__name__,
-                                    self.metadata_version, name, version)
+    def search(self, terms, operator=None):
+        if isinstance(terms, string_types):
+            terms = {'name': terms}
+        rpc_proxy = ServerProxy(self.url, timeout=3.0)
+        try:
+            return rpc_proxy.search(terms, operator or 'and')
+        finally:
+            rpc_proxy('close')()

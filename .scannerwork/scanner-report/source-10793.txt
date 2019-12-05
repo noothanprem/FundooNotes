@@ -1,30 +1,34 @@
-# coding=utf-8
+# coding=utf8
 from __future__ import unicode_literals
-
 from .. import Provider as InternetProvider
 
 
 class Provider(InternetProvider):
 
     free_email_domains = (
-        'onet.pl',
-        'interia.pl',
         'gmail.com',
-        'o2.pl',
-        'yahoo.com',
         'hotmail.com',
+        'yahoo.com'
     )
 
-    tlds = ('com', 'com', 'com', 'net', 'org', 'pl', 'pl', 'pl')
+    tlds = (
+        'hu',
+        'com',
+        'com.hu',
+        'info',
+        'org',
+        'net',
+        'biz'
+    )
 
     replacements = (
-        ('ą', 'a'),
-        ('ć', 'c'),
-        ('ę', 'e'),
-        ('ł', 'l'),
-        ('ń', 'n'),
-        ('ó', 'o'),
-        ('ś', 's'),
-        ('ź', 'z'),
-        ('ż', 'z'),
+        ('ö', 'o'),
+        ('ü', 'u'),
+        ('á', 'a'),
+        ('é', 'e'),
+        ('í', 'i'),
+        ('ó', 'i'),
+        ('ő', 'o'),
+        ('ú', 'u'),
+        ('ű', 'u')
     )

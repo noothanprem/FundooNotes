@@ -1,1 +1,1 @@
-Ò@>venv/lib/python3.6/site-packages/django/core/management/sql.py 2pyX5h
+Ò@Dvenv/lib/python3.6/site-packages/django/core/management/templates.py 2pyXÏh

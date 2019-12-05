@@ -1,1 +1,1 @@
-Á¾:venv/lib/python3.6/site-packages/elasticsearch_dsl/aggs.py 2pyX§h
+Á¾@venv/lib/python3.6/site-packages/elasticsearch_dsl/serializer.py 2pyXh

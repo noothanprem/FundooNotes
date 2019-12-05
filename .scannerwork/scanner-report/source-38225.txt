@@ -1,75 +1,62 @@
 #
-# The Python Imaging Library
+# Python Imaging Library
 # $Id$
 #
-# FITS stub adapter
+# stuff to read GIMP palette files
 #
-# Copyright (c) 1998-2003 by Fredrik Lundh
+# History:
+# 1997-08-23 fl     Created
+# 2004-09-07 fl     Support GIMP 2.0 palette files.
+#
+# Copyright (c) Secret Labs AB 1997-2004.  All rights reserved.
+# Copyright (c) Fredrik Lundh 1997-2004.
 #
 # See the README file for information on usage and redistribution.
 #
 
-from . import Image, ImageFile
-
-_handler = None
-
-
-def register_handler(handler):
-    """
-    Install application-specific FITS image handler.
-
-    :param handler: Handler object.
-    """
-    global _handler
-    _handler = handler
-
-# --------------------------------------------------------------------
-# Image adapter
+import re
+from ._binary import o8
 
 
-def _accept(prefix):
-    return prefix[:6] == b"SIMPLE"
+##
+# File handler for GIMP's palette format.
 
+class GimpPaletteFile(object):
 
-class FITSStubImageFile(ImageFile.StubImageFile):
+    rawmode = "RGB"
 
-    format = "FITS"
-    format_description = "FITS"
+    def __init__(self, fp):
 
-    def _open(self):
+        self.palette = [o8(i)*3 for i in range(256)]
 
-        offset = self.fp.tell()
+        if fp.readline()[:12] != b"GIMP Palette":
+            raise SyntaxError("not a GIMP palette file")
 
-        if not _accept(self.fp.read(6)):
-            raise SyntaxError("Not a FITS file")
+        i = 0
 
-        # FIXME: add more sanity checks here; mandatory header items
-        # include SIMPLE, BITPIX, NAXIS, etc.
+        while i <= 255:
 
-        self.fp.seek(offset)
+            s = fp.readline()
 
-        # make something up
-        self.mode = "F"
-        self.size = 1, 1
+            if not s:
+                break
+            # skip fields and comment lines
+            if re.match(br"\w+:|#", s):
+                continue
+            if len(s) > 100:
+                raise SyntaxError("bad palette file")
 
-        loader = self._load()
-        if loader:
-            loader.open(self)
+            v = tuple(map(int, s.split()[:3]))
+            if len(v) != 3:
+                raise ValueError("bad palette entry")
 
-    def _load(self):
-        return _handler
+            if 0 <= i <= 255:
+                self.palette[i] = o8(v[0]) + o8(v[1]) + o8(v[2])
 
+            i += 1
 
-def _save(im, fp, filename):
-    if _handler is None or not hasattr("_handler", "save"):
-        raise IOError("FITS save handler not installed")
-    _handler.save(im, fp, filename)
+        self.palette = b"".join(self.palette)
 
+    def getpalette(self):
 
-# --------------------------------------------------------------------
-# Registry
-
-Image.register_open(FITSStubImageFile.format, FITSStubImageFile, _accept)
-Image.register_save(FITSStubImageFile.format, _save)
-
-Image.register_extensions(FITSStubImageFile.format, [".fit", ".fits"])
+        return self.palette, self.rawmode

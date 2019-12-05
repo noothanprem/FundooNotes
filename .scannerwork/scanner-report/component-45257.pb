@@ -1,1 +1,0 @@
-…·Rvenv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/__init__.py 2pyXh

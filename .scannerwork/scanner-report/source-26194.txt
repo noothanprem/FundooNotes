@@ -1,26 +1,30 @@
+from django.conf import settings
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("oauth2_provider", "0003_auto_20160316_1503"),
+        ("oauth2_provider", "0001_initial"),
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name="accesstoken",
-            name="token",
-            field=models.CharField(unique=True, max_length=255),
+        migrations.AddField(
+             model_name="Application",
+             name="skip_authorization",
+             field=models.BooleanField(default=False),
+             preserve_default=True,
         ),
         migrations.AlterField(
-            model_name="grant",
-            name="code",
-            field=models.CharField(unique=True, max_length=255),
+            model_name="Application",
+            name="user",
+            field=models.ForeignKey(related_name="oauth2_provider_application", to=settings.AUTH_USER_MODEL, on_delete=models.CASCADE),
+            preserve_default=True,
         ),
         migrations.AlterField(
-            model_name="refreshtoken",
-            name="token",
-            field=models.CharField(unique=True, max_length=255),
+            model_name="AccessToken",
+            name="user",
+            field=models.ForeignKey(blank=True, to=settings.AUTH_USER_MODEL, null=True, on_delete=models.CASCADE),
+            preserve_default=True,
         ),
     ]

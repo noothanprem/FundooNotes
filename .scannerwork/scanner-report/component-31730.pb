@@ -1,1 +1,1 @@
-Ú˜Ivenv/lib64/python3.6/site-packages/django/contrib/gis/utils/ogrinspect.py 2pyXÓh
+Ú˜>venv/lib64/python3.6/site-packages/django/contrib/gis/feeds.py 2pyXçh

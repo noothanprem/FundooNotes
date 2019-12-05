@@ -1,298 +1,489 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
 
-"""Better tokenizing for coverage.py."""
+"""Config file for coverage.py"""
 
-import codecs
-import keyword
+import collections
+import os
 import re
 import sys
-import token
-import tokenize
 
-from coverage import env
-from coverage.backward import iternext, unicode_class
-from coverage.misc import contract
+from coverage.backward import configparser, iitems, string_class
+from coverage.misc import contract, CoverageException, isolate_module
 
-
-def phys_tokens(toks):
-    """Return all physical tokens, even line continuations.
-
-    tokenize.generate_tokens() doesn't return a token for the backslash that
-    continues lines.  This wrapper provides those tokens so that we can
-    re-create a faithful representation of the original source.
-
-    Returns the same values as generate_tokens()
-
-    """
-    last_line = None
-    last_lineno = -1
-    last_ttype = None
-    for ttype, ttext, (slineno, scol), (elineno, ecol), ltext in toks:
-        if last_lineno != elineno:
-            if last_line and last_line.endswith("\\\n"):
-                # We are at the beginning of a new line, and the last line
-                # ended with a backslash.  We probably have to inject a
-                # backslash token into the stream. Unfortunately, there's more
-                # to figure out.  This code::
-                #
-                #   usage = """\
-                #   HEY THERE
-                #   """
-                #
-                # triggers this condition, but the token text is::
-                #
-                #   '"""\\\nHEY THERE\n"""'
-                #
-                # so we need to figure out if the backslash is already in the
-                # string token or not.
-                inject_backslash = True
-                if last_ttype == tokenize.COMMENT:
-                    # Comments like this \
-                    # should never result in a new token.
-                    inject_backslash = False
-                elif ttype == token.STRING:
-                    if "\n" in ttext and ttext.split('\n', 1)[0][-1] == '\\':
-                        # It's a multi-line string and the first line ends with
-                        # a backslash, so we don't need to inject another.
-                        inject_backslash = False
-                if inject_backslash:
-                    # Figure out what column the backslash is in.
-                    ccol = len(last_line.split("\n")[-2]) - 1
-                    # Yield the token, with a fake token type.
-                    yield (
-                        99999, "\\\n",
-                        (slineno, ccol), (slineno, ccol+2),
-                        last_line
-                        )
-            last_line = ltext
-            last_ttype = ttype
-        yield ttype, ttext, (slineno, scol), (elineno, ecol), ltext
-        last_lineno = elineno
+os = isolate_module(os)
 
 
-@contract(source='unicode')
-def source_token_lines(source):
-    """Generate a series of lines, one for each line in `source`.
+class HandyConfigParser(configparser.RawConfigParser):
+    """Our specialization of ConfigParser."""
 
-    Each line is a list of pairs, each pair is a token::
+    def __init__(self, our_file):
+        """Create the HandyConfigParser.
 
-        [('key', 'def'), ('ws', ' '), ('nam', 'hello'), ('op', '('), ... ]
+        `our_file` is True if this config file is specifically for coverage,
+        False if we are examining another config file (tox.ini, setup.cfg)
+        for possible settings.
+        """
 
-    Each pair has a token class, and the token text.
+        configparser.RawConfigParser.__init__(self)
+        self.section_prefixes = ["coverage:"]
+        if our_file:
+            self.section_prefixes.append("")
 
-    If you concatenate all the token texts, and then join them with newlines,
-    you should have your original `source` back, with two differences:
-    trailing whitespace is not preserved, and a final line with no newline
-    is indistinguishable from a final line with a newline.
+    def read(self, filenames):
+        """Read a file name as UTF-8 configuration data."""
+        kwargs = {}
+        if sys.version_info >= (3, 2):
+            kwargs['encoding'] = "utf-8"
+        return configparser.RawConfigParser.read(self, filenames, **kwargs)
 
-    """
+    def has_option(self, section, option):
+        for section_prefix in self.section_prefixes:
+            real_section = section_prefix + section
+            has = configparser.RawConfigParser.has_option(self, real_section, option)
+            if has:
+                return has
+        return False
 
-    ws_tokens = set([token.INDENT, token.DEDENT, token.NEWLINE, tokenize.NL])
-    line = []
-    col = 0
+    def has_section(self, section):
+        for section_prefix in self.section_prefixes:
+            real_section = section_prefix + section
+            has = configparser.RawConfigParser.has_section(self, real_section)
+            if has:
+                return real_section
+        return False
 
-    source = source.expandtabs(8).replace('\r\n', '\n')
-    tokgen = generate_tokens(source)
+    def options(self, section):
+        for section_prefix in self.section_prefixes:
+            real_section = section_prefix + section
+            if configparser.RawConfigParser.has_section(self, real_section):
+                return configparser.RawConfigParser.options(self, real_section)
+        raise configparser.NoSectionError
 
-    for ttype, ttext, (_, scol), (_, ecol), _ in phys_tokens(tokgen):
-        mark_start = True
-        for part in re.split('(\n)', ttext):
-            if part == '\n':
-                yield line
-                line = []
-                col = 0
-                mark_end = False
-            elif part == '':
-                mark_end = False
-            elif ttype in ws_tokens:
-                mark_end = False
+    def get_section(self, section):
+        """Get the contents of a section, as a dictionary."""
+        d = {}
+        for opt in self.options(section):
+            d[opt] = self.get(section, opt)
+        return d
+
+    def get(self, section, option, *args, **kwargs):        # pylint: disable=arguments-differ
+        """Get a value, replacing environment variables also.
+
+        The arguments are the same as `RawConfigParser.get`, but in the found
+        value, ``$WORD`` or ``${WORD}`` are replaced by the value of the
+        environment variable ``WORD``.
+
+        Returns the finished value.
+
+        """
+        for section_prefix in self.section_prefixes:
+            real_section = section_prefix + section
+            if configparser.RawConfigParser.has_option(self, real_section, option):
+                break
+        else:
+            raise configparser.NoOptionError
+
+        v = configparser.RawConfigParser.get(self, real_section, option, *args, **kwargs)
+        def dollar_replace(m):
+            """Called for each $replacement."""
+            # Only one of the groups will have matched, just get its text.
+            word = next(w for w in m.groups() if w is not None)     # pragma: part covered
+            if word == "$":
+                return "$"
             else:
-                if mark_start and scol > col:
-                    line.append(("ws", u" " * (scol - col)))
-                    mark_start = False
-                tok_class = tokenize.tok_name.get(ttype, 'xx').lower()[:3]
-                if ttype == token.NAME and keyword.iskeyword(ttext):
-                    tok_class = "key"
-                line.append((tok_class, part))
-                mark_end = True
-            scol = 0
-        if mark_end:
-            col = ecol
+                return os.environ.get(word, '')
 
-    if line:
-        yield line
+        dollar_pattern = r"""(?x)   # Use extended regex syntax
+            \$(?:                   # A dollar sign, then
+            (?P<v1>\w+) |           #   a plain word,
+            {(?P<v2>\w+)} |         #   or a {-wrapped word,
+            (?P<char>[$])           #   or a dollar sign.
+            )
+            """
+        v = re.sub(dollar_pattern, dollar_replace, v)
+        return v
+
+    def getlist(self, section, option):
+        """Read a list of strings.
+
+        The value of `section` and `option` is treated as a comma- and newline-
+        separated list of strings.  Each value is stripped of whitespace.
+
+        Returns the list of strings.
+
+        """
+        value_list = self.get(section, option)
+        values = []
+        for value_line in value_list.split('\n'):
+            for value in value_line.split(','):
+                value = value.strip()
+                if value:
+                    values.append(value)
+        return values
+
+    def getregexlist(self, section, option):
+        """Read a list of full-line regexes.
+
+        The value of `section` and `option` is treated as a newline-separated
+        list of regexes.  Each value is stripped of whitespace.
+
+        Returns the list of strings.
+
+        """
+        line_list = self.get(section, option)
+        value_list = []
+        for value in line_list.splitlines():
+            value = value.strip()
+            try:
+                re.compile(value)
+            except re.error as e:
+                raise CoverageException(
+                    "Invalid [%s].%s value %r: %s" % (section, option, value, e)
+                )
+            if value:
+                value_list.append(value)
+        return value_list
 
 
-class CachedTokenizer(object):
-    """A one-element cache around tokenize.generate_tokens.
+# The default line exclusion regexes.
+DEFAULT_EXCLUDE = [
+    r'#\s*(pragma|PRAGMA)[:\s]?\s*(no|NO)\s*(cover|COVER)',
+]
 
-    When reporting, coverage.py tokenizes files twice, once to find the
-    structure of the file, and once to syntax-color it.  Tokenizing is
-    expensive, and easily cached.
+# The default partial branch regexes, to be modified by the user.
+DEFAULT_PARTIAL = [
+    r'#\s*(pragma|PRAGMA)[:\s]?\s*(no|NO)\s*(branch|BRANCH)',
+]
 
-    This is a one-element cache so that our twice-in-a-row tokenizing doesn't
-    actually tokenize twice.
+# The default partial branch regexes, based on Python semantics.
+# These are any Python branching constructs that can't actually execute all
+# their branches.
+DEFAULT_PARTIAL_ALWAYS = [
+    'while (True|1|False|0):',
+    'if (True|1|False|0):',
+]
+
+
+class CoverageConfig(object):
+    """Coverage.py configuration.
+
+    The attributes of this class are the various settings that control the
+    operation of coverage.py.
 
     """
     def __init__(self):
-        self.last_text = None
-        self.last_tokens = None
+        """Initialize the configuration attributes to their defaults."""
+        # Metadata about the config.
+        self.attempted_config_files = []
+        self.config_files = []
 
-    @contract(text='unicode')
-    def generate_tokens(self, text):
-        """A stand-in for `tokenize.generate_tokens`."""
-        if text != self.last_text:
-            self.last_text = text
-            readline = iternext(text.splitlines(True))
-            self.last_tokens = list(tokenize.generate_tokens(readline))
-        return self.last_tokens
+        # Defaults for [run] and [report]
+        self._include = None
+        self._omit = None
 
-# Create our generate_tokens cache as a callable replacement function.
-generate_tokens = CachedTokenizer().generate_tokens
+        # Defaults for [run]
+        self.branch = False
+        self.concurrency = None
+        self.cover_pylib = False
+        self.data_file = ".coverage"
+        self.debug = []
+        self.disable_warnings = []
+        self.note = None
+        self.parallel = False
+        self.plugins = []
+        self.source = None
+        self.run_include = None
+        self.run_omit = None
+        self.timid = False
+
+        # Defaults for [report]
+        self.exclude_list = DEFAULT_EXCLUDE[:]
+        self.fail_under = 0.0
+        self.ignore_errors = False
+        self.report_include = None
+        self.report_omit = None
+        self.partial_always_list = DEFAULT_PARTIAL_ALWAYS[:]
+        self.partial_list = DEFAULT_PARTIAL[:]
+        self.precision = 0
+        self.show_missing = False
+        self.skip_covered = False
+
+        # Defaults for [html]
+        self.extra_css = None
+        self.html_dir = "htmlcov"
+        self.html_title = "Coverage report"
+
+        # Defaults for [xml]
+        self.xml_output = "coverage.xml"
+        self.xml_package_depth = 99
+
+        # Defaults for [paths]
+        self.paths = {}
+
+        # Options for plugins
+        self.plugin_options = {}
+
+    MUST_BE_LIST = [
+        "debug", "concurrency", "plugins",
+        "report_omit", "report_include",
+        "run_omit", "run_include",
+    ]
+
+    def from_args(self, **kwargs):
+        """Read config values from `kwargs`."""
+        for k, v in iitems(kwargs):
+            if v is not None:
+                if k in self.MUST_BE_LIST and isinstance(v, string_class):
+                    v = [v]
+                setattr(self, k, v)
+
+    @contract(filename=str)
+    def from_file(self, filename, our_file):
+        """Read configuration from a .rc file.
+
+        `filename` is a file name to read.
+
+        `our_file` is True if this config file is specifically for coverage,
+        False if we are examining another config file (tox.ini, setup.cfg)
+        for possible settings.
+
+        Returns True or False, whether the file could be read, and it had some
+        coverage.py settings in it.
+
+        """
+        self.attempted_config_files.append(filename)
+
+        cp = HandyConfigParser(our_file)
+        try:
+            files_read = cp.read(filename)
+        except configparser.Error as err:
+            raise CoverageException("Couldn't read config file %s: %s" % (filename, err))
+        if not files_read:
+            return False
+
+        self.config_files.extend(files_read)
+
+        any_set = False
+        try:
+            for option_spec in self.CONFIG_FILE_OPTIONS:
+                was_set = self._set_attr_from_config_option(cp, *option_spec)
+                if was_set:
+                    any_set = True
+        except ValueError as err:
+            raise CoverageException("Couldn't read config file %s: %s" % (filename, err))
+
+        # Check that there are no unrecognized options.
+        all_options = collections.defaultdict(set)
+        for option_spec in self.CONFIG_FILE_OPTIONS:
+            section, option = option_spec[1].split(":")
+            all_options[section].add(option)
+
+        for section, options in iitems(all_options):
+            real_section = cp.has_section(section)
+            if real_section:
+                for unknown in set(cp.options(section)) - options:
+                    raise CoverageException(
+                        "Unrecognized option '[%s] %s=' in config file %s" % (
+                            real_section, unknown, filename
+                        )
+                    )
+
+        # [paths] is special
+        if cp.has_section('paths'):
+            for option in cp.options('paths'):
+                self.paths[option] = cp.getlist('paths', option)
+                any_set = True
+
+        # plugins can have options
+        for plugin in self.plugins:
+            if cp.has_section(plugin):
+                self.plugin_options[plugin] = cp.get_section(plugin)
+                any_set = True
+
+        # Was this file used as a config file? If it's specifically our file,
+        # then it was used.  If we're piggybacking on someone else's file,
+        # then it was only used if we found some settings in it.
+        if our_file:
+            return True
+        else:
+            return any_set
+
+    CONFIG_FILE_OPTIONS = [
+        # These are *args for _set_attr_from_config_option:
+        #   (attr, where, type_="")
+        #
+        #   attr is the attribute to set on the CoverageConfig object.
+        #   where is the section:name to read from the configuration file.
+        #   type_ is the optional type to apply, by using .getTYPE to read the
+        #       configuration value from the file.
+
+        # [run]
+        ('branch', 'run:branch', 'boolean'),
+        ('concurrency', 'run:concurrency', 'list'),
+        ('cover_pylib', 'run:cover_pylib', 'boolean'),
+        ('data_file', 'run:data_file'),
+        ('debug', 'run:debug', 'list'),
+        ('disable_warnings', 'run:disable_warnings', 'list'),
+        ('note', 'run:note'),
+        ('parallel', 'run:parallel', 'boolean'),
+        ('plugins', 'run:plugins', 'list'),
+        ('run_include', 'run:include', 'list'),
+        ('run_omit', 'run:omit', 'list'),
+        ('source', 'run:source', 'list'),
+        ('timid', 'run:timid', 'boolean'),
+
+        # [report]
+        ('exclude_list', 'report:exclude_lines', 'regexlist'),
+        ('fail_under', 'report:fail_under', 'float'),
+        ('ignore_errors', 'report:ignore_errors', 'boolean'),
+        ('partial_always_list', 'report:partial_branches_always', 'regexlist'),
+        ('partial_list', 'report:partial_branches', 'regexlist'),
+        ('precision', 'report:precision', 'int'),
+        ('report_include', 'report:include', 'list'),
+        ('report_omit', 'report:omit', 'list'),
+        ('show_missing', 'report:show_missing', 'boolean'),
+        ('skip_covered', 'report:skip_covered', 'boolean'),
+        ('sort', 'report:sort'),
+
+        # [html]
+        ('extra_css', 'html:extra_css'),
+        ('html_dir', 'html:directory'),
+        ('html_title', 'html:title'),
+
+        # [xml]
+        ('xml_output', 'xml:output'),
+        ('xml_package_depth', 'xml:package_depth', 'int'),
+    ]
+
+    def _set_attr_from_config_option(self, cp, attr, where, type_=''):
+        """Set an attribute on self if it exists in the ConfigParser.
+
+        Returns True if the attribute was set.
+
+        """
+        section, option = where.split(":")
+        if cp.has_option(section, option):
+            method = getattr(cp, 'get' + type_)
+            setattr(self, attr, method(section, option))
+            return True
+        return False
+
+    def get_plugin_options(self, plugin):
+        """Get a dictionary of options for the plugin named `plugin`."""
+        return self.plugin_options.get(plugin, {})
+
+    def set_option(self, option_name, value):
+        """Set an option in the configuration.
+
+        `option_name` is a colon-separated string indicating the section and
+        option name.  For example, the ``branch`` option in the ``[run]``
+        section of the config file would be indicated with `"run:branch"`.
+
+        `value` is the new value for the option.
+
+        """
+
+        # Check all the hard-coded options.
+        for option_spec in self.CONFIG_FILE_OPTIONS:
+            attr, where = option_spec[:2]
+            if where == option_name:
+                setattr(self, attr, value)
+                return
+
+        # See if it's a plugin option.
+        plugin_name, _, key = option_name.partition(":")
+        if key and plugin_name in self.plugins:
+            self.plugin_options.setdefault(plugin_name, {})[key] = value
+            return
+
+        # If we get here, we didn't find the option.
+        raise CoverageException("No such option: %r" % option_name)
+
+    def get_option(self, option_name):
+        """Get an option from the configuration.
+
+        `option_name` is a colon-separated string indicating the section and
+        option name.  For example, the ``branch`` option in the ``[run]``
+        section of the config file would be indicated with `"run:branch"`.
+
+        Returns the value of the option.
+
+        """
+        # Check all the hard-coded options.
+        for option_spec in self.CONFIG_FILE_OPTIONS:
+            attr, where = option_spec[:2]
+            if where == option_name:
+                return getattr(self, attr)
+
+        # See if it's a plugin option.
+        plugin_name, _, key = option_name.partition(":")
+        if key and plugin_name in self.plugins:
+            return self.plugin_options.get(plugin_name, {}).get(key)
+
+        # If we get here, we didn't find the option.
+        raise CoverageException("No such option: %r" % option_name)
 
 
-COOKIE_RE = re.compile(r"^[ \t]*#.*coding[:=][ \t]*([-\w.]+)", flags=re.MULTILINE)
+def read_coverage_config(config_file, **kwargs):
+    """Read the coverage.py configuration.
 
-@contract(source='bytes')
-def _source_encoding_py2(source):
-    """Determine the encoding for `source`, according to PEP 263.
+    Arguments:
+        config_file: a boolean or string, see the `Coverage` class for the
+            tricky details.
+        all others: keyword arguments from the `Coverage` class, used for
+            setting values in the configuration.
 
-    `source` is a byte string, the text of the program.
+    Returns:
+        config_file, config:
+            config_file is the value to use for config_file in other
+            invocations of coverage.
 
-    Returns a string, the name of the encoding.
+            config is a CoverageConfig object read from the appropriate
+            configuration file.
 
     """
-    assert isinstance(source, bytes)
+    # Build the configuration from a number of sources:
+    # 1) defaults:
+    config = CoverageConfig()
 
-    # Do this so the detect_encode code we copied will work.
-    readline = iternext(source.splitlines(True))
+    # 2) from a file:
+    if config_file:
+        # Some API users were specifying ".coveragerc" to mean the same as
+        # True, so make it so.
+        if config_file == ".coveragerc":
+            config_file = True
+        specified_file = (config_file is not True)
+        if not specified_file:
+            config_file = ".coveragerc"
 
-    # This is mostly code adapted from Py3.2's tokenize module.
+        for fname, our_file in [(config_file, True),
+                                ("setup.cfg", False),
+                                ("tox.ini", False)]:
+            config_read = config.from_file(fname, our_file=our_file)
+            is_config_file = fname == config_file
 
-    def _get_normal_name(orig_enc):
-        """Imitates get_normal_name in tokenizer.c."""
-        # Only care about the first 12 characters.
-        enc = orig_enc[:12].lower().replace("_", "-")
-        if re.match(r"^utf-8($|-)", enc):
-            return "utf-8"
-        if re.match(r"^(latin-1|iso-8859-1|iso-latin-1)($|-)", enc):
-            return "iso-8859-1"
-        return orig_enc
+            if not config_read and is_config_file and specified_file:
+                raise CoverageException("Couldn't read '%s' as a config file" % fname)
 
-    # From detect_encode():
-    # It detects the encoding from the presence of a UTF-8 BOM or an encoding
-    # cookie as specified in PEP-0263.  If both a BOM and a cookie are present,
-    # but disagree, a SyntaxError will be raised.  If the encoding cookie is an
-    # invalid charset, raise a SyntaxError.  Note that if a UTF-8 BOM is found,
-    # 'utf-8-sig' is returned.
+            if config_read:
+                break
 
-    # If no encoding is specified, then the default will be returned.
-    default = 'ascii'
+    # 3) from environment variables:
+    env_data_file = os.environ.get('COVERAGE_FILE')
+    if env_data_file:
+        config.data_file = env_data_file
+    debugs = os.environ.get('COVERAGE_DEBUG')
+    if debugs:
+        config.debug.extend(d.strip() for d in debugs.split(","))
 
-    bom_found = False
-    encoding = None
+    # 4) from constructor arguments:
+    config.from_args(**kwargs)
 
-    def read_or_stop():
-        """Get the next source line, or ''."""
-        try:
-            return readline()
-        except StopIteration:
-            return ''
+    # Once all the config has been collected, there's a little post-processing
+    # to do.
+    config.data_file = os.path.expanduser(config.data_file)
+    config.html_dir = os.path.expanduser(config.html_dir)
+    config.xml_output = os.path.expanduser(config.xml_output)
 
-    def find_cookie(line):
-        """Find an encoding cookie in `line`."""
-        try:
-            line_string = line.decode('ascii')
-        except UnicodeDecodeError:
-            return None
-
-        matches = COOKIE_RE.findall(line_string)
-        if not matches:
-            return None
-        encoding = _get_normal_name(matches[0])
-        try:
-            codec = codecs.lookup(encoding)
-        except LookupError:
-            # This behavior mimics the Python interpreter
-            raise SyntaxError("unknown encoding: " + encoding)
-
-        if bom_found:
-            # codecs in 2.3 were raw tuples of functions, assume the best.
-            codec_name = getattr(codec, 'name', encoding)
-            if codec_name != 'utf-8':
-                # This behavior mimics the Python interpreter
-                raise SyntaxError('encoding problem: utf-8')
-            encoding += '-sig'
-        return encoding
-
-    first = read_or_stop()
-    if first.startswith(codecs.BOM_UTF8):
-        bom_found = True
-        first = first[3:]
-        default = 'utf-8-sig'
-    if not first:
-        return default
-
-    encoding = find_cookie(first)
-    if encoding:
-        return encoding
-
-    second = read_or_stop()
-    if not second:
-        return default
-
-    encoding = find_cookie(second)
-    if encoding:
-        return encoding
-
-    return default
-
-
-@contract(source='bytes')
-def _source_encoding_py3(source):
-    """Determine the encoding for `source`, according to PEP 263.
-
-    `source` is a byte string: the text of the program.
-
-    Returns a string, the name of the encoding.
-
-    """
-    readline = iternext(source.splitlines(True))
-    return tokenize.detect_encoding(readline)[0]
-
-
-if env.PY3:
-    source_encoding = _source_encoding_py3
-else:
-    source_encoding = _source_encoding_py2
-
-
-@contract(source='unicode')
-def compile_unicode(source, filename, mode):
-    """Just like the `compile` builtin, but works on any Unicode string.
-
-    Python 2's compile() builtin has a stupid restriction: if the source string
-    is Unicode, then it may not have a encoding declaration in it.  Why not?
-    Who knows!  It also decodes to utf8, and then tries to interpret those utf8
-    bytes according to the encoding declaration.  Why? Who knows!
-
-    This function neuters the coding declaration, and compiles it.
-
-    """
-    source = neuter_encoding_declaration(source)
-    if env.PY2 and isinstance(filename, unicode_class):
-        filename = filename.encode(sys.getfilesystemencoding(), "replace")
-    code = compile(source, filename, mode)
-    return code
-
-
-@contract(source='unicode', returns='unicode')
-def neuter_encoding_declaration(source):
-    """Return `source`, with any encoding declaration neutered."""
-    if COOKIE_RE.search(source):
-        source_lines = source.splitlines(True)
-        for lineno in range(min(2, len(source_lines))):
-            source_lines[lineno] = COOKIE_RE.sub("# (deleted declaration)", source_lines[lineno])
-        source = "".join(source_lines)
-    return source
+    return config_file, config

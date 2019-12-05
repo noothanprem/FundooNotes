@@ -1,1 +1,1 @@
-≤«Evenv/lib64/python3.6/site-packages/rest_framework_swagger/settings.py 2pyX>h
+≤«9venv/lib64/python3.6/site-packages/rest_framework_swagger :∞«±«µ«Ò«

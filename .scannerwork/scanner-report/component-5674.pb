@@ -1,1 +1,1 @@
-ª,9venv/lib/python3.6/site-packages/django/contrib/gis/forms :©,«,¬,
+ª,/venv/lib/python3.6/site-packages/django/contrib :©,

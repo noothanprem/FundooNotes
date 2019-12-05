@@ -1,4 +1,2 @@
-;
-pythonS125Remove this commented out code. 2
-
- 
+E
+pythonS1481(Remove the unused local variable "syms". 2 

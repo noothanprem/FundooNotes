@@ -1,1 +1,1 @@
-Ò†1venv/lib/python3.6/site-packages/simplejson/tests :]Ñ†Ó†Ô†Õ†Ö†×†Ø†Ù†Ú†Û†Ü†İ†Ş†ß†à†á†â†ã†ä†å†æ†ç†è†é†Š‡‹‡Œ‡‡‡‡‡
+Ò†Avenv/lib/python3.6/site-packages/simplejson/tests/test_decimal.py 2pyXHh

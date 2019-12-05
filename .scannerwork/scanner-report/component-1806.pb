@@ -1,1 +1,1 @@
-Ž@venv/lib/python3.6/site-packages/launchpadlib/tests/test_http.py 2pyXûh
+Ž?venv/lib/python3.6/site-packages/launchpadlib/tests/__init__.py 2pyXh

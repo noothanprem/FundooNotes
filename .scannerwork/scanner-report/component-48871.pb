@@ -1,1 +1,1 @@
-çý_venv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/management/commands/__init__.py 2pyXh
+çýsvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/management/commands/elasticsearch_remove_indexes.py 2pyX&h

@@ -1,1 +1,1 @@
-¬Í,venv/lib64/python3.6/site-packages/soupsieve :«Í­Í®Í¯Í·Í¸Í
+¬Í,venv/lib64/python3.6/site-packages/soupsieve :«Í­Í®Í¯Í·Í»Í

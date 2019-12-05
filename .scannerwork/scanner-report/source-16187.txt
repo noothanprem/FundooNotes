@@ -1,80 +1,41 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-from __future__ import print_function, absolute_import, division
-
+import gevent
 import gevent.testing as greentest
-import socket
-from gevent.tests.test__socket_dns import TestCase, add
-
-from gevent.testing.sysinfo import RESOLVER_NOT_SYSTEM
-from gevent.testing.sysinfo import RESOLVER_DNSPYTHON
-
-if not greentest.RUNNING_ON_CI and not RESOLVER_DNSPYTHON:
+from gevent.lock import Semaphore
 
 
-    # We can't control the DNS servers we use there
-    # for the system. This works best with the google DNS servers
-    # The getnameinfo test can fail on CI.
+class Testiwait(greentest.TestCase):
 
-    # Previously only Test6_ds failed, but as of Jan 2018, Test6
-    # and Test6_google begin to fail:
+    def test_noiter(self):
+        # Test that gevent.iwait returns objects which can be iterated upon
+        # without additional calls to iter()
 
-      # First differing element 0:
-    # 'vm2.test-ipv6.com'
-    # 'ip119.gigo.com'
+        sem1 = Semaphore()
+        sem2 = Semaphore()
 
-    # - ('vm2.test-ipv6.com', [], ['2001:470:1:18::125'])
-    # ?   ---------  ^^                             ^^
+        gevent.spawn(sem1.release)
+        ready = next(gevent.iwait((sem1, sem2)))
+        self.assertEqual(sem1, ready)
 
-    # + ('ip119.gigo.com', [], ['2001:470:1:18::119'])
-    # ?     ^^^^^^^^                             ^^
+    def test_iwait_partial(self):
+        # Test that the iwait context manager allows the iterator to be
+        # consumed partially without a memory leak.
 
-    class Test6(TestCase):
+        sem = Semaphore()
+        let = gevent.spawn(sem.release)
+        with gevent.iwait((sem,), timeout=0.01) as iterator:
+            self.assertEqual(sem, next(iterator))
+        let.get()
 
-        # host that only has AAAA record
-        host = 'aaaa.test-ipv6.com'
+    def test_iwait_nogarbage(self):
+        sem1 = Semaphore()
+        sem2 = Semaphore()
+        let = gevent.spawn(sem1.release)
+        with gevent.iwait((sem1, sem2)) as iterator:
+            self.assertEqual(sem1, next(iterator))
+            self.assertEqual(sem2.linkcount(), 1)
 
-        def test_empty(self):
-            self._test('getaddrinfo', self.host, 'http')
-
-        def test_inet(self):
-            self._test('getaddrinfo', self.host, None, socket.AF_INET)
-
-        def test_inet6(self):
-            self._test('getaddrinfo', self.host, None, socket.AF_INET6)
-
-        def test_unspec(self):
-            self._test('getaddrinfo', self.host, None, socket.AF_UNSPEC)
-
-
-    class Test6_google(Test6):
-        host = 'ipv6.google.com'
-
-        def _normalize_result_getnameinfo(self, result):
-            if greentest.RUNNING_ON_CI and RESOLVER_NOT_SYSTEM:
-                # Disabled, there are multiple possibilities
-                # and we can get different ones, rarely.
-                return ()
-            return result
-
-    add(Test6, Test6.host)
-    add(Test6_google, Test6_google.host)
-
-
-
-    class Test6_ds(Test6):
-        # host that has both A and AAAA records
-        host = 'ds.test-ipv6.com'
-
-        def _normalize_result_gethostbyaddr(self, result):
-            # This test is effectively disabled. There are multiple address
-            # that resolve and which ones you get depend on the settings
-            # of the system and ares. They don't match exactly.
-            return ()
-
-        _normalize_result_gethostbyname = _normalize_result_gethostbyaddr
-
-    add(Test6_ds, Test6_ds.host)
+        self.assertEqual(sem2.linkcount(), 0)
+        let.get()
 
 
 if __name__ == '__main__':

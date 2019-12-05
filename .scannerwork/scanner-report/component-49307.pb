@@ -1,1 +1,1 @@
-›Ovenv/lib64/python3.6/site-packages/rest_framework/static/rest_framework/docs/js :	šœ
+›avenv/lib64/python3.6/site-packages/rest_framework/static/rest_framework/docs/js/highlight.pack.js 2jsXh

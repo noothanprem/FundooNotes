@@ -1,233 +1,179 @@
 import hashlib
+import hmac
 
-from ._compat import text_type
-from ._json import json
+from ._compat import constant_time_compare
+from .encoding import _base64_alphabet
+from .encoding import base64_decode
+from .encoding import base64_encode
 from .encoding import want_bytes
-from .exc import BadPayload
 from .exc import BadSignature
-from .signer import Signer
 
 
-def is_text_serializer(serializer):
-    """Checks whether a serializer generates text or binary."""
-    return isinstance(serializer.dumps({}), text_type)
-
-
-class Serializer(object):
-    """This class provides a serialization interface on top of the
-    signer. It provides a similar API to json/pickle and other modules
-    but is structured differently internally. If you want to change the
-    underlying implementation for parsing and loading you have to
-    override the :meth:`load_payload` and :meth:`dump_payload`
-    functions.
-
-    This implementation uses simplejson if available for dumping and
-    loading and will fall back to the standard library's json module if
-    it's not available.
-
-    You do not need to subclass this class in order to switch out or
-    customize the :class:`.Signer`. You can instead pass a different
-    class to the constructor as well as keyword arguments as a dict that
-    should be forwarded.
-
-    .. code-block:: python
-
-        s = Serializer(signer_kwargs={'key_derivation': 'hmac'})
-
-    You may want to upgrade the signing parameters without invalidating
-    existing signatures that are in use. Fallback signatures can be
-    given that will be tried if unsigning with the current signer fails.
-
-    Fallback signers can be defined by providing a list of
-    ``fallback_signers``. Each item can be one of the following: a
-    signer class (which is instantiated with ``signer_kwargs``,
-    ``salt``, and ``secret_key``), a tuple
-    ``(signer_class, signer_kwargs)``, or a dict of ``signer_kwargs``.
-
-    For example, this is a serializer that signs using SHA-512, but will
-    unsign using either SHA-512 or SHA1:
-
-    .. code-block:: python
-
-        s = Serializer(
-            signer_kwargs={"digest_method": hashlib.sha512},
-            fallback_signers=[{"digest_method": hashlib.sha1}]
-        )
-
-    .. versionchanged:: 0.14:
-        The ``signer`` and ``signer_kwargs`` parameters were added to
-        the constructor.
-
-    .. versionchanged:: 1.1.0:
-        Added support for ``fallback_signers`` and configured a default
-        SHA-512 fallback. This fallback is for users who used the yanked
-        1.0.0 release which defaulted to SHA-512.
+class SigningAlgorithm(object):
+    """Subclasses must implement :meth:`get_signature` to provide
+    signature generation functionality.
     """
 
-    #: If a serializer module or class is not passed to the constructor
-    #: this one is picked up. This currently defaults to :mod:`json`.
-    default_serializer = json
+    def get_signature(self, key, value):
+        """Returns the signature for the given key and value."""
+        raise NotImplementedError()
 
-    #: The default :class:`Signer` class that is being used by this
-    #: serializer.
+    def verify_signature(self, key, value, sig):
+        """Verifies the given signature matches the expected
+        signature.
+        """
+        return constant_time_compare(sig, self.get_signature(key, value))
+
+
+class NoneAlgorithm(SigningAlgorithm):
+    """Provides an algorithm that does not perform any signing and
+    returns an empty signature.
+    """
+
+    def get_signature(self, key, value):
+        return b""
+
+
+class HMACAlgorithm(SigningAlgorithm):
+    """Provides signature generation using HMACs."""
+
+    #: The digest method to use with the MAC algorithm. This defaults to
+    #: SHA1, but can be changed to any other function in the hashlib
+    #: module.
+    default_digest_method = staticmethod(hashlib.sha1)
+
+    def __init__(self, digest_method=None):
+        if digest_method is None:
+            digest_method = self.default_digest_method
+        self.digest_method = digest_method
+
+    def get_signature(self, key, value):
+        mac = hmac.new(key, msg=value, digestmod=self.digest_method)
+        return mac.digest()
+
+
+class Signer(object):
+    """This class can sign and unsign bytes, validating the signature
+    provided.
+
+    Salt can be used to namespace the hash, so that a signed string is
+    only valid for a given namespace. Leaving this at the default value
+    or re-using a salt value across different parts of your application
+    where the same signed value in one part can mean something different
+    in another part is a security risk.
+
+    See :ref:`the-salt` for an example of what the salt is doing and how
+    you can utilize it.
+
+    .. versionadded:: 0.14
+        ``key_derivation`` and ``digest_method`` were added as arguments
+        to the class constructor.
+
+    .. versionadded:: 0.18
+        ``algorithm`` was added as an argument to the class constructor.
+    """
+
+    #: The digest method to use for the signer.  This defaults to
+    #: SHA1 but can be changed to any other function in the hashlib
+    #: module.
     #:
     #: .. versionadded:: 0.14
-    default_signer = Signer
+    default_digest_method = staticmethod(hashlib.sha1)
 
-    #: The default fallback signers.
-    default_fallback_signers = [{"digest_method": hashlib.sha512}]
+    #: Controls how the key is derived. The default is Django-style
+    #: concatenation. Possible values are ``concat``, ``django-concat``
+    #: and ``hmac``. This is used for deriving a key from the secret key
+    #: with an added salt.
+    #:
+    #: .. versionadded:: 0.14
+    default_key_derivation = "django-concat"
 
     def __init__(
         self,
         secret_key,
-        salt=b"itsdangerous",
-        serializer=None,
-        serializer_kwargs=None,
-        signer=None,
-        signer_kwargs=None,
-        fallback_signers=None,
+        salt=None,
+        sep=".",
+        key_derivation=None,
+        digest_method=None,
+        algorithm=None,
     ):
         self.secret_key = want_bytes(secret_key)
-        self.salt = want_bytes(salt)
-        if serializer is None:
-            serializer = self.default_serializer
-        self.serializer = serializer
-        self.is_text_serializer = is_text_serializer(serializer)
-        if signer is None:
-            signer = self.default_signer
-        self.signer = signer
-        self.signer_kwargs = signer_kwargs or {}
-        if fallback_signers is None:
-            fallback_signers = list(self.default_fallback_signers or ())
-        self.fallback_signers = fallback_signers
-        self.serializer_kwargs = serializer_kwargs or {}
-
-    def load_payload(self, payload, serializer=None):
-        """Loads the encoded object. This function raises
-        :class:`.BadPayload` if the payload is not valid. The
-        ``serializer`` parameter can be used to override the serializer
-        stored on the class. The encoded ``payload`` should always be
-        bytes.
-        """
-        if serializer is None:
-            serializer = self.serializer
-            is_text = self.is_text_serializer
-        else:
-            is_text = is_text_serializer(serializer)
-        try:
-            if is_text:
-                payload = payload.decode("utf-8")
-            return serializer.loads(payload)
-        except Exception as e:
-            raise BadPayload(
-                "Could not load the payload because an exception"
-                " occurred on unserializing the data.",
-                original_error=e,
+        self.sep = want_bytes(sep)
+        if self.sep in _base64_alphabet:
+            raise ValueError(
+                "The given separator cannot be used because it may be"
+                " contained in the signature itself. Alphanumeric"
+                " characters and `-_=` must not be used."
             )
+        self.salt = "itsdangerous.Signer" if salt is None else salt
+        if key_derivation is None:
+            key_derivation = self.default_key_derivation
+        self.key_derivation = key_derivation
+        if digest_method is None:
+            digest_method = self.default_digest_method
+        self.digest_method = digest_method
+        if algorithm is None:
+            algorithm = HMACAlgorithm(self.digest_method)
+        self.algorithm = algorithm
 
-    def dump_payload(self, obj):
-        """Dumps the encoded object. The return value is always bytes.
-        If the internal serializer returns text, the value will be
-        encoded as UTF-8.
+    def derive_key(self):
+        """This method is called to derive the key. The default key
+        derivation choices can be overridden here. Key derivation is not
+        intended to be used as a security method to make a complex key
+        out of a short password. Instead you should use large random
+        secret keys.
         """
-        return want_bytes(self.serializer.dumps(obj, **self.serializer_kwargs))
+        salt = want_bytes(self.salt)
+        if self.key_derivation == "concat":
+            return self.digest_method(salt + self.secret_key).digest()
+        elif self.key_derivation == "django-concat":
+            return self.digest_method(salt + b"signer" + self.secret_key).digest()
+        elif self.key_derivation == "hmac":
+            mac = hmac.new(self.secret_key, digestmod=self.digest_method)
+            mac.update(salt)
+            return mac.digest()
+        elif self.key_derivation == "none":
+            return self.secret_key
+        else:
+            raise TypeError("Unknown key derivation method")
 
-    def make_signer(self, salt=None):
-        """Creates a new instance of the signer to be used. The default
-        implementation uses the :class:`.Signer` base class.
-        """
-        if salt is None:
-            salt = self.salt
-        return self.signer(self.secret_key, salt=salt, **self.signer_kwargs)
+    def get_signature(self, value):
+        """Returns the signature for the given value."""
+        value = want_bytes(value)
+        key = self.derive_key()
+        sig = self.algorithm.get_signature(key, value)
+        return base64_encode(sig)
 
-    def iter_unsigners(self, salt=None):
-        """Iterates over all signers to be tried for unsigning. Starts
-        with the configured signer, then constructs each signer
-        specified in ``fallback_signers``.
-        """
-        if salt is None:
-            salt = self.salt
-        yield self.make_signer(salt)
-        for fallback in self.fallback_signers:
-            if type(fallback) is dict:
-                kwargs = fallback
-                fallback = self.signer
-            elif type(fallback) is tuple:
-                fallback, kwargs = fallback
-            else:
-                kwargs = self.signer_kwargs
-            yield fallback(self.secret_key, salt=salt, **kwargs)
+    def sign(self, value):
+        """Signs the given string."""
+        return want_bytes(value) + want_bytes(self.sep) + self.get_signature(value)
 
-    def dumps(self, obj, salt=None):
-        """Returns a signed string serialized with the internal
-        serializer. The return value can be either a byte or unicode
-        string depending on the format of the internal serializer.
-        """
-        payload = want_bytes(self.dump_payload(obj))
-        rv = self.make_signer(salt).sign(payload)
-        if self.is_text_serializer:
-            rv = rv.decode("utf-8")
-        return rv
+    def verify_signature(self, value, sig):
+        """Verifies the signature for the given value."""
+        key = self.derive_key()
+        try:
+            sig = base64_decode(sig)
+        except Exception:
+            return False
+        return self.algorithm.verify_signature(key, value, sig)
 
-    def dump(self, obj, f, salt=None):
-        """Like :meth:`dumps` but dumps into a file. The file handle has
-        to be compatible with what the internal serializer expects.
-        """
-        f.write(self.dumps(obj, salt))
+    def unsign(self, signed_value):
+        """Unsigns the given string."""
+        signed_value = want_bytes(signed_value)
+        sep = want_bytes(self.sep)
+        if sep not in signed_value:
+            raise BadSignature("No %r found in value" % self.sep)
+        value, sig = signed_value.rsplit(sep, 1)
+        if self.verify_signature(value, sig):
+            return value
+        raise BadSignature("Signature %r does not match" % sig, payload=value)
 
-    def loads(self, s, salt=None):
-        """Reverse of :meth:`dumps`. Raises :exc:`.BadSignature` if the
-        signature validation fails.
-        """
-        s = want_bytes(s)
-        last_exception = None
-        for signer in self.iter_unsigners(salt):
-            try:
-                return self.load_payload(signer.unsign(s))
-            except BadSignature as err:
-                last_exception = err
-        raise last_exception
-
-    def load(self, f, salt=None):
-        """Like :meth:`loads` but loads from a file."""
-        return self.loads(f.read(), salt)
-
-    def loads_unsafe(self, s, salt=None):
-        """Like :meth:`loads` but without verifying the signature. This
-        is potentially very dangerous to use depending on how your
-        serializer works. The return value is ``(signature_valid,
-        payload)`` instead of just the payload. The first item will be a
-        boolean that indicates if the signature is valid. This function
-        never fails.
-
-        Use it for debugging only and if you know that your serializer
-        module is not exploitable (for example, do not use it with a
-        pickle serializer).
-
-        .. versionadded:: 0.15
-        """
-        return self._loads_unsafe_impl(s, salt)
-
-    def _loads_unsafe_impl(self, s, salt, load_kwargs=None, load_payload_kwargs=None):
-        """Low level helper function to implement :meth:`loads_unsafe`
-        in serializer subclasses.
+    def validate(self, signed_value):
+        """Only validates the given signed value. Returns ``True`` if
+        the signature exists and is valid.
         """
         try:
-            return True, self.loads(s, salt=salt, **(load_kwargs or {}))
-        except BadSignature as e:
-            if e.payload is None:
-                return False, None
-            try:
-                return (
-                    False,
-                    self.load_payload(e.payload, **(load_payload_kwargs or {})),
-                )
-            except BadPayload:
-                return False, None
-
-    def load_unsafe(self, f, *args, **kwargs):
-        """Like :meth:`loads_unsafe` but loads from a file.
-
-        .. versionadded:: 0.15
-        """
-        return self.loads_unsafe(f.read(), *args, **kwargs)
+            self.unsign(signed_value)
+            return True
+        except BadSignature:
+            return False

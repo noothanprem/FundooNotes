@@ -1,1 +1,1 @@
-Ú–2venv/lib64/python3.6/site-packages/celery/backends :<Ò–Ù–ı–ˆ–˜–¯–˘–˙–˚–¸–˝–Ü—á—à—â—ä—ü—°—¢—§—
+Ú–>venv/lib64/python3.6/site-packages/celery/backends/arangodb.py 2pyX’h

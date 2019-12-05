@@ -1,1 +1,1 @@
-î¬Gvenv/lib64/python3.6/site-packages/docutils/parsers/rst/languages/sk.py 2pyX`h
+î¬Gvenv/lib64/python3.6/site-packages/docutils/parsers/rst/languages/he.py 2pyXmh

@@ -1,1 +1,1 @@
-та=venv/lib64/python3.6/site-packages/botocore/vendored/requests :*сауафахацачащашаъаыаЉбќвћвџв
+та=venv/lib64/python3.6/site-packages/botocore/vendored/requests :*сауафахацачашаъащаыа‹бќвћвџв

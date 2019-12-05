@@ -1,1 +1,1 @@
-ä√Uvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/distlib/manifest.py 2pyXäh
+ä√Ivenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/distlib :'â√ã√å√ç√é√è√ò√ô√ö√ù√û√ü√¶√

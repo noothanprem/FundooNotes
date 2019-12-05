@@ -1,1 +1,1 @@
-ü©2venv/lib/python3.6/site-packages/twisted/mail/test :û©þ©ÿ©ˆª‰ªŠª‹ª
+ü©Evenv/lib/python3.6/site-packages/twisted/mail/test/test_pop3client.py 2pyX¯h

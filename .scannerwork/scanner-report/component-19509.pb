@@ -1,1 +1,1 @@
-µ˜0venv/lib/python3.6/site-packages/amqp/channel.py 2pyX¥h
+µ˜6venv/lib/python3.6/site-packages/amqp/serialization.py 2pyXÃh

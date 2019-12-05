@@ -1,1 +1,1 @@
-òñAvenv/lib64/python3.6/site-packages/django_redis/client/default.py 2pyX¨h
+òñ6venv/lib64/python3.6/site-packages/django_redis/client :ññóñôñùñ

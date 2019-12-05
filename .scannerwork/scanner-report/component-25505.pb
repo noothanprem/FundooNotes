@@ -1,1 +1,1 @@
-¡Ç2venv/lib/python3.6/site-packages/requests_oauthlib : Ç¢Ç£Ç¤ÇªÇ
+¡Ç2venv/lib/python3.6/site-packages/requests_oauthlib : Ç¢Ç£Ç¤Ç­Ç

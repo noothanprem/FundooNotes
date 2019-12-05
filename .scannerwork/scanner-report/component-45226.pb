@@ -1,1 +1,1 @@
-ксSvenv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/urllib3/util :ислсмснсос╢с╣с║с
+кс^venv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/urllib3/util/request.py 2pyXHh

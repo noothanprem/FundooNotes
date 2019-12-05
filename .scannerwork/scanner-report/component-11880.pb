@@ -1,1 +1,1 @@
-è\5venv/lib/python3.6/site-packages/boto3/docs/method.py 2pyXHh
+è\+venv/lib/python3.6/site-packages/boto3/docs :ç\é\ê\ë\ì\í\î\ï\ş\ÿ\€]]‚]

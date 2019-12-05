@@ -1,98 +1,255 @@
 from __future__ import absolute_import
-import binascii
-import codecs
-import os
+from .packages.six.moves.http_client import IncompleteRead as httplib_IncompleteRead
 
-from io import BytesIO
-
-from .packages import six
-from .packages.six import b
-from .fields import RequestField
-
-writer = codecs.lookup("utf-8")[3]
+# Base Exceptions
 
 
-def choose_boundary():
+class HTTPError(Exception):
+    "Base exception used by this module."
+    pass
+
+
+class HTTPWarning(Warning):
+    "Base warning used by this module."
+    pass
+
+
+class PoolError(HTTPError):
+    "Base exception for errors caused within a pool."
+
+    def __init__(self, pool, message):
+        self.pool = pool
+        HTTPError.__init__(self, "%s: %s" % (pool, message))
+
+    def __reduce__(self):
+        # For pickling purposes.
+        return self.__class__, (None, None)
+
+
+class RequestError(PoolError):
+    "Base exception for PoolErrors that have associated URLs."
+
+    def __init__(self, pool, url, message):
+        self.url = url
+        PoolError.__init__(self, pool, message)
+
+    def __reduce__(self):
+        # For pickling purposes.
+        return self.__class__, (None, self.url, None)
+
+
+class SSLError(HTTPError):
+    "Raised when SSL certificate fails in an HTTPS connection."
+    pass
+
+
+class ProxyError(HTTPError):
+    "Raised when the connection to a proxy fails."
+    pass
+
+
+class DecodeError(HTTPError):
+    "Raised when automatic decoding based on Content-Type fails."
+    pass
+
+
+class ProtocolError(HTTPError):
+    "Raised when something unexpected happens mid-request/response."
+    pass
+
+
+#: Renamed to ProtocolError but aliased for backwards compatibility.
+ConnectionError = ProtocolError
+
+
+# Leaf Exceptions
+
+
+class MaxRetryError(RequestError):
+    """Raised when the maximum number of retries is exceeded.
+
+    :param pool: The connection pool
+    :type pool: :class:`~urllib3.connectionpool.HTTPConnectionPool`
+    :param string url: The requested Url
+    :param exceptions.Exception reason: The underlying error
+
     """
-    Our embarrassingly-simple replacement for mimetools.choose_boundary.
+
+    def __init__(self, pool, url, reason=None):
+        self.reason = reason
+
+        message = "Max retries exceeded with url: %s (Caused by %r)" % (url, reason)
+
+        RequestError.__init__(self, pool, url, message)
+
+
+class HostChangedError(RequestError):
+    "Raised when an existing pool gets a request for a foreign host."
+
+    def __init__(self, pool, url, retries=3):
+        message = "Tried to open a foreign host with url: %s" % url
+        RequestError.__init__(self, pool, url, message)
+        self.retries = retries
+
+
+class TimeoutStateError(HTTPError):
+    """ Raised when passing an invalid state to a timeout """
+
+    pass
+
+
+class TimeoutError(HTTPError):
+    """ Raised when a socket timeout error occurs.
+
+    Catching this error will catch both :exc:`ReadTimeoutErrors
+    <ReadTimeoutError>` and :exc:`ConnectTimeoutErrors <ConnectTimeoutError>`.
     """
-    boundary = binascii.hexlify(os.urandom(16))
-    if not six.PY2:
-        boundary = boundary.decode("ascii")
-    return boundary
+
+    pass
 
 
-def iter_field_objects(fields):
+class ReadTimeoutError(TimeoutError, RequestError):
+    "Raised when a socket timeout occurs while receiving data from a server"
+    pass
+
+
+# This timeout error does not have a URL attached and needs to inherit from the
+# base HTTPError
+class ConnectTimeoutError(TimeoutError):
+    "Raised when a socket timeout occurs while connecting to a server"
+    pass
+
+
+class NewConnectionError(ConnectTimeoutError, PoolError):
+    "Raised when we fail to establish a new connection. Usually ECONNREFUSED."
+    pass
+
+
+class EmptyPoolError(PoolError):
+    "Raised when a pool runs out of connections and no more are allowed."
+    pass
+
+
+class ClosedPoolError(PoolError):
+    "Raised when a request enters a pool after the pool has been closed."
+    pass
+
+
+class LocationValueError(ValueError, HTTPError):
+    "Raised when there is something wrong with a given URL input."
+    pass
+
+
+class LocationParseError(LocationValueError):
+    "Raised when get_host or similar fails to parse the URL input."
+
+    def __init__(self, location):
+        message = "Failed to parse: %s" % location
+        HTTPError.__init__(self, message)
+
+        self.location = location
+
+
+class ResponseError(HTTPError):
+    "Used as a container for an error reason supplied in a MaxRetryError."
+    GENERIC_ERROR = "too many error responses"
+    SPECIFIC_ERROR = "too many {status_code} error responses"
+
+
+class SecurityWarning(HTTPWarning):
+    "Warned when performing security reducing actions"
+    pass
+
+
+class SubjectAltNameWarning(SecurityWarning):
+    "Warned when connecting to a host with a certificate missing a SAN."
+    pass
+
+
+class InsecureRequestWarning(SecurityWarning):
+    "Warned when making an unverified HTTPS request."
+    pass
+
+
+class SystemTimeWarning(SecurityWarning):
+    "Warned when system time is suspected to be wrong"
+    pass
+
+
+class InsecurePlatformWarning(SecurityWarning):
+    "Warned when certain SSL configuration is not available on a platform."
+    pass
+
+
+class SNIMissingWarning(HTTPWarning):
+    "Warned when making a HTTPS request without SNI available."
+    pass
+
+
+class DependencyWarning(HTTPWarning):
     """
-    Iterate over fields.
-
-    Supports list of (k, v) tuples and dicts, and lists of
-    :class:`~urllib3.fields.RequestField`.
-
+    Warned when an attempt is made to import a module with missing optional
+    dependencies.
     """
-    if isinstance(fields, dict):
-        i = six.iteritems(fields)
-    else:
-        i = iter(fields)
 
-    for field in i:
-        if isinstance(field, RequestField):
-            yield field
-        else:
-            yield RequestField.from_tuples(*field)
+    pass
 
 
-def iter_fields(fields):
+class ResponseNotChunked(ProtocolError, ValueError):
+    "Response needs to be chunked in order to read it as chunks."
+    pass
+
+
+class BodyNotHttplibCompatible(HTTPError):
     """
-    .. deprecated:: 1.6
-
-    Iterate over fields.
-
-    The addition of :class:`~urllib3.fields.RequestField` makes this function
-    obsolete. Instead, use :func:`iter_field_objects`, which returns
-    :class:`~urllib3.fields.RequestField` objects.
-
-    Supports list of (k, v) tuples and dicts.
+    Body should be httplib.HTTPResponse like (have an fp attribute which
+    returns raw chunks) for read_chunked().
     """
-    if isinstance(fields, dict):
-        return ((k, v) for k, v in six.iteritems(fields))
 
-    return ((k, v) for k, v in fields)
+    pass
 
 
-def encode_multipart_formdata(fields, boundary=None):
+class IncompleteRead(HTTPError, httplib_IncompleteRead):
     """
-    Encode a dictionary of ``fields`` using the multipart/form-data MIME format.
+    Response length doesn't match expected Content-Length
 
-    :param fields:
-        Dictionary of fields or list of (key, :class:`~urllib3.fields.RequestField`).
-
-    :param boundary:
-        If not specified, then a random boundary will be generated using
-        :func:`urllib3.filepost.choose_boundary`.
+    Subclass of http_client.IncompleteRead to allow int value
+    for `partial` to avoid creating large objects on streamed
+    reads.
     """
-    body = BytesIO()
-    if boundary is None:
-        boundary = choose_boundary()
 
-    for field in iter_field_objects(fields):
-        body.write(b("--%s\r\n" % (boundary)))
+    def __init__(self, partial, expected):
+        super(IncompleteRead, self).__init__(partial, expected)
 
-        writer(body).write(field.render_headers())
-        data = field.data
+    def __repr__(self):
+        return "IncompleteRead(%i bytes read, %i more expected)" % (
+            self.partial,
+            self.expected,
+        )
 
-        if isinstance(data, int):
-            data = str(data)  # Backwards compatibility
 
-        if isinstance(data, six.text_type):
-            writer(body).write(data)
-        else:
-            body.write(data)
+class InvalidHeader(HTTPError):
+    "The header provided was somehow invalid."
+    pass
 
-        body.write(b"\r\n")
 
-    body.write(b("--%s--\r\n" % (boundary)))
+class ProxySchemeUnknown(AssertionError, ValueError):
+    "ProxyManager does not support the supplied scheme"
+    # TODO(t-8ch): Stop inheriting from AssertionError in v2.0.
 
-    content_type = str("multipart/form-data; boundary=%s" % boundary)
+    def __init__(self, scheme):
+        message = "Not supported proxy scheme %s" % scheme
+        super(ProxySchemeUnknown, self).__init__(message)
 
-    return body.getvalue(), content_type
+
+class HeaderParsingError(HTTPError):
+    "Raised by assert_header_parsing, but we convert it to a log.warning statement."
+
+    def __init__(self, defects, unparsed_data):
+        message = "%s, unparsed data: %r" % (defects or "Unknown", unparsed_data)
+        super(HeaderParsingError, self).__init__(message)
+
+
+class UnrewindableBodyError(HTTPError):
+    "urllib3 encountered an error when trying to rewind a body"
+    pass

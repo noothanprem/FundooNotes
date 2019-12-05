@@ -1,1 +1,0 @@
-уюBvenv/lib64/python3.6/site-packages/django/contrib/messages/apps.py 2pyXh

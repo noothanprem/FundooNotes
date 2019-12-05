@@ -1,1 +1,0 @@
-Ú[Hvenv/lib/python3.6/site-packages/faker/providers/lorem/ar_AA/__init__.py 2pyXxh

@@ -1,1 +1,0 @@
-Á>venv/lib/python3.6/site-packages/celery/concurrency/prefork.py 2pyX¨h

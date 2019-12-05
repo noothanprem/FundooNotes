@@ -1,110 +1,45 @@
 # coding=utf-8
 from __future__ import unicode_literals
-from decimal import Decimal
 
-from .. import BaseProvider
-from .. import date_time
-
-localized = True
+from .. import Provider as AddressProvider
 
 
-class Provider(BaseProvider):
-    city_suffixes = ['Ville', ]
-    street_suffixes = ['Street', ]
-    city_formats = ('{{first_name}} {{city_suffix}}', )
-    street_name_formats = ('{{last_name}} {{street_suffix}}', )
-    street_address_formats = ('{{building_number}} {{street_name}}', )
-    address_formats = ('{{street_address}} {{postcode}} {{city}}', )
-    building_number_formats = ('##', )
-    postcode_formats = ('#####', )
-    countries = [tz['name'] for tz in date_time.Provider.countries]
+class Provider(AddressProvider):
+    city_suffixes = ['berg', 'borg', 'by', 'bø', 'dal', 'eid', 'fjell',
+                     'fjord', 'foss', 'grunn', 'hamn', 'havn', 'helle', 'mark',
+                     'nes', 'odden', 'sand', 'sjøen', 'stad', 'strand',
+                     'strøm', 'sund', 'vik', 'vær', 'våg', 'ø', 'øy', 'ås']
+    street_suffixes = ['alléen', 'bakken', 'berget', 'bråten', 'eggen',
+                       'engen', 'ekra', 'faret', 'flata', 'gata', 'gjerdet',
+                       'grenda', 'gropa', 'hagen', 'haugen', 'havna', 'holtet',
+                       'høgda', 'jordet', 'kollen', 'kroken', 'lia', 'lunden',
+                       'lyngen', 'løkka', 'marka', 'moen', 'myra', 'plassen',
+                       'ringen', 'roa', 'røa', 'skogen', 'skrenten',
+                       'spranget', 'stien', 'stranda', 'stubben', 'stykket',
+                       'svingen', 'tjernet', 'toppen', 'tunet', 'vollen',
+                       'vika', 'åsen']
+    city_formats = [
+        '{{first_name}}{{city_suffix}}', '{{last_name}}']
+    street_name_formats = [
+        '{{last_name}}{{street_suffix}}',
+    ]
+    street_address_formats = ('{{street_name}} {{building_number}}',)
+    address_formats = ('{{street_address}}, {{postcode}} {{city}}',)
+    building_number_formats = ('%', '%', '%', '%?', '##', '##', '##?', '###',)
+    building_number_suffixes = {
+        'A': 0.2, 'B': 0.2, 'C': 0.2, 'D': 0.1, 'E': 0.1, 'F': 0.1, 'G': 0.05,
+        'H': 0.05}
+    postcode_formats = ('####',)
 
-    ALPHA_2 = 'alpha-2'
-    ALPHA_3 = 'alpha-3'
-
-    alpha_2_country_codes = [tz['alpha-2-code'] for tz in date_time.Provider.countries]
-    alpha_3_country_codes = [tz['alpha-3-code'] for tz in date_time.Provider.countries]
+    def building_number(self):
+        suffix = self.random_element(self.building_number_suffixes)
+        return self.numerify(
+            self.random_element(
+                self.building_number_formats)).replace(
+            '?', suffix)
 
     def city_suffix(self):
-        """
-        :example 'town'
-        """
         return self.random_element(self.city_suffixes)
 
     def street_suffix(self):
-        """
-        :example 'Avenue'
-        """
         return self.random_element(self.street_suffixes)
-
-    def building_number(self):
-        """
-        :example '791'
-        """
-        return self.numerify(self.random_element(self.building_number_formats))
-
-    def city(self):
-        """
-        :example 'Sashabury'
-        """
-        pattern = self.random_element(self.city_formats)
-        return self.generator.parse(pattern)
-
-    def street_name(self):
-        """
-        :example 'Crist Parks'
-        """
-        pattern = self.random_element(self.street_name_formats)
-        return self.generator.parse(pattern)
-
-    def street_address(self):
-        """
-        :example '791 Crist Parks'
-        """
-        pattern = self.random_element(self.street_address_formats)
-        return self.generator.parse(pattern)
-
-    def postcode(self):
-        """
-        :example 86039-9874
-        """
-        return self.bothify(self.random_element(self.postcode_formats)).upper()
-
-    def address(self):
-        """
-        :example '791 Crist Parks, Sashabury, IL 86039-9874'
-        """
-        pattern = self.random_element(self.address_formats)
-        return self.generator.parse(pattern)
-
-    def country(self):
-        return self.random_element(self.countries)
-
-    def country_code(self, representation=ALPHA_2):
-        if representation == self.ALPHA_2:
-            return self.random_element(self.alpha_2_country_codes)
-        elif representation == self.ALPHA_3:
-            return self.random_element(self.alpha_3_country_codes)
-        else:
-            raise ValueError("`representation` must be one of `alpha-2` or `alpha-3`.")
-
-    def geo_coordinate(self, center=None, radius=0.001):
-        """
-        Optionally center the coord and pick a point within radius.
-        """
-        if center is None:
-            return Decimal(str(self.generator.random.randint(-180000000,
-                                                             180000000) / 1000000.0)).quantize(Decimal('.000001'))
-        else:
-            center = float(center)
-            radius = float(radius)
-            geo = self.generator.random.uniform(
-                center - radius, center + radius)
-            return Decimal(str(geo)).quantize(Decimal('.000001'))
-
-    def latitude(self):
-        # Latitude has a range of -90 to 90, so divide by two.
-        return self.geo_coordinate() / 2
-
-    def longitude(self):
-        return self.geo_coordinate()

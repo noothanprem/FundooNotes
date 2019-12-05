@@ -1,1 +1,1 @@
-þ¦>venv/lib64/python3.6/site-packages/faker/providers/lorem/el_GR :û¦
+þ¦>venv/lib64/python3.6/site-packages/faker/providers/lorem/el_GR :ý¦

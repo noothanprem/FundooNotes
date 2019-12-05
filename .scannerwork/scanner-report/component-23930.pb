@@ -1,1 +1,1 @@
-úºBvenv/lib/python3.6/site-packages/social_core/backends/instagram.py 2pyX6h
+úºAvenv/lib/python3.6/site-packages/social_core/backends/universe.py 2pyX$h

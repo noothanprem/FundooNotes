@@ -1,1 +1,1 @@
-“R9venv/lib/python3.6/site-packages/channels/generic/http.py 2pyX]h
+“R1venv/lib/python3.6/site-packages/channels/generic :’R”R›R

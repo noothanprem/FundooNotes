@@ -1,1 +1,1 @@
-¬½Fvenv/lib/python3.6/site-packages/django_extensions/management/color.py 2pyXh
+¬½=venv/lib/python3.6/site-packages/django_extensions/management :$«½­½®½¯½°½±½²½¿½Á½Â½Ã½Ä½

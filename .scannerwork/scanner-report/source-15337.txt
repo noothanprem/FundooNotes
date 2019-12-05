@@ -11,43 +11,47 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 
-from awscli.customizations.emr import argumentschema
-from awscli.customizations.emr import emrutils
-from awscli.customizations.emr import helptext
-from awscli.customizations.emr import steputils
-from awscli.customizations.emr.command import Command
+from awscli.customizations.emr import constants
+from awscli.customizations.emr import exceptions
 
 
-class AddSteps(Command):
-    NAME = 'add-steps'
-    DESCRIPTION = ('Add a list of steps to a cluster.')
-    ARG_TABLE = [
-        {'name': 'cluster-id', 'required': True,
-         'help_text': helptext.CLUSTER_ID
-         },
-        {'name': 'steps',
-         'required': True,
-         'nargs': '+',
-         'schema': argumentschema.STEPS_SCHEMA,
-         'help_text': helptext.STEPS
-         }
-    ]
+def validate_and_build_instance_fleets(parsed_instance_fleets):
+    """
+    Helper method that converts --instance-fleets option value in
+    create-cluster to Amazon Elastic MapReduce InstanceFleetConfig
+    data type.
+    """
+    instance_fleets = []
+    for instance_fleet in parsed_instance_fleets:
+        instance_fleet_config = {}
 
-    def _run_main_command(self, parsed_args, parsed_globals):
-        parsed_steps = parsed_args.steps
+        keys = instance_fleet.keys()
 
-        release_label = emrutils.get_release_label(
-            parsed_args.cluster_id, self._session, self.region,
-            parsed_globals.endpoint_url, parsed_globals.verify_ssl)
+        if 'Name' in keys:
+            instance_fleet_config['Name'] = instance_fleet['Name']
+        else:
+            instance_fleet_config['Name'] = instance_fleet['InstanceFleetType']
+        instance_fleet_config['InstanceFleetType'] = instance_fleet['InstanceFleetType']
 
-        step_list = steputils.build_step_config_list(
-            parsed_step_list=parsed_steps, region=self.region,
-            release_label=release_label)
-        parameters = {
-            'JobFlowId': parsed_args.cluster_id,
-            'Steps': step_list
-        }
+        if 'TargetOnDemandCapacity' in keys:
+            instance_fleet_config['TargetOnDemandCapacity'] = instance_fleet['TargetOnDemandCapacity']
 
-        emrutils.call_and_display_response(self._session, 'AddJobFlowSteps',
-                                           parameters, parsed_globals)
-        return 0
+        if 'TargetSpotCapacity' in keys:
+            instance_fleet_config['TargetSpotCapacity'] = instance_fleet['TargetSpotCapacity']
+
+        if 'InstanceTypeConfigs' in keys:
+            if 'TargetSpotCapacity' in keys:
+                for instance_type_config in instance_fleet['InstanceTypeConfigs']:
+                    instance_type_config_keys = instance_type_config.keys()
+            instance_fleet_config['InstanceTypeConfigs'] = instance_fleet['InstanceTypeConfigs']
+
+        if 'LaunchSpecifications' in keys:
+            instanceFleetProvisioningSpecifications = instance_fleet['LaunchSpecifications']
+            instance_fleet_config['LaunchSpecifications'] = {}
+
+            if 'SpotSpecification' in instanceFleetProvisioningSpecifications:
+                instance_fleet_config['LaunchSpecifications']['SpotSpecification'] = \
+                    instanceFleetProvisioningSpecifications['SpotSpecification']
+
+        instance_fleets.append(instance_fleet_config)
+    return instance_fleets

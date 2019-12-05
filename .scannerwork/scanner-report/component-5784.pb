@@ -1,1 +1,0 @@
-˜-Pvenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/base/features.py 2pyXch

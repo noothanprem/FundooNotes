@@ -1,1 +1,1 @@
-ýTvenv/lib/python3.6/site-packages/django_extensions/management/email_notifications.py 2pyX�h
+ýFvenv/lib/python3.6/site-packages/django_extensions/management/utils.py 2pyXKh

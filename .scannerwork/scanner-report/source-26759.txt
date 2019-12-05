@@ -1,103 +1,236 @@
-# -*- coding: utf-8 -*-
-"""Consul result store backend.
-
-- :class:`ConsulBackend` implements KeyValueStoreBackend to store results
-    in the key-value store of Consul.
-"""
+# -* coding: utf-8 -*-
+"""Apache Cassandra result store backend using the DataStax driver."""
 from __future__ import absolute_import, unicode_literals
 
-from kombu.utils.encoding import bytes_to_str
-from kombu.utils.url import parse_url
+import sys
 
-from celery.backends.base import KeyValueStoreBackend
+from celery import states
 from celery.exceptions import ImproperlyConfigured
 from celery.utils.log import get_logger
 
-try:
-    import consul
-except ImportError:
-    consul = None
+from .base import BaseBackend
+
+try:  # pragma: no cover
+    import cassandra
+    import cassandra.auth
+    import cassandra.cluster
+except ImportError:  # pragma: no cover
+    cassandra = None   # noqa
+
+
+__all__ = ('CassandraBackend',)
 
 logger = get_logger(__name__)
 
-__all__ = ('ConsulBackend',)
+E_NO_CASSANDRA = """
+You need to install the cassandra-driver library to
+use the Cassandra backend.  See https://github.com/datastax/python-driver
+"""
 
-CONSUL_MISSING = """\
-You need to install the python-consul library in order to use \
-the Consul result store backend."""
+E_NO_SUCH_CASSANDRA_AUTH_PROVIDER = """
+CASSANDRA_AUTH_PROVIDER you provided is not a valid auth_provider class.
+See https://datastax.github.io/python-driver/api/cassandra/auth.html.
+"""
+
+Q_INSERT_RESULT = """
+INSERT INTO {table} (
+    task_id, status, result, date_done, traceback, children) VALUES (
+        %s, %s, %s, %s, %s, %s) {expires};
+"""
+
+Q_SELECT_RESULT = """
+SELECT status, result, date_done, traceback, children
+FROM {table}
+WHERE task_id=%s
+LIMIT 1
+"""
+
+Q_CREATE_RESULT_TABLE = """
+CREATE TABLE {table} (
+    task_id text,
+    status text,
+    result blob,
+    date_done timestamp,
+    traceback blob,
+    children blob,
+    PRIMARY KEY ((task_id), date_done)
+) WITH CLUSTERING ORDER BY (date_done DESC);
+"""
+
+Q_EXPIRES = """
+    USING TTL {0}
+"""
+
+if sys.version_info[0] == 3:
+    def buf_t(x):
+        return bytes(x, 'utf8')
+else:
+    buf_t = buffer  # noqa
 
 
-class ConsulBackend(KeyValueStoreBackend):
-    """Consul.io K/V store backend for Celery."""
+class CassandraBackend(BaseBackend):
+    """Cassandra backend utilizing DataStax driver.
 
-    consul = consul
+    Raises:
+        celery.exceptions.ImproperlyConfigured:
+            if module :pypi:`cassandra-driver` is not available,
+            or if the :setting:`cassandra_servers` setting is not set.
+    """
 
-    supports_autoexpire = True
+    #: List of Cassandra servers with format: ``hostname``.
+    servers = None
 
-    client = None
-    consistency = 'consistent'
-    path = None
+    supports_autoexpire = True      # autoexpire supported via entry_ttl
 
-    def __init__(self, *args, **kwargs):
-        super(ConsulBackend, self).__init__(*args, **kwargs)
+    def __init__(self, servers=None, keyspace=None, table=None, entry_ttl=None,
+                 port=9042, **kwargs):
+        super(CassandraBackend, self).__init__(**kwargs)
 
-        if self.consul is None:
-            raise ImproperlyConfigured(CONSUL_MISSING)
+        if not cassandra:
+            raise ImproperlyConfigured(E_NO_CASSANDRA)
 
-        self._init_from_params(**parse_url(self.url))
+        conf = self.app.conf
+        self.servers = servers or conf.get('cassandra_servers', None)
+        self.port = port or conf.get('cassandra_port', None)
+        self.keyspace = keyspace or conf.get('cassandra_keyspace', None)
+        self.table = table or conf.get('cassandra_table', None)
+        self.cassandra_options = conf.get('cassandra_options', {})
 
-    def _init_from_params(self, hostname, port, virtual_host, **params):
-        logger.debug('Setting on Consul client to connect to %s:%d',
-                     hostname, port)
-        self.path = virtual_host
-        self.client = consul.Consul(host=hostname, port=port,
-                                    consistency=self.consistency)
+        if not self.servers or not self.keyspace or not self.table:
+            raise ImproperlyConfigured('Cassandra backend not configured.')
 
-    def _key_to_consul_key(self, key):
-        key = bytes_to_str(key)
-        return key if self.path is None else '{0}/{1}'.format(self.path, key)
+        expires = entry_ttl or conf.get('cassandra_entry_ttl', None)
 
-    def get(self, key):
-        key = self._key_to_consul_key(key)
-        logger.debug('Trying to fetch key %s from Consul', key)
-        try:
-            _, data = self.client.kv.get(key)
-            return data['Value']
-        except TypeError:
-            pass
+        self.cqlexpires = (
+            Q_EXPIRES.format(expires) if expires is not None else '')
 
-    def mget(self, keys):
-        for key in keys:
-            yield self.get(key)
+        read_cons = conf.get('cassandra_read_consistency') or 'LOCAL_QUORUM'
+        write_cons = conf.get('cassandra_write_consistency') or 'LOCAL_QUORUM'
 
-    def set(self, key, value):
-        """Set a key in Consul.
+        self.read_consistency = getattr(
+            cassandra.ConsistencyLevel, read_cons,
+            cassandra.ConsistencyLevel.LOCAL_QUORUM)
+        self.write_consistency = getattr(
+            cassandra.ConsistencyLevel, write_cons,
+            cassandra.ConsistencyLevel.LOCAL_QUORUM)
 
-        Before creating the key it will create a session inside Consul
-        where it creates a session with a TTL
+        self.auth_provider = None
+        auth_provider = conf.get('cassandra_auth_provider', None)
+        auth_kwargs = conf.get('cassandra_auth_kwargs', None)
+        if auth_provider and auth_kwargs:
+            auth_provider_class = getattr(cassandra.auth, auth_provider, None)
+            if not auth_provider_class:
+                raise ImproperlyConfigured(E_NO_SUCH_CASSANDRA_AUTH_PROVIDER)
+            self.auth_provider = auth_provider_class(**auth_kwargs)
 
-        The key created afterwards will reference to the session's ID.
+        self._connection = None
+        self._session = None
+        self._write_stmt = None
+        self._read_stmt = None
+        self._make_stmt = None
 
-        If the session expires it will remove the key so that results
-        can auto expire from the K/V store
+    def process_cleanup(self):
+        if self._connection is not None:
+            self._connection.shutdown()  # also shuts down _session
+        self._connection = None
+        self._session = None
+
+    def _get_connection(self, write=False):
+        """Prepare the connection for action.
+
+        Arguments:
+            write (bool): are we a writer?
         """
-        session_name = bytes_to_str(key)
+        if self._connection is not None:
+            return
+        try:
+            self._connection = cassandra.cluster.Cluster(
+                self.servers, port=self.port,
+                auth_provider=self.auth_provider,
+                **self.cassandra_options)
+            self._session = self._connection.connect(self.keyspace)
 
-        key = self._key_to_consul_key(key)
+            # We're forced to do concatenation below, as formatting would
+            # blow up on superficial %s that'll be processed by Cassandra
+            self._write_stmt = cassandra.query.SimpleStatement(
+                Q_INSERT_RESULT.format(
+                    table=self.table, expires=self.cqlexpires),
+            )
+            self._write_stmt.consistency_level = self.write_consistency
 
-        logger.debug('Trying to create Consul session %s with TTL %d',
-                     session_name, self.expires)
-        session_id = self.client.session.create(name=session_name,
-                                                behavior='delete',
-                                                ttl=self.expires)
-        logger.debug('Created Consul session %s', session_id)
+            self._read_stmt = cassandra.query.SimpleStatement(
+                Q_SELECT_RESULT.format(table=self.table),
+            )
+            self._read_stmt.consistency_level = self.read_consistency
 
-        logger.debug('Writing key %s to Consul', key)
-        return self.client.kv.put(key=key,
-                                  value=value,
-                                  acquire=session_id)
+            if write:
+                # Only possible writers "workers" are allowed to issue
+                # CREATE TABLE.  This is to prevent conflicting situations
+                # where both task-creator and task-executor would issue it
+                # at the same time.
 
-    def delete(self, key):
-        key = self._key_to_consul_key(key)
-        logger.debug('Removing key %s from Consul', key)
-        return self.client.kv.delete(key)
+                # Anyway; if you're doing anything critical, you should
+                # have created this table in advance, in which case
+                # this query will be a no-op (AlreadyExists)
+                self._make_stmt = cassandra.query.SimpleStatement(
+                    Q_CREATE_RESULT_TABLE.format(table=self.table),
+                )
+                self._make_stmt.consistency_level = self.write_consistency
+
+                try:
+                    self._session.execute(self._make_stmt)
+                except cassandra.AlreadyExists:
+                    pass
+
+        except cassandra.OperationTimedOut:
+            # a heavily loaded or gone Cassandra cluster failed to respond.
+            # leave this class in a consistent state
+            if self._connection is not None:
+                self._connection.shutdown()     # also shuts down _session
+
+            self._connection = None
+            self._session = None
+            raise   # we did fail after all - reraise
+
+    def _store_result(self, task_id, result, state,
+                      traceback=None, request=None, **kwargs):
+        """Store return value and state of an executed task."""
+        self._get_connection(write=True)
+
+        self._session.execute(self._write_stmt, (
+            task_id,
+            state,
+            buf_t(self.encode(result)),
+            self.app.now(),
+            buf_t(self.encode(traceback)),
+            buf_t(self.encode(self.current_task_children(request)))
+        ))
+
+    def as_uri(self, include_password=True):
+        return 'cassandra://'
+
+    def _get_task_meta_for(self, task_id):
+        """Get task meta-data for a task by id."""
+        self._get_connection()
+
+        res = self._session.execute(self._read_stmt, (task_id, ))
+        if not res:
+            return {'status': states.PENDING, 'result': None}
+
+        status, result, date_done, traceback, children = res[0]
+
+        return self.meta_from_decoded({
+            'task_id': task_id,
+            'status': status,
+            'result': self.decode(result),
+            'date_done': date_done.strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'traceback': self.decode(traceback),
+            'children': self.decode(children),
+        })
+
+    def __reduce__(self, args=(), kwargs={}):
+        kwargs.update(
+            {'servers': self.servers,
+             'keyspace': self.keyspace,
+             'table': self.table})
+        return super(CassandraBackend, self).__reduce__(args, kwargs)

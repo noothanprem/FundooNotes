@@ -2,459 +2,475 @@
 # See LICENSE for details.
 
 """
-Tests for L{twisted.application.runner._runner}.
+Tests for L{twisted.application.runner._pidfile}.
 """
 
-from signal import SIGTERM
-from io import BytesIO
+from functools import wraps
 import errno
+from os import getpid, name as SYSTEM_NAME
+from io import BytesIO
 
-from attr import attrib, attrs, Factory
+from zope.interface import implementer
+from zope.interface.verify import verifyObject
 
-from twisted.logger import (
-    LogLevel, LogPublisher, LogBeginner,
-    FileLogObserver, FilteringLogObserver, LogLevelFilterPredicate,
+from twisted.python.filepath import IFilePath
+from twisted.python.runtime import platform
+
+from ...runner import _pidfile
+from .._pidfile import (
+    IPIDFile, PIDFile, NonePIDFile,
+    AlreadyRunningError, InvalidPIDFileError, StalePIDFileError,
+    NoPIDFound,
 )
-from twisted.test.proto_helpers import MemoryReactor
-
-from ...runner import _runner
-from .._exit import ExitStatus
-from .._pidfile import PIDFile, NonePIDFile
-from .._runner import Runner
-from .test_pidfile import DummyFilePath
 
 import twisted.trial.unittest
+from twisted.trial.unittest import SkipTest
 
 
-
-class RunnerTests(twisted.trial.unittest.TestCase):
+def ifPlatformSupported(f):
     """
-    Tests for L{Runner}.
+    Decorator for tests that are not expected to work on all platforms.
+
+    Calling L{PIDFile.isRunning} currently raises L{NotImplementedError} on
+    non-POSIX platforms.
+
+    On an unsupported platform, we expect to see any test that calls
+    L{PIDFile.isRunning} to raise either L{NotImplementedError}, L{SkipTest},
+    or C{self.failureException}.
+    (C{self.failureException} may occur in a test that checks for a specific
+    exception but it gets NotImplementedError instead.)
+
+    @param f: The test method to decorate.
+    @type f: method
+
+    @return: The wrapped callable.
     """
+    @wraps(f)
+    def wrapper(self, *args, **kwargs):
+        supported = platform.getType() == "posix"
 
-    def setUp(self):
-        # Patch exit and kill so we can capture usage and prevent actual exits
-        # and kills.
-
-        self.exit = DummyExit()
-        self.kill = DummyKill()
-
-        self.patch(_runner, "exit", self.exit)
-        self.patch(_runner, "kill", self.kill)
-
-        # Patch getpid so we get a known result
-
-        self.pid = 1337
-        self.pidFileContent = u"{}\n".format(self.pid).encode("utf-8")
-
-        # Patch globalLogBeginner so that we aren't trying to install multiple
-        # global log observers.
-
-        self.stdout = BytesIO()
-        self.stderr = BytesIO()
-        self.stdio = DummyStandardIO(self.stdout, self.stderr)
-        self.warnings = DummyWarningsModule()
-
-        self.globalLogPublisher = LogPublisher()
-        self.globalLogBeginner = LogBeginner(
-            self.globalLogPublisher,
-            self.stdio.stderr, self.stdio,
-            self.warnings,
-        )
-
-        self.patch(_runner, "stderr", self.stderr)
-        self.patch(_runner, "globalLogBeginner", self.globalLogBeginner)
-
-
-    def test_runInOrder(self):
-        """
-        L{Runner.run} calls the expected methods in order.
-        """
-        runner = DummyRunner(reactor=MemoryReactor())
-        runner.run()
-
-        self.assertEqual(
-            runner.calledMethods,
-            [
-                "killIfRequested",
-                "startLogging",
-                "startReactor",
-                "reactorExited",
-            ]
-        )
-
-
-    def test_runUsesPIDFile(self):
-        """
-        L{Runner.run} uses the provided PID file.
-        """
-        pidFile = DummyPIDFile()
-
-        runner = Runner(reactor=MemoryReactor(), pidFile=pidFile)
-
-        self.assertFalse(pidFile.entered)
-        self.assertFalse(pidFile.exited)
-
-        runner.run()
-
-        self.assertTrue(pidFile.entered)
-        self.assertTrue(pidFile.exited)
-
-
-    def test_runAlreadyRunning(self):
-        """
-        L{Runner.run} exits with L{ExitStatus.EX_USAGE} and the expected
-        message if a process is already running that corresponds to the given
-        PID file.
-        """
-        pidFile = PIDFile(DummyFilePath(self.pidFileContent))
-        pidFile.isRunning = lambda: True
-
-        runner = Runner(reactor=MemoryReactor(), pidFile=pidFile)
-        runner.run()
-
-        self.assertEqual(self.exit.status, ExitStatus.EX_CONFIG)
-        self.assertEqual(self.exit.message, "Already running.")
-
-
-    def test_killNotRequested(self):
-        """
-        L{Runner.killIfRequested} when C{kill} is false doesn't exit and
-        doesn't indiscriminately murder anyone.
-        """
-        runner = Runner(reactor=MemoryReactor())
-        runner.killIfRequested()
-
-        self.assertEqual(self.kill.calls, [])
-        self.assertFalse(self.exit.exited)
-
-
-    def test_killRequestedWithoutPIDFile(self):
-        """
-        L{Runner.killIfRequested} when C{kill} is true but C{pidFile} is
-        L{nonePIDFile} exits with L{ExitStatus.EX_USAGE} and the expected
-        message; and also doesn't indiscriminately murder anyone.
-        """
-        runner = Runner(reactor=MemoryReactor(), kill=True)
-        runner.killIfRequested()
-
-        self.assertEqual(self.kill.calls, [])
-        self.assertEqual(self.exit.status, ExitStatus.EX_USAGE)
-        self.assertEqual(self.exit.message, "No PID file specified.")
-
-
-    def test_killRequestedWithPIDFile(self):
-        """
-        L{Runner.killIfRequested} when C{kill} is true and given a C{pidFile}
-        performs a targeted killing of the appropriate process.
-        """
-        pidFile = PIDFile(DummyFilePath(self.pidFileContent))
-        runner = Runner(reactor=MemoryReactor(), kill=True, pidFile=pidFile)
-        runner.killIfRequested()
-
-        self.assertEqual(self.kill.calls, [(self.pid, SIGTERM)])
-        self.assertEqual(self.exit.status, ExitStatus.EX_OK)
-        self.assertIdentical(self.exit.message, None)
-
-
-    def test_killRequestedWithPIDFileCantRead(self):
-        """
-        L{Runner.killIfRequested} when C{kill} is true and given a C{pidFile}
-        that it can't read exits with L{ExitStatus.EX_IOERR}.
-        """
-        pidFile = PIDFile(DummyFilePath(None))
-
-        def read():
-            raise OSError(errno.EACCES, "Permission denied")
-
-        pidFile.read = read
-
-        runner = Runner(reactor=MemoryReactor(), kill=True, pidFile=pidFile)
-        runner.killIfRequested()
-
-        self.assertEqual(self.exit.status, ExitStatus.EX_IOERR)
-        self.assertEqual(self.exit.message, "Unable to read PID file.")
-
-
-    def test_killRequestedWithPIDFileEmpty(self):
-        """
-        L{Runner.killIfRequested} when C{kill} is true and given a C{pidFile}
-        containing no value exits with L{ExitStatus.EX_DATAERR}.
-        """
-        pidFile = PIDFile(DummyFilePath(b""))
-        runner = Runner(reactor=MemoryReactor(), kill=True, pidFile=pidFile)
-        runner.killIfRequested()
-
-        self.assertEqual(self.exit.status, ExitStatus.EX_DATAERR)
-        self.assertEqual(self.exit.message, "Invalid PID file.")
-
-
-    def test_killRequestedWithPIDFileNotAnInt(self):
-        """
-        L{Runner.killIfRequested} when C{kill} is true and given a C{pidFile}
-        containing a non-integer value exits with L{ExitStatus.EX_DATAERR}.
-        """
-        pidFile = PIDFile(DummyFilePath(b"** totally not a number, dude **"))
-        runner = Runner(reactor=MemoryReactor(), kill=True, pidFile=pidFile)
-        runner.killIfRequested()
-
-        self.assertEqual(self.exit.status, ExitStatus.EX_DATAERR)
-        self.assertEqual(self.exit.message, "Invalid PID file.")
-
-
-    def test_startLogging(self):
-        """
-        L{Runner.startLogging} sets up a filtering observer with a log level
-        predicate set to the given log level that contains a file observer of
-        the given type which writes to the given file.
-        """
-        logFile = BytesIO()
-
-        # Patch the log beginner so that we don't try to start the already
-        # running (started by trial) logging system.
-
-        class LogBeginner(object):
-            def beginLoggingTo(self, observers):
-                LogBeginner.observers = observers
-
-        self.patch(_runner, "globalLogBeginner", LogBeginner())
-
-        # Patch FilteringLogObserver so we can capture its arguments
-
-        class MockFilteringLogObserver(FilteringLogObserver):
-            def __init__(
-                self, observer, predicates,
-                negativeObserver=lambda event: None
-            ):
-                MockFilteringLogObserver.observer = observer
-                MockFilteringLogObserver.predicates = predicates
-                FilteringLogObserver.__init__(
-                    self, observer, predicates, negativeObserver
+        if supported:
+            return f(self, *args, **kwargs)
+        else:
+            e = self.assertRaises(
+                (NotImplementedError, SkipTest, self.failureException),
+                f, self, *args, **kwargs
+            )
+            if isinstance(e, NotImplementedError):
+                self.assertTrue(
+                    str(e).startswith("isRunning is not implemented on ")
                 )
 
-        self.patch(_runner, "FilteringLogObserver", MockFilteringLogObserver)
+    return wrapper
 
-        # Patch FileLogObserver so we can capture its arguments
 
-        class MockFileLogObserver(FileLogObserver):
-            def __init__(self, outFile):
-                MockFileLogObserver.outFile = outFile
-                FileLogObserver.__init__(self, outFile, str)
 
-        # Start logging
-        runner = Runner(
-            reactor=MemoryReactor(),
-            defaultLogLevel=LogLevel.critical,
-            logFile=logFile,
-            fileLogObserverFactory=MockFileLogObserver,
+class PIDFileTests(twisted.trial.unittest.TestCase):
+    """
+    Tests for L{PIDFile}.
+    """
+
+    def test_interface(self):
+        """
+        L{PIDFile} conforms to L{IPIDFile}.
+        """
+        pidFile = PIDFile(DummyFilePath())
+        verifyObject(IPIDFile, pidFile)
+
+
+    def test_formatWithPID(self):
+        """
+        L{PIDFile._format} returns the expected format when given a PID.
+        """
+        self.assertEqual(PIDFile._format(pid=1337), b"1337\n")
+
+
+    def test_readWithPID(self):
+        """
+        L{PIDFile.read} returns the PID from the given file path.
+        """
+        pid = 1337
+
+        pidFile = PIDFile(DummyFilePath(PIDFile._format(pid=pid)))
+
+        self.assertEqual(pid, pidFile.read())
+
+
+    def test_readEmptyPID(self):
+        """
+        L{PIDFile.read} raises L{InvalidPIDFileError} when given an empty file
+        path.
+        """
+        pidValue = b""
+        pidFile = PIDFile(DummyFilePath(b""))
+
+        e = self.assertRaises(InvalidPIDFileError, pidFile.read)
+        self.assertEqual(
+            str(e),
+            "non-integer PID value in PID file: {!r}".format(pidValue)
         )
-        runner.startLogging()
 
-        # Check for a filtering observer
-        self.assertEqual(len(LogBeginner.observers), 1)
-        self.assertIsInstance(LogBeginner.observers[0], FilteringLogObserver)
 
-        # Check log level predicate with the correct default log level
-        self.assertEqual(len(MockFilteringLogObserver.predicates), 1)
-        self.assertIsInstance(
-            MockFilteringLogObserver.predicates[0],
-            LogLevelFilterPredicate
-        )
-        self.assertIdentical(
-            MockFilteringLogObserver.predicates[0].defaultLogLevel,
-            LogLevel.critical
-        )
+    def test_readWithBogusPID(self):
+        """
+        L{PIDFile.read} raises L{InvalidPIDFileError} when given an empty file
+        path.
+        """
+        pidValue = b"$foo!"
+        pidFile = PIDFile(DummyFilePath(pidValue))
 
-        # Check for a file observer attached to the filtering observer
-        self.assertIsInstance(
-            MockFilteringLogObserver.observer, MockFileLogObserver
-        )
-
-        # Check for the file we gave it
-        self.assertIdentical(
-            MockFilteringLogObserver.observer.outFile, logFile
+        e = self.assertRaises(InvalidPIDFileError, pidFile.read)
+        self.assertEqual(
+            str(e),
+            "non-integer PID value in PID file: {!r}".format(pidValue)
         )
 
 
-    def test_startReactorWithReactor(self):
+    def test_readDoesntExist(self):
         """
-        L{Runner.startReactor} with the C{reactor} argument runs the given
-        reactor.
+        L{PIDFile.read} raises L{NoPIDFound} when given a non-existing file
+        path.
         """
-        reactor = MemoryReactor()
-        runner = Runner(reactor=reactor)
-        runner.startReactor()
+        pidFile = PIDFile(DummyFilePath())
 
-        self.assertTrue(reactor.hasRun)
+        e = self.assertRaises(NoPIDFound, pidFile.read)
+        self.assertEqual(str(e), "PID file does not exist")
 
 
-    def test_startReactorWhenRunning(self):
+    def test_readOpenRaisesOSErrorNotENOENT(self):
         """
-        L{Runner.startReactor} ensures that C{whenRunning} is called with
-        C{whenRunningArguments} when the reactor is running.
+        L{PIDFile.read} re-raises L{OSError} if the associated C{errno} is
+        anything other than L{errno.ENOENT}.
         """
-        self._testHook("whenRunning", "startReactor")
+        def oops(mode="r"):
+            raise OSError(errno.EIO, "I/O error")
+
+        self.patch(DummyFilePath, "open", oops)
+
+        pidFile = PIDFile(DummyFilePath())
+
+        error = self.assertRaises(OSError, pidFile.read)
+        self.assertEqual(error.errno, errno.EIO)
 
 
-    def test_whenRunningWithArguments(self):
+    def test_writePID(self):
         """
-        L{Runner.whenRunning} calls C{whenRunning} with
-        C{whenRunningArguments}.
+        L{PIDFile._write} stores the given PID.
         """
-        self._testHook("whenRunning")
+        pid = 1995
+
+        pidFile = PIDFile(DummyFilePath())
+        pidFile._write(pid)
+
+        self.assertEqual(pidFile.read(), pid)
 
 
-    def test_reactorExitedWithArguments(self):
+    def test_writePIDInvalid(self):
         """
-        L{Runner.whenRunning} calls C{reactorExited} with
-        C{reactorExitedArguments}.
+        L{PIDFile._write} raises L{ValueError} when given an invalid PID.
         """
-        self._testHook("reactorExited")
+        pidFile = PIDFile(DummyFilePath())
+
+        self.assertRaises(ValueError, pidFile._write, u"burp")
 
 
-    def _testHook(self, methodName, callerName=None):
+    def test_writeRunningPID(self):
         """
-        Verify that the named hook is run with the expected arguments as
-        specified by the arguments used to create the L{Runner}, when the
-        specified caller is invoked.
-
-        @param methodName: The name of the hook to verify.
-        @type methodName: L{str}
-
-        @param callerName: The name of the method that is expected to cause the
-            hook to be called.
-            If C{None}, use the L{Runner} method with the same name as the
-            hook.
-        @type callerName: L{str}
+        L{PIDFile.writeRunningPID} stores the PID for the current process.
         """
-        if callerName is None:
-            callerName = methodName
+        pidFile = PIDFile(DummyFilePath())
+        pidFile.writeRunningPID()
 
-        arguments = dict(a=object(), b=object(), c=object())
-        argumentsSeen = []
-
-        def hook(**arguments):
-            argumentsSeen.append(arguments)
-
-        runnerArguments = {
-            methodName: hook,
-            "{}Arguments".format(methodName): arguments.copy(),
-        }
-        runner = Runner(reactor=MemoryReactor(), **runnerArguments)
-
-        hookCaller = getattr(runner, callerName)
-        hookCaller()
-
-        self.assertEqual(len(argumentsSeen), 1)
-        self.assertEqual(argumentsSeen[0], arguments)
+        self.assertEqual(pidFile.read(), getpid())
 
 
-
-@attrs(frozen=True)
-class DummyRunner(Runner):
-    """
-    Stub for L{Runner}.
-
-    Keep track of calls to some methods without actually doing anything.
-    """
-
-    calledMethods = attrib(default=Factory(list))
-
-
-    def killIfRequested(self):
-        self.calledMethods.append("killIfRequested")
-
-
-    def startLogging(self):
-        self.calledMethods.append("startLogging")
-
-
-    def startReactor(self):
-        self.calledMethods.append("startReactor")
-
-
-    def reactorExited(self):
-        self.calledMethods.append("reactorExited")
-
-
-
-class DummyPIDFile(NonePIDFile):
-    """
-    Stub for L{PIDFile}.
-
-    Tracks context manager entry/exit without doing anything.
-    """
-    def __init__(self):
-        NonePIDFile.__init__(self)
-
-        self.entered = False
-        self.exited  = False
-
-
-    def __enter__(self):
-        self.entered = True
-        return self
-
-
-    def __exit__(self, excType, excValue, traceback):
-        self.exited  = True
-
-
-
-class DummyExit(object):
-    """
-    Stub for L{exit} that remembers whether it's been called and, if it has,
-    what arguments it was given.
-    """
-
-    def __init__(self):
-        self.exited = False
-
-
-    def __call__(self, status, message=None):
-        assert not self.exited
-
-        self.status  = status
-        self.message = message
-        self.exited  = True
-
-
-
-class DummyKill(object):
-    """
-    Stub for L{os.kill} that remembers whether it's been called and, if it has,
-    what arguments it was given.
-    """
-
-    def __init__(self):
-        self.calls = []
-
-
-    def __call__(self, pid, sig):
-        self.calls.append((pid, sig))
-
-
-
-class DummyStandardIO(object):
-    """
-    Stub for L{sys} which provides L{BytesIO} streams as stdout and stderr.
-    """
-
-    def __init__(self, stdout, stderr):
-        self.stdout = stdout
-        self.stderr = stderr
-
-
-
-class DummyWarningsModule(object):
-    """
-    Stub for L{warnings} which provides a C{showwarning} method that is a no-op.
-    """
-
-    def showwarning(*args, **kwargs):
+    def test_remove(self):
         """
-        Do nothing.
-
-        @param args: ignored.
-        @param kwargs: ignored.
+        L{PIDFile.remove} removes the PID file.
         """
+        pidFile = PIDFile(DummyFilePath(b""))
+        self.assertTrue(pidFile.filePath.exists())
+
+        pidFile.remove()
+        self.assertFalse(pidFile.filePath.exists())
+
+
+    @ifPlatformSupported
+    def test_isRunningDoesExist(self):
+        """
+        L{PIDFile.isRunning} returns true for a process that does exist.
+        """
+        pidFile = PIDFile(DummyFilePath())
+        pidFile._write(1337)
+
+        def kill(pid, signal):
+            return  # Don't actually kill anything
+
+        self.patch(_pidfile, "kill", kill)
+
+        self.assertTrue(pidFile.isRunning())
+
+
+    @ifPlatformSupported
+    def test_isRunningThis(self):
+        """
+        L{PIDFile.isRunning} returns true for this process (which is running).
+
+        @note: This differs from L{PIDFileTests.test_isRunningDoesExist} in
+        that it actually invokes the C{kill} system call, which is useful for
+        testing of our chosen method for probing the existence of a process.
+        """
+        pidFile = PIDFile(DummyFilePath())
+        pidFile.writeRunningPID()
+
+        self.assertTrue(pidFile.isRunning())
+
+
+    @ifPlatformSupported
+    def test_isRunningDoesNotExist(self):
+        """
+        L{PIDFile.isRunning} raises L{StalePIDFileError} for a process that
+        does not exist (errno=ESRCH).
+        """
+        pidFile = PIDFile(DummyFilePath())
+        pidFile._write(1337)
+
+        def kill(pid, signal):
+            raise OSError(errno.ESRCH, "No such process")
+
+        self.patch(_pidfile, "kill", kill)
+
+        self.assertRaises(StalePIDFileError, pidFile.isRunning)
+
+
+    @ifPlatformSupported
+    def test_isRunningNotAllowed(self):
+        """
+        L{PIDFile.isRunning} returns true for a process that we are not allowed
+        to kill (errno=EPERM).
+        """
+        pidFile = PIDFile(DummyFilePath())
+        pidFile._write(1337)
+
+        def kill(pid, signal):
+            raise OSError(errno.EPERM, "Operation not permitted")
+
+        self.patch(_pidfile, "kill", kill)
+
+        self.assertTrue(pidFile.isRunning())
+
+
+    @ifPlatformSupported
+    def test_isRunningInit(self):
+        """
+        L{PIDFile.isRunning} returns true for a process that we are not allowed
+        to kill (errno=EPERM).
+
+        @note: This differs from L{PIDFileTests.test_isRunningNotAllowed} in
+        that it actually invokes the C{kill} system call, which is useful for
+        testing of our chosen method for probing the existence of a process
+        that we are not allowed to kill.
+
+        @note: In this case, we try killing C{init}, which is process #1 on
+        POSIX systems, so this test is not portable.  C{init} should always be
+        running and should not be killable by non-root users.
+        """
+        if SYSTEM_NAME != "posix":
+            raise SkipTest("This test assumes POSIX")
+
+        pidFile = PIDFile(DummyFilePath())
+        pidFile._write(1)  # PID 1 is init on POSIX systems
+
+        self.assertTrue(pidFile.isRunning())
+
+
+    @ifPlatformSupported
+    def test_isRunningUnknownErrno(self):
+        """
+        L{PIDFile.isRunning} re-raises L{OSError} if the attached C{errno}
+        value from L{os.kill} is not an expected one.
+        """
+        pidFile = PIDFile(DummyFilePath())
+        pidFile.writeRunningPID()
+
+        def kill(pid, signal):
+            raise OSError(errno.EEXIST, "File exists")
+
+        self.patch(_pidfile, "kill", kill)
+
+        self.assertRaises(OSError, pidFile.isRunning)
+
+
+    def test_isRunningNoPIDFile(self):
+        """
+        L{PIDFile.isRunning} returns false if the PID file doesn't exist.
+        """
+        pidFile = PIDFile(DummyFilePath())
+
+        self.assertFalse(pidFile.isRunning())
+
+
+    def test_contextManager(self):
+        """
+        When used as a context manager, a L{PIDFile} will store the current pid
+        on entry, then removes the PID file on exit.
+        """
+        pidFile = PIDFile(DummyFilePath())
+        self.assertFalse(pidFile.filePath.exists())
+
+        with pidFile:
+            self.assertTrue(pidFile.filePath.exists())
+            self.assertEqual(pidFile.read(), getpid())
+
+        self.assertFalse(pidFile.filePath.exists())
+
+
+    @ifPlatformSupported
+    def test_contextManagerDoesntExist(self):
+        """
+        When used as a context manager, a L{PIDFile} will replace the
+        underlying PIDFile rather than raising L{AlreadyRunningError} if the
+        contained PID file exists but refers to a non-running PID.
+        """
+        pidFile = PIDFile(DummyFilePath())
+        pidFile._write(1337)
+
+        def kill(pid, signal):
+            raise OSError(errno.ESRCH, "No such process")
+
+        self.patch(_pidfile, "kill", kill)
+
+        e = self.assertRaises(StalePIDFileError, pidFile.isRunning)
+        self.assertEqual(str(e), "PID file refers to non-existing process")
+
+        with pidFile:
+            self.assertEqual(pidFile.read(), getpid())
+
+
+    @ifPlatformSupported
+    def test_contextManagerAlreadyRunning(self):
+        """
+        When used as a context manager, a L{PIDFile} will raise
+        L{AlreadyRunningError} if the there is already a running process with
+        the contained PID.
+        """
+        pidFile = PIDFile(DummyFilePath())
+        pidFile._write(1337)
+
+        def kill(pid, signal):
+            return  # Don't actually kill anything
+
+        self.patch(_pidfile, "kill", kill)
+
+        self.assertTrue(pidFile.isRunning())
+
+        self.assertRaises(AlreadyRunningError, pidFile.__enter__)
+
+
+
+class NonePIDFileTests(twisted.trial.unittest.TestCase):
+    """
+    Tests for L{NonePIDFile}.
+    """
+
+    def test_interface(self):
+        """
+        L{NonePIDFile} conforms to L{IPIDFile}.
+        """
+        pidFile = NonePIDFile()
+        verifyObject(IPIDFile, pidFile)
+
+
+    def test_read(self):
+        """
+        L{NonePIDFile.read} raises L{NoPIDFound}.
+        """
+        pidFile = NonePIDFile()
+
+        e = self.assertRaises(NoPIDFound, pidFile.read)
+        self.assertEqual(str(e), "PID file does not exist")
+
+
+    def test_write(self):
+        """
+        L{NonePIDFile._write} raises L{OSError} with an errno of L{errno.EPERM}.
+        """
+        pidFile = NonePIDFile()
+
+        error = self.assertRaises(OSError, pidFile._write, 0)
+        self.assertEqual(error.errno, errno.EPERM)
+
+
+    def test_writeRunningPID(self):
+        """
+        L{NonePIDFile.writeRunningPID} raises L{OSError} with an errno of
+        L{errno.EPERM}.
+        """
+        pidFile = NonePIDFile()
+
+        error = self.assertRaises(OSError, pidFile.writeRunningPID)
+        self.assertEqual(error.errno, errno.EPERM)
+
+
+    def test_remove(self):
+        """
+        L{NonePIDFile.remove} raises L{OSError} with an errno of L{errno.EPERM}.
+        """
+        pidFile = NonePIDFile()
+
+        error = self.assertRaises(OSError, pidFile.remove)
+        self.assertEqual(error.errno, errno.ENOENT)
+
+
+    def test_isRunning(self):
+        """
+        L{NonePIDFile.isRunning} returns L{False}.
+        """
+        pidFile = NonePIDFile()
+
+        self.assertEqual(pidFile.isRunning(), False)
+
+
+    def test_contextManager(self):
+        """
+        When used as a context manager, a L{NonePIDFile} doesn't raise, despite
+        not existing.
+        """
+        pidFile = NonePIDFile()
+
+        with pidFile:
+            pass
+
+
+
+@implementer(IFilePath)
+class DummyFilePath(object):
+    """
+    In-memory L{IFilePath}.
+    """
+
+    def __init__(self, content=None):
+        self.setContent(content)
+
+
+    def open(self, mode="r"):
+        if not self._exists:
+            raise OSError(errno.ENOENT, "No such file or directory")
+        return BytesIO(self.getContent())
+
+
+    def setContent(self, content):
+        self._exists = content is not None
+        self._content = content
+
+
+    def getContent(self):
+        return self._content
+
+
+    def remove(self):
+        self.setContent(None)
+
+
+    def exists(self):
+        return self._exists

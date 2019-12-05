@@ -1,862 +1,1420 @@
-# -*- coding: ascii -*-
-"""
-lots of Excel Magic Numbers
-"""
+# -*- coding: windows-1252 -*-
+#             BOF
+#             UNCALCED
+#             INDEX
+#             Calculation Settings Block
+#             PRINTHEADERS
+#             PRINTGRIDLINES
+#             GRIDSET
+#             GUTS
+#             DEFAULTROWHEIGHT
+#             WSBOOL
+#             Page Settings Block
+#             Worksheet Protection Block
+#             DEFCOLWIDTH
+#             COLINFO
+#             SORT
+#             DIMENSIONS
+#             Row Blocks
+#             WINDOW2
+#             SCL
+#             PANE
+#             SELECTION
+#             STANDARDWIDTH
+#             MERGEDCELLS
+#             LABELRANGES
+#             PHONETIC
+#             Conditional Formatting Table
+#             Hyperlink Table
+#             Data Validity Table
+#             SHEETLAYOUT (BIFF8X only)
+#             SHEETPROTECTION (BIFF8X only)
+#             RANGEPROTECTION (BIFF8X only)
+#             EOF
 
-# Boundaries BIFF8+
+from . import BIFFRecords
+from . import Bitmap
+from . import Style
+from .Row import Row
+from .Column import Column
+from .compat import unicode, itervalues
+import tempfile
 
-MAX_ROW = 65536
-MAX_COL = 256
+class Worksheet(object):
+    """
+    This is a class
+    representing the contents of a sheet in a workbook.
 
+    .. warning::
 
-biff_records = {
-    0x0000: "DIMENSIONS",
-    0x0001: "BLANK",
-    0x0002: "INTEGER",
-    0x0003: "NUMBER",
-    0x0004: "LABEL",
-    0x0005: "BOOLERR",
-    0x0006: "FORMULA",
-    0x0007: "STRING",
-    0x0008: "ROW",
-    0x0009: "BOF",
-    0x000A: "EOF",
-    0x000B: "INDEX",
-    0x000C: "CALCCOUNT",
-    0x000D: "CALCMODE",
-    0x000E: "PRECISION",
-    0x000F: "REFMODE",
-    0x0010: "DELTA",
-    0x0011: "ITERATION",
-    0x0012: "PROTECT",
-    0x0013: "PASSWORD",
-    0x0014: "HEADER",
-    0x0015: "FOOTER",
-    0x0016: "EXTERNCOUNT",
-    0x0017: "EXTERNSHEET",
-    0x0018: "NAME",
-    0x0019: "WINDOWPROTECT",
-    0x001A: "VERTICALPAGEBREAKS",
-    0x001B: "HORIZONTALPAGEBREAKS",
-    0x001C: "NOTE",
-    0x001D: "SELECTION",
-    0x001E: "FORMAT",
-    0x001F: "FORMATCOUNT",
-    0x0020: "COLUMNDEFAULT",
-    0x0021: "ARRAY",
-    0x0022: "1904",
-    0x0023: "EXTERNNAME",
-    0x0024: "COLWIDTH",
-    0x0025: "DEFAULTROWHEIGHT",
-    0x0026: "LEFTMARGIN",
-    0x0027: "RIGHTMARGIN",
-    0x0028: "TOPMARGIN",
-    0x0029: "BOTTOMMARGIN",
-    0x002A: "PRINTHEADERS",
-    0x002B: "PRINTGRIDLINES",
-    0x002F: "FILEPASS",
-    0x0031: "FONT",
-    0x0036: "TABLE",
-    0x003C: "CONTINUE",
-    0x003D: "WINDOW1",
-    0x003E: "WINDOW2",
-    0x0040: "BACKUP",
-    0x0041: "PANE",
-    0x0042: "CODEPAGE",
-    0x0043: "XF",
-    0x0044: "IXFE",
-    0x0045: "EFONT",
-    0x004D: "PLS",
-    0x0050: "DCON",
-    0x0051: "DCONREF",
-    0x0053: "DCONNAME",
-    0x0055: "DEFCOLWIDTH",
-    0x0056: "BUILTINFMTCNT",
-    0x0059: "XCT",
-    0x005A: "CRN",
-    0x005B: "FILESHARING",
-    0x005C: "WRITEACCESS",
-    0x005D: "OBJ",
-    0x005E: "UNCALCED",
-    0x005F: "SAFERECALC",
-    0x0060: "TEMPLATE",
-    0x0063: "OBJPROTECT",
-    0x007D: "COLINFO",
-    0x007E: "RK",
-    0x007F: "IMDATA",
-    0x0080: "GUTS",
-    0x0081: "WSBOOL",
-    0x0082: "GRIDSET",
-    0x0083: "HCENTER",
-    0x0084: "VCENTER",
-    0x0085: "BOUNDSHEET",
-    0x0086: "WRITEPROT",
-    0x0087: "ADDIN",
-    0x0088: "EDG",
-    0x0089: "PUB",
-    0x008C: "COUNTRY",
-    0x008D: "HIDEOBJ",
-    0x008E: "BUNDLESOFFSET",
-    0x008F: "BUNDLEHEADER",
-    0x0090: "SORT",
-    0x0091: "SUB",
-    0x0092: "PALETTE",
-    0x0093: "STYLE",
-    0x0094: "LHRECORD",
-    0x0095: "LHNGRAPH",
-    0x0096: "SOUND",
-    0x0098: "LPR",
-    0x0099: "STANDARDWIDTH",
-    0x009A: "FNGROUPNAME",
-    0x009B: "FILTERMODE",
-    0x009C: "FNGROUPCOUNT",
-    0x009D: "AUTOFILTERINFO",
-    0x009E: "AUTOFILTER",
-    0x00A0: "SCL",
-    0x00A1: "SETUP",
-    0x00A9: "COORDLIST",
-    0x00AB: "GCW",
-    0x00AE: "SCENMAN",
-    0x00AF: "SCENARIO",
-    0x00B0: "SXVIEW",
-    0x00B1: "SXVD",
-    0x00B2: "SXVI",
-    0x00B4: "SXIVD",
-    0x00B5: "SXLI",
-    0x00B6: "SXPI",
-    0x00B8: "DOCROUTE",
-    0x00B9: "RECIPNAME",
-    0x00BC: "SHRFMLA",
-    0x00BD: "MULRK",
-    0x00BE: "MULBLANK",
-    0x00C1: "MMS",
-    0x00C2: "ADDMENU",
-    0x00C3: "DELMENU",
-    0x00C5: "SXDI",
-    0x00C6: "SXDB",
-    0x00C7: "SXFIELD",
-    0x00C8: "SXINDEXLIST",
-    0x00C9: "SXDOUBLE",
-    0x00CD: "SXSTRING",
-    0x00CE: "SXDATETIME",
-    0x00D0: "SXTBL",
-    0x00D1: "SXTBRGITEM",
-    0x00D2: "SXTBPG",
-    0x00D3: "OBPROJ",
-    0x00D5: "SXIDSTM",
-    0x00D6: "RSTRING",
-    0x00D7: "DBCELL",
-    0x00DA: "BOOKBOOL",
-    0x00DC: "SXEXT|PARAMQRY",
-    0x00DD: "SCENPROTECT",
-    0x00DE: "OLESIZE",
-    0x00DF: "UDDESC",
-    0x00E0: "XF",
-    0x00E1: "INTERFACEHDR",
-    0x00E2: "INTERFACEEND",
-    0x00E3: "SXVS",
-    0x00E5: "MERGEDCELLS",
-    0x00E9: "BITMAP",
-    0x00EB: "MSODRAWINGGROUP",
-    0x00EC: "MSODRAWING",
-    0x00ED: "MSODRAWINGSELECTION",
-    0x00F0: "SXRULE",
-    0x00F1: "SXEX",
-    0x00F2: "SXFILT",
-    0x00F6: "SXNAME",
-    0x00F7: "SXSELECT",
-    0x00F8: "SXPAIR",
-    0x00F9: "SXFMLA",
-    0x00FB: "SXFORMAT",
-    0x00FC: "SST",
-    0x00FD: "LABELSST",
-    0x00FF: "EXTSST",
-    0x0100: "SXVDEX",
-    0x0103: "SXFORMULA",
-    0x0122: "SXDBEX",
-    0x0137: "CHTRINSERT",
-    0x0138: "CHTRINFO",
-    0x013B: "CHTRCELLCONTENT",
-    0x013D: "TABID",
-    0x0140: "CHTRMOVERANGE",
-    0x014D: "CHTRINSERTTAB",
-    0x015F: "LABELRANGES",
-    0x0160: "USESELFS",
-    0x0161: "DSF",
-    0x0162: "XL5MODIFY",
-    0x0196: "CHTRHEADER",
-    0x01A9: "USERBVIEW",
-    0x01AA: "USERSVIEWBEGIN",
-    0x01AB: "USERSVIEWEND",
-    0x01AD: "QSI",
-    0x01AE: "SUPBOOK",
-    0x01AF: "PROT4REV",
-    0x01B0: "CONDFMT",
-    0x01B1: "CF",
-    0x01B2: "DVAL",
-    0x01B5: "DCONBIN",
-    0x01B6: "TXO",
-    0x01B7: "REFRESHALL",
-    0x01B8: "HLINK",
-    0x01BA: "CODENAME",
-    0x01BB: "SXFDBTYPE",
-    0x01BC: "PROT4REVPASS",
-    0x01BE: "DV",
-    0x01C0: "XL9FILE",
-    0x01C1: "RECALCID",
-    0x0200: "DIMENSIONS",
-    0x0201: "BLANK",
-    0x0203: "NUMBER",
-    0x0204: "LABEL",
-    0x0205: "BOOLERR",
-    0x0206: "FORMULA",
-    0x0207: "STRING",
-    0x0208: "ROW",
-    0x0209: "BOF",
-    0x020B: "INDEX",
-    0x0218: "NAME",
-    0x0221: "ARRAY",
-    0x0223: "EXTERNNAME",
-    0x0225: "DEFAULTROWHEIGHT",
-    0x0231: "FONT",
-    0x0236: "TABLE",
-    0x023E: "WINDOW2",
-    0x0243: "XF",
-    0x027E: "RK",
-    0x0293: "STYLE",
-    0x0406: "FORMULA",
-    0x0409: "BOF",
-    0x041E: "FORMAT",
-    0x0443: "XF",
-    0x04BC: "SHRFMLA",
-    0x0800: "SCREENTIP",
-    0x0803: "WEBQRYSETTINGS",
-    0x0804: "WEBQRYTABLES",
-    0x0809: "BOF",
-    0x0862: "SHEETLAYOUT",
-    0x0867: "SHEETPROTECTION",
-    0x1001: "UNITS",
-    0x1002: "ChartChart",
-    0x1003: "ChartSeries",
-    0x1006: "ChartDataformat",
-    0x1007: "ChartLineformat",
-    0x1009: "ChartMarkerformat",
-    0x100A: "ChartAreaformat",
-    0x100B: "ChartPieformat",
-    0x100C: "ChartAttachedlabel",
-    0x100D: "ChartSeriestext",
-    0x1014: "ChartChartformat",
-    0x1015: "ChartLegend",
-    0x1016: "ChartSerieslist",
-    0x1017: "ChartBar",
-    0x1018: "ChartLine",
-    0x1019: "ChartPie",
-    0x101A: "ChartArea",
-    0x101B: "ChartScatter",
-    0x101C: "ChartChartline",
-    0x101D: "ChartAxis",
-    0x101E: "ChartTick",
-    0x101F: "ChartValuerange",
-    0x1020: "ChartCatserrange",
-    0x1021: "ChartAxislineformat",
-    0x1022: "ChartFormatlink",
-    0x1024: "ChartDefaulttext",
-    0x1025: "ChartText",
-    0x1026: "ChartFontx",
-    0x1027: "ChartObjectLink",
-    0x1032: "ChartFrame",
-    0x1033: "BEGIN",
-    0x1034: "END",
-    0x1035: "ChartPlotarea",
-    0x103A: "Chart3D",
-    0x103C: "ChartPicf",
-    0x103D: "ChartDropbar",
-    0x103E: "ChartRadar",
-    0x103F: "ChartSurface",
-    0x1040: "ChartRadararea",
-    0x1041: "ChartAxisparent",
-    0x1043: "ChartLegendxn",
-    0x1044: "ChartShtprops",
-    0x1045: "ChartSertocrt",
-    0x1046: "ChartAxesused",
-    0x1048: "ChartSbaseref",
-    0x104A: "ChartSerparent",
-    0x104B: "ChartSerauxtrend",
-    0x104E: "ChartIfmt",
-    0x104F: "ChartPos",
-    0x1050: "ChartAlruns",
-    0x1051: "ChartAI",
-    0x105B: "ChartSerauxerrbar",
-    0x105D: "ChartSerfmt",
-    0x105F: "Chart3DDataFormat",
-    0x1060: "ChartFbi",
-    0x1061: "ChartBoppop",
-    0x1062: "ChartAxcext",
-    0x1063: "ChartDat",
-    0x1064: "ChartPlotgrowth",
-    0x1065: "ChartSiindex",
-    0x1066: "ChartGelframe",
-    0x1067: "ChartBoppcustom",
-    0xFFFF: ""
-}
+      You don't normally create instances of this class yourself.
+      They are returned from calls to :meth:`~xlwt.Workbook.Workbook.add_sheet`.
+    """
+    # a safe default value, 3 is always valid!
+    active_pane = 3
+    
+    #################################################################
+    ## Constructor
+    #################################################################
+    def __init__(self, sheetname, parent_book, cell_overwrite_ok=False):
+        self.Row = Row
+        self.Column = Column
 
+        self.__name = sheetname
+        self.__parent = parent_book
+        self._cell_overwrite_ok = cell_overwrite_ok
 
-all_funcs_by_name = {
-    # Includes Analysis ToolPak aka ATP aka add-in aka xcall functions,
-    # distinguished by -ve opcode.
-    # name: (opcode, min # args, max # args, func return type, func arg types)
-    # + in func arg types means more of the same.
-    'ABS'         : ( 24, 1,  1, 'V', 'V'),
-    'ACCRINT'     : ( -1, 6,  7, 'V', 'VVVVVVV'),
-    'ACCRINTM'    : ( -1, 3,  5, 'V', 'VVVVV'),
-    'ACOS'        : ( 99, 1,  1, 'V', 'V'),
-    'ACOSH'       : (233, 1,  1, 'V', 'V'),
-    'ADDRESS'     : (219, 2,  5, 'V', 'VVVVV'),
-    'AMORDEGRC'   : ( -1, 7,  7, 'V', 'VVVVVVV'),
-    'AMORLINC'    : ( -1, 7,  7, 'V', 'VVVVVVV'),
-    'AND'         : ( 36, 1, 30, 'V', 'D+'),
-    'AREAS'       : ( 75, 1,  1, 'V', 'R'),
-    'ASC'         : (214, 1,  1, 'V', 'V'),
-    'ASIN'        : ( 98, 1,  1, 'V', 'V'),
-    'ASINH'       : (232, 1,  1, 'V', 'V'),
-    'ATAN'        : ( 18, 1,  1, 'V', 'V'),
-    'ATAN2'       : ( 97, 2,  2, 'V', 'VV'),
-    'ATANH'       : (234, 1,  1, 'V', 'V'),
-    'AVEDEV'      : (269, 1, 30, 'V', 'D+'),
-    'AVERAGE'     : (  5, 1, 30, 'V', 'D+'),
-    'AVERAGEA'    : (361, 1, 30, 'V', 'D+'),
-    'BAHTTEXT'    : (368, 1,  1, 'V', 'V'),
-    'BESSELI'     : ( -1, 2,  2, 'V', 'VV'),
-    'BESSELJ'     : ( -1, 2,  2, 'V', 'VV'),
-    'BESSELK'     : ( -1, 2,  2, 'V', 'VV'),
-    'BESSELY'     : ( -1, 2,  2, 'V', 'VV'),
-    'BETADIST'    : (270, 3,  5, 'V', 'VVVVV'),
-    'BETAINV'     : (272, 3,  5, 'V', 'VVVVV'),
-    'BIN2DEC'     : ( -1, 1,  1, 'V', 'V'),
-    'BIN2HEX'     : ( -1, 1,  2, 'V', 'VV'),
-    'BIN2OCT'     : ( -1, 1,  2, 'V', 'VV'),
-    'BINOMDIST'   : (273, 4,  4, 'V', 'VVVV'),
-    'CEILING'     : (288, 2,  2, 'V', 'VV'),
-    'CELL'        : (125, 1,  2, 'V', 'VR'),
-    'CHAR'        : (111, 1,  1, 'V', 'V'),
-    'CHIDIST'     : (274, 2,  2, 'V', 'VV'),
-    'CHIINV'      : (275, 2,  2, 'V', 'VV'),
-    'CHITEST'     : (306, 2,  2, 'V', 'AA'),
-    'CHOOSE'      : (100, 2, 30, 'R', 'VR+'),
-    'CLEAN'       : (162, 1,  1, 'V', 'V'),
-    'CODE'        : (121, 1,  1, 'V', 'V'),
-    'COLUMN'      : (  9, 0,  1, 'V', 'R'),
-    'COLUMNS'     : ( 77, 1,  1, 'V', 'R'),
-    'COMBIN'      : (276, 2,  2, 'V', 'VV'),
-    'COMPLEX'     : ( -1, 2,  3, 'V', 'VVV'),
-    'CONCATENATE' : (336, 1, 30, 'V', 'V+'),
-    'CONFIDENCE'  : (277, 3,  3, 'V', 'VVV'),
-    'CONVERT'     : ( -1, 3,  3, 'V', 'VVV'),
-    'CORREL'      : (307, 2,  2, 'V', 'AA'),
-    'COS'         : ( 16, 1,  1, 'V', 'V'),
-    'COSH'        : (230, 1,  1, 'V', 'V'),
-    'COUNT'       : (  0, 1, 30, 'V', 'D+'),
-    'COUNTA'      : (169, 1, 30, 'V', 'D+'),
-    'COUNTBLANK'  : (347, 1,  1, 'V', 'R'),
-    'COUNTIF'     : (346, 2,  2, 'V', 'RV'),
-    'COUPDAYBS'   : ( -1, 3,  5, 'V', 'VVVVV'),
-    'COUPDAYS'    : ( -1, 3,  5, 'V', 'VVVVV'),
-    'COUPDAYSNC'  : ( -1, 3,  5, 'V', 'VVVVV'),
-    'COUPNCD'     : ( -1, 3,  5, 'V', 'VVVVV'),
-    'COUPNUM'     : ( -1, 3,  5, 'V', 'VVVVV'),
-    'COUPPCD'     : ( -1, 3,  5, 'V', 'VVVVV'),
-    'COVAR'       : (308, 2,  2, 'V', 'AA'),
-    'CRITBINOM'   : (278, 3,  3, 'V', 'VVV'),
-    'CUMIPMT'     : ( -1, 6,  6, 'V', 'VVVVVV'),
-    'CUMPRINC'    : ( -1, 6,  6, 'V', 'VVVVVV'),
-    'DATE'        : ( 65, 3,  3, 'V', 'VVV'),
-    'DATEDIF'     : (351, 3,  3, 'V', 'VVV'),
-    'DATEVALUE'   : (140, 1,  1, 'V', 'V'),
-    'DAVERAGE'    : ( 42, 3,  3, 'V', 'RRR'),
-    'DAY'         : ( 67, 1,  1, 'V', 'V'),
-    'DAYS360'     : (220, 2,  3, 'V', 'VVV'),
-    'DB'          : (247, 4,  5, 'V', 'VVVVV'),
-    'DBCS'        : (215, 1,  1, 'V', 'V'),
-    'DCOUNT'      : ( 40, 3,  3, 'V', 'RRR'),
-    'DCOUNTA'     : (199, 3,  3, 'V', 'RRR'),
-    'DDB'         : (144, 4,  5, 'V', 'VVVVV'),
-    'DEC2BIN'     : ( -1, 1,  2, 'V', 'VV'),
-    'DEC2HEX'     : ( -1, 1,  2, 'V', 'VV'),
-    'DEC2OCT'     : ( -1, 1,  2, 'V', 'VV'),
-    'DEGREES'     : (343, 1,  1, 'V', 'V'),
-    'DELTA'       : ( -1, 1,  2, 'V', 'VV'),
-    'DEVSQ'       : (318, 1, 30, 'V', 'D+'),
-    'DGET'        : (235, 3,  3, 'V', 'RRR'),
-    'DISC'        : ( -1, 4,  5, 'V', 'VVVVV'),
-    'DMAX'        : ( 44, 3,  3, 'V', 'RRR'),
-    'DMIN'        : ( 43, 3,  3, 'V', 'RRR'),
-    'DOLLAR'      : ( 13, 1,  2, 'V', 'VV'),
-    'DOLLARDE'    : ( -1, 2,  2, 'V', 'VV'),
-    'DOLLARFR'    : ( -1, 2,  2, 'V', 'VV'),
-    'DPRODUCT'    : (189, 3,  3, 'V', 'RRR'),
-    'DSTDEV'      : ( 45, 3,  3, 'V', 'RRR'),
-    'DSTDEVP'     : (195, 3,  3, 'V', 'RRR'),
-    'DSUM'        : ( 41, 3,  3, 'V', 'RRR'),
-    'DURATION'    : ( -1, 5,  6, 'V', 'VVVVVV'),
-    'DVAR'        : ( 47, 3,  3, 'V', 'RRR'),
-    'DVARP'       : (196, 3,  3, 'V', 'RRR'),
-    'EDATE'       : ( -1, 2,  2, 'V', 'VV'),
-    'EFFECT'      : ( -1, 2,  2, 'V', 'VV'),
-    'EOMONTH'     : ( -1, 1,  2, 'V', 'VV'),
-    'ERF'         : ( -1, 1,  2, 'V', 'VV'),
-    'ERFC'        : ( -1, 1,  1, 'V', 'V'),
-    'ERROR.TYPE'  : (261, 1,  1, 'V', 'V'),
-    'EVEN'        : (279, 1,  1, 'V', 'V'),
-    'EXACT'       : (117, 2,  2, 'V', 'VV'),
-    'EXP'         : ( 21, 1,  1, 'V', 'V'),
-    'EXPONDIST'   : (280, 3,  3, 'V', 'VVV'),
-    'FACT'        : (184, 1,  1, 'V', 'V'),
-    'FACTDOUBLE'  : ( -1, 1,  1, 'V', 'V'),
-    'FALSE'       : ( 35, 0,  0, 'V', '-'),
-    'FDIST'       : (281, 3,  3, 'V', 'VVV'),
-    'FIND'        : (124, 2,  3, 'V', 'VVV'),
-    'FINDB'       : (205, 2,  3, 'V', 'VVV'),
-    'FINV'        : (282, 3,  3, 'V', 'VVV'),
-    'FISHER'      : (283, 1,  1, 'V', 'V'),
-    'FISHERINV'   : (284, 1,  1, 'V', 'V'),
-    'FIXED'       : ( 14, 2,  3, 'V', 'VVV'),
-    'FLOOR'       : (285, 2,  2, 'V', 'VV'),
-    'FORECAST'    : (309, 3,  3, 'V', 'VAA'),
-    'FREQUENCY'   : (252, 2,  2, 'A', 'RR'),
-    'FTEST'       : (310, 2,  2, 'V', 'AA'),
-    'FV'          : ( 57, 3,  5, 'V', 'VVVVV'),
-    'FVSCHEDULE'  : ( -1, 2,  2, 'V', 'VA'),
-    'GAMMADIST'   : (286, 4,  4, 'V', 'VVVV'),
-    'GAMMAINV'    : (287, 3,  3, 'V', 'VVV'),
-    'GAMMALN'     : (271, 1,  1, 'V', 'V'),
-    'GCD'         : ( -1, 1, 29, 'V', 'V+'),
-    'GEOMEAN'     : (319, 1, 30, 'V', 'D+'),
-    'GESTEP'      : ( -1, 1,  2, 'V', 'VV'),
-    'GETPIVOTDATA': (358, 2, 30, 'A', 'VAV+'),
-    'GROWTH'      : ( 52, 1,  4, 'A', 'RRRV'),
-    'HARMEAN'     : (320, 1, 30, 'V', 'D+'),
-    'HEX2BIN'     : ( -1, 1,  2, 'V', 'VV'),
-    'HEX2DEC'     : ( -1, 1,  1, 'V', 'V'),
-    'HEX2OCT'     : ( -1, 1,  2, 'V', 'VV'),
-    'HLOOKUP'     : (101, 3,  4, 'V', 'VRRV'),
-    'HOUR'        : ( 71, 1,  1, 'V', 'V'),
-    'HYPERLINK'   : (359, 1,  2, 'V', 'VV'),
-    'HYPGEOMDIST' : (289, 4,  4, 'V', 'VVVV'),
-    'IF'          : (  1, 2,  3, 'R', 'VRR'),
-    'IMABS'       : ( -1, 1,  1, 'V', 'V'),
-    'IMAGINARY'   : ( -1, 1,  1, 'V', 'V'),
-    'IMARGUMENT'  : ( -1, 1,  1, 'V', 'V'),
-    'IMCONJUGATE' : ( -1, 1,  1, 'V', 'V'),
-    'IMCOS'       : ( -1, 1,  1, 'V', 'V'),
-    'IMDIV'       : ( -1, 2,  2, 'V', 'VV'),
-    'IMEXP'       : ( -1, 1,  1, 'V', 'V'),
-    'IMLN'        : ( -1, 1,  1, 'V', 'V'),
-    'IMLOG10'     : ( -1, 1,  1, 'V', 'V'),
-    'IMLOG2'      : ( -1, 1,  1, 'V', 'V'),
-    'IMPOWER'     : ( -1, 2,  2, 'V', 'VV'),
-    'IMPRODUCT'   : ( -1, 2,  2, 'V', 'VV'),
-    'IMREAL'      : ( -1, 1,  1, 'V', 'V'),
-    'IMSIN'       : ( -1, 1,  1, 'V', 'V'),
-    'IMSQRT'      : ( -1, 1,  1, 'V', 'V'),
-    'IMSUB'       : ( -1, 2,  2, 'V', 'VV'),
-    'IMSUM'       : ( -1, 1, 29, 'V', 'V+'),
-    'INDEX'       : ( 29, 2,  4, 'R', 'RVVV'),
-    'INDIRECT'    : (148, 1,  2, 'R', 'VV'),
-    'INFO'        : (244, 1,  1, 'V', 'V'),
-    'INT'         : ( 25, 1,  1, 'V', 'V'),
-    'INTERCEPT'   : (311, 2,  2, 'V', 'AA'),
-    'INTRATE'     : ( -1, 4,  5, 'V', 'VVVVV'),
-    'IPMT'        : (167, 4,  6, 'V', 'VVVVVV'),
-    'IRR'         : ( 62, 1,  2, 'V', 'RV'),
-    'ISBLANK'     : (129, 1,  1, 'V', 'V'),
-    'ISERR'       : (126, 1,  1, 'V', 'V'),
-    'ISERROR'     : (  3, 1,  1, 'V', 'V'),
-    'ISEVEN'      : ( -1, 1,  1, 'V', 'V'),
-    'ISLOGICAL'   : (198, 1,  1, 'V', 'V'),
-    'ISNA'        : (  2, 1,  1, 'V', 'V'),
-    'ISNONTEXT'   : (190, 1,  1, 'V', 'V'),
-    'ISNUMBER'    : (128, 1,  1, 'V', 'V'),
-    'ISODD'       : ( -1, 1,  1, 'V', 'V'),
-    'ISPMT'       : (350, 4,  4, 'V', 'VVVV'),
-    'ISREF'       : (105, 1,  1, 'V', 'R'),
-    'ISTEXT'      : (127, 1,  1, 'V', 'V'),
-    'KURT'        : (322, 1, 30, 'V', 'D+'),
-    'LARGE'       : (325, 2,  2, 'V', 'RV'),
-    'LCM'         : ( -1, 1, 29, 'V', 'V+'),
-    'LEFT'        : (115, 1,  2, 'V', 'VV'),
-    'LEFTB'       : (208, 1,  2, 'V', 'VV'),
-    'LEN'         : ( 32, 1,  1, 'V', 'V'),
-    'LENB'        : (211, 1,  1, 'V', 'V'),
-    'LINEST'      : ( 49, 1,  4, 'A', 'RRVV'),
-    'LN'          : ( 22, 1,  1, 'V', 'V'),
-    'LOG'         : (109, 1,  2, 'V', 'VV'),
-    'LOG10'       : ( 23, 1,  1, 'V', 'V'),
-    'LOGEST'      : ( 51, 1,  4, 'A', 'RRVV'),
-    'LOGINV'      : (291, 3,  3, 'V', 'VVV'),
-    'LOGNORMDIST' : (290, 3,  3, 'V', 'VVV'),
-    'LOOKUP'      : ( 28, 2,  3, 'V', 'VRR'),
-    'LOWER'       : (112, 1,  1, 'V', 'V'),
-    'MATCH'       : ( 64, 2,  3, 'V', 'VRR'),
-    'MAX'         : (  7, 1, 30, 'V', 'D+'),
-    'MAXA'        : (362, 1, 30, 'V', 'D+'),
-    'MDETERM'     : (163, 1,  1, 'V', 'A'),
-    'MDURATION'   : ( -1, 5,  6, 'V', 'VVVVVV'),
-    'MEDIAN'      : (227, 1, 30, 'V', 'D+'),
-    'MID'         : ( 31, 3,  3, 'V', 'VVV'),
-    'MIDB'        : (210, 3,  3, 'V', 'VVV'),
-    'MIN'         : (  6, 1, 30, 'V', 'D+'),
-    'MINA'        : (363, 1, 30, 'V', 'D+'),
-    'MINUTE'      : ( 72, 1,  1, 'V', 'V'),
-    'MINVERSE'    : (164, 1,  1, 'A', 'A'),
-    'MIRR'        : ( 61, 3,  3, 'V', 'RVV'),
-    'MMULT'       : (165, 2,  2, 'A', 'AA'),
-    'MOD'         : ( 39, 2,  2, 'V', 'VV'),
-    'MODE'        : (330, 1, 30, 'V', 'A+'), ################ weird #################
-    'MONTH'       : ( 68, 1,  1, 'V', 'V'),
-    'MROUND'      : ( -1, 2,  2, 'V', 'VV'),
-    'MULTINOMIAL' : ( -1, 1, 29, 'V', 'V+'),
-    'N'           : (131, 1,  1, 'V', 'R'),
-    'NA'          : ( 10, 0,  0, 'V', '-'),
-    'NEGBINOMDIST': (292, 3,  3, 'V', 'VVV'),
-    'NETWORKDAYS' : ( -1, 2,  3, 'V', 'VVR'),
-    'NOMINAL'     : ( -1, 2,  2, 'V', 'VV'),
-    'NORMDIST'    : (293, 4,  4, 'V', 'VVVV'),
-    'NORMINV'     : (295, 3,  3, 'V', 'VVV'),
-    'NORMSDIST'   : (294, 1,  1, 'V', 'V'),
-    'NORMSINV'    : (296, 1,  1, 'V', 'V'),
-    'NOT'         : ( 38, 1,  1, 'V', 'V'),
-    'NOW'         : ( 74, 0,  0, 'V', '-'),
-    'NPER'        : ( 58, 3,  5, 'V', 'VVVVV'),
-    'NPV'         : ( 11, 2, 30, 'V', 'VD+'),
-    'OCT2BIN'     : ( -1, 1,  2, 'V', 'VV'),
-    'OCT2DEC'     : ( -1, 1,  1, 'V', 'V'),
-    'OCT2HEX'     : ( -1, 1,  2, 'V', 'VV'),
-    'ODD'         : (298, 1,  1, 'V', 'V'),
-    'ODDFPRICE'   : ( -1, 9,  9, 'V', 'VVVVVVVVV'),
-    'ODDFYIELD'   : ( -1, 9,  9, 'V', 'VVVVVVVVV'),
-    'ODDLPRICE'   : ( -1, 8,  8, 'V', 'VVVVVVVV'),
-    'ODDLYIELD'   : ( -1, 8,  8, 'V', 'VVVVVVVV'),
-    'OFFSET'      : ( 78, 3,  5, 'R', 'RVVVV'),
-    'OR'          : ( 37, 1, 30, 'V', 'D+'),
-    'PEARSON'     : (312, 2,  2, 'V', 'AA'),
-    'PERCENTILE'  : (328, 2,  2, 'V', 'RV'),
-    'PERCENTRANK' : (329, 2,  3, 'V', 'RVV'),
-    'PERMUT'      : (299, 2,  2, 'V', 'VV'),
-    'PHONETIC'    : (360, 1,  1, 'V', 'R'),
-    'PI'          : ( 19, 0,  0, 'V', '-'),
-    'PMT'         : ( 59, 3,  5, 'V', 'VVVVV'),
-    'POISSON'     : (300, 3,  3, 'V', 'VVV'),
-    'POWER'       : (337, 2,  2, 'V', 'VV'),
-    'PPMT'        : (168, 4,  6, 'V', 'VVVVVV'),
-    'PRICE'       : ( -1, 6,  7, 'V', 'VVVVVVV'),
-    'PRICEDISC'   : ( -1, 4,  5, 'V', 'VVVVV'),
-    'PRICEMAT'    : ( -1, 5,  6, 'V', 'VVVVVV'),
-    'PROB'        : (317, 3,  4, 'V', 'AAVV'),
-    'PRODUCT'     : (183, 1, 30, 'V', 'D+'),
-    'PROPER'      : (114, 1,  1, 'V', 'V'),
-    'PV'          : ( 56, 3,  5, 'V', 'VVVVV'),
-    'QUARTILE'    : (327, 2,  2, 'V', 'RV'),
-    'QUOTIENT'    : ( -1, 2,  2, 'V', 'VV'),
-    'RADIANS'     : (342, 1,  1, 'V', 'V'),
-    'RAND'        : ( 63, 0,  0, 'V', '-'),
-    'RANDBETWEEN' : ( -1, 2,  2, 'V', 'VV'),
-    'RANK'        : (216, 2,  3, 'V', 'VRV'),
-    'RATE'        : ( 60, 3,  6, 'V', 'VVVVVV'),
-    'RECEIVED'    : ( -1, 4,  5, 'V', 'VVVVV'),
-    'REPLACE'     : (119, 4,  4, 'V', 'VVVV'),
-    'REPLACEB'    : (207, 4,  4, 'V', 'VVVV'),
-    'REPT'        : ( 30, 2,  2, 'V', 'VV'),
-    'RIGHT'       : (116, 1,  2, 'V', 'VV'),
-    'RIGHTB'      : (209, 1,  2, 'V', 'VV'),
-    'ROMAN'       : (354, 1,  2, 'V', 'VV'),
-    'ROUND'       : ( 27, 2,  2, 'V', 'VV'),
-    'ROUNDDOWN'   : (213, 2,  2, 'V', 'VV'),
-    'ROUNDUP'     : (212, 2,  2, 'V', 'VV'),
-    'ROW'         : (  8, 0,  1, 'V', 'R'),
-    'ROWS'        : ( 76, 1,  1, 'V', 'R'),
-    'RSQ'         : (313, 2,  2, 'V', 'AA'),
-    'RTD'         : (379, 3, 30, 'A', 'VVV+'),
-    'SEARCH'      : ( 82, 2,  3, 'V', 'VVV'),
-    'SEARCHB'     : (206, 2,  3, 'V', 'VVV'),
-    'SECOND'      : ( 73, 1,  1, 'V', 'V'),
-    'SERIESSUM'   : ( -1, 4,  4, 'V', 'VVVA'),
-    'SIGN'        : ( 26, 1,  1, 'V', 'V'),
-    'SIN'         : ( 15, 1,  1, 'V', 'V'),
-    'SINH'        : (229, 1,  1, 'V', 'V'),
-    'SKEW'        : (323, 1, 30, 'V', 'D+'),
-    'SLN'         : (142, 3,  3, 'V', 'VVV'),
-    'SLOPE'       : (315, 2,  2, 'V', 'AA'),
-    'SMALL'       : (326, 2,  2, 'V', 'RV'),
-    'SQRT'        : ( 20, 1,  1, 'V', 'V'),
-    'SQRTPI'      : ( -1, 1,  1, 'V', 'V'),
-    'STANDARDIZE' : (297, 3,  3, 'V', 'VVV'),
-    'STDEV'       : ( 12, 1, 30, 'V', 'D+'),
-    'STDEVA'      : (366, 1, 30, 'V', 'D+'),
-    'STDEVP'      : (193, 1, 30, 'V', 'D+'),
-    'STDEVPA'     : (364, 1, 30, 'V', 'D+'),
-    'STEYX'       : (314, 2,  2, 'V', 'AA'),
-    'SUBSTITUTE'  : (120, 3,  4, 'V', 'VVVV'),
-    'SUBTOTAL'    : (344, 2, 30, 'V', 'VR+'),
-    'SUM'         : (  4, 1, 30, 'V', 'D+'),
-    'SUMIF'       : (345, 2,  3, 'V', 'RVR'),
-    'SUMPRODUCT'  : (228, 1, 30, 'V', 'A+'),
-    'SUMSQ'       : (321, 1, 30, 'V', 'D+'),
-    'SUMX2MY2'    : (304, 2,  2, 'V', 'AA'),
-    'SUMX2PY2'    : (305, 2,  2, 'V', 'AA'),
-    'SUMXMY2'     : (303, 2,  2, 'V', 'AA'),
-    'SYD'         : (143, 4,  4, 'V', 'VVVV'),
-    'T'           : (130, 1,  1, 'V', 'R'),
-    'TAN'         : ( 17, 1,  1, 'V', 'V'),
-    'TANH'        : (231, 1,  1, 'V', 'V'),
-    'TBILLEQ'     : ( -1, 3,  3, 'V', 'VVV'),
-    'TBILLPRICE'  : ( -1, 3,  3, 'V', 'VVV'),
-    'TBILLYIELD'  : ( -1, 3,  3, 'V', 'VVV'),
-    'TDIST'       : (301, 3,  3, 'V', 'VVV'),
-    'TEXT'        : ( 48, 2,  2, 'V', 'VV'),
-    'TIME'        : ( 66, 3,  3, 'V', 'VVV'),
-    'TIMEVALUE'   : (141, 1,  1, 'V', 'V'),
-    'TINV'        : (332, 2,  2, 'V', 'VV'),
-    'TODAY'       : (221, 0,  0, 'V', '-'),
-    'TRANSPOSE'   : ( 83, 1,  1, 'A', 'A'),
-    'TREND'       : ( 50, 1,  4, 'A', 'RRRV'),
-    'TRIM'        : (118, 1,  1, 'V', 'V'),
-    'TRIMMEAN'    : (331, 2,  2, 'V', 'RV'),
-    'TRUE'        : ( 34, 0,  0, 'V', '-'),
-    'TRUNC'       : (197, 1,  2, 'V', 'VV'),
-    'TTEST'       : (316, 4,  4, 'V', 'AAVV'),
-    'TYPE'        : ( 86, 1,  1, 'V', 'V'),
-    'UPPER'       : (113, 1,  1, 'V', 'V'),
-    'USDOLLAR'    : (204, 1,  2, 'V', 'VV'),
-    'VALUE'       : ( 33, 1,  1, 'V', 'V'),
-    'VAR'         : ( 46, 1, 30, 'V', 'D+'),
-    'VARA'        : (367, 1, 30, 'V', 'D+'),
-    'VARP'        : (194, 1, 30, 'V', 'D+'),
-    'VARPA'       : (365, 1, 30, 'V', 'D+'),
-    'VDB'         : (222, 5,  7, 'V', 'VVVVVVV'),
-    'VLOOKUP'     : (102, 3,  4, 'V', 'VRRV'),
-    'WEEKDAY'     : ( 70, 1,  2, 'V', 'VV'),
-    'WEEKNUM'     : ( -1, 1,  2, 'V', 'VV'),
-    'WEIBULL'     : (302, 4,  4, 'V', 'VVVV'),
-    'WORKDAY'     : ( -1, 2,  3, 'V', 'VVR'),
-    'XIRR'        : ( -1, 2,  3, 'V', 'AAV'),
-    'XNPV'        : ( -1, 3,  3, 'V', 'VAA'),
-    'YEAR'        : ( 69, 1,  1, 'V', 'V'),
-    'YEARFRAC'    : ( -1, 2,  3, 'V', 'VVV'),
-    'YIELD'       : ( -1, 6,  7, 'V', 'VVVVVVV'),
-    'YIELDDISC'   : ( -1, 4,  5, 'V', 'VVVVV'),
-    'YIELDMAT'    : ( -1, 5,  6, 'V', 'VVVVVV'),
-    'ZTEST'       : (324, 2,  3, 'V', 'RVV'),
-    }
+        self.__rows = {}
+        self.__cols = {}
+        self.__merged_ranges = []
+        self.__bmp_rec = b''
 
-# Formulas Parse things
+        self.__show_formulas = 0
+        self.__show_grid = 1
+        self.__show_headers = 1
+        self.__panes_frozen = 0
+        self.show_zero_values = 1
+        self.__auto_colour_grid = 1
+        self.__cols_right_to_left = 0
+        self.__show_outline = 1
+        self.__remove_splits = 0
+        # Multiple sheets can be selected, but only one can be active
+        # (hold down Ctrl and click multiple tabs in the file in OOo)
+        self.__selected = 0
+        # "sheet_visible" should really be called "sheet_active"
+        # and is 1 when this sheet is the sheet displayed when the file
+        # is open. More than likely only one sheet should ever be set as
+        # visible.
+        # The same sheet should be specified in Workbook.active_sheet
+        # (that way, both the WINDOW1 record in the book and the WINDOW2
+        # records in each sheet will be in agreement)
+        # The visibility of the sheet is found in the "visibility"
+        # attribute obtained from the BOUNDSHEET record.
+        self.__sheet_visible = 0
+        self.__page_preview = 0
 
-ptgExp          = 0x01
-ptgTbl          = 0x02
-ptgAdd          = 0x03
-ptgSub          = 0x04
-ptgMul          = 0x05
-ptgDiv          = 0x06
-ptgPower        = 0x07
-ptgConcat       = 0x08
-ptgLT           = 0x09
-ptgLE           = 0x0a
-ptgEQ           = 0x0b
-ptgGE           = 0x0c
-ptgGT           = 0x0d
-ptgNE           = 0x0e
-ptgIsect        = 0x0f
-ptgUnion        = 0x10
-ptgRange        = 0x11
-ptgUplus        = 0x12
-ptgUminus       = 0x13
-ptgPercent      = 0x14
-ptgParen        = 0x15
-ptgMissArg      = 0x16
-ptgStr          = 0x17
-ptgExtend       = 0x18
-ptgAttr         = 0x19
-ptgSheet        = 0x1a
-ptgEndSheet     = 0x1b
-ptgErr          = 0x1c
-ptgBool         = 0x1d
-ptgInt          = 0x1e
-ptgNum          = 0x1f
+        self.__first_visible_row = 0
+        self.__first_visible_col = 0
+        self.__grid_colour = 0x40
+        self.__preview_magn = 0 # use default (60%)
+        self.__normal_magn = 0 # use default (100%)
+        self.__scl_magn = None
+        self.explicit_magn_setting = False
 
-ptgArrayR       = 0x20
-ptgFuncR        = 0x21
-ptgFuncVarR     = 0x22
-ptgNameR        = 0x23
-ptgRefR         = 0x24
-ptgAreaR        = 0x25
-ptgMemAreaR     = 0x26
-ptgMemErrR      = 0x27
-ptgMemNoMemR    = 0x28
-ptgMemFuncR     = 0x29
-ptgRefErrR      = 0x2a
-ptgAreaErrR     = 0x2b
-ptgRefNR        = 0x2c
-ptgAreaNR       = 0x2d
-ptgMemAreaNR    = 0x2e
-ptgMemNoMemNR   = 0x2f
-ptgNameXR       = 0x39
-ptgRef3dR       = 0x3a
-ptgArea3dR      = 0x3b
-ptgRefErr3dR    = 0x3c
-ptgAreaErr3dR   = 0x3d
+        self.visibility = 0 # from/to BOUNDSHEET record.
 
-ptgArrayV       = 0x40
-ptgFuncV        = 0x41
-ptgFuncVarV     = 0x42
-ptgNameV        = 0x43
-ptgRefV         = 0x44
-ptgAreaV        = 0x45
-ptgMemAreaV     = 0x46
-ptgMemErrV      = 0x47
-ptgMemNoMemV    = 0x48
-ptgMemFuncV     = 0x49
-ptgRefErrV      = 0x4a
-ptgAreaErrV     = 0x4b
-ptgRefNV        = 0x4c
-ptgAreaNV       = 0x4d
-ptgMemAreaNV    = 0x4e
-ptgMemNoMemNV   = 0x4f
-ptgFuncCEV      = 0x58
-ptgNameXV       = 0x59
-ptgRef3dV       = 0x5a
-ptgArea3dV      = 0x5b
-ptgRefErr3dV    = 0x5c
-ptgAreaErr3dV   = 0x5d
+        self.__vert_split_pos = None
+        self.__horz_split_pos = None
+        self.__vert_split_first_visible = None
+        self.__horz_split_first_visible = None
 
-ptgArrayA       = 0x60
-ptgFuncA        = 0x61
-ptgFuncVarA     = 0x62
-ptgNameA        = 0x63
-ptgRefA         = 0x64
-ptgAreaA        = 0x65
-ptgMemAreaA     = 0x66
-ptgMemErrA      = 0x67
-ptgMemNoMemA    = 0x68
-ptgMemFuncA     = 0x69
-ptgRefErrA      = 0x6a
-ptgAreaErrA     = 0x6b
-ptgRefNA        = 0x6c
-ptgAreaNA       = 0x6d
-ptgMemAreaNA    = 0x6e
-ptgMemNoMemNA   = 0x6f
-ptgFuncCEA      = 0x78
-ptgNameXA       = 0x79
-ptgRef3dA       = 0x7a
-ptgArea3dA      = 0x7b
-ptgRefErr3dA    = 0x7c
-ptgAreaErr3dA   = 0x7d
+        # This is a caller-settable flag:
+
+        self.split_position_units_are_twips = False
+
+        # Default is False for backward compatibility with pyExcelerator
+        # and previous versions of xlwt.
+        #   if panes_frozen:
+        #       vert/horz_split_pos are taken as number of rows/cols
+        #   else: # split
+        #       if split_position_units_are_twips:
+        #           vert/horz_split_pos are taken as number of twips
+        #       else:
+        #           vert/horz_split_pos are taken as
+        #           number of rows(cols) * default row(col) height (width) (i.e. 12.75 (8.43) somethings)
+        #           and converted to twips by approximate formulas
+        # Callers who are copying an existing file should use
+        #     xlwt_worksheet.split_position_units_are_twips = True
+        # because that's what's actually in the file.
+
+		# There are 20 twips to a point. There are 72 points to an inch.
+
+        self.__row_gut_width = 0
+        self.__col_gut_height = 0
+
+        self.__show_auto_page_breaks = 1
+        self.__dialogue_sheet = 0
+        self.__auto_style_outline = 0
+        self.__outline_below = 0
+        self.__outline_right = 0
+        self.__fit_num_pages = 0
+        self.__show_row_outline = 1
+        self.__show_col_outline = 1
+        self.__alt_expr_eval = 0
+        self.__alt_formula_entries = 0
+
+        self.__row_default_height = 0x00FF
+        self.row_default_height_mismatch = 0
+        self.row_default_hidden = 0
+        self.row_default_space_above = 0
+        self.row_default_space_below = 0
+
+        self.__col_default_width = 0x0008
+
+        self.__calc_mode = 1
+        self.__calc_count = 0x0064
+        self.__RC_ref_mode = 1
+        self.__iterations_on = 0
+        self.__delta = 0.001
+        self.__save_recalc = 0
+
+        self.__print_headers = 0
+        self.__print_grid = 0
+        self.__grid_set = 1
+        self.__vert_page_breaks = []
+        self.__horz_page_breaks = []
+        self.__header_str = '&P'
+        self.__footer_str = '&F'
+        self.__print_centered_vert = 0
+        self.__print_centered_horz = 1
+        self.__left_margin = 0.3 #0.5
+        self.__right_margin = 0.3 #0.5
+        self.__top_margin = 0.61 #1.0
+        self.__bottom_margin = 0.37 #1.0
+        self.__paper_size_code = 9 # A4
+        self.__print_scaling = 100
+        self.__start_page_number = 1
+        self.__fit_width_to_pages = 1
+        self.__fit_height_to_pages = 1
+        self.__print_in_rows = 1
+        self.__portrait = 1
+        self.__print_not_colour = 0
+        self.__print_draft = 0
+        self.__print_notes = 0
+        self.__print_notes_at_end = 0
+        self.__print_omit_errors = 0
+        self.__print_hres = 0x012C # 300 dpi
+        self.__print_vres = 0x012C # 300 dpi
+        self.__header_margin = 0.1
+        self.__footer_margin = 0.1
+        self.__copies_num = 1
+
+        self.__wnd_protect = 0
+        self.__obj_protect = 0
+        self.__protect = 0
+        self.__scen_protect = 0
+        self.__password = ''
+
+        self.last_used_row = 0
+        self.first_used_row = 65535
+        self.last_used_col = 0
+        self.first_used_col = 255
+        self.row_tempfile = None
+        self.__flushed_rows = {}
+        self.__row_visible_levels = 0
+
+    #################################################################
+    ## Properties, "getters", "setters"
+    #################################################################
+
+    def set_name(self, value):
+        self.__name = value
+
+    def get_name(self):
+        return self.__name
+
+    name = property(get_name, set_name)
+
+    #################################################################
+
+    def get_parent(self):
+        return self.__parent
+
+    parent = property(get_parent)
+
+    #################################################################
+
+    def get_rows(self):
+        return self.__rows
+
+    rows = property(get_rows)
+
+    #################################################################
+
+    def get_cols(self):
+        return self.__cols
+
+    cols = property(get_cols)
+
+    #################################################################
+
+    def get_merged_ranges(self):
+        return self.__merged_ranges
+
+    merged_ranges = property(get_merged_ranges)
+
+    #################################################################
+
+    def get_bmp_rec(self):
+        return self.__bmp_rec
+
+    bmp_rec = property(get_bmp_rec)
+
+    #################################################################
+
+    def set_show_formulas(self, value):
+        self.__show_formulas = int(value)
+
+    def get_show_formulas(self):
+        return bool(self.__show_formulas)
+
+    show_formulas = property(get_show_formulas, set_show_formulas)
+
+    #################################################################
+
+    def set_show_grid(self, value):
+        self.__show_grid = int(value)
+
+    def get_show_grid(self):
+        return bool(self.__show_grid)
+
+    show_grid = property(get_show_grid, set_show_grid)
+
+    #################################################################
+
+    def set_show_headers(self, value):
+        self.__show_headers = int(value)
+
+    def get_show_headers(self):
+        return bool(self.__show_headers)
+
+    show_headers = property(get_show_headers, set_show_headers)
+
+    #################################################################
+
+    def set_panes_frozen(self, value):
+        self.__panes_frozen = int(value)
+
+    def get_panes_frozen(self):
+        return bool(self.__panes_frozen)
+
+    panes_frozen = property(get_panes_frozen, set_panes_frozen)
+
+    #################################################################
+
+    ### def set_show_empty_as_zero(self, value):
+    ###     self.__show_empty_as_zero = int(value)
+
+    ### def get_show_empty_as_zero(self):
+    ###     return bool(self.__show_empty_as_zero)
+
+    ### show_empty_as_zero = property(get_show_empty_as_zero, set_show_empty_as_zero)
+
+    #################################################################
+
+    def set_auto_colour_grid(self, value):
+        self.__auto_colour_grid = int(value)
+
+    def get_auto_colour_grid(self):
+        return bool(self.__auto_colour_grid)
+
+    auto_colour_grid = property(get_auto_colour_grid, set_auto_colour_grid)
+
+    #################################################################
+
+    def set_cols_right_to_left(self, value):
+        self.__cols_right_to_left = int(value)
+
+    def get_cols_right_to_left(self):
+        return bool(self.__cols_right_to_left)
+
+    cols_right_to_left = property(get_cols_right_to_left, set_cols_right_to_left)
+
+    #################################################################
+
+    def set_show_outline(self, value):
+        self.__show_outline = int(value)
+
+    def get_show_outline(self):
+        return bool(self.__show_outline)
+
+    show_outline = property(get_show_outline, set_show_outline)
+
+    #################################################################
+
+    def set_remove_splits(self, value):
+        self.__remove_splits = int(value)
+
+    def get_remove_splits(self):
+        return bool(self.__remove_splits)
+
+    remove_splits = property(get_remove_splits, set_remove_splits)
+
+    #################################################################
+
+    def set_selected(self, value):
+        self.__selected = int(value)
+
+    def get_selected(self):
+        return bool(self.__selected)
+
+    selected = property(get_selected, set_selected)
+
+    #################################################################
+
+    def set_sheet_visible(self, value):
+        self.__sheet_visible = int(value)
+
+    def get_sheet_visible(self):
+        return bool(self.__sheet_visible)
+
+    sheet_visible = property(get_sheet_visible, set_sheet_visible)
+
+    #################################################################
+
+    def set_page_preview(self, value):
+        self.__page_preview = int(value)
+
+    def get_page_preview(self):
+        return bool(self.__page_preview)
+
+    page_preview = property(get_page_preview, set_page_preview)
+
+    #################################################################
+
+    def set_first_visible_row(self, value):
+        self.__first_visible_row = value
+
+    def get_first_visible_row(self):
+        return self.__first_visible_row
+
+    first_visible_row = property(get_first_visible_row, set_first_visible_row)
+
+    #################################################################
+
+    def set_first_visible_col(self, value):
+        self.__first_visible_col = value
+
+    def get_first_visible_col(self):
+        return self.__first_visible_col
+
+    first_visible_col = property(get_first_visible_col, set_first_visible_col)
+
+    #################################################################
+
+    def set_grid_colour(self, value):
+        self.__grid_colour = value
+
+    def get_grid_colour(self):
+        return self.__grid_colour
+
+    grid_colour = property(get_grid_colour, set_grid_colour)
+
+    #################################################################
+
+    def set_preview_magn(self, value):
+        self.__preview_magn = value
+
+    def get_preview_magn(self):
+        return self.__preview_magn
+
+    preview_magn = property(get_preview_magn, set_preview_magn)
+
+    #################################################################
+
+    def set_normal_magn(self, value):
+        self.__normal_magn = value
+
+    def get_normal_magn(self):
+        return self.__normal_magn
+
+    normal_magn = property(get_normal_magn, set_normal_magn)
+
+    #################################################################
+
+    def set_scl_magn(self, value):
+        self.__scl_magn = value
+
+    def get_scl_magn(self):
+        return self.__scl_magn
+
+    scl_magn = property(get_scl_magn, set_scl_magn)
 
 
-PtgNames = {
-    ptgExp         : "ptgExp",
-    ptgTbl         : "ptgTbl",
-    ptgAdd         : "ptgAdd",
-    ptgSub         : "ptgSub",
-    ptgMul         : "ptgMul",
-    ptgDiv         : "ptgDiv",
-    ptgPower       : "ptgPower",
-    ptgConcat      : "ptgConcat",
-    ptgLT          : "ptgLT",
-    ptgLE          : "ptgLE",
-    ptgEQ          : "ptgEQ",
-    ptgGE          : "ptgGE",
-    ptgGT          : "ptgGT",
-    ptgNE          : "ptgNE",
-    ptgIsect       : "ptgIsect",
-    ptgUnion       : "ptgUnion",
-    ptgRange       : "ptgRange",
-    ptgUplus       : "ptgUplus",
-    ptgUminus      : "ptgUminus",
-    ptgPercent     : "ptgPercent",
-    ptgParen       : "ptgParen",
-    ptgMissArg     : "ptgMissArg",
-    ptgStr         : "ptgStr",
-    ptgExtend      : "ptgExtend",
-    ptgAttr        : "ptgAttr",
-    ptgSheet       : "ptgSheet",
-    ptgEndSheet    : "ptgEndSheet",
-    ptgErr         : "ptgErr",
-    ptgBool        : "ptgBool",
-    ptgInt         : "ptgInt",
-    ptgNum         : "ptgNum",
-    ptgArrayR      : "ptgArrayR",
-    ptgFuncR       : "ptgFuncR",
-    ptgFuncVarR    : "ptgFuncVarR",
-    ptgNameR       : "ptgNameR",
-    ptgRefR        : "ptgRefR",
-    ptgAreaR       : "ptgAreaR",
-    ptgMemAreaR    : "ptgMemAreaR",
-    ptgMemErrR     : "ptgMemErrR",
-    ptgMemNoMemR   : "ptgMemNoMemR",
-    ptgMemFuncR    : "ptgMemFuncR",
-    ptgRefErrR     : "ptgRefErrR",
-    ptgAreaErrR    : "ptgAreaErrR",
-    ptgRefNR       : "ptgRefNR",
-    ptgAreaNR      : "ptgAreaNR",
-    ptgMemAreaNR   : "ptgMemAreaNR",
-    ptgMemNoMemNR  : "ptgMemNoMemNR",
-    ptgNameXR      : "ptgNameXR",
-    ptgRef3dR      : "ptgRef3dR",
-    ptgArea3dR     : "ptgArea3dR",
-    ptgRefErr3dR   : "ptgRefErr3dR",
-    ptgAreaErr3dR  : "ptgAreaErr3dR",
-    ptgArrayV      : "ptgArrayV",
-    ptgFuncV       : "ptgFuncV",
-    ptgFuncVarV    : "ptgFuncVarV",
-    ptgNameV       : "ptgNameV",
-    ptgRefV        : "ptgRefV",
-    ptgAreaV       : "ptgAreaV",
-    ptgMemAreaV    : "ptgMemAreaV",
-    ptgMemErrV     : "ptgMemErrV",
-    ptgMemNoMemV   : "ptgMemNoMemV",
-    ptgMemFuncV    : "ptgMemFuncV",
-    ptgRefErrV     : "ptgRefErrV",
-    ptgAreaErrV    : "ptgAreaErrV",
-    ptgRefNV       : "ptgRefNV",
-    ptgAreaNV      : "ptgAreaNV",
-    ptgMemAreaNV   : "ptgMemAreaNV",
-    ptgMemNoMemNV  : "ptgMemNoMemNV",
-    ptgFuncCEV     : "ptgFuncCEV",
-    ptgNameXV      : "ptgNameXV",
-    ptgRef3dV      : "ptgRef3dV",
-    ptgArea3dV     : "ptgArea3dV",
-    ptgRefErr3dV   : "ptgRefErr3dV",
-    ptgAreaErr3dV  : "ptgAreaErr3dV",
-    ptgArrayA      : "ptgArrayA",
-    ptgFuncA       : "ptgFuncA",
-    ptgFuncVarA    : "ptgFuncVarA",
-    ptgNameA       : "ptgNameA",
-    ptgRefA        : "ptgRefA",
-    ptgAreaA       : "ptgAreaA",
-    ptgMemAreaA    : "ptgMemAreaA",
-    ptgMemErrA     : "ptgMemErrA",
-    ptgMemNoMemA   : "ptgMemNoMemA",
-    ptgMemFuncA    : "ptgMemFuncA",
-    ptgRefErrA     : "ptgRefErrA",
-    ptgAreaErrA    : "ptgAreaErrA",
-    ptgRefNA       : "ptgRefNA",
-    ptgAreaNA      : "ptgAreaNA",
-    ptgMemAreaNA   : "ptgMemAreaNA",
-    ptgMemNoMemNA  : "ptgMemNoMemNA",
-    ptgFuncCEA     : "ptgFuncCEA",
-    ptgNameXA      : "ptgNameXA",
-    ptgRef3dA      : "ptgRef3dA",
-    ptgArea3dA     : "ptgArea3dA",
-    ptgRefErr3dA   : "ptgRefErr3dA",
-    ptgAreaErr3dA  : "ptgAreaErr3dA"
-}
+    #################################################################
+
+    def set_vert_split_pos(self, value):
+        self.__vert_split_pos = abs(value)
+
+    def get_vert_split_pos(self):
+        return self.__vert_split_pos
+
+    vert_split_pos = property(get_vert_split_pos, set_vert_split_pos)
+
+    #################################################################
+
+    def set_horz_split_pos(self, value):
+        self.__horz_split_pos = abs(value)
+
+    def get_horz_split_pos(self):
+        return self.__horz_split_pos
+
+    horz_split_pos = property(get_horz_split_pos, set_horz_split_pos)
+
+    #################################################################
+
+    def set_vert_split_first_visible(self, value):
+        self.__vert_split_first_visible = abs(value)
+
+    def get_vert_split_first_visible(self):
+        return self.__vert_split_first_visible
+
+    vert_split_first_visible = property(get_vert_split_first_visible, set_vert_split_first_visible)
+
+    #################################################################
+
+    def set_horz_split_first_visible(self, value):
+        self.__horz_split_first_visible = abs(value)
+
+    def get_horz_split_first_visible(self):
+        return self.__horz_split_first_visible
+
+    horz_split_first_visible = property(get_horz_split_first_visible, set_horz_split_first_visible)
+
+    #################################################################
+
+    #def set_row_gut_width(self, value):
+    #    self.__row_gut_width = value
+    #
+    #def get_row_gut_width(self):
+    #    return self.__row_gut_width
+    #
+    #row_gut_width = property(get_row_gut_width, set_row_gut_width)
+    #
+    #################################################################
+    #
+    #def set_col_gut_height(self, value):
+    #    self.__col_gut_height = value
+    #
+    #def get_col_gut_height(self):
+    #    return self.__col_gut_height
+    #
+    #col_gut_height = property(get_col_gut_height, set_col_gut_height)
+    #
+    #################################################################
+
+    def set_show_auto_page_breaks(self, value):
+        self.__show_auto_page_breaks = int(value)
+
+    def get_show_auto_page_breaks(self):
+        return bool(self.__show_auto_page_breaks)
+
+    show_auto_page_breaks = property(get_show_auto_page_breaks, set_show_auto_page_breaks)
+
+    #################################################################
+
+    def set_dialogue_sheet(self, value):
+        self.__dialogue_sheet = int(value)
+
+    def get_dialogue_sheet(self):
+        return bool(self.__dialogue_sheet)
+
+    dialogue_sheet = property(get_dialogue_sheet, set_dialogue_sheet)
+
+    #################################################################
+
+    def set_auto_style_outline(self, value):
+        self.__auto_style_outline = int(value)
+
+    def get_auto_style_outline(self):
+        return bool(self.__auto_style_outline)
+
+    auto_style_outline = property(get_auto_style_outline, set_auto_style_outline)
+
+    #################################################################
+
+    def set_outline_below(self, value):
+        self.__outline_below = int(value)
+
+    def get_outline_below(self):
+        return bool(self.__outline_below)
+
+    outline_below = property(get_outline_below, set_outline_below)
+
+    #################################################################
+
+    def set_outline_right(self, value):
+        self.__outline_right = int(value)
+
+    def get_outline_right(self):
+        return bool(self.__outline_right)
+
+    outline_right = property(get_outline_right, set_outline_right)
+
+    #################################################################
+
+    def set_fit_num_pages(self, value):
+        self.__fit_num_pages = value
+
+    def get_fit_num_pages(self):
+        return self.__fit_num_pages
+
+    fit_num_pages = property(get_fit_num_pages, set_fit_num_pages)
+
+    #################################################################
+
+    def set_show_row_outline(self, value):
+        self.__show_row_outline = int(value)
+
+    def get_show_row_outline(self):
+        return bool(self.__show_row_outline)
+
+    show_row_outline = property(get_show_row_outline, set_show_row_outline)
+
+    #################################################################
+
+    def set_show_col_outline(self, value):
+        self.__show_col_outline = int(value)
+
+    def get_show_col_outline(self):
+        return bool(self.__show_col_outline)
+
+    show_col_outline = property(get_show_col_outline, set_show_col_outline)
+
+    #################################################################
+
+    def set_alt_expr_eval(self, value):
+        self.__alt_expr_eval = int(value)
+
+    def get_alt_expr_eval(self):
+        return bool(self.__alt_expr_eval)
+
+    alt_expr_eval = property(get_alt_expr_eval, set_alt_expr_eval)
+
+    #################################################################
+
+    def set_alt_formula_entries(self, value):
+        self.__alt_formula_entries = int(value)
+
+    def get_alt_formula_entries(self):
+        return bool(self.__alt_formula_entries)
+
+    alt_formula_entries = property(get_alt_formula_entries, set_alt_formula_entries)
+
+    #################################################################
+
+    def set_row_default_height(self, value):
+        self.__row_default_height = value
+
+    def get_row_default_height(self):
+        return self.__row_default_height
+
+    row_default_height = property(get_row_default_height, set_row_default_height)
+
+    #################################################################
+
+    def set_col_default_width(self, value):
+        self.__col_default_width = value
+
+    def get_col_default_width(self):
+        return self.__col_default_width
+
+    col_default_width = property(get_col_default_width, set_col_default_width)
+
+    #################################################################
+
+    def set_calc_mode(self, value):
+        self.__calc_mode = value & 0x03
+
+    def get_calc_mode(self):
+        return self.__calc_mode
+
+    calc_mode = property(get_calc_mode, set_calc_mode)
+
+    #################################################################
+
+    def set_calc_count(self, value):
+        self.__calc_count = value
+
+    def get_calc_count(self):
+        return self.__calc_count
+
+    calc_count = property(get_calc_count, set_calc_count)
+
+    #################################################################
+
+    def set_RC_ref_mode(self, value):
+        self.__RC_ref_mode = int(value)
+
+    def get_RC_ref_mode(self):
+        return bool(self.__RC_ref_mode)
+
+    RC_ref_mode = property(get_RC_ref_mode, set_RC_ref_mode)
+
+    #################################################################
+
+    def set_iterations_on(self, value):
+        self.__iterations_on = int(value)
+
+    def get_iterations_on(self):
+        return bool(self.__iterations_on)
+
+    iterations_on = property(get_iterations_on, set_iterations_on)
+
+    #################################################################
+
+    def set_delta(self, value):
+        self.__delta = value
+
+    def get_delta(self):
+        return self.__delta
+
+    delta = property(get_delta, set_delta)
+
+    #################################################################
+
+    def set_save_recalc(self, value):
+        self.__save_recalc = int(value)
+
+    def get_save_recalc(self):
+        return bool(self.__save_recalc)
+
+    save_recalc = property(get_save_recalc, set_save_recalc)
+
+    #################################################################
+
+    def set_print_headers(self, value):
+        self.__print_headers = int(value)
+
+    def get_print_headers(self):
+        return bool(self.__print_headers)
+
+    print_headers = property(get_print_headers, set_print_headers)
+
+    #################################################################
+
+    def set_print_grid(self, value):
+        self.__print_grid = int(value)
+
+    def get_print_grid(self):
+        return bool(self.__print_grid)
+
+    print_grid = property(get_print_grid, set_print_grid)
+
+    #################################################################
+    #
+    #def set_grid_set(self, value):
+    #    self.__grid_set = int(value)
+    #
+    #def get_grid_set(self):
+    #    return bool(self.__grid_set)
+    #
+    #grid_set = property(get_grid_set, set_grid_set)
+    #
+    #################################################################
+
+    def set_vert_page_breaks(self, value):
+        self.__vert_page_breaks = value
+
+    def get_vert_page_breaks(self):
+        return self.__vert_page_breaks
+
+    vert_page_breaks = property(get_vert_page_breaks, set_vert_page_breaks)
+
+    #################################################################
+
+    def set_horz_page_breaks(self, value):
+        self.__horz_page_breaks = value
+
+    def get_horz_page_breaks(self):
+        return self.__horz_page_breaks
+
+    horz_page_breaks = property(get_horz_page_breaks, set_horz_page_breaks)
+
+    #################################################################
+
+    def set_header_str(self, value):
+        if isinstance(value, str):
+            value = unicode(value, self.__parent.encoding)
+        self.__header_str = value
+
+    def get_header_str(self):
+        return self.__header_str
+
+    header_str = property(get_header_str, set_header_str)
+
+    #################################################################
+
+    def set_footer_str(self, value):
+        if isinstance(value, str):
+            value = unicode(value, self.__parent.encoding)
+        self.__footer_str = value
+
+    def get_footer_str(self):
+        return self.__footer_str
+
+    footer_str = property(get_footer_str, set_footer_str)
+
+    #################################################################
+
+    def set_print_centered_vert(self, value):
+        self.__print_centered_vert = int(value)
+
+    def get_print_centered_vert(self):
+        return bool(self.__print_centered_vert)
+
+    print_centered_vert = property(get_print_centered_vert, set_print_centered_vert)
+
+    #################################################################
+
+    def set_print_centered_horz(self, value):
+        self.__print_centered_horz = int(value)
+
+    def get_print_centered_horz(self):
+        return bool(self.__print_centered_horz)
+
+    print_centered_horz = property(get_print_centered_horz, set_print_centered_horz)
+
+    #################################################################
+
+    def set_left_margin(self, value):
+        self.__left_margin = value
+
+    def get_left_margin(self):
+        return self.__left_margin
+
+    left_margin = property(get_left_margin, set_left_margin)
+
+    #################################################################
+
+    def set_right_margin(self, value):
+        self.__right_margin = value
+
+    def get_right_margin(self):
+        return self.__right_margin
+
+    right_margin = property(get_right_margin, set_right_margin)
+
+    #################################################################
+
+    def set_top_margin(self, value):
+        self.__top_margin = value
+
+    def get_top_margin(self):
+        return self.__top_margin
+
+    top_margin = property(get_top_margin, set_top_margin)
+
+    #################################################################
+
+    def set_bottom_margin(self, value):
+        self.__bottom_margin = value
+
+    def get_bottom_margin(self):
+        return self.__bottom_margin
+
+    bottom_margin = property(get_bottom_margin, set_bottom_margin)
+
+    #################################################################
+
+    def set_paper_size_code(self, value):
+        self.__paper_size_code = value
+
+    def get_paper_size_code(self):
+        return self.__paper_size_code
+
+    paper_size_code = property(get_paper_size_code, set_paper_size_code)
+
+    #################################################################
+
+    def set_print_scaling(self, value):
+        self.__print_scaling = value
+
+    def get_print_scaling(self):
+        return self.__print_scaling
+
+    print_scaling = property(get_print_scaling, set_print_scaling)
+
+    #################################################################
+
+    def set_start_page_number(self, value):
+        self.__start_page_number = value
+
+    def get_start_page_number(self):
+        return self.__start_page_number
+
+    start_page_number = property(get_start_page_number, set_start_page_number)
+
+    #################################################################
+
+    def set_fit_width_to_pages(self, value):
+        self.__fit_width_to_pages = value
+
+    def get_fit_width_to_pages(self):
+        return self.__fit_width_to_pages
+
+    fit_width_to_pages = property(get_fit_width_to_pages, set_fit_width_to_pages)
+
+    #################################################################
+
+    def set_fit_height_to_pages(self, value):
+        self.__fit_height_to_pages = value
+
+    def get_fit_height_to_pages(self):
+        return self.__fit_height_to_pages
+
+    fit_height_to_pages = property(get_fit_height_to_pages, set_fit_height_to_pages)
+
+    #################################################################
+
+    def set_print_in_rows(self, value):
+        self.__print_in_rows = int(value)
+
+    def get_print_in_rows(self):
+        return bool(self.__print_in_rows)
+
+    print_in_rows = property(get_print_in_rows, set_print_in_rows)
+
+    #################################################################
+
+    def set_portrait(self, value):
+        self.__portrait = int(value)
+
+    def get_portrait(self):
+        return bool(self.__portrait)
+
+    portrait = property(get_portrait, set_portrait)
+
+    #################################################################
+
+    def set_print_colour(self, value):
+        self.__print_not_colour = int(not value)
+
+    def get_print_colour(self):
+        return not bool(self.__print_not_colour)
+
+    print_colour = property(get_print_colour, set_print_colour)
+
+    #################################################################
+
+    def set_print_draft(self, value):
+        self.__print_draft = int(value)
+
+    def get_print_draft(self):
+        return bool(self.__print_draft)
+
+    print_draft = property(get_print_draft, set_print_draft)
+
+    #################################################################
+
+    def set_print_notes(self, value):
+        self.__print_notes = int(value)
+
+    def get_print_notes(self):
+        return bool(self.__print_notes)
+
+    print_notes = property(get_print_notes, set_print_notes)
+
+    #################################################################
+
+    def set_print_notes_at_end(self, value):
+        self.__print_notes_at_end = int(value)
+
+    def get_print_notes_at_end(self):
+        return bool(self.__print_notes_at_end)
+
+    print_notes_at_end = property(get_print_notes_at_end, set_print_notes_at_end)
+
+    #################################################################
+
+    def set_print_omit_errors(self, value):
+        self.__print_omit_errors = int(value)
+
+    def get_print_omit_errors(self):
+        return bool(self.__print_omit_errors)
+
+    print_omit_errors = property(get_print_omit_errors, set_print_omit_errors)
+
+    #################################################################
+
+    def set_print_hres(self, value):
+        self.__print_hres = value
+
+    def get_print_hres(self):
+        return self.__print_hres
+
+    print_hres = property(get_print_hres, set_print_hres)
+
+    #################################################################
+
+    def set_print_vres(self, value):
+        self.__print_vres = value
+
+    def get_print_vres(self):
+        return self.__print_vres
+
+    print_vres = property(get_print_vres, set_print_vres)
+
+    #################################################################
+
+    def set_header_margin(self, value):
+        self.__header_margin = value
+
+    def get_header_margin(self):
+        return self.__header_margin
+
+    header_margin = property(get_header_margin, set_header_margin)
+
+    #################################################################
+
+    def set_footer_margin(self, value):
+        self.__footer_margin = value
+
+    def get_footer_margin(self):
+        return self.__footer_margin
+
+    footer_margin = property(get_footer_margin, set_footer_margin)
+
+    #################################################################
+
+    def set_copies_num(self, value):
+        self.__copies_num = value
+
+    def get_copies_num(self):
+        return self.__copies_num
+
+    copies_num = property(get_copies_num, set_copies_num)
+
+    ##################################################################
+
+    def set_wnd_protect(self, value):
+        self.__wnd_protect = int(value)
+
+    def get_wnd_protect(self):
+        return bool(self.__wnd_protect)
+
+    wnd_protect = property(get_wnd_protect, set_wnd_protect)
+
+    #################################################################
+
+    def set_obj_protect(self, value):
+        self.__obj_protect = int(value)
+
+    def get_obj_protect(self):
+        return bool(self.__obj_protect)
+
+    obj_protect = property(get_obj_protect, set_obj_protect)
+
+    #################################################################
+
+    def set_protect(self, value):
+        self.__protect = int(value)
+
+    def get_protect(self):
+        return bool(self.__protect)
+
+    protect = property(get_protect, set_protect)
+
+    #################################################################
+
+    def set_scen_protect(self, value):
+        self.__scen_protect = int(value)
+
+    def get_scen_protect(self):
+        return bool(self.__scen_protect)
+
+    scen_protect = property(get_scen_protect, set_scen_protect)
+
+    #################################################################
+
+    def set_password(self, value):
+        self.__password = value
+
+    def get_password(self):
+        return self.__password
+
+    password = property(get_password, set_password)
+
+    ##################################################################
+    ## Methods
+    ##################################################################
+
+    def get_parent(self):
+        return self.__parent
+
+    def write(self, r, c, label="", style=Style.default_style):
+        """
+        This method is used to write a cell to a :class:`Worksheet`.
+
+        :param r:
+
+           The zero-relative number of the row in the worksheet to which
+           the cell should be written.
+
+        :param c:
+
+           The zero-relative number of the column in the worksheet to which
+           the cell should be written.
+
+        :param label:
+
+           The data value to be written.
+
+           An :class:`int`, :class:`long`, or
+           :class:`~decimal.Decimal` instance is converted to :class:`float`.
+
+           A :class:`unicode` instance is written as is. A :class:`bytes`
+           instance is converted to :class:`unicode` using the
+           encoding, which defaults to ``ascii``, specified when the
+           :class:`Workbook` instance was created.
+
+           A :class:`~datetime.datetime`, :class:`~datetime.date` or
+           :class:`~datetime.time` instance is converted into Excel date format
+           (a float representing the number of days since (typically)
+           ``1899-12-31T00:00:00``, under the pretence that
+           1900 was a leap year).
+
+           A :class:`bool` instance will show up as ``TRUE`` or ``FALSE`` in
+           Excel.
+
+           ``None`` causes the cell to be blank: no data, only formatting.
+
+           An :class:`xlwt.Formula` instance causes an Excel formula to be
+           written.
+
+        :param style:
+
+           A style, also known as an XF (extended format), is an
+           :class:`~xlwt.Style.XFStyle` object, which encapsulates the
+           formatting applied to the cell and its contents.
+
+           :class:`~xlwt.Style.XFStyle` objects are best set up using the
+           :func:`~xlwt.Style.easyxf` function. They may also be set up by
+           setting attributes in :class:`Alignment`, :class:`Borders`,
+           :class:`Pattern`, :class:`Font` and :class:`Protection` objects then
+           setting those objects and a format string as attributes of an
+           :class:`~xlwt.Style.XFStyle` object.
+        """
+        self.row(r).write(c, label, style)
+
+    def write_rich_text(self, r, c, rich_text_list, style=Style.default_style):
+        self.row(r).set_cell_rich_text(c, rich_text_list, style)
+
+    def merge(self, r1, r2, c1, c2, style=Style.default_style):
+        # Stand-alone merge of previously written cells.
+        # Problems: (1) style to be used should be existing style of
+        # the top-left cell, not an arg.
+        # (2) should ensure that any previous data value in
+        # non-top-left cells is nobbled.
+        # Note: if a cell is set by a data record then later
+        # is referenced by a [MUL]BLANK record, Excel will blank
+        # out the cell on the screen, but OOo & Gnu will not
+        # blank it out. Need to do something better than writing
+        # multiple records. In the meantime, avoid this method and use
+        # write_merge() instead.
+        if c2 > c1:
+            self.row(r1).write_blanks(c1 + 1, c2,  style)
+        for r in range(r1+1, r2+1):
+            self.row(r).write_blanks(c1, c2,  style)
+        self.__merged_ranges.append((r1, r2, c1, c2))
+
+    def write_merge(self, r1, r2, c1, c2, label="", style=Style.default_style):
+        assert 0 <= c1 <= c2 <= 255
+        assert 0 <= r1 <= r2 <= 65535
+        self.write(r1, c1, label, style)
+        if c2 > c1:
+            self.row(r1).write_blanks(c1 + 1, c2,  style) # skip (r1, c1)
+        for r in range(r1+1, r2+1):
+            self.row(r).write_blanks(c1, c2,  style)
+        self.__merged_ranges.append((r1, r2, c1, c2))
+
+    def insert_bitmap(self, filename, row, col, x = 0, y = 0, scale_x = 1, scale_y = 1):
+        bmp = Bitmap.ImDataBmpRecord(filename)
+        obj = Bitmap.ObjBmpRecord(row, col, self, bmp, x, y, scale_x, scale_y)
+
+        self.__bmp_rec += obj.get() + bmp.get()
+
+    def insert_bitmap_data(self, data, row, col, x = 0, y = 0, scale_x = 1, scale_y = 1):
+        bmp = Bitmap.ImRawDataBmpRecord(data)
+        obj = Bitmap.ObjBmpRecord(row, col, self, bmp, x, y, scale_x, scale_y)
+
+        self.__bmp_rec += obj.get() + bmp.get()
+
+    def col(self, indx):
+        if indx not in self.__cols:
+            self.__cols[indx] = self.Column(indx, self)
+        return self.__cols[indx]
+
+    def row(self, indx):
+        if indx not in self.__rows:
+            if indx in self.__flushed_rows:
+                raise Exception("Attempt to reuse row index %d of sheet %r after flushing" % (indx, self.__name))
+            self.__rows[indx] = self.Row(indx, self)
+            if indx > self.last_used_row:
+                self.last_used_row = indx
+            if indx < self.first_used_row:
+                self.first_used_row = indx
+        return self.__rows[indx]
+
+    def row_height(self, row): # in pixels
+        if row in self.__rows:
+            return self.__rows[row].get_height_in_pixels()
+        else:
+            return 17
+
+    def col_width(self, col): # in pixels
+        if col in self.__cols:
+            return self.__cols[col].width_in_pixels()
+        else:
+            return 64
 
 
-error_msg_by_code = {
-    0x00: u"#NULL!",  # intersection of two cell ranges is empty
-    0x07: u"#DIV/0!", # division by zero
-    0x0F: u"#VALUE!", # wrong type of operand
-    0x17: u"#REF!",   # illegal or deleted cell reference
-    0x1D: u"#NAME?",  # wrong function or range name
-    0x24: u"#NUM!",   # value range overflow
-    0x2A: u"#N/A"    # argument or function not available
-}
+    ##################################################################
+    ## BIFF records generation
+    ##################################################################
+
+    def __bof_rec(self):
+        return BIFFRecords.Biff8BOFRecord(BIFFRecords.Biff8BOFRecord.WORKSHEET).get()
+
+    def __update_row_visible_levels(self):
+        if self.__rows:
+            temp = max(self.__rows[r].level for r in self.__rows) + 1
+            self.__row_visible_levels = max(temp, self.__row_visible_levels)
+
+    def __guts_rec(self):
+        self.__update_row_visible_levels()
+        col_visible_levels = 0
+        if len(self.__cols) != 0:
+            col_visible_levels = max(self.__cols[c].level for c in self.__cols) + 1
+        return BIFFRecords.GutsRecord(
+            self.__row_gut_width, self.__col_gut_height, self.__row_visible_levels, col_visible_levels).get()
+
+    def __defaultrowheight_rec(self):
+        options = 0x0000
+        options |= (self.row_default_height_mismatch & 1) << 0
+        options |= (self.row_default_hidden & 1) << 1
+        options |= (self.row_default_space_above & 1) << 2
+        options |= (self.row_default_space_below & 1) << 3
+        defht = self.__row_default_height
+        return BIFFRecords.DefaultRowHeightRecord(options, defht).get()
+
+    def __wsbool_rec(self):
+        options = 0x00
+        options |= (self.__show_auto_page_breaks & 0x01) << 0
+        options |= (self.__dialogue_sheet & 0x01) << 4
+        options |= (self.__auto_style_outline & 0x01) << 5
+        options |= (self.__outline_below & 0x01) << 6
+        options |= (self.__outline_right & 0x01) << 7
+        options |= (self.__fit_num_pages & 0x01) << 8
+        options |= (self.__show_row_outline & 0x01) << 10
+        options |= (self.__show_col_outline & 0x01) << 11
+        options |= (self.__alt_expr_eval & 0x01) << 14
+        options |= (self.__alt_formula_entries & 0x01) << 15
+
+        return BIFFRecords.WSBoolRecord(options).get()
+
+    def __eof_rec(self):
+        return BIFFRecords.EOFRecord().get()
+
+    def __colinfo_rec(self):
+        result = b''
+        for col in self.__cols:
+            result += self.__cols[col].get_biff_record()
+        return result
+
+    def __dimensions_rec(self):
+        return BIFFRecords.DimensionsRecord(
+            self.first_used_row, self.last_used_row,
+            self.first_used_col, self.last_used_col
+            ).get()
+
+    def __window2_rec(self):
+        # Appends SCL record.
+        options = 0
+        options |= (self.__show_formulas        & 0x01) << 0
+        options |= (self.__show_grid            & 0x01) << 1
+        options |= (self.__show_headers         & 0x01) << 2
+        options |= (self.__panes_frozen         & 0x01) << 3
+        options |= (self.show_zero_values       & 0x01) << 4
+        options |= (self.__auto_colour_grid     & 0x01) << 5
+        options |= (self.__cols_right_to_left   & 0x01) << 6
+        options |= (self.__show_outline         & 0x01) << 7
+        options |= (self.__remove_splits        & 0x01) << 8
+        options |= (self.__selected             & 0x01) << 9
+        options |= (self.__sheet_visible        & 0x01) << 10
+        options |= (self.__page_preview         & 0x01) << 11
+        if self.explicit_magn_setting:
+            # Experimentation: caller can set the scl magn.
+            # None -> no SCL record written
+            # Otherwise 10 <= scl_magn <= 400 or scl_magn == 0
+            # Note: value 0 means use 100 for normal view, 60 for page break preview
+            # BREAKING NEWS: Excel interprets scl_magn = 0 very literally, your
+            # sheet appears like a tiny dot on the screen
+            scl_magn = self.__scl_magn
+        else:
+            if self.__page_preview:
+                scl_magn = self.__preview_magn
+                magn_default = 60
+            else:
+                scl_magn = self.__normal_magn
+                magn_default = 100
+            if scl_magn == magn_default or scl_magn == 0:
+                # Emulate what we think MS does
+                scl_magn = None # don't write an SCL record
+        return BIFFRecords.Window2Record(
+            options, self.__first_visible_row, self.__first_visible_col,
+            self.__grid_colour,
+            self.__preview_magn, self.__normal_magn, scl_magn).get()
+
+    def __panes_rec(self):
+        if self.__vert_split_pos is None and self.__horz_split_pos is None:
+            return b""
+
+        if self.__vert_split_pos is None:
+            self.__vert_split_pos = 0
+        if self.__horz_split_pos is None:
+            self.__horz_split_pos = 0
+
+        if self.__panes_frozen:
+            if self.__vert_split_first_visible is None:
+                self.__vert_split_first_visible = self.__vert_split_pos
+            if self.__horz_split_first_visible is None:
+                self.__horz_split_first_visible = self.__horz_split_pos
+
+            # when frozen, the active pane has to be specifically set:
+            if self.__vert_split_pos > 0 and self.__horz_split_pos > 0:
+                active_pane = 0
+            elif self.__vert_split_pos > 0 and self.__horz_split_pos == 0:
+                active_pane = 1
+            elif self.__vert_split_pos == 0 and self.__horz_split_pos > 0:
+                active_pane = 2
+            else:
+                active_pane = 3
+        else:
+            if self.__vert_split_first_visible is None:
+                self.__vert_split_first_visible = 0
+            if self.__horz_split_first_visible is None:
+                self.__horz_split_first_visible = 0
+            if not self.split_position_units_are_twips:
+                # inspired by pyXLWriter
+                if self.__horz_split_pos > 0:
+                    self.__horz_split_pos = 20 * self.__horz_split_pos + 255
+                if self.__vert_split_pos > 0:
+                    self.__vert_split_pos = 113.879 * self.__vert_split_pos + 390
+
+            # when split, the active pain can be set as required:
+            active_pane = self.active_pane
+
+        result = BIFFRecords.PanesRecord(*map(int, (
+            self.__vert_split_pos,
+            self.__horz_split_pos,
+            self.__horz_split_first_visible,
+            self.__vert_split_first_visible,
+            active_pane
+            ))).get()
+
+        return result
+
+    def __row_blocks_rec(self):
+        result = []
+        for row in itervalues(self.__rows):
+            result.append(row.get_row_biff_data())
+            result.append(row.get_cells_biff_data())
+        return b''.join(result)
+
+    def __merged_rec(self):
+        return BIFFRecords.MergedCellsRecord(self.__merged_ranges).get()
+
+    def __bitmaps_rec(self):
+        return self.__bmp_rec
+
+    def __calc_settings_rec(self):
+        result = b''
+        result += BIFFRecords.CalcModeRecord(self.__calc_mode & 0x01).get()
+        result += BIFFRecords.CalcCountRecord(self.__calc_count & 0xFFFF).get()
+        result += BIFFRecords.RefModeRecord(self.__RC_ref_mode & 0x01).get()
+        result += BIFFRecords.IterationRecord(self.__iterations_on & 0x01).get()
+        result += BIFFRecords.DeltaRecord(self.__delta).get()
+        result += BIFFRecords.SaveRecalcRecord(self.__save_recalc & 0x01).get()
+        return result
+
+    def __print_settings_rec(self):
+        result = b''
+        result += BIFFRecords.PrintHeadersRecord(self.__print_headers).get()
+        result += BIFFRecords.PrintGridLinesRecord(self.__print_grid).get()
+        result += BIFFRecords.GridSetRecord(self.__grid_set).get()
+        result += BIFFRecords.HorizontalPageBreaksRecord(self.__horz_page_breaks).get()
+        result += BIFFRecords.VerticalPageBreaksRecord(self.__vert_page_breaks).get()
+        result += BIFFRecords.HeaderRecord(self.__header_str).get()
+        result += BIFFRecords.FooterRecord(self.__footer_str).get()
+        result += BIFFRecords.HCenterRecord(self.__print_centered_horz).get()
+        result += BIFFRecords.VCenterRecord(self.__print_centered_vert).get()
+        result += BIFFRecords.LeftMarginRecord(self.__left_margin).get()
+        result += BIFFRecords.RightMarginRecord(self.__right_margin).get()
+        result += BIFFRecords.TopMarginRecord(self.__top_margin).get()
+        result += BIFFRecords.BottomMarginRecord(self.__bottom_margin).get()
+
+        setup_page_options =  (self.__print_in_rows & 0x01) << 0
+        setup_page_options |=  (self.__portrait & 0x01) << 1
+        setup_page_options |=  (0x00 & 0x01) << 2
+        setup_page_options |=  (self.__print_not_colour & 0x01) << 3
+        setup_page_options |=  (self.__print_draft & 0x01) << 4
+        setup_page_options |=  (self.__print_notes & 0x01) << 5
+        setup_page_options |=  (0x00 & 0x01) << 6
+        setup_page_options |=  (0x01 & 0x01) << 7
+        setup_page_options |=  (self.__print_notes_at_end & 0x01) << 9
+        setup_page_options |=  (self.__print_omit_errors & 0x03) << 10
+
+        result += BIFFRecords.SetupPageRecord(self.__paper_size_code,
+                                self.__print_scaling,
+                                self.__start_page_number,
+                                self.__fit_width_to_pages,
+                                self.__fit_height_to_pages,
+                                setup_page_options,
+                                self.__print_hres,
+                                self.__print_vres,
+                                self.__header_margin,
+                                self.__footer_margin,
+                                self.__copies_num).get()
+        return result
+
+    def __protection_rec(self):
+        result = b''
+        result += BIFFRecords.ProtectRecord(self.__protect).get()
+        result += BIFFRecords.ScenProtectRecord(self.__scen_protect).get()
+        result += BIFFRecords.WindowProtectRecord(self.__wnd_protect).get()
+        result += BIFFRecords.ObjectProtectRecord(self.__obj_protect).get()
+        result += BIFFRecords.PasswordRecord(self.__password).get()
+        return result
+
+    def get_biff_data(self):
+        result = [
+            self.__bof_rec(),
+            self.__calc_settings_rec(),
+            self.__guts_rec(),
+            self.__defaultrowheight_rec(),
+            self.__wsbool_rec(),
+            self.__colinfo_rec(),
+            self.__dimensions_rec(),
+            self.__print_settings_rec(),
+            self.__protection_rec(),
+            ]
+        if self.row_tempfile:
+            self.row_tempfile.flush()
+            self.row_tempfile.seek(0)
+            result.append(self.row_tempfile.read())
+            self.row_tempfile.seek(0, 2) # to EOF
+            # Above seek() is necessary to avoid a spurious IOError
+            # with Errno 0 if the caller continues on writing rows
+            # and flushing row data after the save().
+            # See https://bugs.python.org/issue3207
+        result.extend([
+            self.__row_blocks_rec(),
+            self.__merged_rec(),
+            self.__bitmaps_rec(),
+            self.__window2_rec(),
+            self.__panes_rec(),
+            self.__eof_rec(),
+            ])
+        return b''.join(result)
+
+    def flush_row_data(self):
+        if self.row_tempfile is None:
+            self.row_tempfile = tempfile.TemporaryFile()
+        self.row_tempfile.write(self.__row_blocks_rec())
+        for rowx in self.__rows:
+            self.__flushed_rows[rowx] = 1
+        self.__update_row_visible_levels()
+        self.__rows = {}
+
+

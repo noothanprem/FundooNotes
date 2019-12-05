@@ -1,1 +1,1 @@
-æé@venv/lib64/python3.6/site-packages/django/db/models/sql/query.py 2pyXÕh
+æéEvenv/lib64/python3.6/site-packages/django/db/models/sql/subqueries.py 2pyXÃh

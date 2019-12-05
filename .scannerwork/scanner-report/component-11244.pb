@@ -1,1 +1,0 @@
-ÏWCvenv/lib/python3.6/site-packages/faker/providers/phone_number/ko_KR :ÎW

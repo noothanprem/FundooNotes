@@ -1,1 +1,1 @@
-¶äSvenv/lib64/python3.6/site-packages/social_django/management/commands/clearsocial.py 2pyX$h
+¶äDvenv/lib64/python3.6/site-packages/social_django/management/commands :µä·ä

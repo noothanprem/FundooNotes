@@ -1,1 +1,1 @@
-üºHvenv/lib/python3.6/site-packages/social_core/tests/backends/test_lyft.py 2pyXh
+üºBvenv/lib/python3.6/site-packages/social_core/backends/instagram.py 2pyX6h

@@ -24,56 +24,165 @@
 #
 ###############################################################################
 
-from __future__ import absolute_import
-
-import os
-from cffi import FFI
+import abc
+import six
 
 
-ffi = FFI()
+@six.add_metaclass(abc.ABCMeta)
+class IMarketMaker(object):
+    """
+    XBR Market Maker interface.
+    """
 
-ffi.cdef("""
-    void* nvx_utf8vld_new ();
+    @abc.abstractmethod
+    def status(self, details):
+        """
 
-    void nvx_utf8vld_reset (void* utf8vld);
+        :param details:
+        :return:
+        """
 
-    int nvx_utf8vld_validate (void* utf8vld, const uint8_t* data, size_t length);
+    @abc.abstractmethod
+    def offer(self, key_id, price, details):
+        """
 
-    void nvx_utf8vld_free (void* utf8vld);
+        :param key_id:
+        :param price:
+        :param details:
+        :return:
+        """
 
-    int nvx_utf8vld_set_impl(void* utf8vld, int impl);
+    @abc.abstractmethod
+    def revoke(self, key_id, details):
+        """
 
-    int nvx_utf8vld_get_impl(void* utf8vld);
-""")
+        :param key_id:
+        :param details:
+        :return:
+        """
 
-with open(os.path.join(os.path.dirname(__file__), '_utf8validator.c')) as fd:
-    c_source = fd.read()
-    ffi.set_source(
-        "_nvx_utf8validator",
-        c_source,
-        libraries=[],
-        extra_compile_args=['-std=c99', '-Wall', '-Wno-strict-prototypes', '-O3', '-march=native']
-    )
+    @abc.abstractmethod
+    def quote(self, key_id, details):
+        """
+
+        :param key_id:
+        :param details:
+        :return:
+        """
+
+    @abc.abstractmethod
+    def buy(self, channel_id, channel_seq, buyer_pubkey, datakey_id, amount, balance, signature, details):
+        """
+
+        :param channel_id:
+        :param channel_seq:
+        :param buyer_pubkey:
+        :param datakey_id:
+        :param amount:
+        :param balance:
+        :param signature:
+        :param details:
+        :return:
+        """
+
+    @abc.abstractmethod
+    def get_payment_channels(self, address, details):
+        """
+
+        :param address:
+        :param details:
+        :return:
+        """
+
+    @abc.abstractmethod
+    def get_payment_channel(self, channel_id, details):
+        """
+
+        :param channel_id:
+        :param details:
+        :return:
+        """
 
 
-class Utf8Validator:
+@six.add_metaclass(abc.ABCMeta)
+class IProvider(object):
+    """
+    XBR Provider interface.
+    """
 
-    def __init__(self):
-        self.ffi = ffi
+    @abc.abstractmethod
+    def sell(self, key_id, buyer_pubkey, amount_paid, post_balance, signature, details):
+        """
 
-        from _nvx_utf8validator import lib
-        self.lib = lib
-
-        self._vld = self.ffi.gc(self.lib.nvx_utf8vld_new(), self.lib.nvx_utf8vld_free)
-        print(self.lib.nvx_utf8vld_get_impl(self._vld))
-
-    def reset(self):
-        self.lib.nvx_utf8vld_reset(self._vld)
-
-    def validate(self, ba):
-        res = self.lib.nvx_utf8vld_validate(self._vld, ba, len(ba))
-        return (res >= 0, res == 0, None, None)
+        :param key_id:
+        :param buyer_pubkey:
+        :param amount_paid:
+        :param post_balance:
+        :param signature:
+        :param details:
+        :return:
+        """
 
 
-if __name__ == "__main__":
-    ffi.compile()
+@six.add_metaclass(abc.ABCMeta)
+class IConsumer(object):
+    """
+    XBR Consumer interface.
+    """
+
+
+@six.add_metaclass(abc.ABCMeta)
+class ISeller(object):
+    """
+    XBR Seller interface.
+    """
+
+    @abc.abstractmethod
+    async def start(self, session):
+        """
+
+        :param session:
+        :return:
+        """
+
+    @abc.abstractmethod
+    async def wrap(self, uri, payload):
+        """
+
+        :param uri:
+        :param payload:
+        :return:
+        """
+
+
+@six.add_metaclass(abc.ABCMeta)
+class IBuyer(object):
+    """
+    XBR Buyer interface.
+    """
+
+    @abc.abstractmethod
+    async def start(self, session):
+        """
+        Start buying keys over the provided session.
+
+        :param session: WAMP session that allows to talk to the XBR Market Maker.
+        """
+
+    @abc.abstractmethod
+    async def unwrap(self, key_id, enc_ser, ciphertext):
+        """
+        Decrypt and deserialize received XBR payload.
+
+        :param key_id: The ID of the datakey the payload is encrypted with.
+        :type key_id: bytes
+
+        :param enc_ser: The serializer that was used for serializing the payload. One of ``cbor``, ``json``, ``msgpack``, ``ubjson``.
+        :type enc_ser: str
+
+        :param ciphertext: The encrypted payload to unwrap.
+        :type ciphertext: bytes
+
+        :returns: The unwrapped application payload.
+        :rtype: object
+        """

@@ -1,1 +1,1 @@
-£CBvenv/lib/python3.6/site-packages/django/conf/locale/nn/__init__.py 2pyXh
+£CAvenv/lib/python3.6/site-packages/django/conf/locale/nn/formats.py 2pyX)h

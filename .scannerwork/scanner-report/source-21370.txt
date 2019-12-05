@@ -2,332 +2,351 @@
 # See LICENSE for details.
 
 """
-Tests for implementations of L{IReactorCore}.
+Tests for POSIX-based L{IReactorProcess} implementations.
 """
 
 from __future__ import division, absolute_import
 
-__metaclass__ = type
+import errno, os, sys
 
-import signal
-import time
-import inspect
+try:
+    import fcntl
+except ImportError:
+    platformSkip = "non-POSIX platform"
+else:
+    from twisted.internet import process
+    platformSkip = None
 
-from twisted.internet.abstract import FileDescriptor
-from twisted.internet.error import ReactorAlreadyRunning, ReactorNotRestartable
-from twisted.internet.defer import Deferred
-from twisted.internet.test.reactormixins import ReactorBuilder
+from twisted.python.compat import range
+from twisted.trial.unittest import TestCase
 
 
-class ObjectModelIntegrationMixin(object):
+class FakeFile(object):
     """
-    Helpers for tests about the object model of reactor-related objects.
+    A dummy file object which records when it is closed.
     """
-    def assertFullyNewStyle(self, instance):
-        """
-        Assert that the given object is an instance of a new-style class and
-        that there are no classic classes in the inheritance hierarchy of
-        that class.
-
-        This is a beneficial condition because PyPy is better able to
-        optimize attribute lookup on such classes.
-        """
-        self.assertIsInstance(instance, object)
-        mro = inspect.getmro(type(instance))
-        for subclass in mro:
-            self.assertTrue(
-                issubclass(subclass, object),
-                "%r is not new-style" % (subclass,))
+    def __init__(self, testcase, fd):
+        self.testcase = testcase
+        self.fd = fd
 
 
+    def close(self):
+        self.testcase._files.remove(self.fd)
 
-class ObjectModelIntegrationTests(ReactorBuilder, ObjectModelIntegrationMixin):
+
+    def __enter__(self):
+        return self
+
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+
+
+class FakeResourceModule(object):
     """
-    Test details of object model integration against all reactors.
+    Fake version of L{resource} which hard-codes a particular rlimit for maximum
+    open files.
+
+    @ivar _limit: The value to return for the hard limit of number of open files.
     """
+    RLIMIT_NOFILE = 1
 
-    def test_newstyleReactor(self):
+    def __init__(self, limit):
+        self._limit = limit
+
+
+    def getrlimit(self, no):
         """
-        Checks that all reactors on a platform have method resolution order
-        containing only new style classes.
+        A fake of L{resource.getrlimit} which returns a pre-determined result.
         """
-        reactor = self.buildReactor()
-        self.assertFullyNewStyle(reactor)
+        if no == self.RLIMIT_NOFILE:
+            return [0, self._limit]
+        return [123, 456]
 
 
 
-class SystemEventTestsBuilder(ReactorBuilder):
+class FDDetectorTests(TestCase):
     """
-    Builder defining tests relating to L{IReactorCore.addSystemEventTrigger}
-    and L{IReactorCore.fireSystemEvent}.
+    Tests for _FDDetector class in twisted.internet.process, which detects
+    which function to drop in place for the _listOpenFDs method.
+
+    @ivar devfs: A flag indicating whether the filesystem fake will indicate
+        that /dev/fd exists.
+
+    @ivar accurateDevFDResults: A flag indicating whether the /dev/fd fake
+        returns accurate open file information.
+
+    @ivar procfs: A flag indicating whether the filesystem fake will indicate
+        that /proc/<pid>/fd exists.
     """
-    def test_stopWhenNotStarted(self):
+    skip = platformSkip
+
+    devfs = False
+    accurateDevFDResults = False
+
+    procfs = False
+
+    def getpid(self):
         """
-        C{reactor.stop()} raises L{RuntimeError} when called when the reactor
-        has not been started.
+        Fake os.getpid, always return the same thing
         """
-        reactor = self.buildReactor()
-        self.assertRaises(RuntimeError, reactor.stop)
+        return 123
 
 
-    def test_stopWhenAlreadyStopped(self):
+    def listdir(self, arg):
         """
-        C{reactor.stop()} raises L{RuntimeError} when called after the reactor
-        has been stopped.
+        Fake os.listdir, depending on what mode we're in to simulate behaviour.
+
+        @param arg: the directory to list
         """
-        reactor = self.buildReactor()
-        reactor.callWhenRunning(reactor.stop)
-        self.runReactor(reactor)
-        self.assertRaises(RuntimeError, reactor.stop)
+        accurate = map(str, self._files)
+        if self.procfs and arg == ('/proc/%d/fd' % (self.getpid(),)):
+            return accurate
+        if self.devfs and arg == '/dev/fd':
+            if self.accurateDevFDResults:
+                return accurate
+            return ["0", "1", "2"]
+        raise OSError()
 
 
-    def test_callWhenRunningOrder(self):
+    def openfile(self, fname, mode):
         """
-        Functions are run in the order that they were passed to
-        L{reactor.callWhenRunning}.
+        This is a mock for L{open}.  It keeps track of opened files so extra
+        descriptors can be returned from the mock for L{os.listdir} when used on
+        one of the list-of-filedescriptors directories.
+
+        A L{FakeFile} is returned which can be closed to remove the new
+        descriptor from the open list.
         """
-        reactor = self.buildReactor()
-        events = []
-        reactor.callWhenRunning(events.append, "first")
-        reactor.callWhenRunning(events.append, "second")
-        reactor.callWhenRunning(reactor.stop)
-        self.runReactor(reactor)
-        self.assertEqual(events, ["first", "second"])
+        # Find the smallest unused file descriptor and give it to the new file.
+        f = FakeFile(self, min(set(range(1024)) - set(self._files)))
+        self._files.append(f.fd)
+        return f
 
 
-    def test_runningForStartupEvents(self):
+    def hideResourceModule(self):
         """
-        The reactor is not running when C{"before"} C{"startup"} triggers are
-        called and is running when C{"during"} and C{"after"} C{"startup"}
-        triggers are called.
+        Make the L{resource} module unimportable for the remainder of the
+        current test method.
         """
-        reactor = self.buildReactor()
-        state = {}
-        def beforeStartup():
-            state['before'] = reactor.running
-        def duringStartup():
-            state['during'] = reactor.running
-        def afterStartup():
-            state['after'] = reactor.running
-        reactor.addSystemEventTrigger("before", "startup", beforeStartup)
-        reactor.addSystemEventTrigger("during", "startup", duringStartup)
-        reactor.addSystemEventTrigger("after", "startup", afterStartup)
-        reactor.callWhenRunning(reactor.stop)
-        self.assertEqual(state, {})
-        self.runReactor(reactor)
+        sys.modules['resource'] = None
+
+
+    def revealResourceModule(self, limit):
+        """
+        Make a L{FakeResourceModule} instance importable at the L{resource}
+        name.
+
+        @param limit: The value which will be returned for the hard limit of
+            number of open files by the fake resource module's C{getrlimit}
+            function.
+        """
+        sys.modules['resource'] = FakeResourceModule(limit)
+
+
+    def replaceResourceModule(self, value):
+        """
+        Restore the original resource module to L{sys.modules}.
+        """
+        if value is None:
+            try:
+                del sys.modules['resource']
+            except KeyError:
+                pass
+        else:
+            sys.modules['resource'] = value
+
+
+    def setUp(self):
+        """
+        Set up the tests, giving ourselves a detector object to play with and
+        setting up its testable knobs to refer to our mocked versions.
+        """
+        self.detector = process._FDDetector()
+        self.detector.listdir = self.listdir
+        self.detector.getpid = self.getpid
+        self.detector.openfile = self.openfile
+        self._files = [0, 1, 2]
+        self.addCleanup(
+            self.replaceResourceModule, sys.modules.get('resource'))
+
+
+    def test_selectFirstWorking(self):
+        """
+        L{FDDetector._getImplementation} returns the first method from its
+        C{_implementations} list which returns results which reflect a newly
+        opened file descriptor.
+        """
+        def failWithException():
+            raise ValueError("This does not work")
+
+        def failWithWrongResults():
+            return [0, 1, 2]
+
+        def correct():
+            return self._files[:]
+
+        self.detector._implementations = [
+            failWithException, failWithWrongResults, correct]
+
+        self.assertIs(correct, self.detector._getImplementation())
+
+
+    def test_selectLast(self):
+        """
+        L{FDDetector._getImplementation} returns the last method from its
+        C{_implementations} list if none of the implementations manage to return
+        results which reflect a newly opened file descriptor.
+        """
+        def failWithWrongResults():
+            return [3, 5, 9]
+
+        def failWithOtherWrongResults():
+            return [0, 1, 2]
+
+        self.detector._implementations = [
+            failWithWrongResults, failWithOtherWrongResults]
+
+        self.assertIs(
+            failWithOtherWrongResults, self.detector._getImplementation())
+
+
+    def test_identityOfListOpenFDsChanges(self):
+        """
+        Check that the identity of _listOpenFDs changes after running
+        _listOpenFDs the first time, but not after the second time it's run.
+
+        In other words, check that the monkey patching actually works.
+        """
+        # Create a new instance
+        detector = process._FDDetector()
+
+        first = detector._listOpenFDs.__name__
+        detector._listOpenFDs()
+        second = detector._listOpenFDs.__name__
+        detector._listOpenFDs()
+        third = detector._listOpenFDs.__name__
+
+        self.assertNotEqual(first, second)
+        self.assertEqual(second, third)
+
+
+    def test_devFDImplementation(self):
+        """
+        L{_FDDetector._devFDImplementation} raises L{OSError} if there is no
+        I{/dev/fd} directory, otherwise it returns the basenames of its children
+        interpreted as integers.
+        """
+        self.devfs = False
+        self.assertRaises(OSError, self.detector._devFDImplementation)
+        self.devfs = True
+        self.accurateDevFDResults = False
+        self.assertEqual([0, 1, 2], self.detector._devFDImplementation())
+
+
+    def test_procFDImplementation(self):
+        """
+        L{_FDDetector._procFDImplementation} raises L{OSError} if there is no
+        I{/proc/<pid>/fd} directory, otherwise it returns the basenames of its
+        children interpreted as integers.
+        """
+        self.procfs = False
+        self.assertRaises(OSError, self.detector._procFDImplementation)
+        self.procfs = True
+        self.assertEqual([0, 1, 2], self.detector._procFDImplementation())
+
+
+    def test_resourceFDImplementation(self):
+        """
+        L{_FDDetector._fallbackFDImplementation} uses the L{resource} module if
+        it is available, returning a range of integers from 0 to the
+        minimum of C{1024} and the hard I{NOFILE} limit.
+        """
+        # When the resource module is here, use its value.
+        self.revealResourceModule(512)
         self.assertEqual(
-            state,
-            {"before": False,
-             "during": True,
-             "after": True})
+            list(range(512)), list(self.detector._fallbackFDImplementation()))
+
+        # But limit its value to the arbitrarily selected value 1024.
+        self.revealResourceModule(2048)
+        self.assertEqual(
+            list(range(1024)), list(self.detector._fallbackFDImplementation()))
 
 
-    def test_signalHandlersInstalledDuringStartup(self):
+    def test_fallbackFDImplementation(self):
         """
-        Signal handlers are installed in responsed to the C{"during"}
-        C{"startup"}.
+        L{_FDDetector._fallbackFDImplementation}, the implementation of last
+        resort, succeeds with a fixed range of integers from 0 to 1024 when the
+        L{resource} module is not importable.
         """
-        reactor = self.buildReactor()
-        phase = [None]
-        def beforeStartup():
-            phase[0] = "before"
-        def afterStartup():
-            phase[0] = "after"
-        reactor.addSystemEventTrigger("before", "startup", beforeStartup)
-        reactor.addSystemEventTrigger("after", "startup", afterStartup)
-
-        sawPhase = []
-        def fakeSignal(signum, action):
-            sawPhase.append(phase[0])
-        self.patch(signal, 'signal', fakeSignal)
-        reactor.callWhenRunning(reactor.stop)
-        self.assertIsNone(phase[0])
-        self.assertEqual(sawPhase, [])
-        self.runReactor(reactor)
-        self.assertIn("before", sawPhase)
-        self.assertEqual(phase[0], "after")
+        self.hideResourceModule()
+        self.assertEqual(list(range(1024)),
+                         list(self.detector._fallbackFDImplementation()))
 
 
-    def test_stopShutDownEvents(self):
+
+class FileDescriptorTests(TestCase):
+    """
+    Tests for L{twisted.internet.process._listOpenFDs}
+    """
+    skip = platformSkip
+
+    def test_openFDs(self):
         """
-        C{reactor.stop()} fires all three phases of shutdown event triggers
-        before it makes C{reactor.run()} return.
+        File descriptors returned by L{_listOpenFDs} are mostly open.
+
+        This test assumes that zero-legth writes fail with EBADF on closed
+        file descriptors.
         """
-        reactor = self.buildReactor()
-        events = []
-        reactor.addSystemEventTrigger(
-            "before", "shutdown",
-            lambda: events.append(("before", "shutdown")))
-        reactor.addSystemEventTrigger(
-            "during", "shutdown",
-            lambda: events.append(("during", "shutdown")))
-        reactor.addSystemEventTrigger(
-            "after", "shutdown",
-            lambda: events.append(("after", "shutdown")))
-        reactor.callWhenRunning(reactor.stop)
-        self.runReactor(reactor)
-        self.assertEqual(events, [("before", "shutdown"),
-                                   ("during", "shutdown"),
-                                   ("after", "shutdown")])
+        for fd in process._listOpenFDs():
+            try:
+                fcntl.fcntl(fd, fcntl.F_GETFL)
+            except IOError as err:
+                self.assertEqual(
+                    errno.EBADF, err.errno,
+                    "fcntl(%d, F_GETFL) failed with unexpected errno %d" % (
+                        fd, err.errno))
 
 
-    def test_shutdownFiresTriggersAsynchronously(self):
+    def test_expectedFDs(self):
         """
-        C{"before"} C{"shutdown"} triggers are not run synchronously from
-        L{reactor.stop}.
+        L{_listOpenFDs} lists expected file descriptors.
         """
-        reactor = self.buildReactor()
-        events = []
-        reactor.addSystemEventTrigger(
-            "before", "shutdown", events.append, "before shutdown")
-        def stopIt():
-            reactor.stop()
-            events.append("stopped")
-        reactor.callWhenRunning(stopIt)
-        self.assertEqual(events, [])
-        self.runReactor(reactor)
-        self.assertEqual(events, ["stopped", "before shutdown"])
+        # This is a tricky test.  A priori, there is no way to know what file
+        # descriptors are open now, so there is no way to know what _listOpenFDs
+        # should return.  Work around this by creating some new file descriptors
+        # which we can know the state of and then just making assertions about
+        # their presence or absence in the result.
 
+        # Expect a file we just opened to be listed.
+        f = open(os.devnull)
+        openfds = process._listOpenFDs()
+        self.assertIn(f.fileno(), openfds)
 
-    def test_shutdownDisconnectsCleanly(self):
-        """
-        A L{IFileDescriptor.connectionLost} implementation which raises an
-        exception does not prevent the remaining L{IFileDescriptor}s from
-        having their C{connectionLost} method called.
-        """
-        lostOK = [False]
+        # Expect a file we just closed not to be listed - with a caveat.  The
+        # implementation may need to open a file to discover the result.  That
+        # open file descriptor will be allocated the same number as the one we
+        # just closed.  So, instead, create a hole in the file descriptor space
+        # to catch that internal descriptor and make the assertion about a
+        # different closed file descriptor.
 
-        # Subclass FileDescriptor to get logPrefix
-        class ProblematicFileDescriptor(FileDescriptor):
-            def connectionLost(self, reason):
-                raise RuntimeError("simulated connectionLost error")
+        # This gets allocated a file descriptor larger than f's, since nothing
+        # has been closed since we opened f.
+        fd = os.dup(f.fileno())
 
-        class OKFileDescriptor(FileDescriptor):
-            def connectionLost(self, reason):
-                lostOK[0] = True
+        # But sanity check that; if it fails the test is invalid.
+        self.assertTrue(
+            fd > f.fileno(),
+            "Expected duplicate file descriptor to be greater than original")
 
-        reactor = self.buildReactor()
-
-        # Unfortunately, it is necessary to patch removeAll to directly control
-        # the order of the returned values.  The test is only valid if
-        # ProblematicFileDescriptor comes first.  Also, return these
-        # descriptors only the first time removeAll is called so that if it is
-        # called again the file descriptors aren't re-disconnected.
-        fds = iter([ProblematicFileDescriptor(), OKFileDescriptor()])
-        reactor.removeAll = lambda: fds
-        reactor.callWhenRunning(reactor.stop)
-        self.runReactor(reactor)
-        self.assertEqual(len(self.flushLoggedErrors(RuntimeError)), 1)
-        self.assertTrue(lostOK[0])
-
-
-    def test_multipleRun(self):
-        """
-        C{reactor.run()} raises L{ReactorAlreadyRunning} when called when
-        the reactor is already running.
-        """
-        events = []
-        def reentrantRun():
-            self.assertRaises(ReactorAlreadyRunning, reactor.run)
-            events.append("tested")
-        reactor = self.buildReactor()
-        reactor.callWhenRunning(reentrantRun)
-        reactor.callWhenRunning(reactor.stop)
-        self.runReactor(reactor)
-        self.assertEqual(events, ["tested"])
-
-
-    def test_runWithAsynchronousBeforeStartupTrigger(self):
-        """
-        When there is a C{'before'} C{'startup'} trigger which returns an
-        unfired L{Deferred}, C{reactor.run()} starts the reactor and does not
-        return until after C{reactor.stop()} is called
-        """
-        events = []
-        def trigger():
-            events.append('trigger')
-            d = Deferred()
-            d.addCallback(callback)
-            reactor.callLater(0, d.callback, None)
-            return d
-        def callback(ignored):
-            events.append('callback')
-            reactor.stop()
-        reactor = self.buildReactor()
-        reactor.addSystemEventTrigger('before', 'startup', trigger)
-        self.runReactor(reactor)
-        self.assertEqual(events, ['trigger', 'callback'])
-
-
-    def test_iterate(self):
-        """
-        C{reactor.iterate()} does not block.
-        """
-        reactor = self.buildReactor()
-        t = reactor.callLater(5, reactor.crash)
-
-        start = time.time()
-        reactor.iterate(0) # Shouldn't block
-        elapsed = time.time() - start
-
-        self.assertTrue(elapsed < 2)
-        t.cancel()
-
-
-    def test_crash(self):
-        """
-        C{reactor.crash()} stops the reactor and does not fire shutdown
-        triggers.
-        """
-        reactor = self.buildReactor()
-        events = []
-        reactor.addSystemEventTrigger(
-            "before", "shutdown",
-            lambda: events.append(("before", "shutdown")))
-        reactor.callWhenRunning(reactor.callLater, 0, reactor.crash)
-        self.runReactor(reactor)
-        self.assertFalse(reactor.running)
-        self.assertFalse(
-            events,
-            "Shutdown triggers invoked but they should not have been.")
-
-
-    def test_runAfterCrash(self):
-        """
-        C{reactor.run()} restarts the reactor after it has been stopped by
-        C{reactor.crash()}.
-        """
-        events = []
-        def crash():
-            events.append('crash')
-            reactor.crash()
-        reactor = self.buildReactor()
-        reactor.callWhenRunning(crash)
-        self.runReactor(reactor)
-        def stop():
-            events.append(('stop', reactor.running))
-            reactor.stop()
-        reactor.callWhenRunning(stop)
-        self.runReactor(reactor)
-        self.assertEqual(events, ['crash', ('stop', True)])
-
-
-    def test_runAfterStop(self):
-        """
-        C{reactor.run()} raises L{ReactorNotRestartable} when called when
-        the reactor is being run after getting stopped priorly.
-        """
-        events = []
-        def restart():
-            self.assertRaises(ReactorNotRestartable, reactor.run)
-            events.append('tested')
-        reactor = self.buildReactor()
-        reactor.callWhenRunning(reactor.stop)
-        reactor.addSystemEventTrigger('after', 'shutdown', restart)
-        self.runReactor(reactor)
-        self.assertEqual(events, ['tested'])
-
-
-
-globals().update(SystemEventTestsBuilder.makeTestCaseClasses())
-globals().update(ObjectModelIntegrationTests.makeTestCaseClasses())
+        try:
+            # Get rid of the original, creating the hole.  The copy should still
+            # be open, of course.
+            f.close()
+            self.assertIn(fd, process._listOpenFDs())
+        finally:
+            # Get rid of the copy now
+            os.close(fd)
+        # And it should not appear in the result.
+        self.assertNotIn(fd, process._listOpenFDs())

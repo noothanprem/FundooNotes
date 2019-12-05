@@ -1,5 +1,10 @@
-i
-pythonS107KMethod "__init__" has 9 parameters, which is greater than the 7 authorized. 2
-ËË E|
-pythonS117^Rename this local variable "componentType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ØØ 
+=
+pythonS125Remove this commented out code. 2
+ÆÆ .=
+pythonS125Remove this commented out code. 2
+ÒÖ I
+pythonS1481*Remove the unused local variable "nbytes". 2
+åå 
+H
+pythonS1481)Remove the unused local variable "mbits". 2
+ýý 	

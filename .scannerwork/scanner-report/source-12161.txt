@@ -2,85 +2,74 @@
 # The Python Imaging Library.
 # $Id$
 #
-# Windows Cursor support for PIL
+# Basic McIdas support for PIL
 #
-# notes:
-#       uses BmpImagePlugin.py to read the bitmap data.
+# History:
+# 1997-05-05 fl  Created (8-bit images only)
+# 2009-03-08 fl  Added 16/32-bit support.
 #
-# history:
-#       96-05-27 fl     Created
+# Thanks to Richard Jones and Craig Swank for specs and samples.
 #
 # Copyright (c) Secret Labs AB 1997.
-# Copyright (c) Fredrik Lundh 1996.
+# Copyright (c) Fredrik Lundh 1997.
 #
 # See the README file for information on usage and redistribution.
 #
 
-from __future__ import print_function
+import struct
+from . import Image, ImageFile
 
-from . import Image, BmpImagePlugin
-from ._binary import i8, i16le as i16, i32le as i32
-
-__version__ = "0.1"
-
-#
-# --------------------------------------------------------------------
+__version__ = "0.2"
 
 
-def _accept(prefix):
-    return prefix[:4] == b"\0\0\2\0"
+def _accept(s):
+    return s[:8] == b"\x00\x00\x00\x00\x00\x00\x00\x04"
 
 
 ##
-# Image plugin for Windows Cursor files.
+# Image plugin for McIdas area images.
 
-class CurImageFile(BmpImagePlugin.BmpImageFile):
+class McIdasImageFile(ImageFile.ImageFile):
 
-    format = "CUR"
-    format_description = "Windows Cursor"
+    format = "MCIDAS"
+    format_description = "McIdas area file"
 
     def _open(self):
 
-        offset = self.fp.tell()
+        # parse area file directory
+        s = self.fp.read(256)
+        if not _accept(s) or len(s) != 256:
+            raise SyntaxError("not an McIdas area file")
 
-        # check magic
-        s = self.fp.read(6)
-        if not _accept(s):
-            raise SyntaxError("not a CUR file")
+        self.area_descriptor_raw = s
+        self.area_descriptor = w = [0] + list(struct.unpack("!64i", s))
 
-        # pick the largest cursor in the file
-        m = b""
-        for i in range(i16(s[4:])):
-            s = self.fp.read(16)
-            if not m:
-                m = s
-            elif i8(s[0]) > i8(m[0]) and i8(s[1]) > i8(m[1]):
-                m = s
-            # print("width", i8(s[0]))
-            # print("height", i8(s[1]))
-            # print("colors", i8(s[2]))
-            # print("reserved", i8(s[3]))
-            # print("hotspot x", i16(s[4:]))
-            # print("hotspot y", i16(s[6:]))
-            # print("bytes", i32(s[8:]))
-            # print("offset", i32(s[12:]))
-        if not m:
-            raise TypeError("No cursors were found")
+        # get mode
+        if w[11] == 1:
+            mode = rawmode = "L"
+        elif w[11] == 2:
+            # FIXME: add memory map support
+            mode = "I"
+            rawmode = "I;16B"
+        elif w[11] == 4:
+            # FIXME: add memory map support
+            mode = "I"
+            rawmode = "I;32B"
+        else:
+            raise SyntaxError("unsupported McIdas format")
 
-        # load as bitmap
-        self._bitmap(i32(m[12:]) + offset)
+        self.mode = mode
+        self.size = w[10], w[9]
 
-        # patch up the bitmap height
-        self.size = self.size[0], self.size[1]//2
-        d, e, o, a = self.tile[0]
-        self.tile[0] = d, (0, 0)+self.size, o, a
+        offset = w[34] + w[15]
+        stride = w[15] + w[10]*w[11]*w[14]
 
-        return
+        self.tile = [("raw", (0, 0) + self.size, offset, (rawmode, stride, 1))]
 
 
-#
 # --------------------------------------------------------------------
+# registry
 
-Image.register_open(CurImageFile.format, CurImageFile, _accept)
+Image.register_open(McIdasImageFile.format, McIdasImageFile, _accept)
 
-Image.register_extension(CurImageFile.format, ".cur")
+# no default extension

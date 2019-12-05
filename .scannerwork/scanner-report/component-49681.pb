@@ -1,1 +1,1 @@
-‘„=venv/lib64/python3.6/site-packages/social_core/backends/vk.py 2pyXÊh
+‘„Cvenv/lib64/python3.6/site-packages/social_core/backends/appsfuel.py 2pyX+h

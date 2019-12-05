@@ -1,89 +1,133 @@
+from hamcrest.core.base_matcher import BaseMatcher
+from hamcrest.core.helpers.hasmethod import hasmethod
+from hamcrest.core.helpers.wrap_matcher import wrap_matcher
+
 __author__ = "Jon Reid"
 __copyright__ = "Copyright 2011 hamcrest.org"
 __license__ = "BSD, see License.txt"
 
-from hamcrest.core.base_matcher import BaseMatcher
-from hamcrest.core.core.allof import all_of
-from hamcrest.core.helpers.hasmethod import hasmethod
-from hamcrest.core.helpers.wrap_matcher import wrap_matcher
 
+class IsDictContainingEntries(BaseMatcher):
 
-class IsSequenceContaining(BaseMatcher):
+    def __init__(self, value_matchers):
+        self.value_matchers = sorted(value_matchers.items())
 
-    def __init__(self, element_matcher):
-        self.element_matcher = element_matcher
+    def _not_a_dictionary(self, dictionary, mismatch_description):
+        if mismatch_description:
+            mismatch_description.append_description_of(dictionary) \
+                                .append_text(' is not a mapping object')
+        return False
 
-    def _matches(self, sequence):
-        try:
-            for item in sequence:
-                if self.element_matcher.matches(item):
-                    return True
-        except TypeError: # not a sequence
-            return False
+    def matches(self, dictionary, mismatch_description=None):
+        for key, value_matcher in self.value_matchers:
 
-    def describe_to(self, description):
-        description.append_text('a sequence containing ')           \
-                    .append_description_of(self.element_matcher)
+            try:
+                if not key in dictionary:
+                    if mismatch_description:
+                        mismatch_description.append_text('no ')             \
+                                            .append_description_of(key)     \
+                                            .append_text(' key in ')        \
+                                            .append_description_of(dictionary)
+                    return False
+            except TypeError:
+                return self._not_a_dictionary(dictionary, mismatch_description)
 
+            try:
+                actual_value = dictionary[key]
+            except TypeError:
+                return self._not_a_dictionary(dictionary, mismatch_description)
 
-# It'd be great to make use of all_of, but we can't be sure we won't
-# be seeing a one-time sequence here (like a generator); see issue #20
-# Instead, we wrap it inside a class that will convert the sequence into
-# a concrete list and then hand it off to the all_of matcher.
-class IsSequenceContainingEvery(BaseMatcher):
+            if not value_matcher.matches(actual_value):
+                if mismatch_description:
+                    mismatch_description.append_text('value for ')  \
+                                        .append_description_of(key) \
+                                        .append_text(' ')
+                    value_matcher.describe_mismatch(actual_value, mismatch_description)
+                return False
 
-    def __init__(self, *element_matchers):
-        delegates = [has_item(e) for e in element_matchers]
-        self.matcher = all_of(*delegates)
-
-    def _matches(self, sequence):
-        try:
-            return self.matcher.matches(list(sequence))
-        except TypeError:
-            return False
+        return True
 
     def describe_mismatch(self, item, mismatch_description):
-        self.matcher.describe_mismatch(item, mismatch_description)
+        self.matches(item, mismatch_description)
+
+    def describe_keyvalue(self, index, value, description):
+        """Describes key-value pair at given index."""
+        description.append_description_of(index)                        \
+                   .append_text(': ')                                   \
+                   .append_description_of(value)
 
     def describe_to(self, description):
-        self.matcher.describe_to(description)
+        description.append_text('a dictionary containing {')
+        first = True
+        for key, value in self.value_matchers:
+            if not first:
+                description.append_text(', ')
+            self.describe_keyvalue(key, value, description)
+            first = False
+        description.append_text('}')
 
 
+def has_entries(*keys_valuematchers, **kv_args):
+    """Matches if dictionary contains entries satisfying a dictionary of keys
+    and corresponding value matchers.
 
-def has_item(match):
-    """Matches if any element of sequence satisfies a given matcher.
-
-    :param match: The matcher to satisfy, or an expected value for
+    :param matcher_dict: A dictionary mapping keys to associated value matchers,
+        or to expected values for
         :py:func:`~hamcrest.core.core.isequal.equal_to` matching.
 
-    This matcher iterates the evaluated sequence, searching for any element
-    that satisfies a given matcher. If a matching element is found,
-    ``has_item`` is satisfied.
-
-    If the ``match`` argument is not a matcher, it is implicitly wrapped in an
+    Note that the keys must be actual keys, not matchers. Any value argument
+    that is not a matcher is implicitly wrapped in an
     :py:func:`~hamcrest.core.core.isequal.equal_to` matcher to check for
     equality.
 
+    Examples::
+
+        has_entries({'foo':equal_to(1), 'bar':equal_to(2)})
+        has_entries({'foo':1, 'bar':2})
+
+    ``has_entries`` also accepts a list of keyword arguments:
+
+    .. function:: has_entries(keyword1=value_matcher1[, keyword2=value_matcher2[, ...]])
+
+    :param keyword1: A keyword to look up.
+    :param valueMatcher1: The matcher to satisfy for the value, or an expected
+        value for :py:func:`~hamcrest.core.core.isequal.equal_to` matching.
+
+    Examples::
+
+        has_entries(foo=equal_to(1), bar=equal_to(2))
+        has_entries(foo=1, bar=2)
+
+    Finally, ``has_entries`` also accepts a list of alternating keys and their
+    value matchers:
+
+    .. function:: has_entries(key1, value_matcher1[, ...])
+
+    :param key1: A key (not a matcher) to look up.
+    :param valueMatcher1: The matcher to satisfy for the value, or an expected
+        value for :py:func:`~hamcrest.core.core.isequal.equal_to` matching.
+
+    Examples::
+
+        has_entries('foo', equal_to(1), 'bar', equal_to(2))
+        has_entries('foo', 1, 'bar', 2)
+
     """
-    return IsSequenceContaining(wrap_matcher(match))
+    if len(keys_valuematchers) == 1:
+        try:
+            base_dict = keys_valuematchers[0].copy()
+            for key in base_dict:
+                base_dict[key] = wrap_matcher(base_dict[key])
+        except AttributeError:
+            raise ValueError('single-argument calls to has_entries must pass a dict as the argument')
+    else:
+        if len(keys_valuematchers) % 2:
+            raise ValueError('has_entries requires key-value pairs')
+        base_dict = {}
+        for index in range(int(len(keys_valuematchers) / 2)):
+            base_dict[keys_valuematchers[2 * index]] = wrap_matcher(keys_valuematchers[2 * index + 1])
 
+    for key, value in kv_args.items():
+        base_dict[key] = wrap_matcher(value)
 
-def has_items(*items):
-    """Matches if all of the given matchers are satisfied by any elements of
-    the sequence.
-
-    :param match1,...: A comma-separated list of matchers.
-
-    This matcher iterates the given matchers, searching for any elements in the
-    evaluated sequence that satisfy them. If each matcher is satisfied, then
-    ``has_items`` is satisfied.
-
-    Any argument that is not a matcher is implicitly wrapped in an
-    :py:func:`~hamcrest.core.core.isequal.equal_to` matcher to check for
-    equality.
-
-    """
-    matchers = []
-    for item in items:
-        matchers.append(wrap_matcher(item))
-    return IsSequenceContainingEvery(*matchers)
+    return IsDictContainingEntries(base_dict)

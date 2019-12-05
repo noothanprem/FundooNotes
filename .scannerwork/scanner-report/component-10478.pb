@@ -1,1 +1,1 @@
-îQ2venv/lib/python3.6/site-packages/sqlparse/lexer.py 2pyXSh
+îQ5venv/lib/python3.6/site-packages/channels/sessions.py 2pyXşh

@@ -1,109 +1,192 @@
-import json
+from collections import namedtuple
 
-from aioredis.util import wait_make_dict
+from aioredis.util import wait_convert, _NOTSET
 
 
-class PubSubCommandsMixin:
-    """Pub/Sub commands mixin.
+GeoPoint = namedtuple('GeoPoint', ('longitude', 'latitude'))
+GeoMember = namedtuple('GeoMember', ('member', 'dist', 'hash', 'coord'))
 
-    For commands details see: http://redis.io/commands/#pubsub
+
+class GeoCommandsMixin:
+    """Geo commands mixin.
+
+    For commands details see: http://redis.io/commands#geo
     """
 
-    def publish(self, channel, message):
-        """Post a message to channel."""
-        return self.execute(b'PUBLISH', channel, message)
+    def geoadd(self, key, longitude, latitude, member, *args, **kwargs):
+        """Add one or more geospatial items in the geospatial index represented
+        using a sorted set.
 
-    def publish_json(self, channel, obj):
-        """Post a JSON-encoded message to channel."""
-        return self.publish(channel, json.dumps(obj))
-
-    def subscribe(self, channel, *channels):
-        """Switch connection to Pub/Sub mode and
-        subscribe to specified channels.
-
-        Arguments can be instances of :class:`~aioredis.Channel`.
-
-        Returns :func:`asyncio.gather()` coroutine which when done will return
-        a list of :class:`~aioredis.Channel` objects.
+        :rtype: int
         """
-        conn = self._pool_or_conn
-        return wait_return_channels(
-            conn.execute_pubsub(b'SUBSCRIBE', channel, *channels),
-            conn, 'pubsub_channels')
+        return self.execute(
+            b'GEOADD', key, longitude, latitude, member, *args, **kwargs
+        )
 
-    def unsubscribe(self, channel, *channels):
-        """Unsubscribe from specific channels.
+    def geohash(self, key, member, *members, **kwargs):
+        """Returns members of a geospatial index as standard geohash strings.
 
-        Arguments can be instances of :class:`~aioredis.Channel`.
+        :rtype: list[str or bytes or None]
         """
-        conn = self._pool_or_conn
-        return conn.execute_pubsub(b'UNSUBSCRIBE', channel, *channels)
+        return self.execute(
+            b'GEOHASH', key, member, *members, **kwargs
+        )
 
-    def psubscribe(self, pattern, *patterns):
-        """Switch connection to Pub/Sub mode and
-        subscribe to specified patterns.
+    def geopos(self, key, member, *members, **kwargs):
+        """Returns longitude and latitude of members of a geospatial index.
 
-        Arguments can be instances of :class:`~aioredis.Channel`.
-
-        Returns :func:`asyncio.gather()` coroutine which when done will return
-        a list of subscribed :class:`~aioredis.Channel` objects with
-        ``is_pattern`` property set to ``True``.
+        :rtype: list[GeoPoint or None]
         """
-        conn = self._pool_or_conn
-        return wait_return_channels(
-            conn.execute_pubsub(b'PSUBSCRIBE', pattern, *patterns),
-            conn, 'pubsub_patterns')
+        fut = self.execute(b'GEOPOS', key, member, *members, **kwargs)
+        return wait_convert(fut, make_geopos)
 
-    def punsubscribe(self, pattern, *patterns):
-        """Unsubscribe from specific patterns.
+    def geodist(self, key, member1, member2, unit='m'):
+        """Returns the distance between two members of a geospatial index.
 
-        Arguments can be instances of :class:`~aioredis.Channel`.
+        :rtype: list[float or None]
         """
-        conn = self._pool_or_conn
-        return conn.execute_pubsub(b'PUNSUBSCRIBE', pattern, *patterns)
+        fut = self.execute(b'GEODIST', key, member1, member2, unit)
+        return wait_convert(fut, make_geodist)
 
-    def pubsub_channels(self, pattern=None):
-        """Lists the currently active channels."""
-        args = [b'PUBSUB', b'CHANNELS']
-        if pattern is not None:
-            args.append(pattern)
-        return self.execute(*args)
+    def georadius(self, key, longitude, latitude, radius, unit='m', *,
+                  with_dist=False, with_hash=False, with_coord=False,
+                  count=None, sort=None, encoding=_NOTSET):
+        """Query a sorted set representing a geospatial index to fetch members
+        matching a given maximum distance from a point.
 
-    def pubsub_numsub(self, *channels):
-        """Returns the number of subscribers for the specified channels."""
-        return wait_make_dict(self.execute(
-            b'PUBSUB', b'NUMSUB', *channels))
+        Return value follows Redis convention:
 
-    def pubsub_numpat(self):
-        """Returns the number of subscriptions to patterns."""
-        return self.execute(b'PUBSUB', b'NUMPAT')
+        * if none of ``WITH*`` flags are set -- list of strings returned:
 
-    @property
-    def channels(self):
-        """Returns read-only channels dict.
+            >>> await redis.georadius('Sicily', 15, 37, 200, 'km')
+            [b"Palermo", b"Catania"]
 
-        See :attr:`~aioredis.RedisConnection.pubsub_channels`
+        * if any flag (or all) is set -- list of named tuples returned:
+
+            >>> await redis.georadius('Sicily', 15, 37, 200, 'km',
+            ...                       with_dist=True)
+            [GeoMember(name=b"Palermo", dist=190.4424, hash=None, coord=None),
+             GeoMember(name=b"Catania", dist=56.4413, hash=None, coord=None)]
+
+        :raises TypeError: radius is not float or int
+        :raises TypeError: count is not int
+        :raises ValueError: if unit not equal ``m``, ``km``, ``mi`` or ``ft``
+        :raises ValueError: if sort not equal ``ASC`` or ``DESC``
+
+        :rtype: list[str] or list[GeoMember]
         """
-        return self._pool_or_conn.pubsub_channels
+        args = validate_georadius_options(
+            radius, unit, with_dist, with_hash, with_coord, count, sort
+        )
 
-    @property
-    def patterns(self):
-        """Returns read-only patterns dict.
+        fut = self.execute(
+            b'GEORADIUS', key, longitude, latitude, radius,
+            unit, *args, encoding=encoding
+        )
+        if with_dist or with_hash or with_coord:
+            return wait_convert(fut, make_geomember,
+                                with_dist=with_dist,
+                                with_hash=with_hash,
+                                with_coord=with_coord)
+        return fut
 
-        See :attr:`~aioredis.RedisConnection.pubsub_patterns`
+    def georadiusbymember(self, key, member, radius, unit='m', *,
+                          with_dist=False, with_hash=False, with_coord=False,
+                          count=None, sort=None, encoding=_NOTSET):
+        """Query a sorted set representing a geospatial index to fetch members
+        matching a given maximum distance from a member.
+
+        Return value follows Redis convention:
+
+        * if none of ``WITH*`` flags are set -- list of strings returned:
+
+            >>> await redis.georadiusbymember('Sicily', 'Palermo', 200, 'km')
+            [b"Palermo", b"Catania"]
+
+        * if any flag (or all) is set -- list of named tuples returned:
+
+            >>> await redis.georadiusbymember('Sicily', 'Palermo', 200, 'km',
+            ...                               with_dist=True)
+            [GeoMember(name=b"Palermo", dist=190.4424, hash=None, coord=None),
+             GeoMember(name=b"Catania", dist=56.4413, hash=None, coord=None)]
+
+        :raises TypeError: radius is not float or int
+        :raises TypeError: count is not int
+        :raises ValueError: if unit not equal ``m``, ``km``, ``mi`` or ``ft``
+        :raises ValueError: if sort not equal ``ASC`` or ``DESC``
+
+        :rtype: list[str] or list[GeoMember]
         """
-        return self._pool_or_conn.pubsub_patterns
+        args = validate_georadius_options(
+            radius, unit, with_dist, with_hash, with_coord, count, sort
+        )
 
-    @property
-    def in_pubsub(self):
-        """Indicates that connection is in PUB/SUB mode.
+        fut = self.execute(
+            b'GEORADIUSBYMEMBER', key, member, radius,
+            unit, *args, encoding=encoding)
+        if with_dist or with_hash or with_coord:
+            return wait_convert(fut, make_geomember,
+                                with_dist=with_dist,
+                                with_hash=with_hash,
+                                with_coord=with_coord)
+        return fut
 
-        Provides the number of subscribed channels.
-        """
-        return self._pool_or_conn.in_pubsub
+
+def validate_georadius_options(radius, unit, with_dist, with_hash, with_coord,
+                               count, sort):
+    args = []
+
+    if with_dist:
+        args.append(b'WITHDIST')
+    if with_hash:
+        args.append(b'WITHHASH')
+    if with_coord:
+        args.append(b'WITHCOORD')
+
+    if unit not in ['m', 'km', 'mi', 'ft']:
+        raise ValueError("unit argument must be 'm', 'km', 'mi' or 'ft'")
+    if not isinstance(radius, (int, float)):
+        raise TypeError("radius argument must be int or float")
+    if count:
+        if not isinstance(count, int):
+            raise TypeError("count argument must be int")
+        args += [b'COUNT', count]
+    if sort:
+        if sort not in ['ASC', 'DESC']:
+            raise ValueError("sort argument must be euqal 'ASC' or 'DESC'")
+        args.append(sort)
+    return args
 
 
-async def wait_return_channels(fut, conn, field):
-    res = await fut
-    channels_dict = getattr(conn, field)
-    return [channels_dict[name] for cmd, name, count in res]
+def make_geocoord(value):
+    if isinstance(value, list):
+        return GeoPoint(*map(float, value))
+    return value
+
+
+def make_geodist(value):
+    if value:
+        return float(value)
+    return value
+
+
+def make_geopos(value):
+    return [make_geocoord(val) for val in value]
+
+
+def make_geomember(value, with_dist, with_coord, with_hash):
+    res_rows = []
+
+    for row in value:
+        name = row.pop(0)
+        dist = hash_ = coord = None
+        if with_dist:
+            dist = float(row.pop(0))
+        if with_hash:
+            hash_ = int(row.pop(0))
+        if with_coord:
+            coord = GeoPoint(*map(float, row.pop(0)))
+
+        res_rows.append(GeoMember(name, dist, hash_, coord))
+
+    return res_rows

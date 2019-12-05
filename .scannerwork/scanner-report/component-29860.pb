@@ -1,1 +1,1 @@
-¤éCvenv/lib64/python3.6/site-packages/django/db/migrations/executor.py 2pyXùh
+¤éDvenv/lib64/python3.6/site-packages/django/db/migrations/optimizer.py 2pyXGh

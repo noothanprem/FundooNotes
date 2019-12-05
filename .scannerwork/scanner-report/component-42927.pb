@@ -1,1 +1,1 @@
-¯ÏCvenv/lib64/python3.6/site-packages/automat/_test/test_methodical.py 2pyXÌh
+¯Ï=venv/lib64/python3.6/site-packages/automat/_test/test_core.py 2pyXWh

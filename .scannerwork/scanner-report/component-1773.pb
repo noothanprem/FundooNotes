@@ -1,1 +1,1 @@
-í+venv/lib/python3.6/site-packages/asgi_redis :ìö÷ý
+í+venv/lib/python3.6/site-packages/asgi_redis :ìøùÿ

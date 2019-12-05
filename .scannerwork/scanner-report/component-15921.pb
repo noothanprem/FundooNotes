@@ -1,1 +1,1 @@
-±|cvenv/lib/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/swagger-ui.js 2jsXÓ°h
+±|`venv/lib/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lang/it.js 2jsX5h

@@ -1,1 +1,1 @@
-©Ú.venv/lib64/python3.6/site-packages/pygtkcompat :	¨Ú«Ú°Ú
+©Ú.venv/lib64/python3.6/site-packages/pygtkcompat :	¨ÚªÚ®Ú

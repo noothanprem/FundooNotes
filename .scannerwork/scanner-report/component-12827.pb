@@ -1,1 +1,1 @@
-›dCvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_agent.py 2pyX¤h
+›dFvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_macaroon.py 2pyXÊh

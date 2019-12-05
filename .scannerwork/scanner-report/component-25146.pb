@@ -1,1 +1,1 @@
-ºÄOvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_internal/utils/ui.py 2pyXºh
+ºÄRvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_internal/utils/glibc.py 2pyX^h

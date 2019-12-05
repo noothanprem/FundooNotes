@@ -1,1138 +1,1013 @@
 # -*- coding: utf-8 -*-
 """
-    werkzeug.urls
+    werkzeug.wsgi
     ~~~~~~~~~~~~~
 
-    ``werkzeug.urls`` used to provide several wrapper functions for Python 2
-    urlparse, whose main purpose were to work around the behavior of the Py2
-    stdlib and its lack of unicode support. While this was already a somewhat
-    inconvenient situation, it got even more complicated because Python 3's
-    ``urllib.parse`` actually does handle unicode properly. In other words,
-    this module would wrap two libraries with completely different behavior. So
-    now this module contains a 2-and-3-compatible backport of Python 3's
-    ``urllib.parse``, which is mostly API-compatible.
+    This module implements WSGI related helpers.
 
     :copyright: 2007 Pallets
     :license: BSD-3-Clause
 """
-import codecs
-import os
+import io
 import re
-from collections import namedtuple
+from functools import partial
+from functools import update_wrapper
+from itertools import chain
 
-from ._compat import fix_tuple_repr
-from ._compat import implements_to_string
+from ._compat import BytesIO
+from ._compat import implements_iterator
 from ._compat import make_literal_wrapper
-from ._compat import normalize_string_tuple
-from ._compat import PY2
+from ._compat import string_types
 from ._compat import text_type
-from ._compat import to_native
+from ._compat import to_bytes
 from ._compat import to_unicode
 from ._compat import try_coerce_native
-from ._internal import _decode_idna
+from ._compat import wsgi_get_bytes
 from ._internal import _encode_idna
-
-# A regular expression for what a valid schema looks like
-_scheme_re = re.compile(r"^[a-zA-Z0-9+-.]+$")
-
-# Characters that are safe in any part of an URL.
-_always_safe = frozenset(
-    bytearray(
-        b"abcdefghijklmnopqrstuvwxyz"
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        b"0123456789"
-        b"-._~"
-    )
-)
-
-_hexdigits = "0123456789ABCDEFabcdef"
-_hextobyte = dict(
-    ((a + b).encode(), int(a + b, 16)) for a in _hexdigits for b in _hexdigits
-)
-_bytetohex = [("%%%02X" % char).encode("ascii") for char in range(256)]
+from .urls import uri_to_iri
+from .urls import url_join
+from .urls import url_parse
+from .urls import url_quote
 
 
-_URLTuple = fix_tuple_repr(
-    namedtuple("_URLTuple", ["scheme", "netloc", "path", "query", "fragment"])
-)
+def responder(f):
+    """Marks a function as responder.  Decorate a function with it and it
+    will automatically call the return value as WSGI application.
 
+    Example::
 
-class BaseURL(_URLTuple):
-    """Superclass of :py:class:`URL` and :py:class:`BytesURL`."""
-
-    __slots__ = ()
-
-    def replace(self, **kwargs):
-        """Return an URL with the same values, except for those parameters
-        given new values by whichever keyword arguments are specified."""
-        return self._replace(**kwargs)
-
-    @property
-    def host(self):
-        """The host part of the URL if available, otherwise `None`.  The
-        host is either the hostname or the IP address mentioned in the
-        URL.  It will not contain the port.
-        """
-        return self._split_host()[0]
-
-    @property
-    def ascii_host(self):
-        """Works exactly like :attr:`host` but will return a result that
-        is restricted to ASCII.  If it finds a netloc that is not ASCII
-        it will attempt to idna decode it.  This is useful for socket
-        operations when the URL might include internationalized characters.
-        """
-        rv = self.host
-        if rv is not None and isinstance(rv, text_type):
-            try:
-                rv = _encode_idna(rv)
-            except UnicodeError:
-                rv = rv.encode("ascii", "ignore")
-        return to_native(rv, "ascii", "ignore")
-
-    @property
-    def port(self):
-        """The port in the URL as an integer if it was present, `None`
-        otherwise.  This does not fill in default ports.
-        """
-        try:
-            rv = int(to_native(self._split_host()[1]))
-            if 0 <= rv <= 65535:
-                return rv
-        except (ValueError, TypeError):
-            pass
-
-    @property
-    def auth(self):
-        """The authentication part in the URL if available, `None`
-        otherwise.
-        """
-        return self._split_netloc()[0]
-
-    @property
-    def username(self):
-        """The username if it was part of the URL, `None` otherwise.
-        This undergoes URL decoding and will always be a unicode string.
-        """
-        rv = self._split_auth()[0]
-        if rv is not None:
-            return _url_unquote_legacy(rv)
-
-    @property
-    def raw_username(self):
-        """The username if it was part of the URL, `None` otherwise.
-        Unlike :attr:`username` this one is not being decoded.
-        """
-        return self._split_auth()[0]
-
-    @property
-    def password(self):
-        """The password if it was part of the URL, `None` otherwise.
-        This undergoes URL decoding and will always be a unicode string.
-        """
-        rv = self._split_auth()[1]
-        if rv is not None:
-            return _url_unquote_legacy(rv)
-
-    @property
-    def raw_password(self):
-        """The password if it was part of the URL, `None` otherwise.
-        Unlike :attr:`password` this one is not being decoded.
-        """
-        return self._split_auth()[1]
-
-    def decode_query(self, *args, **kwargs):
-        """Decodes the query part of the URL.  Ths is a shortcut for
-        calling :func:`url_decode` on the query argument.  The arguments and
-        keyword arguments are forwarded to :func:`url_decode` unchanged.
-        """
-        return url_decode(self.query, *args, **kwargs)
-
-    def join(self, *args, **kwargs):
-        """Joins this URL with another one.  This is just a convenience
-        function for calling into :meth:`url_join` and then parsing the
-        return value again.
-        """
-        return url_parse(url_join(self, *args, **kwargs))
-
-    def to_url(self):
-        """Returns a URL string or bytes depending on the type of the
-        information stored.  This is just a convenience function
-        for calling :meth:`url_unparse` for this URL.
-        """
-        return url_unparse(self)
-
-    def decode_netloc(self):
-        """Decodes the netloc part into a string."""
-        rv = _decode_idna(self.host or "")
-
-        if ":" in rv:
-            rv = "[%s]" % rv
-        port = self.port
-        if port is not None:
-            rv = "%s:%d" % (rv, port)
-        auth = ":".join(
-            filter(
-                None,
-                [
-                    _url_unquote_legacy(self.raw_username or "", "/:%@"),
-                    _url_unquote_legacy(self.raw_password or "", "/:%@"),
-                ],
-            )
-        )
-        if auth:
-            rv = "%s@%s" % (auth, rv)
-        return rv
-
-    def to_uri_tuple(self):
-        """Returns a :class:`BytesURL` tuple that holds a URI.  This will
-        encode all the information in the URL properly to ASCII using the
-        rules a web browser would follow.
-
-        It's usually more interesting to directly call :meth:`iri_to_uri` which
-        will return a string.
-        """
-        return url_parse(iri_to_uri(self).encode("ascii"))
-
-    def to_iri_tuple(self):
-        """Returns a :class:`URL` tuple that holds a IRI.  This will try
-        to decode as much information as possible in the URL without
-        losing information similar to how a web browser does it for the
-        URL bar.
-
-        It's usually more interesting to directly call :meth:`uri_to_iri` which
-        will return a string.
-        """
-        return url_parse(uri_to_iri(self))
-
-    def get_file_location(self, pathformat=None):
-        """Returns a tuple with the location of the file in the form
-        ``(server, location)``.  If the netloc is empty in the URL or
-        points to localhost, it's represented as ``None``.
-
-        The `pathformat` by default is autodetection but needs to be set
-        when working with URLs of a specific system.  The supported values
-        are ``'windows'`` when working with Windows or DOS paths and
-        ``'posix'`` when working with posix paths.
-
-        If the URL does not point to a local file, the server and location
-        are both represented as ``None``.
-
-        :param pathformat: The expected format of the path component.
-                           Currently ``'windows'`` and ``'posix'`` are
-                           supported.  Defaults to ``None`` which is
-                           autodetect.
-        """
-        if self.scheme != "file":
-            return None, None
-
-        path = url_unquote(self.path)
-        host = self.netloc or None
-
-        if pathformat is None:
-            if os.name == "nt":
-                pathformat = "windows"
-            else:
-                pathformat = "posix"
-
-        if pathformat == "windows":
-            if path[:1] == "/" and path[1:2].isalpha() and path[2:3] in "|:":
-                path = path[1:2] + ":" + path[3:]
-            windows_share = path[:3] in ("\\" * 3, "/" * 3)
-            import ntpath
-
-            path = ntpath.normpath(path)
-            # Windows shared drives are represented as ``\\host\\directory``.
-            # That results in a URL like ``file://///host/directory``, and a
-            # path like ``///host/directory``. We need to special-case this
-            # because the path contains the hostname.
-            if windows_share and host is None:
-                parts = path.lstrip("\\").split("\\", 1)
-                if len(parts) == 2:
-                    host, path = parts
-                else:
-                    host = parts[0]
-                    path = ""
-        elif pathformat == "posix":
-            import posixpath
-
-            path = posixpath.normpath(path)
-        else:
-            raise TypeError("Invalid path format %s" % repr(pathformat))
-
-        if host in ("127.0.0.1", "::1", "localhost"):
-            host = None
-
-        return host, path
-
-    def _split_netloc(self):
-        if self._at in self.netloc:
-            return self.netloc.split(self._at, 1)
-        return None, self.netloc
-
-    def _split_auth(self):
-        auth = self._split_netloc()[0]
-        if not auth:
-            return None, None
-        if self._colon not in auth:
-            return auth, None
-        return auth.split(self._colon, 1)
-
-    def _split_host(self):
-        rv = self._split_netloc()[1]
-        if not rv:
-            return None, None
-
-        if not rv.startswith(self._lbracket):
-            if self._colon in rv:
-                return rv.split(self._colon, 1)
-            return rv, None
-
-        idx = rv.find(self._rbracket)
-        if idx < 0:
-            return rv, None
-
-        host = rv[1:idx]
-        rest = rv[idx + 1 :]
-        if rest.startswith(self._colon):
-            return host, rest[1:]
-        return host, None
-
-
-@implements_to_string
-class URL(BaseURL):
-    """Represents a parsed URL.  This behaves like a regular tuple but
-    also has some extra attributes that give further insight into the
-    URL.
+        @responder
+        def application(environ, start_response):
+            return Response('Hello World!')
     """
-
-    __slots__ = ()
-    _at = "@"
-    _colon = ":"
-    _lbracket = "["
-    _rbracket = "]"
-
-    def __str__(self):
-        return self.to_url()
-
-    def encode_netloc(self):
-        """Encodes the netloc part to an ASCII safe URL as bytes."""
-        rv = self.ascii_host or ""
-        if ":" in rv:
-            rv = "[%s]" % rv
-        port = self.port
-        if port is not None:
-            rv = "%s:%d" % (rv, port)
-        auth = ":".join(
-            filter(
-                None,
-                [
-                    url_quote(self.raw_username or "", "utf-8", "strict", "/:%"),
-                    url_quote(self.raw_password or "", "utf-8", "strict", "/:%"),
-                ],
-            )
-        )
-        if auth:
-            rv = "%s@%s" % (auth, rv)
-        return to_native(rv)
-
-    def encode(self, charset="utf-8", errors="replace"):
-        """Encodes the URL to a tuple made out of bytes.  The charset is
-        only being used for the path, query and fragment.
-        """
-        return BytesURL(
-            self.scheme.encode("ascii"),
-            self.encode_netloc(),
-            self.path.encode(charset, errors),
-            self.query.encode(charset, errors),
-            self.fragment.encode(charset, errors),
-        )
+    return update_wrapper(lambda *a: f(*a)(*a[-2:]), f)
 
 
-class BytesURL(BaseURL):
-    """Represents a parsed URL in bytes."""
+def get_current_url(
+    environ,
+    root_only=False,
+    strip_querystring=False,
+    host_only=False,
+    trusted_hosts=None,
+):
+    """A handy helper function that recreates the full URL as IRI for the
+    current request or parts of it.  Here's an example:
 
-    __slots__ = ()
-    _at = b"@"
-    _colon = b":"
-    _lbracket = b"["
-    _rbracket = b"]"
+    >>> from werkzeug.test import create_environ
+    >>> env = create_environ("/?param=foo", "http://localhost/script")
+    >>> get_current_url(env)
+    'http://localhost/script/?param=foo'
+    >>> get_current_url(env, root_only=True)
+    'http://localhost/script/'
+    >>> get_current_url(env, host_only=True)
+    'http://localhost/'
+    >>> get_current_url(env, strip_querystring=True)
+    'http://localhost/script/'
 
-    def __str__(self):
-        return self.to_url().decode("utf-8", "replace")
+    This optionally it verifies that the host is in a list of trusted hosts.
+    If the host is not in there it will raise a
+    :exc:`~werkzeug.exceptions.SecurityError`.
 
-    def encode_netloc(self):
-        """Returns the netloc unchanged as bytes."""
-        return self.netloc
+    Note that the string returned might contain unicode characters as the
+    representation is an IRI not an URI.  If you need an ASCII only
+    representation you can use the :func:`~werkzeug.urls.iri_to_uri`
+    function:
 
-    def decode(self, charset="utf-8", errors="replace"):
-        """Decodes the URL to a tuple made out of strings.  The charset is
-        only being used for the path, query and fragment.
-        """
-        return URL(
-            self.scheme.decode("ascii"),
-            self.decode_netloc(),
-            self.path.decode(charset, errors),
-            self.query.decode(charset, errors),
-            self.fragment.decode(charset, errors),
-        )
+    >>> from werkzeug.urls import iri_to_uri
+    >>> iri_to_uri(get_current_url(env))
+    'http://localhost/script/?param=foo'
+
+    :param environ: the WSGI environment to get the current URL from.
+    :param root_only: set `True` if you only want the root URL.
+    :param strip_querystring: set to `True` if you don't want the querystring.
+    :param host_only: set to `True` if the host URL should be returned.
+    :param trusted_hosts: a list of trusted hosts, see :func:`host_is_trusted`
+                          for more information.
+    """
+    tmp = [environ["wsgi.url_scheme"], "://", get_host(environ, trusted_hosts)]
+    cat = tmp.append
+    if host_only:
+        return uri_to_iri("".join(tmp) + "/")
+    cat(url_quote(wsgi_get_bytes(environ.get("SCRIPT_NAME", ""))).rstrip("/"))
+    cat("/")
+    if not root_only:
+        cat(url_quote(wsgi_get_bytes(environ.get("PATH_INFO", "")).lstrip(b"/")))
+        if not strip_querystring:
+            qs = get_query_string(environ)
+            if qs:
+                cat("?" + qs)
+    return uri_to_iri("".join(tmp))
 
 
-_unquote_maps = {frozenset(): _hextobyte}
+def host_is_trusted(hostname, trusted_list):
+    """Checks if a host is trusted against a list.  This also takes care
+    of port normalization.
 
+    .. versionadded:: 0.9
 
-def _unquote_to_bytes(string, unsafe=""):
-    if isinstance(string, text_type):
-        string = string.encode("utf-8")
+    :param hostname: the hostname to check
+    :param trusted_list: a list of hostnames to check against.  If a
+                         hostname starts with a dot it will match against
+                         all subdomains as well.
+    """
+    if not hostname:
+        return False
 
-    if isinstance(unsafe, text_type):
-        unsafe = unsafe.encode("utf-8")
+    if isinstance(trusted_list, string_types):
+        trusted_list = [trusted_list]
 
-    unsafe = frozenset(bytearray(unsafe))
-    groups = iter(string.split(b"%"))
-    result = bytearray(next(groups, b""))
+    def _normalize(hostname):
+        if ":" in hostname:
+            hostname = hostname.rsplit(":", 1)[0]
+        return _encode_idna(hostname)
 
     try:
-        hex_to_byte = _unquote_maps[unsafe]
-    except KeyError:
-        hex_to_byte = _unquote_maps[unsafe] = {
-            h: b for h, b in _hextobyte.items() if b not in unsafe
-        }
-
-    for group in groups:
-        code = group[:2]
-
-        if code in hex_to_byte:
-            result.append(hex_to_byte[code])
-            result.extend(group[2:])
-        else:
-            result.append(37)  # %
-            result.extend(group)
-
-    return bytes(result)
-
-
-def _url_encode_impl(obj, charset, encode_keys, sort, key):
-    from .datastructures import iter_multi_items
-
-    iterable = iter_multi_items(obj)
-    if sort:
-        iterable = sorted(iterable, key=key)
-    for key, value in iterable:
-        if value is None:
-            continue
-        if not isinstance(key, bytes):
-            key = text_type(key).encode(charset)
-        if not isinstance(value, bytes):
-            value = text_type(value).encode(charset)
-        yield _fast_url_quote_plus(key) + "=" + _fast_url_quote_plus(value)
-
-
-def _url_unquote_legacy(value, unsafe=""):
-    try:
-        return url_unquote(value, charset="utf-8", errors="strict", unsafe=unsafe)
+        hostname = _normalize(hostname)
     except UnicodeError:
-        return url_unquote(value, charset="latin1", unsafe=unsafe)
-
-
-def url_parse(url, scheme=None, allow_fragments=True):
-    """Parses a URL from a string into a :class:`URL` tuple.  If the URL
-    is lacking a scheme it can be provided as second argument. Otherwise,
-    it is ignored.  Optionally fragments can be stripped from the URL
-    by setting `allow_fragments` to `False`.
-
-    The inverse of this function is :func:`url_unparse`.
-
-    :param url: the URL to parse.
-    :param scheme: the default schema to use if the URL is schemaless.
-    :param allow_fragments: if set to `False` a fragment will be removed
-                            from the URL.
-    """
-    s = make_literal_wrapper(url)
-    is_text_based = isinstance(url, text_type)
-
-    if scheme is None:
-        scheme = s("")
-    netloc = query = fragment = s("")
-    i = url.find(s(":"))
-    if i > 0 and _scheme_re.match(to_native(url[:i], errors="replace")):
-        # make sure "iri" is not actually a port number (in which case
-        # "scheme" is really part of the path)
-        rest = url[i + 1 :]
-        if not rest or any(c not in s("0123456789") for c in rest):
-            # not a port number
-            scheme, url = url[:i].lower(), rest
-
-    if url[:2] == s("//"):
-        delim = len(url)
-        for c in s("/?#"):
-            wdelim = url.find(c, 2)
-            if wdelim >= 0:
-                delim = min(delim, wdelim)
-        netloc, url = url[2:delim], url[delim:]
-        if (s("[") in netloc and s("]") not in netloc) or (
-            s("]") in netloc and s("[") not in netloc
-        ):
-            raise ValueError("Invalid IPv6 URL")
-
-    if allow_fragments and s("#") in url:
-        url, fragment = url.split(s("#"), 1)
-    if s("?") in url:
-        url, query = url.split(s("?"), 1)
-
-    result_type = URL if is_text_based else BytesURL
-    return result_type(scheme, netloc, url, query, fragment)
-
-
-def _make_fast_url_quote(charset="utf-8", errors="strict", safe="/:", unsafe=""):
-    """Precompile the translation table for a URL encoding function.
-
-    Unlike :func:`url_quote`, the generated function only takes the
-    string to quote.
-
-    :param charset: The charset to encode the result with.
-    :param errors: How to handle encoding errors.
-    :param safe: An optional sequence of safe characters to never encode.
-    :param unsafe: An optional sequence of unsafe characters to always encode.
-    """
-    if isinstance(safe, text_type):
-        safe = safe.encode(charset, errors)
-
-    if isinstance(unsafe, text_type):
-        unsafe = unsafe.encode(charset, errors)
-
-    safe = (frozenset(bytearray(safe)) | _always_safe) - frozenset(bytearray(unsafe))
-    table = [chr(c) if c in safe else "%%%02X" % c for c in range(256)]
-
-    if not PY2:
-
-        def quote(string):
-            return "".join([table[c] for c in string])
-
-    else:
-
-        def quote(string):
-            return "".join([table[c] for c in bytearray(string)])
-
-    return quote
-
-
-_fast_url_quote = _make_fast_url_quote()
-_fast_quote_plus = _make_fast_url_quote(safe=" ", unsafe="+")
-
-
-def _fast_url_quote_plus(string):
-    return _fast_quote_plus(string).replace(" ", "+")
-
-
-def url_quote(string, charset="utf-8", errors="strict", safe="/:", unsafe=""):
-    """URL encode a single string with a given encoding.
-
-    :param s: the string to quote.
-    :param charset: the charset to be used.
-    :param safe: an optional sequence of safe characters.
-    :param unsafe: an optional sequence of unsafe characters.
-
-    .. versionadded:: 0.9.2
-       The `unsafe` parameter was added.
-    """
-    if not isinstance(string, (text_type, bytes, bytearray)):
-        string = text_type(string)
-    if isinstance(string, text_type):
-        string = string.encode(charset, errors)
-    if isinstance(safe, text_type):
-        safe = safe.encode(charset, errors)
-    if isinstance(unsafe, text_type):
-        unsafe = unsafe.encode(charset, errors)
-    safe = (frozenset(bytearray(safe)) | _always_safe) - frozenset(bytearray(unsafe))
-    rv = bytearray()
-    for char in bytearray(string):
-        if char in safe:
-            rv.append(char)
+        return False
+    for ref in trusted_list:
+        if ref.startswith("."):
+            ref = ref[1:]
+            suffix_match = True
         else:
-            rv.extend(_bytetohex[char])
-    return to_native(bytes(rv))
+            suffix_match = False
+        try:
+            ref = _normalize(ref)
+        except UnicodeError:
+            return False
+        if ref == hostname:
+            return True
+        if suffix_match and hostname.endswith(b"." + ref):
+            return True
+    return False
 
 
-def url_quote_plus(string, charset="utf-8", errors="strict", safe=""):
-    """URL encode a single string with the given encoding and convert
-    whitespace to "+".
+def get_host(environ, trusted_hosts=None):
+    """Return the host for the given WSGI environment. This first checks
+    the ``Host`` header. If it's not present, then ``SERVER_NAME`` and
+    ``SERVER_PORT`` are used. The host will only contain the port if it
+    is different than the standard port for the protocol.
 
-    :param s: The string to quote.
-    :param charset: The charset to be used.
-    :param safe: An optional sequence of safe characters.
+    Optionally, verify that the host is trusted using
+    :func:`host_is_trusted` and raise a
+    :exc:`~werkzeug.exceptions.SecurityError` if it is not.
+
+    :param environ: The WSGI environment to get the host from.
+    :param trusted_hosts: A list of trusted hosts.
+    :return: Host, with port if necessary.
+    :raise ~werkzeug.exceptions.SecurityError: If the host is not
+        trusted.
     """
-    return url_quote(string, charset, errors, safe + " ", "+").replace(" ", "+")
+    if "HTTP_HOST" in environ:
+        rv = environ["HTTP_HOST"]
+        if environ["wsgi.url_scheme"] == "http" and rv.endswith(":80"):
+            rv = rv[:-3]
+        elif environ["wsgi.url_scheme"] == "https" and rv.endswith(":443"):
+            rv = rv[:-4]
+    else:
+        rv = environ["SERVER_NAME"]
+        if (environ["wsgi.url_scheme"], environ["SERVER_PORT"]) not in (
+            ("https", "443"),
+            ("http", "80"),
+        ):
+            rv += ":" + environ["SERVER_PORT"]
+    if trusted_hosts is not None:
+        if not host_is_trusted(rv, trusted_hosts):
+            from .exceptions import SecurityError
 
-
-def url_unparse(components):
-    """The reverse operation to :meth:`url_parse`.  This accepts arbitrary
-    as well as :class:`URL` tuples and returns a URL as a string.
-
-    :param components: the parsed URL as tuple which should be converted
-                       into a URL string.
-    """
-    scheme, netloc, path, query, fragment = normalize_string_tuple(components)
-    s = make_literal_wrapper(scheme)
-    url = s("")
-
-    # We generally treat file:///x and file:/x the same which is also
-    # what browsers seem to do.  This also allows us to ignore a schema
-    # register for netloc utilization or having to differenciate between
-    # empty and missing netloc.
-    if netloc or (scheme and path.startswith(s("/"))):
-        if path and path[:1] != s("/"):
-            path = s("/") + path
-        url = s("//") + (netloc or s("")) + path
-    elif path:
-        url += path
-    if scheme:
-        url = scheme + s(":") + url
-    if query:
-        url = url + s("?") + query
-    if fragment:
-        url = url + s("#") + fragment
-    return url
-
-
-def url_unquote(string, charset="utf-8", errors="replace", unsafe=""):
-    """URL decode a single string with a given encoding.  If the charset
-    is set to `None` no unicode decoding is performed and raw bytes
-    are returned.
-
-    :param s: the string to unquote.
-    :param charset: the charset of the query string.  If set to `None`
-                    no unicode decoding will take place.
-    :param errors: the error handling for the charset decoding.
-    """
-    rv = _unquote_to_bytes(string, unsafe)
-    if charset is not None:
-        rv = rv.decode(charset, errors)
+            raise SecurityError('Host "%s" is not trusted' % rv)
     return rv
 
 
-def url_unquote_plus(s, charset="utf-8", errors="replace"):
-    """URL decode a single string with the given `charset` and decode "+" to
-    whitespace.
+def get_content_length(environ):
+    """Returns the content length from the WSGI environment as
+    integer. If it's not available or chunked transfer encoding is used,
+    ``None`` is returned.
 
-    Per default encoding errors are ignored.  If you want a different behavior
-    you can set `errors` to ``'replace'`` or ``'strict'``.  In strict mode a
-    :exc:`HTTPUnicodeError` is raised.
+    .. versionadded:: 0.9
 
-    :param s: The string to unquote.
-    :param charset: the charset of the query string.  If set to `None`
-                    no unicode decoding will take place.
-    :param errors: The error handling for the `charset` decoding.
+    :param environ: the WSGI environ to fetch the content length from.
     """
-    if isinstance(s, text_type):
-        s = s.replace(u"+", u" ")
-    else:
-        s = s.replace(b"+", b" ")
-    return url_unquote(s, charset, errors)
+    if environ.get("HTTP_TRANSFER_ENCODING", "") == "chunked":
+        return None
 
-
-def url_fix(s, charset="utf-8"):
-    r"""Sometimes you get an URL by a user that just isn't a real URL because
-    it contains unsafe characters like ' ' and so on. This function can fix
-    some of the problems in a similar way browsers handle data entered by the
-    user:
-
-    >>> url_fix(u'http://de.wikipedia.org/wiki/Elf (Begriffskl\xe4rung)')
-    'http://de.wikipedia.org/wiki/Elf%20(Begriffskl%C3%A4rung)'
-
-    :param s: the string with the URL to fix.
-    :param charset: The target charset for the URL if the url was given as
-                    unicode string.
-    """
-    # First step is to switch to unicode processing and to convert
-    # backslashes (which are invalid in URLs anyways) to slashes.  This is
-    # consistent with what Chrome does.
-    s = to_unicode(s, charset, "replace").replace("\\", "/")
-
-    # For the specific case that we look like a malformed windows URL
-    # we want to fix this up manually:
-    if s.startswith("file://") and s[7:8].isalpha() and s[8:10] in (":/", "|/"):
-        s = "file:///" + s[7:]
-
-    url = url_parse(s)
-    path = url_quote(url.path, charset, safe="/%+$!*'(),")
-    qs = url_quote_plus(url.query, charset, safe=":&%=+$!*'(),")
-    anchor = url_quote_plus(url.fragment, charset, safe=":&%=+$!*'(),")
-    return to_native(url_unparse((url.scheme, url.encode_netloc(), path, qs, anchor)))
-
-
-# not-unreserved characters remain quoted when unquoting to IRI
-_to_iri_unsafe = "".join([chr(c) for c in range(128) if c not in _always_safe])
-
-
-def _codec_error_url_quote(e):
-    """Used in :func:`uri_to_iri` after unquoting to re-quote any
-    invalid bytes.
-    """
-    out = _fast_url_quote(e.object[e.start : e.end])
-
-    if PY2:
-        out = out.decode("utf-8")
-
-    return out, e.end
-
-
-codecs.register_error("werkzeug.url_quote", _codec_error_url_quote)
-
-
-def uri_to_iri(uri, charset="utf-8", errors="werkzeug.url_quote"):
-    """Convert a URI to an IRI. All valid UTF-8 characters are unquoted,
-    leaving all reserved and invalid characters quoted. If the URL has
-    a domain, it is decoded from Punycode.
-
-    >>> uri_to_iri("http://xn--n3h.net/p%C3%A5th?q=%C3%A8ry%DF")
-    'http://\\u2603.net/p\\xe5th?q=\\xe8ry%DF'
-
-    :param uri: The URI to convert.
-    :param charset: The encoding to encode unquoted bytes with.
-    :param errors: Error handler to use during ``bytes.encode``. By
-        default, invalid bytes are left quoted.
-
-    .. versionchanged:: 0.15
-        All reserved and invalid characters remain quoted. Previously,
-        only some reserved characters were preserved, and invalid bytes
-        were replaced instead of left quoted.
-
-    .. versionadded:: 0.6
-    """
-    if isinstance(uri, tuple):
-        uri = url_unparse(uri)
-
-    uri = url_parse(to_unicode(uri, charset))
-    path = url_unquote(uri.path, charset, errors, _to_iri_unsafe)
-    query = url_unquote(uri.query, charset, errors, _to_iri_unsafe)
-    fragment = url_unquote(uri.fragment, charset, errors, _to_iri_unsafe)
-    return url_unparse((uri.scheme, uri.decode_netloc(), path, query, fragment))
-
-
-# reserved characters remain unquoted when quoting to URI
-_to_uri_safe = ":/?#[]@!$&'()*+,;=%"
-
-
-def iri_to_uri(iri, charset="utf-8", errors="strict", safe_conversion=False):
-    """Convert an IRI to a URI. All non-ASCII and unsafe characters are
-    quoted. If the URL has a domain, it is encoded to Punycode.
-
-    >>> iri_to_uri('http://\\u2603.net/p\\xe5th?q=\\xe8ry%DF')
-    'http://xn--n3h.net/p%C3%A5th?q=%C3%A8ry%DF'
-
-    :param iri: The IRI to convert.
-    :param charset: The encoding of the IRI.
-    :param errors: Error handler to use during ``bytes.encode``.
-    :param safe_conversion: Return the URL unchanged if it only contains
-        ASCII characters and no whitespace. See the explanation below.
-
-    There is a general problem with IRI conversion with some protocols
-    that are in violation of the URI specification. Consider the
-    following two IRIs::
-
-        magnet:?xt=uri:whatever
-        itms-services://?action=download-manifest
-
-    After parsing, we don't know if the scheme requires the ``//``,
-    which is dropped if empty, but conveys different meanings in the
-    final URL if it's present or not. In this case, you can use
-    ``safe_conversion``, which will return the URL unchanged if it only
-    contains ASCII characters and no whitespace. This can result in a
-    URI with unquoted characters if it was not already quoted correctly,
-    but preserves the URL's semantics. Werkzeug uses this for the
-    ``Location`` header for redirects.
-
-    .. versionchanged:: 0.15
-        All reserved characters remain unquoted. Previously, only some
-        reserved characters were left unquoted.
-
-    .. versionchanged:: 0.9.6
-       The ``safe_conversion`` parameter was added.
-
-    .. versionadded:: 0.6
-    """
-    if isinstance(iri, tuple):
-        iri = url_unparse(iri)
-
-    if safe_conversion:
-        # If we're not sure if it's safe to convert the URL, and it only
-        # contains ASCII characters, return it unconverted.
+    content_length = environ.get("CONTENT_LENGTH")
+    if content_length is not None:
         try:
-            native_iri = to_native(iri)
-            ascii_iri = native_iri.encode("ascii")
-
-            # Only return if it doesn't have whitespace. (Why?)
-            if len(ascii_iri.split()) == 1:
-                return native_iri
-        except UnicodeError:
+            return max(0, int(content_length))
+        except (ValueError, TypeError):
             pass
 
-    iri = url_parse(to_unicode(iri, charset, errors))
-    path = url_quote(iri.path, charset, errors, _to_uri_safe)
-    query = url_quote(iri.query, charset, errors, _to_uri_safe)
-    fragment = url_quote(iri.fragment, charset, errors, _to_uri_safe)
-    return to_native(
-        url_unparse((iri.scheme, iri.encode_netloc(), path, query, fragment))
-    )
 
+def get_input_stream(environ, safe_fallback=True):
+    """Returns the input stream from the WSGI environment and wraps it
+    in the most sensible way possible. The stream returned is not the
+    raw WSGI stream in most cases but one that is safe to read from
+    without taking into account the content length.
 
-def url_decode(
-    s,
-    charset="utf-8",
-    decode_keys=False,
-    include_empty=True,
-    errors="replace",
-    separator="&",
-    cls=None,
-):
+    If content length is not set, the stream will be empty for safety reasons.
+    If the WSGI server supports chunked or infinite streams, it should set
+    the ``wsgi.input_terminated`` value in the WSGI environ to indicate that.
+
+    .. versionadded:: 0.9
+
+    :param environ: the WSGI environ to fetch the stream from.
+    :param safe_fallback: use an empty stream as a safe fallback when the
+        content length is not set. Disabling this allows infinite streams,
+        which can be a denial-of-service risk.
     """
-    Parse a querystring and return it as :class:`MultiDict`.  There is a
-    difference in key decoding on different Python versions.  On Python 3
-    keys will always be fully decoded whereas on Python 2, keys will
-    remain bytestrings if they fit into ASCII.  On 2.x keys can be forced
-    to be unicode by setting `decode_keys` to `True`.
+    stream = environ["wsgi.input"]
+    content_length = get_content_length(environ)
 
-    If the charset is set to `None` no unicode decoding will happen and
-    raw bytes will be returned.
+    # A wsgi extension that tells us if the input is terminated.  In
+    # that case we return the stream unchanged as we know we can safely
+    # read it until the end.
+    if environ.get("wsgi.input_terminated"):
+        return stream
 
-    Per default a missing value for a key will default to an empty key.  If
-    you don't want that behavior you can set `include_empty` to `False`.
+    # If the request doesn't specify a content length, returning the stream is
+    # potentially dangerous because it could be infinite, malicious or not. If
+    # safe_fallback is true, return an empty stream instead for safety.
+    if content_length is None:
+        return BytesIO() if safe_fallback else stream
 
-    Per default encoding errors are ignored.  If you want a different behavior
-    you can set `errors` to ``'replace'`` or ``'strict'``.  In strict mode a
-    `HTTPUnicodeError` is raised.
+    # Otherwise limit the stream to the content length
+    return LimitedStream(stream, content_length)
 
-    .. versionchanged:: 0.5
-       In previous versions ";" and "&" could be used for url decoding.
-       This changed in 0.5 where only "&" is supported.  If you want to
-       use ";" instead a different `separator` can be provided.
 
-       The `cls` parameter was added.
+def get_query_string(environ):
+    """Returns the `QUERY_STRING` from the WSGI environment.  This also takes
+    care about the WSGI decoding dance on Python 3 environments as a
+    native string.  The string returned will be restricted to ASCII
+    characters.
 
-    :param s: a string with the query string to decode.
-    :param charset: the charset of the query string.  If set to `None`
-                    no unicode decoding will take place.
-    :param decode_keys: Used on Python 2.x to control whether keys should
-                        be forced to be unicode objects.  If set to `True`
-                        then keys will be unicode in all cases. Otherwise,
-                        they remain `str` if they fit into ASCII.
-    :param include_empty: Set to `False` if you don't want empty values to
-                          appear in the dict.
-    :param errors: the decoding error behavior.
-    :param separator: the pair separator to be used, defaults to ``&``
-    :param cls: an optional dict class to use.  If this is not specified
-                       or `None` the default :class:`MultiDict` is used.
+    .. versionadded:: 0.9
+
+    :param environ: the WSGI environment object to get the query string from.
     """
-    if cls is None:
-        from .datastructures import MultiDict
-
-        cls = MultiDict
-    if isinstance(s, text_type) and not isinstance(separator, text_type):
-        separator = separator.decode(charset or "ascii")
-    elif isinstance(s, bytes) and not isinstance(separator, bytes):
-        separator = separator.encode(charset or "ascii")
-    return cls(
-        _url_decode_impl(
-            s.split(separator), charset, decode_keys, include_empty, errors
-        )
-    )
+    qs = wsgi_get_bytes(environ.get("QUERY_STRING", ""))
+    # QUERY_STRING really should be ascii safe but some browsers
+    # will send us some unicode stuff (I am looking at you IE).
+    # In that case we want to urllib quote it badly.
+    return try_coerce_native(url_quote(qs, safe=":&%=+$!*'(),"))
 
 
-def url_decode_stream(
-    stream,
-    charset="utf-8",
-    decode_keys=False,
-    include_empty=True,
-    errors="replace",
-    separator="&",
-    cls=None,
-    limit=None,
-    return_iterator=False,
-):
-    """Works like :func:`url_decode` but decodes a stream.  The behavior
-    of stream and limit follows functions like
-    :func:`~werkzeug.wsgi.make_line_iter`.  The generator of pairs is
-    directly fed to the `cls` so you can consume the data while it's
-    parsed.
+def get_path_info(environ, charset="utf-8", errors="replace"):
+    """Returns the `PATH_INFO` from the WSGI environment and properly
+    decodes it.  This also takes care about the WSGI decoding dance
+    on Python 3 environments.  if the `charset` is set to `None` a
+    bytestring is returned.
 
-    .. versionadded:: 0.8
+    .. versionadded:: 0.9
 
-    :param stream: a stream with the encoded querystring
-    :param charset: the charset of the query string.  If set to `None`
-                    no unicode decoding will take place.
-    :param decode_keys: Used on Python 2.x to control whether keys should
-                        be forced to be unicode objects.  If set to `True`,
-                        keys will be unicode in all cases. Otherwise, they
-                        remain `str` if they fit into ASCII.
-    :param include_empty: Set to `False` if you don't want empty values to
-                          appear in the dict.
-    :param errors: the decoding error behavior.
-    :param separator: the pair separator to be used, defaults to ``&``
-    :param cls: an optional dict class to use.  If this is not specified
-                       or `None` the default :class:`MultiDict` is used.
-    :param limit: the content length of the URL data.  Not necessary if
-                  a limited stream is provided.
-    :param return_iterator: if set to `True` the `cls` argument is ignored
-                            and an iterator over all decoded pairs is
-                            returned
+    :param environ: the WSGI environment object to get the path from.
+    :param charset: the charset for the path info, or `None` if no
+                    decoding should be performed.
+    :param errors: the decoding error handling.
     """
-    from .wsgi import make_chunk_iter
-
-    pair_iter = make_chunk_iter(stream, separator, limit)
-    decoder = _url_decode_impl(pair_iter, charset, decode_keys, include_empty, errors)
-
-    if return_iterator:
-        return decoder
-
-    if cls is None:
-        from .datastructures import MultiDict
-
-        cls = MultiDict
-
-    return cls(decoder)
+    path = wsgi_get_bytes(environ.get("PATH_INFO", ""))
+    return to_unicode(path, charset, errors, allow_none_charset=True)
 
 
-def _url_decode_impl(pair_iter, charset, decode_keys, include_empty, errors):
-    for pair in pair_iter:
-        if not pair:
-            continue
-        s = make_literal_wrapper(pair)
-        equal = s("=")
-        if equal in pair:
-            key, value = pair.split(equal, 1)
-        else:
-            if not include_empty:
-                continue
-            key = pair
-            value = s("")
-        key = url_unquote_plus(key, charset, errors)
-        if charset is not None and PY2 and not decode_keys:
-            key = try_coerce_native(key)
-        yield key, url_unquote_plus(value, charset, errors)
+def get_script_name(environ, charset="utf-8", errors="replace"):
+    """Returns the `SCRIPT_NAME` from the WSGI environment and properly
+    decodes it.  This also takes care about the WSGI decoding dance
+    on Python 3 environments.  if the `charset` is set to `None` a
+    bytestring is returned.
+
+    .. versionadded:: 0.9
+
+    :param environ: the WSGI environment object to get the path from.
+    :param charset: the charset for the path, or `None` if no
+                    decoding should be performed.
+    :param errors: the decoding error handling.
+    """
+    path = wsgi_get_bytes(environ.get("SCRIPT_NAME", ""))
+    return to_unicode(path, charset, errors, allow_none_charset=True)
 
 
-def url_encode(
-    obj, charset="utf-8", encode_keys=False, sort=False, key=None, separator=b"&"
-):
-    """URL encode a dict/`MultiDict`.  If a value is `None` it will not appear
-    in the result string.  Per default only values are encoded into the target
-    charset strings.  If `encode_keys` is set to ``True`` unicode keys are
-    supported too.
+def pop_path_info(environ, charset="utf-8", errors="replace"):
+    """Removes and returns the next segment of `PATH_INFO`, pushing it onto
+    `SCRIPT_NAME`.  Returns `None` if there is nothing left on `PATH_INFO`.
 
-    If `sort` is set to `True` the items are sorted by `key` or the default
-    sorting algorithm.
+    If the `charset` is set to `None` a bytestring is returned.
+
+    If there are empty segments (``'/foo//bar``) these are ignored but
+    properly pushed to the `SCRIPT_NAME`:
+
+    >>> env = {'SCRIPT_NAME': '/foo', 'PATH_INFO': '/a/b'}
+    >>> pop_path_info(env)
+    'a'
+    >>> env['SCRIPT_NAME']
+    '/foo/a'
+    >>> pop_path_info(env)
+    'b'
+    >>> env['SCRIPT_NAME']
+    '/foo/a/b'
 
     .. versionadded:: 0.5
-        `sort`, `key`, and `separator` were added.
 
-    :param obj: the object to encode into a query string.
-    :param charset: the charset of the query string.
-    :param encode_keys: set to `True` if you have unicode keys. (Ignored on
-                        Python 3.x)
-    :param sort: set to `True` if you want parameters to be sorted by `key`.
-    :param separator: the separator to be used for the pairs.
-    :param key: an optional function to be used for sorting.  For more details
-                check out the :func:`sorted` documentation.
+    .. versionchanged:: 0.9
+       The path is now decoded and a charset and encoding
+       parameter can be provided.
+
+    :param environ: the WSGI environment that is modified.
     """
-    separator = to_native(separator, "ascii")
-    return separator.join(_url_encode_impl(obj, charset, encode_keys, sort, key))
+    path = environ.get("PATH_INFO")
+    if not path:
+        return None
 
+    script_name = environ.get("SCRIPT_NAME", "")
 
-def url_encode_stream(
-    obj,
-    stream=None,
-    charset="utf-8",
-    encode_keys=False,
-    sort=False,
-    key=None,
-    separator=b"&",
-):
-    """Like :meth:`url_encode` but writes the results to a stream
-    object.  If the stream is `None` a generator over all encoded
-    pairs is returned.
+    # shift multiple leading slashes over
+    old_path = path
+    path = path.lstrip("/")
+    if path != old_path:
+        script_name += "/" * (len(old_path) - len(path))
 
-    .. versionadded:: 0.8
-
-    :param obj: the object to encode into a query string.
-    :param stream: a stream to write the encoded object into or `None` if
-                   an iterator over the encoded pairs should be returned.  In
-                   that case the separator argument is ignored.
-    :param charset: the charset of the query string.
-    :param encode_keys: set to `True` if you have unicode keys. (Ignored on
-                        Python 3.x)
-    :param sort: set to `True` if you want parameters to be sorted by `key`.
-    :param separator: the separator to be used for the pairs.
-    :param key: an optional function to be used for sorting.  For more details
-                check out the :func:`sorted` documentation.
-    """
-    separator = to_native(separator, "ascii")
-    gen = _url_encode_impl(obj, charset, encode_keys, sort, key)
-    if stream is None:
-        return gen
-    for idx, chunk in enumerate(gen):
-        if idx:
-            stream.write(separator)
-        stream.write(chunk)
-
-
-def url_join(base, url, allow_fragments=True):
-    """Join a base URL and a possibly relative URL to form an absolute
-    interpretation of the latter.
-
-    :param base: the base URL for the join operation.
-    :param url: the URL to join.
-    :param allow_fragments: indicates whether fragments should be allowed.
-    """
-    if isinstance(base, tuple):
-        base = url_unparse(base)
-    if isinstance(url, tuple):
-        url = url_unparse(url)
-
-    base, url = normalize_string_tuple((base, url))
-    s = make_literal_wrapper(base)
-
-    if not base:
-        return url
-    if not url:
-        return base
-
-    bscheme, bnetloc, bpath, bquery, bfragment = url_parse(
-        base, allow_fragments=allow_fragments
-    )
-    scheme, netloc, path, query, fragment = url_parse(url, bscheme, allow_fragments)
-    if scheme != bscheme:
-        return url
-    if netloc:
-        return url_unparse((scheme, netloc, path, query, fragment))
-    netloc = bnetloc
-
-    if path[:1] == s("/"):
-        segments = path.split(s("/"))
-    elif not path:
-        segments = bpath.split(s("/"))
-        if not query:
-            query = bquery
+    if "/" not in path:
+        environ["PATH_INFO"] = ""
+        environ["SCRIPT_NAME"] = script_name + path
+        rv = wsgi_get_bytes(path)
     else:
-        segments = bpath.split(s("/"))[:-1] + path.split(s("/"))
+        segment, path = path.split("/", 1)
+        environ["PATH_INFO"] = "/" + path
+        environ["SCRIPT_NAME"] = script_name + segment
+        rv = wsgi_get_bytes(segment)
 
-    # If the rightmost part is "./" we want to keep the slash but
-    # remove the dot.
-    if segments[-1] == s("."):
-        segments[-1] = s("")
-
-    # Resolve ".." and "."
-    segments = [segment for segment in segments if segment != s(".")]
-    while 1:
-        i = 1
-        n = len(segments) - 1
-        while i < n:
-            if segments[i] == s("..") and segments[i - 1] not in (s(""), s("..")):
-                del segments[i - 1 : i + 1]
-                break
-            i += 1
-        else:
-            break
-
-    # Remove trailing ".." if the URL is absolute
-    unwanted_marker = [s(""), s("..")]
-    while segments[:2] == unwanted_marker:
-        del segments[1]
-
-    path = s("/").join(segments)
-    return url_unparse((scheme, netloc, path, query, fragment))
+    return to_unicode(rv, charset, errors, allow_none_charset=True)
 
 
-class Href(object):
-    """Implements a callable that constructs URLs with the given base. The
-    function can be called with any number of positional and keyword
-    arguments which than are used to assemble the URL.  Works with URLs
-    and posix paths.
+def peek_path_info(environ, charset="utf-8", errors="replace"):
+    """Returns the next segment on the `PATH_INFO` or `None` if there
+    is none.  Works like :func:`pop_path_info` without modifying the
+    environment:
 
-    Positional arguments are appended as individual segments to
-    the path of the URL:
+    >>> env = {'SCRIPT_NAME': '/foo', 'PATH_INFO': '/a/b'}
+    >>> peek_path_info(env)
+    'a'
+    >>> peek_path_info(env)
+    'a'
 
-    >>> href = Href('/foo')
-    >>> href('bar', 23)
-    '/foo/bar/23'
-    >>> href('foo', bar=23)
-    '/foo/foo?bar=23'
-
-    If any of the arguments (positional or keyword) evaluates to `None` it
-    will be skipped.  If no keyword arguments are given the last argument
-    can be a :class:`dict` or :class:`MultiDict` (or any other dict subclass),
-    otherwise the keyword arguments are used for the query parameters, cutting
-    off the first trailing underscore of the parameter name:
-
-    >>> href(is_=42)
-    '/foo?is=42'
-    >>> href({'foo': 'bar'})
-    '/foo?foo=bar'
-
-    Combining of both methods is not allowed:
-
-    >>> href({'foo': 'bar'}, bar=42)
-    Traceback (most recent call last):
-      ...
-    TypeError: keyword arguments and query-dicts can't be combined
-
-    Accessing attributes on the href object creates a new href object with
-    the attribute name as prefix:
-
-    >>> bar_href = href.bar
-    >>> bar_href("blub")
-    '/foo/bar/blub'
-
-    If `sort` is set to `True` the items are sorted by `key` or the default
-    sorting algorithm:
-
-    >>> href = Href("/", sort=True)
-    >>> href(a=1, b=2, c=3)
-    '/?a=1&b=2&c=3'
+    If the `charset` is set to `None` a bytestring is returned.
 
     .. versionadded:: 0.5
-        `sort` and `key` were added.
+
+    .. versionchanged:: 0.9
+       The path is now decoded and a charset and encoding
+       parameter can be provided.
+
+    :param environ: the WSGI environment that is checked.
+    """
+    segments = environ.get("PATH_INFO", "").lstrip("/").split("/", 1)
+    if segments:
+        return to_unicode(
+            wsgi_get_bytes(segments[0]), charset, errors, allow_none_charset=True
+        )
+
+
+def extract_path_info(
+    environ_or_baseurl,
+    path_or_url,
+    charset="utf-8",
+    errors="werkzeug.url_quote",
+    collapse_http_schemes=True,
+):
+    """Extracts the path info from the given URL (or WSGI environment) and
+    path.  The path info returned is a unicode string, not a bytestring
+    suitable for a WSGI environment.  The URLs might also be IRIs.
+
+    If the path info could not be determined, `None` is returned.
+
+    Some examples:
+
+    >>> extract_path_info('http://example.com/app', '/app/hello')
+    u'/hello'
+    >>> extract_path_info('http://example.com/app',
+    ...                   'https://example.com/app/hello')
+    u'/hello'
+    >>> extract_path_info('http://example.com/app',
+    ...                   'https://example.com/app/hello',
+    ...                   collapse_http_schemes=False) is None
+    True
+
+    Instead of providing a base URL you can also pass a WSGI environment.
+
+    :param environ_or_baseurl: a WSGI environment dict, a base URL or
+                               base IRI.  This is the root of the
+                               application.
+    :param path_or_url: an absolute path from the server root, a
+                        relative path (in which case it's the path info)
+                        or a full URL.  Also accepts IRIs and unicode
+                        parameters.
+    :param charset: the charset for byte data in URLs
+    :param errors: the error handling on decode
+    :param collapse_http_schemes: if set to `False` the algorithm does
+                                  not assume that http and https on the
+                                  same server point to the same
+                                  resource.
+
+    .. versionchanged:: 0.15
+        The ``errors`` parameter defaults to leaving invalid bytes
+        quoted instead of replacing them.
+
+    .. versionadded:: 0.6
     """
 
-    def __init__(self, base="./", charset="utf-8", sort=False, key=None):
-        if not base:
-            base = "./"
-        self.base = base
-        self.charset = charset
-        self.sort = sort
-        self.key = key
+    def _normalize_netloc(scheme, netloc):
+        parts = netloc.split(u"@", 1)[-1].split(u":", 1)
+        if len(parts) == 2:
+            netloc, port = parts
+            if (scheme == u"http" and port == u"80") or (
+                scheme == u"https" and port == u"443"
+            ):
+                port = None
+        else:
+            netloc = parts[0]
+            port = None
+        if port is not None:
+            netloc += u":" + port
+        return netloc
 
-    def __getattr__(self, name):
-        if name[:2] == "__":
-            raise AttributeError(name)
-        base = self.base
-        if base[-1:] != "/":
-            base += "/"
-        return Href(url_join(base, name), self.charset, self.sort, self.key)
+    # make sure whatever we are working on is a IRI and parse it
+    path = uri_to_iri(path_or_url, charset, errors)
+    if isinstance(environ_or_baseurl, dict):
+        environ_or_baseurl = get_current_url(environ_or_baseurl, root_only=True)
+    base_iri = uri_to_iri(environ_or_baseurl, charset, errors)
+    base_scheme, base_netloc, base_path = url_parse(base_iri)[:3]
+    cur_scheme, cur_netloc, cur_path, = url_parse(url_join(base_iri, path))[:3]
 
-    def __call__(self, *path, **query):
-        if path and isinstance(path[-1], dict):
-            if query:
-                raise TypeError("keyword arguments and query-dicts can't be combined")
-            query, path = path[-1], path[:-1]
-        elif query:
-            query = dict(
-                [(k.endswith("_") and k[:-1] or k, v) for k, v in query.items()]
-            )
-        path = "/".join(
-            [
-                to_unicode(url_quote(x, self.charset), "ascii")
-                for x in path
-                if x is not None
-            ]
-        ).lstrip("/")
-        rv = self.base
-        if path:
-            if not rv.endswith("/"):
-                rv += "/"
-            rv = url_join(rv, "./" + path)
-        if query:
-            rv += "?" + to_unicode(
-                url_encode(query, self.charset, sort=self.sort, key=self.key), "ascii"
-            )
-        return to_native(rv)
+    # normalize the network location
+    base_netloc = _normalize_netloc(base_scheme, base_netloc)
+    cur_netloc = _normalize_netloc(cur_scheme, cur_netloc)
+
+    # is that IRI even on a known HTTP scheme?
+    if collapse_http_schemes:
+        for scheme in base_scheme, cur_scheme:
+            if scheme not in (u"http", u"https"):
+                return None
+    else:
+        if not (base_scheme in (u"http", u"https") and base_scheme == cur_scheme):
+            return None
+
+    # are the netlocs compatible?
+    if base_netloc != cur_netloc:
+        return None
+
+    # are we below the application path?
+    base_path = base_path.rstrip(u"/")
+    if not cur_path.startswith(base_path):
+        return None
+
+    return u"/" + cur_path[len(base_path) :].lstrip(u"/")
+
+
+@implements_iterator
+class ClosingIterator(object):
+    """The WSGI specification requires that all middlewares and gateways
+    respect the `close` callback of the iterable returned by the application.
+    Because it is useful to add another close action to a returned iterable
+    and adding a custom iterable is a boring task this class can be used for
+    that::
+
+        return ClosingIterator(app(environ, start_response), [cleanup_session,
+                                                              cleanup_locals])
+
+    If there is just one close function it can be passed instead of the list.
+
+    A closing iterator is not needed if the application uses response objects
+    and finishes the processing if the response is started::
+
+        try:
+            return response(environ, start_response)
+        finally:
+            cleanup_session()
+            cleanup_locals()
+    """
+
+    def __init__(self, iterable, callbacks=None):
+        iterator = iter(iterable)
+        self._next = partial(next, iterator)
+        if callbacks is None:
+            callbacks = []
+        elif callable(callbacks):
+            callbacks = [callbacks]
+        else:
+            callbacks = list(callbacks)
+        iterable_close = getattr(iterable, "close", None)
+        if iterable_close:
+            callbacks.insert(0, iterable_close)
+        self._callbacks = callbacks
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return self._next()
+
+    def close(self):
+        for callback in self._callbacks:
+            callback()
+
+
+def wrap_file(environ, file, buffer_size=8192):
+    """Wraps a file.  This uses the WSGI server's file wrapper if available
+    or otherwise the generic :class:`FileWrapper`.
+
+    .. versionadded:: 0.5
+
+    If the file wrapper from the WSGI server is used it's important to not
+    iterate over it from inside the application but to pass it through
+    unchanged.  If you want to pass out a file wrapper inside a response
+    object you have to set :attr:`~BaseResponse.direct_passthrough` to `True`.
+
+    More information about file wrappers are available in :pep:`333`.
+
+    :param file: a :class:`file`-like object with a :meth:`~file.read` method.
+    :param buffer_size: number of bytes for one iteration.
+    """
+    return environ.get("wsgi.file_wrapper", FileWrapper)(file, buffer_size)
+
+
+@implements_iterator
+class FileWrapper(object):
+    """This class can be used to convert a :class:`file`-like object into
+    an iterable.  It yields `buffer_size` blocks until the file is fully
+    read.
+
+    You should not use this class directly but rather use the
+    :func:`wrap_file` function that uses the WSGI server's file wrapper
+    support if it's available.
+
+    .. versionadded:: 0.5
+
+    If you're using this object together with a :class:`BaseResponse` you have
+    to use the `direct_passthrough` mode.
+
+    :param file: a :class:`file`-like object with a :meth:`~file.read` method.
+    :param buffer_size: number of bytes for one iteration.
+    """
+
+    def __init__(self, file, buffer_size=8192):
+        self.file = file
+        self.buffer_size = buffer_size
+
+    def close(self):
+        if hasattr(self.file, "close"):
+            self.file.close()
+
+    def seekable(self):
+        if hasattr(self.file, "seekable"):
+            return self.file.seekable()
+        if hasattr(self.file, "seek"):
+            return True
+        return False
+
+    def seek(self, *args):
+        if hasattr(self.file, "seek"):
+            self.file.seek(*args)
+
+    def tell(self):
+        if hasattr(self.file, "tell"):
+            return self.file.tell()
+        return None
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        data = self.file.read(self.buffer_size)
+        if data:
+            return data
+        raise StopIteration()
+
+
+@implements_iterator
+class _RangeWrapper(object):
+    # private for now, but should we make it public in the future ?
+
+    """This class can be used to convert an iterable object into
+    an iterable that will only yield a piece of the underlying content.
+    It yields blocks until the underlying stream range is fully read.
+    The yielded blocks will have a size that can't exceed the original
+    iterator defined block size, but that can be smaller.
+
+    If you're using this object together with a :class:`BaseResponse` you have
+    to use the `direct_passthrough` mode.
+
+    :param iterable: an iterable object with a :meth:`__next__` method.
+    :param start_byte: byte from which read will start.
+    :param byte_range: how many bytes to read.
+    """
+
+    def __init__(self, iterable, start_byte=0, byte_range=None):
+        self.iterable = iter(iterable)
+        self.byte_range = byte_range
+        self.start_byte = start_byte
+        self.end_byte = None
+        if byte_range is not None:
+            self.end_byte = self.start_byte + self.byte_range
+        self.read_length = 0
+        self.seekable = hasattr(iterable, "seekable") and iterable.seekable()
+        self.end_reached = False
+
+    def __iter__(self):
+        return self
+
+    def _next_chunk(self):
+        try:
+            chunk = next(self.iterable)
+            self.read_length += len(chunk)
+            return chunk
+        except StopIteration:
+            self.end_reached = True
+            raise
+
+    def _first_iteration(self):
+        chunk = None
+        if self.seekable:
+            self.iterable.seek(self.start_byte)
+            self.read_length = self.iterable.tell()
+            contextual_read_length = self.read_length
+        else:
+            while self.read_length <= self.start_byte:
+                chunk = self._next_chunk()
+            if chunk is not None:
+                chunk = chunk[self.start_byte - self.read_length :]
+            contextual_read_length = self.start_byte
+        return chunk, contextual_read_length
+
+    def _next(self):
+        if self.end_reached:
+            raise StopIteration()
+        chunk = None
+        contextual_read_length = self.read_length
+        if self.read_length == 0:
+            chunk, contextual_read_length = self._first_iteration()
+        if chunk is None:
+            chunk = self._next_chunk()
+        if self.end_byte is not None and self.read_length >= self.end_byte:
+            self.end_reached = True
+            return chunk[: self.end_byte - contextual_read_length]
+        return chunk
+
+    def __next__(self):
+        chunk = self._next()
+        if chunk:
+            return chunk
+        self.end_reached = True
+        raise StopIteration()
+
+    def close(self):
+        if hasattr(self.iterable, "close"):
+            self.iterable.close()
+
+
+def _make_chunk_iter(stream, limit, buffer_size):
+    """Helper for the line and chunk iter functions."""
+    if isinstance(stream, (bytes, bytearray, text_type)):
+        raise TypeError(
+            "Passed a string or byte object instead of true iterator or stream."
+        )
+    if not hasattr(stream, "read"):
+        for item in stream:
+            if item:
+                yield item
+        return
+    if not isinstance(stream, LimitedStream) and limit is not None:
+        stream = LimitedStream(stream, limit)
+    _read = stream.read
+    while 1:
+        item = _read(buffer_size)
+        if not item:
+            break
+        yield item
+
+
+def make_line_iter(stream, limit=None, buffer_size=10 * 1024, cap_at_buffer=False):
+    """Safely iterates line-based over an input stream.  If the input stream
+    is not a :class:`LimitedStream` the `limit` parameter is mandatory.
+
+    This uses the stream's :meth:`~file.read` method internally as opposite
+    to the :meth:`~file.readline` method that is unsafe and can only be used
+    in violation of the WSGI specification.  The same problem applies to the
+    `__iter__` function of the input stream which calls :meth:`~file.readline`
+    without arguments.
+
+    If you need line-by-line processing it's strongly recommended to iterate
+    over the input stream using this helper function.
+
+    .. versionchanged:: 0.8
+       This function now ensures that the limit was reached.
+
+    .. versionadded:: 0.9
+       added support for iterators as input stream.
+
+    .. versionadded:: 0.11.10
+       added support for the `cap_at_buffer` parameter.
+
+    :param stream: the stream or iterate to iterate over.
+    :param limit: the limit in bytes for the stream.  (Usually
+                  content length.  Not necessary if the `stream`
+                  is a :class:`LimitedStream`.
+    :param buffer_size: The optional buffer size.
+    :param cap_at_buffer: if this is set chunks are split if they are longer
+                          than the buffer size.  Internally this is implemented
+                          that the buffer size might be exhausted by a factor
+                          of two however.
+    """
+    _iter = _make_chunk_iter(stream, limit, buffer_size)
+
+    first_item = next(_iter, "")
+    if not first_item:
+        return
+
+    s = make_literal_wrapper(first_item)
+    empty = s("")
+    cr = s("\r")
+    lf = s("\n")
+    crlf = s("\r\n")
+
+    _iter = chain((first_item,), _iter)
+
+    def _iter_basic_lines():
+        _join = empty.join
+        buffer = []
+        while 1:
+            new_data = next(_iter, "")
+            if not new_data:
+                break
+            new_buf = []
+            buf_size = 0
+            for item in chain(buffer, new_data.splitlines(True)):
+                new_buf.append(item)
+                buf_size += len(item)
+                if item and item[-1:] in crlf:
+                    yield _join(new_buf)
+                    new_buf = []
+                elif cap_at_buffer and buf_size >= buffer_size:
+                    rv = _join(new_buf)
+                    while len(rv) >= buffer_size:
+                        yield rv[:buffer_size]
+                        rv = rv[buffer_size:]
+                    new_buf = [rv]
+            buffer = new_buf
+        if buffer:
+            yield _join(buffer)
+
+    # This hackery is necessary to merge 'foo\r' and '\n' into one item
+    # of 'foo\r\n' if we were unlucky and we hit a chunk boundary.
+    previous = empty
+    for item in _iter_basic_lines():
+        if item == lf and previous[-1:] == cr:
+            previous += item
+            item = empty
+        if previous:
+            yield previous
+        previous = item
+    if previous:
+        yield previous
+
+
+def make_chunk_iter(
+    stream, separator, limit=None, buffer_size=10 * 1024, cap_at_buffer=False
+):
+    """Works like :func:`make_line_iter` but accepts a separator
+    which divides chunks.  If you want newline based processing
+    you should use :func:`make_line_iter` instead as it
+    supports arbitrary newline markers.
+
+    .. versionadded:: 0.8
+
+    .. versionadded:: 0.9
+       added support for iterators as input stream.
+
+    .. versionadded:: 0.11.10
+       added support for the `cap_at_buffer` parameter.
+
+    :param stream: the stream or iterate to iterate over.
+    :param separator: the separator that divides chunks.
+    :param limit: the limit in bytes for the stream.  (Usually
+                  content length.  Not necessary if the `stream`
+                  is otherwise already limited).
+    :param buffer_size: The optional buffer size.
+    :param cap_at_buffer: if this is set chunks are split if they are longer
+                          than the buffer size.  Internally this is implemented
+                          that the buffer size might be exhausted by a factor
+                          of two however.
+    """
+    _iter = _make_chunk_iter(stream, limit, buffer_size)
+
+    first_item = next(_iter, "")
+    if not first_item:
+        return
+
+    _iter = chain((first_item,), _iter)
+    if isinstance(first_item, text_type):
+        separator = to_unicode(separator)
+        _split = re.compile(r"(%s)" % re.escape(separator)).split
+        _join = u"".join
+    else:
+        separator = to_bytes(separator)
+        _split = re.compile(b"(" + re.escape(separator) + b")").split
+        _join = b"".join
+
+    buffer = []
+    while 1:
+        new_data = next(_iter, "")
+        if not new_data:
+            break
+        chunks = _split(new_data)
+        new_buf = []
+        buf_size = 0
+        for item in chain(buffer, chunks):
+            if item == separator:
+                yield _join(new_buf)
+                new_buf = []
+                buf_size = 0
+            else:
+                buf_size += len(item)
+                new_buf.append(item)
+
+                if cap_at_buffer and buf_size >= buffer_size:
+                    rv = _join(new_buf)
+                    while len(rv) >= buffer_size:
+                        yield rv[:buffer_size]
+                        rv = rv[buffer_size:]
+                    new_buf = [rv]
+                    buf_size = len(rv)
+
+        buffer = new_buf
+    if buffer:
+        yield _join(buffer)
+
+
+@implements_iterator
+class LimitedStream(io.IOBase):
+    """Wraps a stream so that it doesn't read more than n bytes.  If the
+    stream is exhausted and the caller tries to get more bytes from it
+    :func:`on_exhausted` is called which by default returns an empty
+    string.  The return value of that function is forwarded
+    to the reader function.  So if it returns an empty string
+    :meth:`read` will return an empty string as well.
+
+    The limit however must never be higher than what the stream can
+    output.  Otherwise :meth:`readlines` will try to read past the
+    limit.
+
+    .. admonition:: Note on WSGI compliance
+
+       calls to :meth:`readline` and :meth:`readlines` are not
+       WSGI compliant because it passes a size argument to the
+       readline methods.  Unfortunately the WSGI PEP is not safely
+       implementable without a size argument to :meth:`readline`
+       because there is no EOF marker in the stream.  As a result
+       of that the use of :meth:`readline` is discouraged.
+
+       For the same reason iterating over the :class:`LimitedStream`
+       is not portable.  It internally calls :meth:`readline`.
+
+       We strongly suggest using :meth:`read` only or using the
+       :func:`make_line_iter` which safely iterates line-based
+       over a WSGI input stream.
+
+    :param stream: the stream to wrap.
+    :param limit: the limit for the stream, must not be longer than
+                  what the string can provide if the stream does not
+                  end with `EOF` (like `wsgi.input`)
+    """
+
+    def __init__(self, stream, limit):
+        self._read = stream.read
+        self._readline = stream.readline
+        self._pos = 0
+        self.limit = limit
+
+    def __iter__(self):
+        return self
+
+    @property
+    def is_exhausted(self):
+        """If the stream is exhausted this attribute is `True`."""
+        return self._pos >= self.limit
+
+    def on_exhausted(self):
+        """This is called when the stream tries to read past the limit.
+        The return value of this function is returned from the reading
+        function.
+        """
+        # Read null bytes from the stream so that we get the
+        # correct end of stream marker.
+        return self._read(0)
+
+    def on_disconnect(self):
+        """What should happen if a disconnect is detected?  The return
+        value of this function is returned from read functions in case
+        the client went away.  By default a
+        :exc:`~werkzeug.exceptions.ClientDisconnected` exception is raised.
+        """
+        from .exceptions import ClientDisconnected
+
+        raise ClientDisconnected()
+
+    def exhaust(self, chunk_size=1024 * 64):
+        """Exhaust the stream.  This consumes all the data left until the
+        limit is reached.
+
+        :param chunk_size: the size for a chunk.  It will read the chunk
+                           until the stream is exhausted and throw away
+                           the results.
+        """
+        to_read = self.limit - self._pos
+        chunk = chunk_size
+        while to_read > 0:
+            chunk = min(to_read, chunk)
+            self.read(chunk)
+            to_read -= chunk
+
+    def read(self, size=None):
+        """Read `size` bytes or if size is not provided everything is read.
+
+        :param size: the number of bytes read.
+        """
+        if self._pos >= self.limit:
+            return self.on_exhausted()
+        if size is None or size == -1:  # -1 is for consistence with file
+            size = self.limit
+        to_read = min(self.limit - self._pos, size)
+        try:
+            read = self._read(to_read)
+        except (IOError, ValueError):
+            return self.on_disconnect()
+        if to_read and len(read) != to_read:
+            return self.on_disconnect()
+        self._pos += len(read)
+        return read
+
+    def readline(self, size=None):
+        """Reads one line from the stream."""
+        if self._pos >= self.limit:
+            return self.on_exhausted()
+        if size is None:
+            size = self.limit - self._pos
+        else:
+            size = min(size, self.limit - self._pos)
+        try:
+            line = self._readline(size)
+        except (ValueError, IOError):
+            return self.on_disconnect()
+        if size and not line:
+            return self.on_disconnect()
+        self._pos += len(line)
+        return line
+
+    def readlines(self, size=None):
+        """Reads a file into a list of strings.  It calls :meth:`readline`
+        until the file is read to the end.  It does support the optional
+        `size` argument if the underlaying stream supports it for
+        `readline`.
+        """
+        last_pos = self._pos
+        result = []
+        if size is not None:
+            end = min(self.limit, last_pos + size)
+        else:
+            end = self.limit
+        while 1:
+            if size is not None:
+                size -= last_pos - self._pos
+            if self._pos >= end:
+                break
+            result.append(self.readline(size))
+            if size is not None:
+                last_pos = self._pos
+        return result
+
+    def tell(self):
+        """Returns the position of the stream.
+
+        .. versionadded:: 0.9
+        """
+        return self._pos
+
+    def __next__(self):
+        line = self.readline()
+        if not line:
+            raise StopIteration()
+        return line
+
+    def readable(self):
+        return True
+
+
+from werkzeug import _DeprecatedImportModule
+
+_DeprecatedImportModule(
+    __name__,
+    {
+        ".middleware.dispatcher": ["DispatcherMiddleware"],
+        ".middleware.http_proxy": ["ProxyMiddleware"],
+        ".middleware.shared_data": ["SharedDataMiddleware"],
+    },
+    "Werkzeug 1.0",
+)

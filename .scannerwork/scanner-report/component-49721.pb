@@ -1,1 +1,1 @@
-¹„Avenv/lib64/python3.6/site-packages/social_core/backends/taobao.py 2pyXh
+¹„@venv/lib64/python3.6/site-packages/social_core/backends/naver.py 2pyXAh

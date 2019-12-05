@@ -1,1 +1,1 @@
-®a7venv/lib/python3.6/site-packages/docutils/writers/xetex :­a
+®aCvenv/lib/python3.6/site-packages/docutils/writers/xetex/__init__.py 2pyX–h

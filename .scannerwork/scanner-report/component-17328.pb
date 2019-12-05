@@ -1,1 +1,1 @@
-°‡4venv/lib/python3.6/site-packages/kombu/utils/uuid.py 2pyXh
+°‡7venv/lib/python3.6/site-packages/kombu/utils/eventio.py 2pyXËh

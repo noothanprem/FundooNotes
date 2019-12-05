@@ -1,1 +1,0 @@
-ğT?venv/lib/python3.6/site-packages/faker/providers/internet/ja_JP :ïT

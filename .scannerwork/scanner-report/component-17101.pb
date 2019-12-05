@@ -1,1 +1,1 @@
-ͅ@venv/lib/python3.6/site-packages/google/protobuf/duration_pb2.py 2pyXOh
+ͅOvenv/lib/python3.6/site-packages/google/protobuf/util/json_format_proto3_pb2.py 2pyX�h

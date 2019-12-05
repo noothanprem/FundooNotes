@@ -1,1 +1,1 @@
-÷)8venv/lib/python3.6/site-packages/django/contrib/sessions :ö)ø)ù)ú)û)ü)¦,
+÷)Gvenv/lib/python3.6/site-packages/django/contrib/sessions/serializers.py 2pyXh

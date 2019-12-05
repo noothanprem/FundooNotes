@@ -1,1 +1,1 @@
-ù¸Avenv/lib/python3.6/site-packages/social_core/backends/withings.py 2pyXh
+ù¸>venv/lib/python3.6/site-packages/social_core/backends/qiita.py 2pyXCh

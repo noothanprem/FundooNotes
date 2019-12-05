@@ -1,1 +1,1 @@
-‡Q<venv/lib/python3.6/site-packages/sqlparse/engine/grouping.py 2pyXñh
+‡Q@venv/lib/python3.6/site-packages/sqlparse/engine/filter_stack.py 2pyX.h

@@ -1,1 +1,0 @@
-ğYJvenv/lib/python3.6/site-packages/faker/providers/address/ne_NP/__init__.py 2pyXÛh

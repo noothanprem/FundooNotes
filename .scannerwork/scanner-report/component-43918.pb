@@ -1,1 +1,1 @@
-×,venv/lib64/python3.6/site-packages/shortuuid :	××”×
+×,venv/lib64/python3.6/site-packages/shortuuid :	×’×”×

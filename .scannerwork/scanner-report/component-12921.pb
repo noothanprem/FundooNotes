@@ -1,1 +1,1 @@
-ùdLvenv/lib/python3.6/site-packages/macaroonbakery/httpbakery/agent/__init__.py 2pyXh
+ùdEvenv/lib/python3.6/site-packages/macaroonbakery/httpbakery/_client.py 2pyX˜h

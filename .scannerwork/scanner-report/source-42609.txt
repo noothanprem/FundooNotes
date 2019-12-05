@@ -14,87 +14,66 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-"""Functions for parallel computation on multiple cores.
+"""Utility functions."""
 
-Introduced in Python-RSA 3.1.
+from __future__ import with_statement, print_function
 
-.. note::
+import sys
+from optparse import OptionParser
 
-    Requires Python 2.6 or newer.
-
-"""
-
-from __future__ import print_function
-
-import multiprocessing as mp
-
-import rsa.prime
-import rsa.randnum
+import rsa.key
 
 
-def _find_prime(nbits, pipe):
-    while True:
-        integer = rsa.randnum.read_random_odd_int(nbits)
+def private_to_public():
+    """Reads a private key and outputs the corresponding public key."""
 
-        # Test for primeness
-        if rsa.prime.is_prime(integer):
-            pipe.send(integer)
-            return
+    # Parse the CLI options
+    parser = OptionParser(usage='usage: %prog [options]',
+                          description='Reads a private key and outputs the '
+                                      'corresponding public key. Both private and public keys use '
+                                      'the format described in PKCS#1 v1.5')
 
+    parser.add_option('-i', '--input', dest='infilename', type='string',
+                      help='Input filename. Reads from stdin if not specified')
+    parser.add_option('-o', '--output', dest='outfilename', type='string',
+                      help='Output filename. Writes to stdout of not specified')
 
-def getprime(nbits, poolsize):
-    """Returns a prime number that can be stored in 'nbits' bits.
+    parser.add_option('--inform', dest='inform',
+                      help='key format of input - default PEM',
+                      choices=('PEM', 'DER'), default='PEM')
 
-    Works in multiple threads at the same time.
+    parser.add_option('--outform', dest='outform',
+                      help='key format of output - default PEM',
+                      choices=('PEM', 'DER'), default='PEM')
 
-    >>> p = getprime(128, 3)
-    >>> rsa.prime.is_prime(p-1)
-    False
-    >>> rsa.prime.is_prime(p)
-    True
-    >>> rsa.prime.is_prime(p+1)
-    False
+    (cli, cli_args) = parser.parse_args(sys.argv)
 
-    >>> from rsa import common
-    >>> common.bit_size(p) == 128
-    True
+    # Read the input data
+    if cli.infilename:
+        print('Reading private key from %s in %s format' %
+              (cli.infilename, cli.inform), file=sys.stderr)
+        with open(cli.infilename, 'rb') as infile:
+            in_data = infile.read()
+    else:
+        print('Reading private key from stdin in %s format' % cli.inform,
+              file=sys.stderr)
+        in_data = sys.stdin.read().encode('ascii')
 
-    """
+    assert type(in_data) == bytes, type(in_data)
 
-    (pipe_recv, pipe_send) = mp.Pipe(duplex=False)
+    # Take the public fields and create a public key
+    priv_key = rsa.key.PrivateKey.load_pkcs1(in_data, cli.inform)
+    pub_key = rsa.key.PublicKey(priv_key.n, priv_key.e)
 
-    # Create processes
-    try:
-        procs = [mp.Process(target=_find_prime, args=(nbits, pipe_send))
-                 for _ in range(poolsize)]
-        # Start processes
-        for p in procs:
-            p.start()
+    # Save to the output file
+    out_data = pub_key.save_pkcs1(cli.outform)
 
-        result = pipe_recv.recv()
-    finally:
-        pipe_recv.close()
-        pipe_send.close()
-
-    # Terminate processes
-    for p in procs:
-        p.terminate()
-
-    return result
-
-
-__all__ = ['getprime']
-
-if __name__ == '__main__':
-    print('Running doctests 1000x or until failure')
-    import doctest
-
-    for count in range(100):
-        (failures, tests) = doctest.testmod()
-        if failures:
-            break
-
-        if count and count % 10 == 0:
-            print('%i times' % count)
-
-    print('Doctests done')
+    if cli.outfilename:
+        print('Writing public key to %s in %s format' %
+              (cli.outfilename, cli.outform), file=sys.stderr)
+        with open(cli.outfilename, 'wb') as outfile:
+            outfile.write(out_data)
+    else:
+        print('Writing public key to stdout in %s format' % cli.outform,
+              file=sys.stderr)
+        sys.stdout.write(out_data.decode('ascii'))

@@ -209,9 +209,9 @@ G
 pythonS100_Rename method "testSucceedOversizeProto" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
 ∏∏ D
 pythonS1481%Remove the unused local variable "_". 2
-ûû D
+ùù D
 pythonS1481%Remove the unused local variable "_". 2
-ùù à
+ûû à
 pythonS117jRename this local variable "kMostPosExponentNoSigBits" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
 ÙÙ à
 pythonS117jRename this local variable "kMostPosExponentOneSigBit" to match the regular expression ^[_a-z][a-z0-9_]*$. 2

@@ -1,1 +1,1 @@
-到6venv/lib64/python3.6/site-packages/requests_unixsocket :	抓科桿
+到6venv/lib64/python3.6/site-packages/requests_unixsocket :	抓原舷

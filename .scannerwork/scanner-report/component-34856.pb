@@ -1,1 +1,1 @@
-®êDvenv/lib64/python3.6/site-packages/django/conf/locale/fa/__init__.py 2pyXh
+®ê8venv/lib64/python3.6/site-packages/django/conf/locale/fa :ßê©ê

@@ -1,1 +1,1 @@
-¡Ÿ7venv/lib64/python3.6/site-packages/launchpadlib/uris.py 2pyXÜh
+¡Ÿ<venv/lib64/python3.6/site-packages/launchpadlib/launchpad.py 2pyXÚh

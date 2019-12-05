@@ -1,1 +1,0 @@
-·Ù:venv/lib64/python3.6/site-packages/itsdangerous/_compat.py 2pyX/h

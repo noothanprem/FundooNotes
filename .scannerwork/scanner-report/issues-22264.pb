@@ -1,137 +1,368 @@
-=
-pythonS125Remove this commented out code. 2
-úú 8q
-pythonS100URename method "serviceStarted" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2<< q
-pythonS100URename method "serviceStopped" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2AA z
-pythonS100^Rename method "_cleanupGlobalDeferreds" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2RR u
-pythonS100YRename method "ssh_GLOBAL_REQUEST" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2^^ v
-pythonS100ZRename method "ssh_REQUEST_SUCCESS" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ss v
-pythonS100ZRename method "ssh_REQUEST_FAILURE" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2{{ u
-pythonS100WRename method "ssh_CHANNEL_OPEN" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-„„ ‚
-pythonS100dRename method "ssh_CHANNEL_OPEN_CONFIRMATION" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-±± %}
-pythonS100_Rename method "ssh_CHANNEL_OPEN_FAILURE" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÈÈ  ~
-pythonS100`Rename method "ssh_CHANNEL_WINDOW_ADJUST" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÚÚ !u
-pythonS100WRename method "ssh_CHANNEL_DATA" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-çç ~
-pythonS100`Rename method "ssh_CHANNEL_EXTENDED_DATA" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-„„ !t
-pythonS100VRename method "ssh_CHANNEL_EOF" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ŸŸ v
-pythonS100XRename method "ssh_CHANNEL_CLOSE" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ªª x
-pythonS100ZRename method "ssh_CHANNEL_REQUEST" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ºº v
-pythonS100XRename method "_cbChannelRequest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÑÑ v
-pythonS100XRename method "_ebChannelRequest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ää x
-pythonS100ZRename method "ssh_CHANNEL_SUCCESS" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ññ x
-pythonS100ZRename method "ssh_CHANNEL_FAILURE" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-þþ v
-pythonS100XRename method "sendGlobalRequest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
- p
-pythonS100RRename method "openChannel" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¢¢ p
-pythonS100RRename method "sendRequest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-³³ q
-pythonS100SRename method "adjustWindow" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÉÉ m
-pythonS100ORename method "sendData" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÚÚ u
-pythonS100WRename method "sendExtendedData" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-èè l
-pythonS100NRename method "sendEOF" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-øø n
-pythonS100PRename method "sendClose" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-„„ o
-pythonS100QRename method "getChannel" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-”” u
-pythonS100WRename method "gotGlobalRequest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¾¾ r
-pythonS100TRename method "channelClosed" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÚÚ x
-pythonS117\Rename this local variable "requestType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2gg v
-pythonS117ZRename this local variable "wantReply" to match the regular expression ^[_a-z][a-z0-9_]*$. 2hh z
-pythonS117\Rename this local variable "channelType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-‘‘ |
-pythonS117^Rename this local variable "senderChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-’’ y
-pythonS117[Rename this local variable "windowSize" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-’’ !x
-pythonS117ZRename this local variable "maxPacket" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-’’# ,{
-pythonS117]Rename this local variable "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-—— z
-pythonS117\Rename this local variable "textualInfo" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-¥¥ {
-pythonS117]Rename this local variable "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-½½	 |
-pythonS117^Rename this local variable "remoteChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-½½ $y
-pythonS117[Rename this local variable "windowSize" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-½½& 0x
-pythonS117ZRename this local variable "maxPacket" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-¾¾ {
-pythonS117]Rename this local variable "specificData" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-¿¿ {
-pythonS117]Rename this local variable "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÒÒ y
+k
+pythonS1134LTake the required action to fix the issue indicated by this "FIXME" comment. 2
+—— 7j
+pythonS100NRename method "setKeys" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2{{ o
+pythonS100QRename method "_getCipher" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+’’ l
+pythonS100NRename method "_getMAC" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+§§ l
+pythonS100NRename method "makeMAC" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ää s
+pythonS100URename method "connectionLost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÙÙ s
+pythonS100URename method "connectionMade" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+èè p
+pythonS100RRename method "sendKexInit" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ôô ƒ
+pythonS100eRename method "_allowedKeyExchangeMessageType" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+–– &o
+pythonS100QRename method "sendPacket" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+­­ n
+pythonS100PRename method "getPacket" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÓÓ €
+pythonS100bRename method "_unsupportedVersionReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ #q
+pythonS100SRename method "dataReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ t
+pythonS100VRename method "dispatchMessage" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÃÃ l
+pythonS100NRename method "getPeer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ßß l
+pythonS100NRename method "getHost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ëë k
+pythonS100MRename method "kexAlg" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+øø k
+pythonS100MRename method "kexAlg" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+€€ p
+pythonS100RRename method "ssh_KEXINIT" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+•• s
+pythonS100URename method "ssh_DISCONNECT" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ææ o
+pythonS100QRename method "ssh_IGNORE" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+øø v
+pythonS100XRename method "ssh_UNIMPLEMENTED" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‚‚ n
+pythonS100PRename method "ssh_DEBUG" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ o
+pythonS100QRename method "setService" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¡¡ n
+pythonS100PRename method "sendDebug" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+±± o
+pythonS100QRename method "sendIgnore" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÁÁ v
+pythonS100XRename method "sendUnimplemented" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÍÍ s
+pythonS100URename method "sendDisconnect" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÖÖ v
+pythonS100XRename method "_startEphemeralDH" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+çç w
+pythonS100YRename method "_finishEphemeralDH" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+öö l
+pythonS100NRename method "_getKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+–– n
+pythonS100PRename method "_keySetup" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¯¯ m
+pythonS100ORename method "_newKeys" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÍÍ p
+pythonS100RRename method "isEncrypted" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ââ o
+pythonS100QRename method "isVerified" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+öö s
+pythonS100URename method "loseConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+Š	Š	 q
+pythonS100SRename method "receiveError" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+•	•	 y
+pythonS100[Rename method "receiveUnimplemented" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¥	¥	 q
+pythonS100SRename method "receiveDebug" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+°	°	 p
+pythonS100RRename method "ssh_KEXINIT" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+Ö	Ö	 w
+pythonS100YRename method "_ssh_KEX_ECDH_INIT" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+é	é	 t
+pythonS100VRename method "_ssh_KEXDH_INIT" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¸
+¸
+ 
+pythonS100aRename method "ssh_KEX_DH_GEX_REQUEST_OLD" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+à
+à
+ "{
+pythonS100]Rename method "ssh_KEX_DH_GEX_REQUEST" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+†† x
+pythonS100ZRename method "ssh_KEX_DH_GEX_INIT" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¡¡ p
+pythonS100RRename method "ssh_NEWKEYS" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÊÊ x
+pythonS100ZRename method "ssh_SERVICE_REQUEST" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÚÚ s
+pythonS100URename method "connectionMade" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+œœ p
+pythonS100RRename method "ssh_KEXINIT" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¥¥ x
+pythonS100ZRename method "_ssh_KEX_ECDH_REPLY" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÜÜ u
+pythonS100WRename method "_ssh_KEXDH_REPLY" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¬¬ y
+pythonS100[Rename method "ssh_KEX_DH_GEX_GROUP" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÐÐ y
+pythonS100[Rename method "_continueKEXDH_REPLY" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+êê y
+pythonS100[Rename method "ssh_KEX_DH_GEX_REPLY" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+‹‹ w
+pythonS100YRename method "_continueGEX_REPLY" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¦¦ n
+pythonS100PRename method "_keySetup" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÏÏ p
+pythonS100RRename method "ssh_NEWKEYS" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ØØ w
+pythonS100YRename method "ssh_SERVICE_ACCEPT" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ìì s
+pythonS100URename method "requestService" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ r
+pythonS100TRename method "verifyHostKey" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ŽŽ u
+pythonS100WRename method "connectionSecure" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+žž m
+pythonS1066/Merge this if statement with the enclosing one. 2
+ºº :
+ø­
+¹¹ 
+	enclosingm
+pythonS1066/Merge this if statement with the enclosing one. 2
+ä	ä	 :
+ø­
+ã	ã	 
+	enclosingn
+pythonS117RRename this parameter "outCip" to match the regular expression ^[_a-z][a-z0-9_]*$. 2oo m
+pythonS117QRename this parameter "inCip" to match the regular expression ^[_a-z][a-z0-9_]*$. 2oo $n
+pythonS117RRename this parameter "outMac" to match the regular expression ^[_a-z][a-z0-9_]*$. 2oo& ,m
+pythonS117QRename this parameter "inMac" to match the regular expression ^[_a-z][a-z0-9_]*$. 2oo. 3m
+pythonS117QRename this parameter "outIV" to match the regular expression ^[_a-z][a-z0-9_]*$. 2{{ n
+pythonS117RRename this parameter "outKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2{{ #l
+pythonS117PRename this parameter "inIV" to match the regular expression ^[_a-z][a-z0-9_]*$. 2{{% )m
+pythonS117QRename this parameter "inKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2{{+ 0p
+pythonS117TRename this parameter "outInteg" to match the regular expression ^[_a-z][a-z0-9_]*$. 2{{2 :o
+pythonS117SRename this parameter "inInteg" to match the regular expression ^[_a-z][a-z0-9_]*$. 2{{< C}
+pythonS117_Rename this local variable "algorithmClass" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+œœ v
+pythonS117XRename this local variable "keySize" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+œœ x
+pythonS117ZRename this local variable "modeClass" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+œœ! *y
+pythonS117[Rename this local variable "hashObject" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+»» y
+pythonS117[Rename this local variable "digestSize" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¼¼ x
+pythonS117ZRename this local variable "blockSize" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+½½ 
+pythonS117aRename this local variable "supportedCiphers" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+—— }
+pythonS117_Rename this local variable "algorithmClass" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+œœ v
+pythonS117XRename this local variable "keySize" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+œœ x
+pythonS117ZRename this local variable "modeClass" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+œœ! *u
+pythonS117WRename this parameter "messageType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+––- 8u
+pythonS117WRename this parameter "messageType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+­­ $x
+pythonS117ZRename this local variable "totalSize" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÄÄ u
+pythonS117WRename this local variable "lenPad" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÅÅ x
+pythonS117ZRename this local variable "encPacket" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ËË x
+pythonS117ZRename this local variable "packetLen" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+åå y
+pythonS117[Rename this local variable "paddingLen" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+åå v
+pythonS117XRename this local variable "encData" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+öö v
+pythonS117XRename this local variable "macData" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ýý w
+pythonS117YRename this parameter "remoteVersion" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+* 7|
+pythonS117^Rename this local variable "remoteVersion" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¶¶ !y
+pythonS117[Rename this local variable "messageNum" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¾¾ t
+pythonS117VRename this parameter "messageNum" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÃÃ (z
+pythonS117\Rename this local variable "messageType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÎÎ v
+pythonS117XRename this local variable "kexAlgs" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+µµ	 v
+pythonS117XRename this local variable "keyAlgs" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+µµ t
+pythonS117VRename this local variable "encCS" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+µµ  t
+pythonS117VRename this local variable "encSC" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+µµ" 't
+pythonS117VRename this local variable "macCS" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+µµ) .t
+pythonS117VRename this local variable "macSC" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+µµ0 5u
+pythonS117WRename this local variable "compCS" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+µµ7 =u
+pythonS117WRename this local variable "compSC" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+µµ? Eu
+pythonS117WRename this local variable "langCS" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+µµG Mu
+pythonS117WRename this local variable "langSC" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¶¶	 y
 pythonS117[Rename this local variable "reasonCode" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÒÒ  y
-pythonS117[Rename this local variable "reasonDesc" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÓÓ {
-pythonS117]Rename this local variable "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ãã y
-pythonS117[Rename this local variable "bytesToAdd" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ãã  {
-pythonS117]Rename this local variable "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-òò y
-pythonS117[Rename this local variable "dataLength" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-òò  {
-pythonS117]Rename this local variable "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-‘‘ w
-pythonS117YRename this local variable "typeCode" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-‘‘ y
-pythonS117[Rename this local variable "dataLength" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-‘‘  *{
-pythonS117]Rename this local variable "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-¦¦ {
-pythonS117]Rename this local variable "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-³³ {
-pythonS117]Rename this local variable "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÆÆ z
-pythonS117\Rename this local variable "requestType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÇÇ x
-pythonS117ZRename this local variable "wantReply" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÈÈ v
-pythonS117XRename this parameter "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÑÑ( 4v
-pythonS117XRename this parameter "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ää( 4{
-pythonS117]Rename this local variable "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-øø {
-pythonS117]Rename this local variable "localChannel" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-†† s
-pythonS117URename this parameter "wantReply" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-/ 8u
-pythonS117WRename this parameter "requestType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-³³# .s
-pythonS117URename this parameter "wantReply" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-³³6 ?t
-pythonS117VRename this parameter "bytesToAdd" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÉÉ$ .r
-pythonS117TRename this parameter "dataType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-èè( 0u
-pythonS117WRename this parameter "channelType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-”” $t
-pythonS117VRename this parameter "windowSize" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-””& 0s
-pythonS117URename this parameter "maxPacket" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-””2 ;u
-pythonS117WRename this parameter "requestType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-¾¾ *
+òò |
+pythonS117^Rename this local variable "alwaysDisplay" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+œœ w
+pythonS117YRename this parameter "alwaysDisplay" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+±±! .{
+pythonS117]Rename this parameter "remoteDHpublicKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+öö! 2x
+pythonS117ZRename this local variable "remoteKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ v
+pythonS117XRename this parameter "sharedSecret" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+–– %v
+pythonS117XRename this parameter "exchangeHash" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+––' 3|
+pythonS117^Rename this local variable "hashProcessor" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¦¦ v
+pythonS117XRename this parameter "sharedSecret" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¯¯ $v
+pythonS117XRename this parameter "exchangeHash" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¯¯& 2w
+pythonS117YRename this local variable "initIVCS" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+½½ w
+pythonS117YRename this local variable "initIVSC" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¾¾ w
+pythonS117YRename this local variable "encKeyCS" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¿¿ w
+pythonS117YRename this local variable "encKeySC" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÀÀ y
+pythonS117[Rename this local variable "integKeyCS" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÁÁ y
+pythonS117[Rename this local variable "integKeySC" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÂÂ z
+pythonS117\Rename this local variable "messageType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÞÞ t
+pythonS117VRename this parameter "reasonCode" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+•	•	 %w
+pythonS117YRename this parameter "alwaysDisplay" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+°	°	 (v
+pythonS117XRename this local variable "kexAlgs" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+â	â	 v
+pythonS117XRename this local variable "keyAlgs" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+â	â	 u
+pythonS117WRename this local variable "pktPub" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+‚
+‚
+ y
+pythonS117[Rename this local variable "pubHostKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+…
+…
+ z
+pythonS117\Rename this local variable "privHostKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+†
+†
+ u
+pythonS117WRename this local variable "ecPriv" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+
+
+ t
+pythonS117VRename this local variable "ecPub" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+’
+’
+ u
+pythonS117WRename this local variable "encPub" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+“
+“
+ y
+pythonS117[Rename this local variable "theirECPub" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+š
+š
+ {
+pythonS117]Rename this local variable "sharedSecret" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ 
+ 
+ {
+pythonS117]Rename this local variable "exchangeHash" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¯
+¯
+ €
+pythonS117bRename this local variable "clientDHpublicKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+Ê
+Ê
+ {
+pythonS117]Rename this local variable "sharedSecret" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+Í
+Í
+ {
+pythonS117]Rename this local variable "exchangeHash" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+×
+×
+ €
+pythonS117bRename this local variable "clientDHpublicKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¬¬ {
+pythonS117]Rename this local variable "sharedSecret" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+´´ {
+pythonS117]Rename this local variable "exchangeHash" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÁÁ v
+pythonS117XRename this local variable "hostKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+œœ u
+pythonS117WRename this local variable "pubKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+œœ q
+pythonS117SRename this parameter "hostKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+òò. 5p
+pythonS117RRename this parameter "pubKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+òò7 =z
+pythonS117\Rename this local variable "theirECHost" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ôô y
+pythonS117[Rename this local variable "theirECPub" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+øø {
+pythonS117]Rename this local variable "sharedSecret" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÿÿ {
+pythonS117]Rename this local variable "exchangeHash" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+‘‘ u
+pythonS117WRename this local variable "pubKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÃÃ p
+pythonS117RRename this parameter "pubKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+êê, 2x
+pythonS117ZRename this local variable "serverKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+øø {
+pythonS117]Rename this local variable "sharedSecret" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ùù {
+pythonS117]Rename this local variable "exchangeHash" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ƒƒ u
+pythonS117WRename this local variable "pubKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+™™ p
+pythonS117RRename this parameter "pubKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¦¦* 0x
+pythonS117ZRename this local variable "serverKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+´´ {
+pythonS117]Rename this local variable "sharedSecret" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+µµ {
+pythonS117]Rename this local variable "exchangeHash" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÇÇ v
+pythonS117XRename this parameter "sharedSecret" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÏÏ $v
+pythonS117XRename this parameter "exchangeHash" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÏÏ& 2q
+pythonS117SRename this parameter "hostKey" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ŽŽ #m
+pythonS116QRename this field "cipherMap" to match the regular expression ^[_a-z][_a-z0-9]*$. 2VV j
+pythonS116NRename this field "macMap" to match the regular expression ^[_a-z][_a-z0-9]*$. 2ee 
+n
+pythonS116RRename this field "outCipType" to match the regular expression ^[_a-z][_a-z0-9]*$. 2pp m
+pythonS116QRename this field "inCipType" to match the regular expression ^[_a-z][_a-z0-9]*$. 2qq n
+pythonS116RRename this field "outMACType" to match the regular expression ^[_a-z][_a-z0-9]*$. 2rr m
+pythonS116QRename this field "inMACType" to match the regular expression ^[_a-z][_a-z0-9]*$. 2ss p
+pythonS116TRename this field "encBlockSize" to match the regular expression ^[_a-z][_a-z0-9]*$. 2tt p
+pythonS116TRename this field "decBlockSize" to match the regular expression ^[_a-z][_a-z0-9]*$. 2uu t
+pythonS116XRename this field "verifyDigestSize" to match the regular expression ^[_a-z][_a-z0-9]*$. 2vv j
+pythonS116NRename this field "outMAC" to match the regular expression ^[_a-z][_a-z0-9]*$. 2ww i
+pythonS116MRename this field "inMAC" to match the regular expression ^[_a-z][_a-z0-9]*$. 2xx |
+pythonS1542]Rename function "_getSupportedCiphers" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ €
+pythonS1542aRename function "_continue_KEX_ECDH_REPLY" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+òò $

@@ -1,1 +1,1 @@
-ã@Dvenv/lib/python3.6/site-packages/django/core/mail/backends/locmem.py 2pyXh
+ã@:venv/lib/python3.6/site-packages/django/core/mail/backends :ä@å@ç@é@è@ò@ô@

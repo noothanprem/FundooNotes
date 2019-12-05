@@ -1,1 +1,1 @@
-аж>venv/lib64/python3.6/site-packages/future/moves/http/client.py 2pyX	h
+аж9venv/lib64/python3.6/site-packages/future/moves/winreg.py 2pyX	h

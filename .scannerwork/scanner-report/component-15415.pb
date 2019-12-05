@@ -1,1 +1,0 @@
-·xevenv/lib/python3.6/site-packages/awscli/customizations/servicecatalog/generateprovisioningartifact.py 2pyXch

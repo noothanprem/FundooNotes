@@ -1,1 +1,1 @@
-‡»=venv/lib/python3.6/site-packages/social_core/backends/suse.py 2pyXh
+‡»@venv/lib/python3.6/site-packages/social_core/backends/jawbone.py 2pyXNh

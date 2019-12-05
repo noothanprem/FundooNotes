@@ -1,129 +1,88 @@
-from functools import partial
-
-from django.contrib.admin.checks import InlineModelAdminChecks
-from django.contrib.admin.options import InlineModelAdmin, flatten_fieldsets
-from django.contrib.contenttypes.fields import GenericForeignKey
-from django.contrib.contenttypes.forms import (
-    BaseGenericInlineFormSet, generic_inlineformset_factory,
-)
-from django.core import checks
-from django.core.exceptions import FieldDoesNotExist
-from django.forms import ALL_FIELDS
-from django.forms.models import modelform_defines_fields
+from django.apps import apps
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.sites.shortcuts import get_current_site
+from django.core.exceptions import ObjectDoesNotExist
+from django.http import Http404, HttpResponseRedirect
+from django.utils.translation import gettext as _
 
 
-class GenericInlineModelAdminChecks(InlineModelAdminChecks):
-    def _check_exclude_of_parent_model(self, obj, parent_model):
-        # There's no FK to exclude, so no exclusion checks are required.
-        return []
+def shortcut(request, content_type_id, object_id):
+    """
+    Redirect to an object's page based on a content-type ID and an object ID.
+    """
+    # Look up the object, making sure it's got a get_absolute_url() function.
+    try:
+        content_type = ContentType.objects.get(pk=content_type_id)
+        if not content_type.model_class():
+            raise Http404(
+                _("Content type %(ct_id)s object has no associated model") %
+                {'ct_id': content_type_id}
+            )
+        obj = content_type.get_object_for_this_type(pk=object_id)
+    except (ObjectDoesNotExist, ValueError):
+        raise Http404(
+            _("Content type %(ct_id)s object %(obj_id)s doesn't exist") %
+            {'ct_id': content_type_id, 'obj_id': object_id}
+        )
 
-    def _check_relation(self, obj, parent_model):
-        # There's no FK, but we do need to confirm that the ct_field and ct_fk_field are valid,
-        # and that they are part of a GenericForeignKey.
+    try:
+        get_absolute_url = obj.get_absolute_url
+    except AttributeError:
+        raise Http404(
+            _("%(ct_name)s objects don't have a get_absolute_url() method") %
+            {'ct_name': content_type.name}
+        )
+    absurl = get_absolute_url()
 
-        gfks = [
-            f for f in obj.model._meta.private_fields
-            if isinstance(f, GenericForeignKey)
-        ]
-        if not gfks:
-            return [
-                checks.Error(
-                    "'%s.%s' has no GenericForeignKey." % (
-                        obj.model._meta.app_label, obj.model._meta.object_name
-                    ),
-                    obj=obj.__class__,
-                    id='admin.E301'
-                )
-            ]
+    # Try to figure out the object's domain, so we can do a cross-site redirect
+    # if necessary.
+
+    # If the object actually defines a domain, we're done.
+    if absurl.startswith(('http://', 'https://', '//')):
+        return HttpResponseRedirect(absurl)
+
+    # Otherwise, we need to introspect the object's relationships for a
+    # relation to the Site object
+    try:
+        object_domain = get_current_site(request).domain
+    except ObjectDoesNotExist:
+        object_domain = None
+
+    if apps.is_installed('django.contrib.sites'):
+        Site = apps.get_model('sites.Site')
+        opts = obj._meta
+
+        for field in opts.many_to_many:
+            # Look for a many-to-many relationship to Site.
+            if field.remote_field.model is Site:
+                site_qs = getattr(obj, field.name).all()
+                if object_domain and site_qs.filter(domain=object_domain).exists():
+                    # The current site's domain matches a site attached to the
+                    # object.
+                    break
+                # Caveat: In the case of multiple related Sites, this just
+                # selects the *first* one, which is arbitrary.
+                site = site_qs.first()
+                if site:
+                    object_domain = site.domain
+                    break
         else:
-            # Check that the ct_field and ct_fk_fields exist
-            try:
-                obj.model._meta.get_field(obj.ct_field)
-            except FieldDoesNotExist:
-                return [
-                    checks.Error(
-                        "'ct_field' references '%s', which is not a field on '%s.%s'." % (
-                            obj.ct_field, obj.model._meta.app_label, obj.model._meta.object_name
-                        ),
-                        obj=obj.__class__,
-                        id='admin.E302'
-                    )
-                ]
+            # No many-to-many relationship to Site found. Look for a
+            # many-to-one relationship to Site.
+            for field in obj._meta.fields:
+                if field.remote_field and field.remote_field.model is Site:
+                    try:
+                        site = getattr(obj, field.name)
+                    except Site.DoesNotExist:
+                        continue
+                    if site is not None:
+                        object_domain = site.domain
+                        break
 
-            try:
-                obj.model._meta.get_field(obj.ct_fk_field)
-            except FieldDoesNotExist:
-                return [
-                    checks.Error(
-                        "'ct_fk_field' references '%s', which is not a field on '%s.%s'." % (
-                            obj.ct_fk_field, obj.model._meta.app_label, obj.model._meta.object_name
-                        ),
-                        obj=obj.__class__,
-                        id='admin.E303'
-                    )
-                ]
-
-            # There's one or more GenericForeignKeys; make sure that one of them
-            # uses the right ct_field and ct_fk_field.
-            for gfk in gfks:
-                if gfk.ct_field == obj.ct_field and gfk.fk_field == obj.ct_fk_field:
-                    return []
-
-            return [
-                checks.Error(
-                    "'%s.%s' has no GenericForeignKey using content type field '%s' and object ID field '%s'." % (
-                        obj.model._meta.app_label, obj.model._meta.object_name, obj.ct_field, obj.ct_fk_field
-                    ),
-                    obj=obj.__class__,
-                    id='admin.E304'
-                )
-            ]
-
-
-class GenericInlineModelAdmin(InlineModelAdmin):
-    ct_field = "content_type"
-    ct_fk_field = "object_id"
-    formset = BaseGenericInlineFormSet
-
-    checks_class = GenericInlineModelAdminChecks
-
-    def get_formset(self, request, obj=None, **kwargs):
-        if 'fields' in kwargs:
-            fields = kwargs.pop('fields')
-        else:
-            fields = flatten_fieldsets(self.get_fieldsets(request, obj))
-        exclude = [*(self.exclude or []), *self.get_readonly_fields(request, obj)]
-        if self.exclude is None and hasattr(self.form, '_meta') and self.form._meta.exclude:
-            # Take the custom ModelForm's Meta.exclude into account only if the
-            # GenericInlineModelAdmin doesn't define its own.
-            exclude.extend(self.form._meta.exclude)
-        exclude = exclude or None
-        can_delete = self.can_delete and self.has_delete_permission(request, obj)
-        defaults = {
-            'ct_field': self.ct_field,
-            'fk_field': self.ct_fk_field,
-            'form': self.form,
-            'formfield_callback': partial(self.formfield_for_dbfield, request=request),
-            'formset': self.formset,
-            'extra': self.get_extra(request, obj),
-            'can_delete': can_delete,
-            'can_order': False,
-            'fields': fields,
-            'min_num': self.get_min_num(request, obj),
-            'max_num': self.get_max_num(request, obj),
-            'exclude': exclude,
-            **kwargs,
-        }
-
-        if defaults['fields'] is None and not modelform_defines_fields(defaults['form']):
-            defaults['fields'] = ALL_FIELDS
-
-        return generic_inlineformset_factory(self.model, **defaults)
-
-
-class GenericStackedInline(GenericInlineModelAdmin):
-    template = 'admin/edit_inline/stacked.html'
-
-
-class GenericTabularInline(GenericInlineModelAdmin):
-    template = 'admin/edit_inline/tabular.html'
+    # If all that malarkey found an object domain, use it. Otherwise, fall back
+    # to whatever get_absolute_url() returned.
+    if object_domain is not None:
+        protocol = request.scheme
+        return HttpResponseRedirect('%s://%s%s' % (protocol, object_domain, absurl))
+    else:
+        return HttpResponseRedirect(absurl)

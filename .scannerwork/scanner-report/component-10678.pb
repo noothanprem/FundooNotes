@@ -1,1 +1,0 @@
-¶S9venv/lib/python3.6/site-packages/faker/providers/currency :‹S

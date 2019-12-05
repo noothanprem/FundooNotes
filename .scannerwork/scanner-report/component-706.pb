@@ -1,1 +1,1 @@
-Â?venv/lib/python3.6/site-packages/celery/backends/cosmosdbsql.py 2pyXàh
+Â7venv/lib/python3.6/site-packages/celery/backends/rpc.py 2pyXÚh

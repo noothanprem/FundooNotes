@@ -1,1 +1,1 @@
-ÎD6venv/lib/python3.6/site-packages/django/conf/locale/fr :ÍDÏD
+ÎDBvenv/lib/python3.6/site-packages/django/conf/locale/fr/__init__.py 2pyXh

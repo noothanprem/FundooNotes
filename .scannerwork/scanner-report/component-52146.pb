@@ -1,1 +1,1 @@
-²—fundoo/celery.py 2pyXh
+²—fundoo/setting/production.py 2pyX%h

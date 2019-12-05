@@ -1,2 +1,1 @@
-ð°5venv/lib64/python3.6/site-packages/chardet/version.py 2pyX
-h
+ð°@venv/lib64/python3.6/site-packages/chardet/langbulgarianmodel.py 2pyXåh

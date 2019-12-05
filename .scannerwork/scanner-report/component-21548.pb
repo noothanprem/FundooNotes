@@ -1,1 +1,1 @@
-ми@venv/lib/python3.6/site-packages/twisted/spread/test/__init__.py 2pyXh
+ми4venv/lib/python3.6/site-packages/twisted/spread/test :линиои╡и╢и

@@ -1,195 +1,155 @@
-"""File-system Transport.
+"""Azure Service Bus Message Queue transport.
 
-Transport using the file-system as the message store.
+The transport can be enabled by setting the CELERY_BROKER_URL to:
+
+```
+azureservicebus://{SAS policy name}:{SAS key}@{Service Bus Namespace}
+```
+
+Note that the Shared Access Policy used to connect to Azure Service Bus
+requires Manage, Send and Listen claims since the broker will create new
+queues and delete old queues as required.
+
+Note that if the SAS key for the Service Bus account contains a slash, it will
+have to be regenerated before it can be used in the connection URL.
+
+More information about Azure Service Bus:
+https://azure.microsoft.com/en-us/services/service-bus/
+
 """
 from __future__ import absolute_import, unicode_literals
 
-import os
-import shutil
-import uuid
-import tempfile
+import string
 
-from . import virtual
-from kombu.exceptions import ChannelError
-from kombu.five import Empty, monotonic
-from kombu.utils.encoding import bytes_to_str, str_to_bytes
+from kombu.five import Empty, text_t
+from kombu.utils.encoding import bytes_to_str, safe_str
 from kombu.utils.json import loads, dumps
 from kombu.utils.objects import cached_property
 
+from . import virtual
 
-VERSION = (1, 0, 0)
-__version__ = '.'.join(map(str, VERSION))
+try:
+    # azure-servicebus version <= 0.21.1
+    from azure.servicebus import ServiceBusService, Message, Queue
+except ImportError:
+    try:
+        # azure-servicebus version >= 0.50.0
+        from azure.servicebus.control_client import \
+            ServiceBusService, Message, Queue
+    except ImportError:
+        ServiceBusService = Message = Queue = None
 
-# needs win32all to work on Windows
-if os.name == 'nt':
-
-    import win32con
-    import win32file
-    import pywintypes
-
-    LOCK_EX = win32con.LOCKFILE_EXCLUSIVE_LOCK
-    # 0 is the default
-    LOCK_SH = 0                                     # noqa
-    LOCK_NB = win32con.LOCKFILE_FAIL_IMMEDIATELY    # noqa
-    __overlapped = pywintypes.OVERLAPPED()
-
-    def lock(file, flags):
-        """Create file lock."""
-        hfile = win32file._get_osfhandle(file.fileno())
-        win32file.LockFileEx(hfile, flags, 0, 0xffff0000, __overlapped)
-
-    def unlock(file):
-        """Remove file lock."""
-        hfile = win32file._get_osfhandle(file.fileno())
-        win32file.UnlockFileEx(hfile, 0, 0xffff0000, __overlapped)
-
-elif os.name == 'posix':
-
-    import fcntl
-    from fcntl import LOCK_EX, LOCK_SH, LOCK_NB     # noqa
-
-    def lock(file, flags):  # noqa
-        """Create file lock."""
-        fcntl.flock(file.fileno(), flags)
-
-    def unlock(file):       # noqa
-        """Remove file lock."""
-        fcntl.flock(file.fileno(), fcntl.LOCK_UN)
-else:
-    raise RuntimeError(
-        'Filesystem plugin only defined for NT and POSIX platforms')
+# dots are replaced by dash, all other punctuation replaced by underscore.
+CHARS_REPLACE_TABLE = {
+    ord(c): 0x5f for c in string.punctuation if c not in '_'
+}
 
 
 class Channel(virtual.Channel):
-    """Filesystem Channel."""
+    """Azure Service Bus channel."""
 
-    def _put(self, queue, payload, **kwargs):
-        """Put `message` onto `queue`."""
-        filename = '%s_%s.%s.msg' % (int(round(monotonic() * 1000)),
-                                     uuid.uuid4(), queue)
-        filename = os.path.join(self.data_folder_out, filename)
+    default_visibility_timeout = 1800  # 30 minutes.
+    domain_format = 'kombu%(vhost)s'
+    _queue_service = None
+    _queue_cache = {}
 
+    def __init__(self, *args, **kwargs):
+        if ServiceBusService is None:
+            raise ImportError('Azure Service Bus transport requires the '
+                              'azure-servicebus library')
+
+        super(Channel, self).__init__(*args, **kwargs)
+
+        for queue in self.queue_service.list_queues():
+            self._queue_cache[queue] = queue
+
+    def entity_name(self, name, table=CHARS_REPLACE_TABLE):
+        """Format AMQP queue name into a valid ServiceBus queue name."""
+        return text_t(safe_str(name)).translate(table)
+
+    def _new_queue(self, queue, **kwargs):
+        """Ensure a queue exists in ServiceBus."""
+        queue = self.entity_name(self.queue_name_prefix + queue)
         try:
-            f = open(filename, 'wb')
-            lock(f, LOCK_EX)
-            f.write(str_to_bytes(dumps(payload)))
-        except (IOError, OSError):
-            raise ChannelError(
-                'Cannot add file {0!r} to directory'.format(filename))
-        finally:
-            unlock(f)
-            f.close()
+            return self._queue_cache[queue]
+        except KeyError:
+            self.queue_service.create_queue(queue, fail_on_exist=False)
+            q = self._queue_cache[queue] = self.queue_service.get_queue(queue)
+            return q
 
-    def _get(self, queue):
-        """Get next message from `queue`."""
-        queue_find = '.' + queue + '.msg'
-        folder = os.listdir(self.data_folder_in)
-        folder = sorted(folder)
-        while len(folder) > 0:
-            filename = folder.pop(0)
+    def _delete(self, queue, *args, **kwargs):
+        """Delete queue by name."""
+        queue_name = self.entity_name(queue)
+        self._queue_cache.pop(queue_name, None)
+        self.queue_service.delete_queue(queue_name)
+        super(Channel, self)._delete(queue_name)
 
-            # only handle message for the requested queue
-            if filename.find(queue_find) < 0:
-                continue
+    def _put(self, queue, message, **kwargs):
+        """Put message onto queue."""
+        msg = Message(dumps(message))
+        self.queue_service.send_queue_message(self.entity_name(queue), msg)
 
-            if self.store_processed:
-                processed_folder = self.processed_folder
-            else:
-                processed_folder = tempfile.gettempdir()
+    def _get(self, queue, timeout=None):
+        """Try to retrieve a single message off ``queue``."""
+        message = self.queue_service.receive_queue_message(
+            self.entity_name(queue), timeout=timeout, peek_lock=False)
 
-            try:
-                # move the file to the tmp/processed folder
-                shutil.move(os.path.join(self.data_folder_in, filename),
-                            processed_folder)
-            except IOError:
-                pass  # file could be locked, or removed in meantime so ignore
+        if message.body is None:
+            raise Empty()
 
-            filename = os.path.join(processed_folder, filename)
-            try:
-                f = open(filename, 'rb')
-                payload = f.read()
-                f.close()
-                if not self.store_processed:
-                    os.remove(filename)
-            except (IOError, OSError):
-                raise ChannelError(
-                    'Cannot read file {0!r} from queue.'.format(filename))
-
-            return loads(bytes_to_str(payload))
-
-        raise Empty()
-
-    def _purge(self, queue):
-        """Remove all messages from `queue`."""
-        count = 0
-        queue_find = '.' + queue + '.msg'
-
-        folder = os.listdir(self.data_folder_in)
-        while len(folder) > 0:
-            filename = folder.pop()
-            try:
-                # only purge messages for the requested queue
-                if filename.find(queue_find) < 0:
-                    continue
-
-                filename = os.path.join(self.data_folder_in, filename)
-                os.remove(filename)
-
-                count += 1
-
-            except OSError:
-                # we simply ignore its existence, as it was probably
-                # processed by another worker
-                pass
-
-        return count
+        return loads(bytes_to_str(message.body))
 
     def _size(self, queue):
-        """Return the number of messages in `queue` as an :class:`int`."""
-        count = 0
+        """Return the number of messages in a queue."""
+        return self._new_queue(queue).message_count
 
-        queue_find = '.{0}.msg'.format(queue)
-        folder = os.listdir(self.data_folder_in)
-        while len(folder) > 0:
-            filename = folder.pop()
+    def _purge(self, queue):
+        """Delete all current messages in a queue."""
+        n = 0
 
-            # only handle message for the requested queue
-            if filename.find(queue_find) < 0:
-                continue
+        while True:
+            message = self.queue_service.read_delete_queue_message(
+                self.entity_name(queue), timeout=0.1)
 
-            count += 1
+            if not message.body:
+                break
+            else:
+                n += 1
 
-        return count
+        return n
+
+    @property
+    def queue_service(self):
+        if self._queue_service is None:
+            self._queue_service = ServiceBusService(
+                service_namespace=self.conninfo.hostname,
+                shared_access_key_name=self.conninfo.userid,
+                shared_access_key_value=self.conninfo.password)
+
+        return self._queue_service
+
+    @property
+    def conninfo(self):
+        return self.connection.client
 
     @property
     def transport_options(self):
         return self.connection.client.transport_options
 
     @cached_property
-    def data_folder_in(self):
-        return self.transport_options.get('data_folder_in', 'data_in')
+    def visibility_timeout(self):
+        return (self.transport_options.get('visibility_timeout') or
+                self.default_visibility_timeout)
 
     @cached_property
-    def data_folder_out(self):
-        return self.transport_options.get('data_folder_out', 'data_out')
-
-    @cached_property
-    def store_processed(self):
-        return self.transport_options.get('store_processed', False)
-
-    @cached_property
-    def processed_folder(self):
-        return self.transport_options.get('processed_folder', 'processed')
+    def queue_name_prefix(self):
+        return self.transport_options.get('queue_name_prefix', '')
 
 
 class Transport(virtual.Transport):
-    """Filesystem Transport."""
+    """Azure Service Bus transport."""
 
     Channel = Channel
 
-    default_port = 0
-    driver_type = 'filesystem'
-    driver_name = 'filesystem'
-
-    def driver_version(self):
-        return 'N/A'
+    polling_interval = 1
+    default_port = None

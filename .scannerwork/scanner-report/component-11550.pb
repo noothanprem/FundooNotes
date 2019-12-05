@@ -1,1 +1,0 @@
-Z>venv/lib/python3.6/site-packages/faker/providers/address/ja_JP :Z

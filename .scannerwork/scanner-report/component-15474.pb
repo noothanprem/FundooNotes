@@ -1,1 +1,1 @@
-òxPvenv/lib/python3.6/site-packages/awscli/customizations/configservice/__init__.py 2pyXh
+òxQvenv/lib/python3.6/site-packages/awscli/customizations/configservice/subscribe.py 2pyX³h

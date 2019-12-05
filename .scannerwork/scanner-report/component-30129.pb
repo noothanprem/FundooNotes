@@ -1,1 +1,1 @@
-±ë:venv/lib64/python3.6/site-packages/django/apps/registry.py 2pyX«h
+±ë.venv/lib64/python3.6/site-packages/django/apps :	°ëµë·ë

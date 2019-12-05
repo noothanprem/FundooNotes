@@ -1,1 +1,1 @@
-ˆÍ[venv/lib64/python3.6/site-packages/oauth2_provider/contrib/rest_framework/authentication.py 2pyX.h
+ˆÍ;venv/lib64/python3.6/site-packages/oauth2_provider/forms.py 2pyXh

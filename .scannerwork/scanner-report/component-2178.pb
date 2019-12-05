@@ -1,1 +1,1 @@
-Ç;venv/lib/python3.6/site-packages/reportlab/graphics/barcode :ÅÉÑÖÜáàâöõúùûü†
+ÇAvenv/lib/python3.6/site-packages/reportlab/graphics/barcode/qr.py 2pyX“h

@@ -1,1 +1,1 @@
-À„Avenv/lib64/python3.6/site-packages/social_core/backends/gitlab.py 2pyX;h
+À„Gvenv/lib64/python3.6/site-packages/social_core/backends/mapmyfitness.py 2pyX2h

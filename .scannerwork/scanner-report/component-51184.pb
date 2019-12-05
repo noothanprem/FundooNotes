@@ -1,1 +1,1 @@
-ğIvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_internal/cli :ïñòóôõı
+ğIvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_internal/cli :ïñòóôõş

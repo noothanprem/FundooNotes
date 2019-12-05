@@ -1,1 +1,1 @@
-∆Ï@venv/lib64/python3.6/site-packages/django_social_share/models.py 2pyXh
+∆Ï6venv/lib64/python3.6/site-packages/django_social_share :	≈Ï›Ï„Ï

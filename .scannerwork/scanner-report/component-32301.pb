@@ -1,1 +1,1 @@
-­ü:venv/lib64/python3.6/site-packages/django/contrib/sitemaps :	¬ü¶ü·ü
+­ü:venv/lib64/python3.6/site-packages/django/contrib/sitemaps :	«ü¶ü·ü

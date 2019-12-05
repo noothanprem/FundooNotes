@@ -1,113 +1,105 @@
 """
-Dropbox OAuth1 backend, docs at:
-    https://python-social-auth.readthedocs.io/en/latest/backends/dropbox.html
+LINE Login OAuth2 backend, docs at:
+    https://developers.line.me/en/docs/line-login/
 """
-import warnings
+import requests
+import json
 
-from .oauth import BaseOAuth1, BaseOAuth2
+from .oauth import BaseOAuth2
+from ..exceptions import AuthFailed
+from ..utils import handle_http_errors
 
 
-class DropboxOAuth(BaseOAuth1):
-    """Dropbox OAuth authentication backend"""
-    name = 'dropbox'
-    ID_KEY = 'uid'
-    AUTHORIZATION_URL = 'https://www.dropbox.com/1/oauth/authorize'
-    REQUEST_TOKEN_URL = 'https://api.dropbox.com/1/oauth/request_token'
-    REQUEST_TOKEN_METHOD = 'POST'
-    ACCESS_TOKEN_URL = 'https://api.dropbox.com/1/oauth/access_token'
+class LineOAuth2(BaseOAuth2):
+    name = 'line'
+    AUTHORIZATION_URL = 'https://access.line.me/oauth2/v2.1/authorize'
+    ACCESS_TOKEN_URL = 'https://api.line.me/oauth2/v2.1/token'
+    BASE_API_URL = 'https://api.line.me'
+    USER_INFO_URL = BASE_API_URL + '/v2/profile'
     ACCESS_TOKEN_METHOD = 'POST'
-    REDIRECT_URI_PARAMETER_NAME = 'oauth_callback'
+    STATE_PARAMETER = True
+    DEFAULT_SCOPE = ['profile']
+    REDIRECT_STATE = True
+    ID_KEY = 'userId'
     EXTRA_DATA = [
-        ('id', 'id'),
-        ('expires', 'expires')
+        ('userId', 'id'),
+        ('picture_url', 'picture_url'),
+        ('status_message', 'status_message'),
+        ('expires_in', 'expire'),
+        ('refresh_token', 'refresh_token')
     ]
 
-    def __init__(self, *args, **kwargs):
-        warnings.warn(
-            'Dropbox V1 api is deprecated and will be shute down 2017-06-28 '
-            'https://blogs.dropbox.com/developers/2016/06/api-v1-deprecated/',
-            DeprecationWarning,
-            stacklevel=2
-        )
-        super(DropboxOAuth, self).__init__(*args, **kwargs)
+    def auth_params(self, state=None):
+        client_id, client_secret = self.get_key_and_secret()
+        return {
+            'response_type': self.RESPONSE_TYPE,
+            'client_id': client_id,
+            'redirect_uri': self.get_redirect_uri(),
+            'state': self.get_or_create_state(),
+            'scope': self.get_scope()
+        }
+
+    def process_error(self, data):
+        error_code = data.get('errorCode') or \
+                     data.get('statusCode') or \
+                     data.get('error')
+        error_message = data.get('errorMessage') or \
+                        data.get('error_description')
+        if error_code is not None or error_message is not None:
+            raise AuthFailed(self, error_message or error_code)
+
+    @handle_http_errors
+    def auth_complete(self, *args, **kwargs):
+        """Completes login process, must return user instance"""
+        self.process_error(self.data)
+
+        try:
+            response = self.request_access_token(
+                self.access_token_url(),
+                method=self.ACCESS_TOKEN_METHOD,
+                headers=self.auth_headers(),
+                data=self.auth_complete_params()
+            )
+            self.process_error(response)
+
+            return self.do_auth(response['access_token'], response=response,
+                                *args, **kwargs)
+        except requests.HTTPError as err:
+            self.process_error(json.loads(err.response.content))
 
     def get_user_details(self, response):
-        """Return user details from Dropbox account"""
         fullname, first_name, last_name = self.get_user_names(
-            response.get('display_name')
+            response.get('displayName')
         )
-        return {'username': str(response.get('uid')),
-                'email': response.get('email'),
-                'fullname': fullname,
-                'first_name': first_name,
-                'last_name': last_name}
+        username = response.get('userId')
+        picture_url = response.get('pictureUrl')
+        status_message = response.get('statusMessage')
+        return {
+            'username': username,
+            'fullname': fullname,
+            'first_name': first_name,
+            'last_name': last_name,
+            'picture_url': picture_url,
+            'status_message': status_message
+        }
+
+    def get_user_id(self, details, response):
+        """
+        Return a unique ID for the current user, by default from
+        server response.
+        """
+        return response.get(self.ID_KEY)
 
     def user_data(self, access_token, *args, **kwargs):
         """Loads user data from service"""
-        return self.get_json('https://api.dropbox.com/1/account/info',
-                             auth=self.oauth_auth(access_token))
-
-
-class DropboxOAuth2(BaseOAuth2):
-    name = 'dropbox-oauth2'
-    ID_KEY = 'uid'
-    AUTHORIZATION_URL = 'https://www.dropbox.com/1/oauth2/authorize'
-    ACCESS_TOKEN_URL = 'https://api.dropbox.com/1/oauth2/token'
-    ACCESS_TOKEN_METHOD = 'POST'
-    REDIRECT_STATE = False
-    EXTRA_DATA = [
-        ('uid', 'username'),
-    ]
-
-    def __init__(self, *args, **kwargs):
-        warnings.warn(
-            'Dropbox V1 api is deprecated and will be shute down 2017-06-28 '
-            'https://blogs.dropbox.com/developers/2016/06/api-v1-deprecated/',
-            DeprecationWarning,
-            stacklevel=2
-        )
-        super(DropboxOAuth2, self).__init__(*args, **kwargs)
-
-    def get_user_details(self, response):
-        """Return user details from Dropbox account"""
-        fullname, first_name, last_name = self.get_user_names(
-            response.get('display_name')
-        )
-        return {'username': str(response.get('uid')),
-                'email': response.get('email'),
-                'fullname': fullname,
-                'first_name': first_name,
-                'last_name': last_name}
-
-    def user_data(self, access_token, *args, **kwargs):
-        """Loads user data from service"""
-        return self.get_json(
-            'https://api.dropbox.com/1/account/info',
-            headers={'Authorization': 'Bearer {0}'.format(access_token)}
-        )
-
-
-class DropboxOAuth2V2(BaseOAuth2):
-    name = 'dropbox-oauth2'
-    ID_KEY = 'uid'
-    AUTHORIZATION_URL = 'https://www.dropbox.com/oauth2/authorize'
-    ACCESS_TOKEN_URL = 'https://api.dropboxapi.com/oauth2/token'
-    ACCESS_TOKEN_METHOD = 'POST'
-    REDIRECT_STATE = False
-
-    def get_user_details(self, response):
-        """Return user details from Dropbox account"""
-        name = response.get('name')
-        return {'username': str(response.get('account_id')),
-                'email': response.get('email'),
-                'fullname': name.get('display_name'),
-                'first_name': name.get('given_name'),
-                'last_name': name.get('surname')}
-
-    def user_data(self, access_token, *args, **kwargs):
-        """Loads user data from service"""
-        return self.get_json(
-            'https://api.dropboxapi.com/2/users/get_current_account',
-            headers={'Authorization': 'Bearer {0}'.format(access_token)},
-            method='POST'
-        )
+        try:
+            response = self.get_json(
+                self.USER_INFO_URL,
+                headers={
+                    "Authorization": "Bearer {}".format(access_token)
+                }
+            )
+            self.process_error(response)
+            return response
+        except requests.HTTPError as err:
+            self.process_error(err.response.json())

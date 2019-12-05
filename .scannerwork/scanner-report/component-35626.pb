@@ -1,1 +1,1 @@
-ª–Bvenv/lib64/python3.6/site-packages/django_redis/compressors/lz4.py 2pyXh
+ª–Gvenv/lib64/python3.6/site-packages/django_redis/compressors/identity.py 2pyXh

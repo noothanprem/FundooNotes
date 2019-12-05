@@ -1,1 +1,1 @@
-–×.venv/lib64/python3.6/site-packages/incremental :	•×Ÿ× ×
+–×.venv/lib64/python3.6/site-packages/incremental :	•×ž× ×

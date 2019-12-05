@@ -1,1 +1,1 @@
-¿¼5venv/lib/python3.6/site-packages/django_extensions/db :¾¼À¼
+¿¼?venv/lib/python3.6/site-packages/django_extensions/db/models.py 2pyX‰h

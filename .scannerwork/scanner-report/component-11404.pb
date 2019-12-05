@@ -1,1 +1,0 @@
-ŒY>venv/lib/python3.6/site-packages/faker/providers/address/uk_UA :‹Y

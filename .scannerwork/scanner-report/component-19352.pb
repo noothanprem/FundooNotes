@@ -1,1 +1,1 @@
-˜—6venv/lib/python3.6/site-packages/botocore/discovery.py 2pyXƒh
+˜—1venv/lib/python3.6/site-packages/botocore/auth.py 2pyXéh

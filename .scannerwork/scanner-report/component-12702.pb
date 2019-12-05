@@ -1,1 +1,0 @@
-žc1venv/lib/python3.6/site-packages/flask/_compat.py 2pyX’h

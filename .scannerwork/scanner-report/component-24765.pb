@@ -1,1 +1,1 @@
-╫а`venv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/filters/whitespace.py 2pyX'h
+╫аRvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/filters :╪а╬а©аюааабацада

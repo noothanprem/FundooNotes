@@ -1,1 +1,1 @@
-àdDvenv/lib/python3.6/site-packages/macaroonbakery/checkers/__init__.py 2pyXSh
+àd8venv/lib/python3.6/site-packages/macaroonbakery/checkers :ßdádâdãdädådædòdódôd

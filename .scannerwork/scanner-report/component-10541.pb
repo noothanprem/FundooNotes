@@ -1,1 +1,1 @@
-­R1venv/lib/python3.6/site-packages/channels/auth.py 2pyX­h
+­R3venv/lib/python3.6/site-packages/channels/layers.py 2pyXòh

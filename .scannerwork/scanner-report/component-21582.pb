@@ -1,1 +1,0 @@
-Î¨Mvenv/lib/python3.6/site-packages/twisted/trial/_dist/test/test_workertrial.py 2pyX¹h

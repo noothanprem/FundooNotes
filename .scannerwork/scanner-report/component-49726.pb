@@ -1,1 +1,1 @@
-¾„@venv/lib64/python3.6/site-packages/social_core/backends/weibo.py 2pyX>h
+¾„@venv/lib64/python3.6/site-packages/social_core/backends/email.py 2pyXh

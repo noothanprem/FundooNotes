@@ -1,1 +1,1 @@
-“ÃXvenv/lib64/python3.6/site-packages/oauth2_provider/migrations/0004_auto_20160525_1623.py 2pyXh
+“ÃPvenv/lib64/python3.6/site-packages/oauth2_provider/migrations/0002_08_updates.py 2pyXh

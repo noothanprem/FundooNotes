@@ -1,1 +1,1 @@
-×?;venv/lib/python3.6/site-packages/django/core/checks/urls.py 2pyXoh
+×?3venv/lib/python3.6/site-packages/django/core/checks :Ö?Ø?Ù?Ú?Û?Ü?ß?â?ã?

@@ -1,1 +1,2 @@
-³'Cvenv/lib/python3.6/site-packages/django/contrib/redirects/models.py 2pyXh
+³'9venv/lib/python3.6/site-packages/django/contrib/redirects :
+²'´'µ'Ë)Ì)

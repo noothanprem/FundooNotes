@@ -1,1 +1,1 @@
-¶yGvenv/lib/python3.6/site-packages/awscli/customizations/s3/fileformat.py 2pyX†h
+¶yFvenv/lib/python3.6/site-packages/awscli/customizations/s3/s3handler.py 2pyX¯h

@@ -1,1 +1,1 @@
-‘‡7venv/lib/python3.6/site-packages/simplejson/__init__.py 2pyXÉh
+‘‡Avenv/lib/python3.6/site-packages/simplejson/tests/test_unicode.py 2pyX›h

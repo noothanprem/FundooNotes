@@ -1,1 +1,1 @@
-„2venv/lib/python3.6/site-packages/redis/__init__.py 2pyX*h
+„1venv/lib/python3.6/site-packages/redis/_compat.py 2pyX¾h

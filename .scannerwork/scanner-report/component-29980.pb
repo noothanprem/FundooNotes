@@ -1,1 +1,1 @@
-œê5venv/lib64/python3.6/site-packages/django/db/backends :›êÍêöêªë
+œê5venv/lib64/python3.6/site-packages/django/db/backends :›êÔêöêªë

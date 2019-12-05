@@ -1,1 +1,1 @@
-ɲLvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/pip_helpers.py 2pyX-h
+ɲKvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/pagination.py 2pyX�h

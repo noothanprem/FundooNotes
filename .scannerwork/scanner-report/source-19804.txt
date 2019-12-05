@@ -1,74 +1,144 @@
-from datetime import timedelta
-
-from django.conf import settings
-from django.test.signals import setting_changed
+from django.contrib.auth import authenticate
 from django.utils.translation import ugettext_lazy as _
-from rest_framework.settings import APISettings as _APISettings
+from rest_framework import exceptions, serializers
 
-from .utils import format_lazy
-
-USER_SETTINGS = getattr(settings, 'SIMPLE_JWT', None)
-
-DEFAULTS = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': False,
-    'BLACKLIST_AFTER_ROTATION': True,
-
-    'ALGORITHM': 'HS256',
-    'SIGNING_KEY': settings.SECRET_KEY,
-    'VERIFYING_KEY': None,
-
-    'AUTH_HEADER_TYPES': ('Bearer',),
-    'USER_ID_FIELD': 'id',
-    'USER_ID_CLAIM': 'user_id',
-
-    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
-    'TOKEN_TYPE_CLAIM': 'token_type',
-
-    'JTI_CLAIM': 'jti',
-
-    'SLIDING_TOKEN_REFRESH_EXP_CLAIM': 'refresh_exp',
-    'SLIDING_TOKEN_LIFETIME': timedelta(minutes=5),
-    'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
-}
-
-IMPORT_STRINGS = (
-    'AUTH_TOKEN_CLASSES',
-)
-
-REMOVED_SETTINGS = (
-    'AUTH_HEADER_TYPE',
-    'AUTH_TOKEN_CLASS',
-    'SECRET_KEY',
-    'TOKEN_BACKEND_CLASS',
-)
+from .settings import api_settings
+from .state import User
+from .tokens import RefreshToken, SlidingToken, UntypedToken
 
 
-class APISettings(_APISettings):  # pragma: no cover
-    def __check_user_settings(self, user_settings):
-        SETTINGS_DOC = 'https://github.com/davesque/django-rest-framework-simplejwt#settings'
+class PasswordField(serializers.CharField):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('style', {})
 
-        for setting in REMOVED_SETTINGS:
-            if setting in user_settings:
-                raise RuntimeError(format_lazy(
-                    _("The '{}' setting has been removed. Please refer to '{}' for available settings."),
-                    setting, SETTINGS_DOC,
-                ))
+        kwargs['style']['input_type'] = 'password'
+        kwargs['write_only'] = True
 
-        return user_settings
+        super().__init__(*args, **kwargs)
 
 
-api_settings = APISettings(USER_SETTINGS, DEFAULTS, IMPORT_STRINGS)
+class TokenObtainSerializer(serializers.Serializer):
+    username_field = User.USERNAME_FIELD
+
+    default_error_messages = {
+        'no_active_account': _('No active account found with the given credentials')
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields[self.username_field] = serializers.CharField()
+        self.fields['password'] = PasswordField()
+
+    def validate(self, attrs):
+        authenticate_kwargs = {
+            self.username_field: attrs[self.username_field],
+            'password': attrs['password'],
+        }
+        try:
+            authenticate_kwargs['request'] = self.context['request']
+        except KeyError:
+            pass
+
+        self.user = authenticate(**authenticate_kwargs)
+
+        # Prior to Django 1.10, inactive users could be authenticated with the
+        # default `ModelBackend`.  As of Django 1.10, the `ModelBackend`
+        # prevents inactive users from authenticating.  App designers can still
+        # allow inactive users to authenticate by opting for the new
+        # `AllowAllUsersModelBackend`.  However, we explicitly prevent inactive
+        # users from authenticating to enforce a reasonable policy and provide
+        # sensible backwards compatibility with older Django versions.
+        if self.user is None or not self.user.is_active:
+            raise exceptions.AuthenticationFailed(
+                self.error_messages['no_active_account'],
+                'no_active_account',
+            )
+
+        return {}
+
+    @classmethod
+    def get_token(cls, user):
+        raise NotImplementedError('Must implement `get_token` method for `TokenObtainSerializer` subclasses')
 
 
-def reload_api_settings(*args, **kwargs):  # pragma: no cover
-    global api_settings
+class TokenObtainPairSerializer(TokenObtainSerializer):
+    @classmethod
+    def get_token(cls, user):
+        return RefreshToken.for_user(user)
 
-    setting, value = kwargs['setting'], kwargs['value']
+    def validate(self, attrs):
+        data = super().validate(attrs)
 
-    if setting == 'SIMPLE_JWT':
-        api_settings = APISettings(value, DEFAULTS, IMPORT_STRINGS)
+        refresh = self.get_token(self.user)
+
+        data['refresh'] = str(refresh)
+        data['access'] = str(refresh.access_token)
+
+        return data
 
 
-setting_changed.connect(reload_api_settings)
+class TokenObtainSlidingSerializer(TokenObtainSerializer):
+    @classmethod
+    def get_token(cls, user):
+        return SlidingToken.for_user(user)
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+
+        token = self.get_token(self.user)
+
+        data['token'] = str(token)
+
+        return data
+
+
+class TokenRefreshSerializer(serializers.Serializer):
+    refresh = serializers.CharField()
+
+    def validate(self, attrs):
+        refresh = RefreshToken(attrs['refresh'])
+
+        data = {'access': str(refresh.access_token)}
+
+        if api_settings.ROTATE_REFRESH_TOKENS:
+            if api_settings.BLACKLIST_AFTER_ROTATION:
+                try:
+                    # Attempt to blacklist the given refresh token
+                    refresh.blacklist()
+                except AttributeError:
+                    # If blacklist app not installed, `blacklist` method will
+                    # not be present
+                    pass
+
+            refresh.set_jti()
+            refresh.set_exp()
+
+            data['refresh'] = str(refresh)
+
+        return data
+
+
+class TokenRefreshSlidingSerializer(serializers.Serializer):
+    token = serializers.CharField()
+
+    def validate(self, attrs):
+        token = SlidingToken(attrs['token'])
+
+        # Check that the timestamp in the "refresh_exp" claim has not
+        # passed
+        token.check_exp(api_settings.SLIDING_TOKEN_REFRESH_EXP_CLAIM)
+
+        # Update the "exp" claim
+        token.set_exp()
+
+        return {'token': str(token)}
+
+
+class TokenVerifySerializer(serializers.Serializer):
+    token = serializers.CharField()
+
+    def validate(self, attrs):
+        UntypedToken(attrs['token'])
+
+        return {}

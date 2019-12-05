@@ -1,1 +1,1 @@
-¹ÃJvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/colorama :¸ÃºÃ»Ã¼ÃÄÃÅÃ
+¹ÃUvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/colorama/winterm.py 2pyXªh

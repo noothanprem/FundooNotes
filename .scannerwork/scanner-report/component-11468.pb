@@ -1,1 +1,1 @@
-ÌYCvenv/lib/python3.6/site-packages/faker/providers/phone_number/tw_GH :ËY
+ÌY>venv/lib/python3.6/site-packages/faker/providers/address/hu_HU :ËY

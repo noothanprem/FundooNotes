@@ -1,1 +1,1 @@
-òñYvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/euckrfreq.py 2pyX’h
+òñLvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet :róñôñöñõñúñùñûñüñ†ñ°ñ¢ñ£ñ§ñ•ñ¶ñßñ®ñ©ñ™ñ´ñ¨ñ≠ñÆñØñ∞ñ±ñ≤ñ≥ñ¥ñ›ñﬁñﬂñ‡ñ·ñ‚ñ„ñ‰ñÂñ

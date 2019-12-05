@@ -1,1 +1,1 @@
-ÿì6venv/lib64/python3.6/site-packages/xdg/DesktopEntry.py 2pyX¢h
+ÿì1venv/lib64/python3.6/site-packages/xdg/IniFile.py 2pyX£h

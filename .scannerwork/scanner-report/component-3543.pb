@@ -1,1 +1,1 @@
-×-venv/lib/python3.6/site-packages/django/views :ÖÝÞ†‡ˆ
+×-venv/lib/python3.6/site-packages/django/views :ÖÞßˆ‰Š

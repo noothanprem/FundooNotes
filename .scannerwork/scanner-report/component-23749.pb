@@ -1,1 +1,1 @@
-Ź=venv/lib/python3.6/site-packages/social_core/backends/live.py 2pyX-h
+ŹCvenv/lib/python3.6/site-packages/social_core/backends/wunderlist.py 2pyXh

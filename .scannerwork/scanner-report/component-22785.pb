@@ -1,1 +1,1 @@
-Å≤Vvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_suggesters.py 2pyXªh
+Å≤Rvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/data_mixins.py 2pyXµh

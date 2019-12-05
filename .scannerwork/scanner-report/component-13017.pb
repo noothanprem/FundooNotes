@@ -1,1 +1,1 @@
-Ùe4venv/lib/python3.6/site-packages/chardet/big5freq.py 2pyXƒh
+Ùe;venv/lib/python3.6/site-packages/chardet/sbcharsetprober.py 2pyX…h

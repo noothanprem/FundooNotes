@@ -1,1 +1,1 @@
-¥_7venv/lib/python3.6/site-packages/PIL/JpegImagePlugin.py 2pyX¥h
+¥_3venv/lib/python3.6/site-packages/PIL/JpegPresets.py 2pyXòh

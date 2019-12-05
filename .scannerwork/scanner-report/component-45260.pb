@@ -1,1 +1,1 @@
-МбNvenv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/chardet :rЛбОбПбРбСбТбУбФбХбЦбЧбШбЩбЪбЫбЬбЭбЮбЯбабббвбгбдбебжбзбибйб‘в’в“в”в•в–в—вв™в
+МбRvenv/lib64/python3.6/site-packages/botocore/vendored/requests/packages/__init__.py 2pyXh

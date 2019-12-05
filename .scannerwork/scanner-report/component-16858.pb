@@ -1,1 +1,1 @@
-ڃ5venv/lib/python3.6/site-packages/coreschema/encodings :كۃ��
+ڃ=venv/lib/python3.6/site-packages/coreschema/encodings/html.py 2pyXKh

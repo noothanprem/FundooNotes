@@ -1,1 +1,1 @@
-çñhvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/urllib3/packages/ssl_match_hostname :åñéñ
+çñtvenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/urllib3/packages/ssl_match_hostname/__init__.py 2pyXh

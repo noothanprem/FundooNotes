@@ -1,1 +1,1 @@
-·ÂUvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet/big5freq.py 2pyXƒh
+·Â^venv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet/langcyrillicmodel.py 2pyXÎh

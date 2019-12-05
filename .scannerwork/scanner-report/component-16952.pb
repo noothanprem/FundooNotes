@@ -1,1 +1,1 @@
-¸„Avenv/lib/python3.6/site-packages/google/protobuf/text_encoding.py 2pyXlh
+¸„<venv/lib/python3.6/site-packages/google/protobuf/__init__.py 2pyX(h

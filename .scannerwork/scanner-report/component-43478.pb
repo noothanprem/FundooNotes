@@ -1,1 +1,1 @@
-жс=venv/lib64/python3.6/site-packages/kombu/transport/sqlalchemy :усвс
+жс=venv/lib64/python3.6/site-packages/kombu/transport/sqlalchemy :тсвс

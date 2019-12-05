@@ -1,1 +1,1 @@
-³—fundoo/__init__.py 2pyXh
+³—fundoo/setting/testing.py 2pyX	h

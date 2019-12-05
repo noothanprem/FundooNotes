@@ -1,1 +1,1 @@
-Ø-Gvenv/lib/python3.6/site-packages/django/contrib/gis/management/commands :×-Ü-
+Ø-Evenv/lib/python3.6/site-packages/django/contrib/gis/sitemaps/views.py 2pyX>h

@@ -1,1 +1,0 @@
-òS?venv/lib/python3.6/site-packages/faker/providers/internet/fa_IR :ñS

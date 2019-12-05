@@ -1,1 +1,1 @@
-ÌAAvenv/lib/python3.6/site-packages/django/conf/locale/kn/formats.py 2pyXh
+ÌA6venv/lib/python3.6/site-packages/django/conf/locale/kn :ËAÍA

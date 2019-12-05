@@ -1,1 +1,1 @@
-¦½Tvenv/lib/python3.6/site-packages/django_extensions/management/commands/pipchecker.py 2pyXºh
+¦½`venv/lib/python3.6/site-packages/django_extensions/management/commands/print_user_for_session.py 2pyX@h

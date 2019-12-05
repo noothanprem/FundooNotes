@@ -2,54 +2,41 @@
 # See LICENSE for details.
 
 """
-Facilities for helping test code which interacts with Python's module system
-to load code.
+Tests for the data directory support.
 """
 
 from __future__ import division, absolute_import
 
-import sys
+try:
+    from twisted.python import _appdirs
+except ImportError:
+    _appdirs = None
 
-from twisted.python.filepath import FilePath
+from twisted.trial import unittest
 
 
-class TwistedModulesMixin(object):
+class AppdirsTests(unittest.TestCase):
     """
-    A mixin for C{twisted.trial.unittest.SynchronousTestCase} providing useful
-    methods for manipulating Python's module system.
+    Tests for L{_appdirs}.
     """
-
-    def replaceSysPath(self, sysPath):
-        """
-        Replace sys.path, for the duration of the test, with the given value.
-        """
-        originalSysPath = sys.path[:]
-        def cleanUpSysPath():
-            sys.path[:] = originalSysPath
-        self.addCleanup(cleanUpSysPath)
-        sys.path[:] = sysPath
+    if not _appdirs:
+        skip = "appdirs package not installed"
 
 
-    def replaceSysModules(self, sysModules):
+    def test_moduleName(self):
         """
-        Replace sys.modules, for the duration of the test, with the given value.
+        Calling L{appdirs.getDataDirectory} will return a user data directory
+        in the system convention, with the module of the caller as the
+        subdirectory.
         """
-        originalSysModules = sys.modules.copy()
-        def cleanUpSysModules():
-            sys.modules.clear()
-            sys.modules.update(originalSysModules)
-        self.addCleanup(cleanUpSysModules)
-        sys.modules.clear()
-        sys.modules.update(sysModules)
+        res = _appdirs.getDataDirectory()
+        self.assertTrue(res.endswith("twisted.python.test.test_appdirs"))
 
 
-    def pathEntryWithOnePackage(self, pkgname="test_package"):
+    def test_manual(self):
         """
-        Generate a L{FilePath} with one package, named C{pkgname}, on it, and
-        return the L{FilePath} of the path entry.
+        Calling L{appdirs.getDataDirectory} with a C{moduleName} argument will
+        make a data directory with that name instead.
         """
-        entry = FilePath(self.mktemp())
-        pkg = entry.child("test_package")
-        pkg.makedirs()
-        pkg.child("__init__.py").setContent(b"")
-        return entry
+        res = _appdirs.getDataDirectory("foo.bar.baz")
+        self.assertTrue(res.endswith("foo.bar.baz"))

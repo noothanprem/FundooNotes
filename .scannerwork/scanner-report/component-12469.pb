@@ -1,1 +1,1 @@
-µa5venv/lib/python3.6/site-packages/docutils/parsers/rst :´aña©bªb
+µaEvenv/lib/python3.6/site-packages/docutils/parsers/rst/languages/pl.py 2pyXgh

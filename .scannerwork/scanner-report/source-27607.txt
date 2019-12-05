@@ -1,126 +1,98 @@
-"""MySQLdb type conversion module
-
-This module handles all the type conversions for MySQL. If the default
-type conversions aren't what you need, you can make your own. The
-dictionary conversions maps some kind of type to a conversion function
-which returns the corresponding value:
-
-Key: FIELD_TYPE.* (from MySQLdb.constants)
-
-Conversion function:
-
-    Arguments: string
-
-    Returns: Python object
-
-Key: Python type object (from types) or class
-
-Conversion function:
-
-    Arguments: Python object of indicated type or class AND
-               conversion dictionary
-
-    Returns: SQL literal value
-
-    Notes: Most conversion functions can ignore the dictionary, but
-           it is a required parameter. It is necessary for converting
-           things like sequences and instances.
-
-Don't modify conversions if you can avoid it. Instead, make copies
-(with the copy() method), modify the copies, and then pass them to
-MySQL.connect().
 """
-from decimal import Decimal
+MySQLdb - A DB API v2.0 compatible interface to MySQL.
 
-from MySQLdb._mysql import string_literal, escape
-from MySQLdb.constants import FIELD_TYPE, FLAG
-from MySQLdb.times import *
-from MySQLdb.compat import PY2, long, unicode
-from MySQLdb._exceptions import ProgrammingError
+This package is a wrapper around _mysql, which mostly implements the
+MySQL C API.
 
-NoneType = type(None)
+connect() -- connects to server
 
-import array
+See the C API specification and the MySQL documentation for more info
+on other items.
+
+For information on how MySQLdb handles type conversion, see the
+MySQLdb.converters module.
+"""
+
+from MySQLdb.release import __version__, version_info, __author__
+
+from . import _mysql
+
+if version_info != _mysql.version_info:
+    raise ImportError("this is MySQLdb version %s, but _mysql is version %r\n_mysql: %r" %
+                      (version_info, _mysql.version_info, _mysql.__file__))
+
+threadsafety = 1
+apilevel = "2.0"
+paramstyle = "format"
+
+from ._mysql import *
+from MySQLdb.compat import PY2
+from MySQLdb.constants import FIELD_TYPE
+from MySQLdb.times import Date, Time, Timestamp, \
+    DateFromTicks, TimeFromTicks, TimestampFromTicks
 
 try:
-    ArrayType = array.ArrayType
-except AttributeError:
-    ArrayType = array.array
+    frozenset
+except NameError:
+    from sets import ImmutableSet as frozenset
+
+class DBAPISet(frozenset):
+    """A special type of set for which A == x is true if A is a
+    DBAPISet and x is a member of that set."""
+
+    def __eq__(self, other):
+        if isinstance(other, DBAPISet):
+            return not self.difference(other)
+        return other in self
 
 
-def Bool2Str(s, d):
-    return b'1' if s else b'0'
+STRING    = DBAPISet([FIELD_TYPE.ENUM, FIELD_TYPE.STRING,
+                     FIELD_TYPE.VAR_STRING])
+BINARY    = DBAPISet([FIELD_TYPE.BLOB, FIELD_TYPE.LONG_BLOB,
+                     FIELD_TYPE.MEDIUM_BLOB, FIELD_TYPE.TINY_BLOB])
+NUMBER    = DBAPISet([FIELD_TYPE.DECIMAL, FIELD_TYPE.DOUBLE, FIELD_TYPE.FLOAT,
+                     FIELD_TYPE.INT24, FIELD_TYPE.LONG, FIELD_TYPE.LONGLONG,
+                     FIELD_TYPE.TINY, FIELD_TYPE.YEAR, FIELD_TYPE.NEWDECIMAL])
+DATE      = DBAPISet([FIELD_TYPE.DATE])
+TIME      = DBAPISet([FIELD_TYPE.TIME])
+TIMESTAMP = DBAPISet([FIELD_TYPE.TIMESTAMP, FIELD_TYPE.DATETIME])
+DATETIME  = TIMESTAMP
+ROWID     = DBAPISet()
 
-def Set2Str(s, d):
-    # Only support ascii string.  Not tested.
-    return string_literal(','.join(s))
+def test_DBAPISet_set_equality():
+    assert STRING == STRING
 
-def Thing2Str(s, d):
-    """Convert something into a string via str()."""
-    return str(s)
+def test_DBAPISet_set_inequality():
+    assert STRING != NUMBER
 
-def Float2Str(o, d):
-    s = repr(o)
-    if s in ('inf', 'nan'):
-        raise ProgrammingError("%s can not be used with MySQL" % s)
-    if 'e' not in s:
-        s += 'e0'
-    return s
+def test_DBAPISet_set_equality_membership():
+    assert FIELD_TYPE.VAR_STRING == STRING
 
-def None2NULL(o, d):
-    """Convert None to NULL."""
-    return b"NULL"
+def test_DBAPISet_set_inequality_membership():
+    assert FIELD_TYPE.DATE != STRING
 
-def Thing2Literal(o, d):
-    """Convert something into a SQL string literal.  If using
-    MySQL-3.23 or newer, string_literal() is a method of the
-    _mysql.MYSQL object, and this function will be overridden with
-    that method when the connection is created."""
-    return string_literal(o)
+if PY2:
+    def Binary(x):
+        return bytearray(x)
+else:
+    def Binary(x):
+        return bytes(x)
 
-def Decimal2Literal(o, d):
-    return format(o, 'f')
+def Connect(*args, **kwargs):
+    """Factory function for connections.Connection."""
+    from MySQLdb.connections import Connection
+    return Connection(*args, **kwargs)
 
-def array2Str(o, d):
-    return Thing2Literal(o.tostring(), d)
+connect = Connection = Connect
 
-# bytes or str regarding to BINARY_FLAG.
-_bytes_or_str = ((FLAG.BINARY, bytes), (None, unicode))
+__all__ = [ 'BINARY', 'Binary', 'Connect', 'Connection', 'DATE',
+    'Date', 'Time', 'Timestamp', 'DateFromTicks', 'TimeFromTicks',
+    'TimestampFromTicks', 'DataError', 'DatabaseError', 'Error',
+    'FIELD_TYPE', 'IntegrityError', 'InterfaceError', 'InternalError',
+    'MySQLError', 'NUMBER', 'NotSupportedError', 'DBAPISet',
+    'OperationalError', 'ProgrammingError', 'ROWID', 'STRING', 'TIME',
+    'TIMESTAMP', 'Warning', 'apilevel', 'connect', 'connections',
+    'constants', 'converters', 'cursors', 'debug', 'escape',
+    'escape_string', 'get_client_info',
+    'paramstyle', 'string_literal', 'threadsafety', 'version_info']
 
-conversions = {
-    int: Thing2Str,
-    long: Thing2Str,
-    float: Float2Str,
-    NoneType: None2NULL,
-    ArrayType: array2Str,
-    bool: Bool2Str,
-    Date: Thing2Literal,
-    DateTimeType: DateTime2literal,
-    DateTimeDeltaType: DateTimeDelta2literal,
-    set: Set2Str,
-    Decimal: Decimal2Literal,
-
-    FIELD_TYPE.TINY: int,
-    FIELD_TYPE.SHORT: int,
-    FIELD_TYPE.LONG: int,
-    FIELD_TYPE.FLOAT: float,
-    FIELD_TYPE.DOUBLE: float,
-    FIELD_TYPE.DECIMAL: Decimal,
-    FIELD_TYPE.NEWDECIMAL: Decimal,
-    FIELD_TYPE.LONGLONG: int,
-    FIELD_TYPE.INT24: int,
-    FIELD_TYPE.YEAR: int,
-    FIELD_TYPE.TIMESTAMP: DateTime_or_None,
-    FIELD_TYPE.DATETIME: DateTime_or_None,
-    FIELD_TYPE.TIME: TimeDelta_or_None,
-    FIELD_TYPE.DATE: Date_or_None,
-
-    FIELD_TYPE.TINY_BLOB: bytes,
-    FIELD_TYPE.MEDIUM_BLOB: bytes,
-    FIELD_TYPE.LONG_BLOB: bytes,
-    FIELD_TYPE.BLOB: bytes,
-    FIELD_TYPE.STRING: bytes,
-    FIELD_TYPE.VAR_STRING: bytes,
-    FIELD_TYPE.VARCHAR: bytes,
-    FIELD_TYPE.JSON: bytes,
-}

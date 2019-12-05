@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-#  SelfTest/Hash/common.py: Common code for Crypto.SelfTest.Hash
+#  SelfTest/Hash/test_SHA256.py: Self-test for the SHA-256 hash function
 #
 # Written in 2008 by Dwayne C. Litzenberger <dlitz@dlitz.net>
 #
@@ -22,176 +22,75 @@
 # SOFTWARE.
 # ===================================================================
 
-"""Self-testing for PyCrypto hash modules"""
+"""Self-test suite for Crypto.Hash.SHA256"""
 
 __revision__ = "$Id$"
 
-import sys
 import unittest
-import binascii
 from Crypto.Util.py3compat import *
 
-# For compatibility with Python 2.1 and Python 2.2
-if sys.hexversion < 0x02030000:
-    # Python 2.1 doesn't have a dict() function
-    # Python 2.2 dict() function raises TypeError if you do dict(MD5='blah')
-    def dict(**kwargs):
-        return kwargs.copy()
-else:
-    dict = dict
-
-
-class HashDigestSizeSelfTest(unittest.TestCase):
-    
-    def __init__(self, hashmod, description, expected):
-        unittest.TestCase.__init__(self)
-        self.hashmod = hashmod
-        self.expected = expected
-        self.description = description
-        
-    def shortDescription(self):
-        return self.description
-
+class LargeSHA256Test(unittest.TestCase):
     def runTest(self):
-        self.assertTrue(hasattr(self.hashmod, "digest_size"))
-        self.assertEqual(self.hashmod.digest_size, self.expected)
-        h = self.hashmod.new()
-        self.assertTrue(hasattr(h, "digest_size"))
-        self.assertEqual(h.digest_size, self.expected)
+        """SHA256: 512/520 MiB test"""
+        from Crypto.Hash import SHA256
+        zeros = bchr(0x00) * (1024*1024)
 
+        h = SHA256.new(zeros)
+        for i in range(511):
+            h.update(zeros)
 
-class HashSelfTest(unittest.TestCase):
+        # This test vector is from PyCrypto's old testdata.py file.
+        self.assertEqual('9acca8e8c22201155389f65abbf6bc9723edc7384ead80503839f49dcc56d767', h.hexdigest()) # 512 MiB
 
-    def __init__(self, hashmod, description, expected, input):
-        unittest.TestCase.__init__(self)
-        self.hashmod = hashmod
-        self.expected = expected
-        self.input = input
-        self.description = description
+        for i in range(8):
+            h.update(zeros)
 
-    def shortDescription(self):
-        return self.description
+        # This test vector is from PyCrypto's old testdata.py file.
+        self.assertEqual('abf51ad954b246009dfe5a50ecd582fd5b8f1b8b27f30393853c3ef721e7fa6e', h.hexdigest()) # 520 MiB
 
-    def runTest(self):
-        h = self.hashmod.new()
-        h.update(self.input)
+def get_tests(config={}):
+    # Test vectors from FIPS PUB 180-2
+    # This is a list of (expected_result, input[, description]) tuples.
+    test_data = [
+        # FIPS PUB 180-2, B.1 - "One-Block Message"
+        ('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+            'abc'),
 
-        out1 = binascii.b2a_hex(h.digest())
-        out2 = h.hexdigest()
+        # FIPS PUB 180-2, B.2 - "Multi-Block Message"
+        ('248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1',
+            'abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq'),
 
-        h = self.hashmod.new(self.input)
+        # FIPS PUB 180-2, B.3 - "Long Message"
+        ('cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0',
+            'a' * 10**6,
+             '"a" * 10**6'),
 
-        out3 = h.hexdigest()
-        out4 = binascii.b2a_hex(h.digest())
+        # Test for an old PyCrypto bug.
+        ('f7fd017a3c721ce7ff03f3552c0813adcc48b7f33f07e5e2ba71e23ea393d103',
+            'This message is precisely 55 bytes long, to test a bug.',
+            'Length = 55 (mod 64)'),
 
-        # PY3K: hexdigest() should return str(), and digest() bytes 
-        self.assertEqual(self.expected, out1)   # h = .new(); h.update(data); h.digest()
-        if sys.version_info[0] == 2:
-            self.assertEqual(self.expected, out2)   # h = .new(); h.update(data); h.hexdigest()
-            self.assertEqual(self.expected, out3)   # h = .new(data); h.hexdigest()
-        else:
-            self.assertEqual(self.expected.decode(), out2)   # h = .new(); h.update(data); h.hexdigest()
-            self.assertEqual(self.expected.decode(), out3)   # h = .new(data); h.hexdigest()
-        self.assertEqual(self.expected, out4)   # h = .new(data); h.digest()
+        # Example from http://de.wikipedia.org/wiki/Secure_Hash_Algorithm
+        ('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', ''),
 
-        # Verify that new() object method produces a fresh hash object
-        h2 = h.new()
-        h2.update(self.input)
-        out5 = binascii.b2a_hex(h2.digest())
-        self.assertEqual(self.expected, out5)
+        ('d32b568cd1b96d459e7291ebf4b25d007f275c9f13149beeb782fac0716613f8',
+         'Franz jagt im komplett verwahrlosten Taxi quer durch Bayern'),
+    ]
 
-class HashTestOID(unittest.TestCase):
-    def __init__(self, hashmod, oid):
-        unittest.TestCase.__init__(self)
-        self.hashmod = hashmod
-        self.oid = oid
+    from Crypto.Hash import SHA256
+    from .common import make_hash_tests
+    tests = make_hash_tests(SHA256, "SHA256", test_data,
+        digest_size=32,
+        oid="\x06\x09\x60\x86\x48\x01\x65\x03\x04\x02\x01")
 
-    def runTest(self):
-        h = self.hashmod.new()
-        if self.oid==None:
-            try:
-                raised = 0
-                a = h.oid
-            except AttributeError:
-                raised = 1
-            self.assertEqual(raised,1)
-        else:
-            self.assertEqual(h.oid, self.oid)
+    if config.get('slow_tests'):
+        tests += [LargeSHA256Test()]
 
-class MACSelfTest(unittest.TestCase):
-
-    def __init__(self, hashmod, description, expected_dict, input, key, hashmods):
-        unittest.TestCase.__init__(self)
-        self.hashmod = hashmod
-        self.expected_dict = expected_dict
-        self.input = input
-        self.key = key
-        self.hashmods = hashmods
-        self.description = description
-
-    def shortDescription(self):
-        return self.description
-
-    def runTest(self):
-        for hashname in list(self.expected_dict.keys()):
-            hashmod = self.hashmods[hashname]
-            key = binascii.a2b_hex(b(self.key))
-            data = binascii.a2b_hex(b(self.input))
-
-            # Strip whitespace from the expected string (which should be in lowercase-hex)
-            expected = b("".join(self.expected_dict[hashname].split()))
-
-            h = self.hashmod.new(key, digestmod=hashmod)
-            h.update(data)
-            out1 = binascii.b2a_hex(h.digest())
-            out2 = h.hexdigest()
-
-            h = self.hashmod.new(key, data, hashmod)
-
-            out3 = h.hexdigest()
-            out4 = binascii.b2a_hex(h.digest())
-
-            # Test .copy()
-            h2 = h.copy()
-            h.update(b("blah blah blah"))  # Corrupt the original hash object
-            out5 = binascii.b2a_hex(h2.digest())    # The copied hash object should return the correct result
-
-            # PY3K: hexdigest() should return str(), and digest() bytes 
-            self.assertEqual(expected, out1)
-            if sys.version_info[0] == 2:
-                self.assertEqual(expected, out2)
-                self.assertEqual(expected, out3)
-            else:
-                self.assertEqual(expected.decode(), out2)
-                self.assertEqual(expected.decode(), out3)                
-            self.assertEqual(expected, out4)
-            self.assertEqual(expected, out5)
-
-def make_hash_tests(module, module_name, test_data, digest_size, oid=None):
-    tests = []
-    for i in range(len(test_data)):
-        row = test_data[i]
-        (expected, input) = list(map(b,row[0:2]))
-        if len(row) < 3:
-            description = repr(input)
-        else:
-            description = row[2].encode('latin-1')
-        name = "%s #%d: %s" % (module_name, i+1, description)
-        tests.append(HashSelfTest(module, name, expected, input))
-    if oid is not None:
-        oid = b(oid)
-    name = "%s #%d: digest_size" % (module_name, i+1)
-    tests.append(HashDigestSizeSelfTest(module, name, digest_size))
-    tests.append(HashTestOID(module, oid))
     return tests
 
-def make_mac_tests(module, module_name, test_data, hashmods):
-    tests = []
-    for i in range(len(test_data)):
-        row = test_data[i]
-        (key, data, results, description) = row
-        name = "%s #%d: %s" % (module_name, i+1, description)
-        tests.append(MACSelfTest(module, name, results, data, key, hashmods))
-    return tests
+if __name__ == '__main__':
+    import unittest
+    suite = lambda: unittest.TestSuite(get_tests())
+    unittest.main(defaultTest='suite')
 
 # vim:set ts=4 sw=4 sts=4 expandtab:

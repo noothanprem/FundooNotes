@@ -1,1 +1,1 @@
- W?venv/lib/python3.6/site-packages/faker/providers/internet/pt_PT :ŸW
+ WAvenv/lib/python3.6/site-packages/faker/providers/user_agent/en_US :ŸW

@@ -1,1 +1,1 @@
-ÅM<venv/lib/python3.6/site-packages/autobahn/xbr/_blockchain.py 2pyXîh
+ÅM8venv/lib/python3.6/site-packages/autobahn/xbr/_seller.py 2pyX§h

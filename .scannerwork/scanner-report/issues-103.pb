@@ -1,2 +1,2 @@
-9
-pythonS125Remove this commented out code. 2 &
+d
+pythonS101HRename class "img" to match the regular expression ^[A-Z_][a-zA-Z0-9]+$. 2 	

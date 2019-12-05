@@ -1,1 +1,1 @@
-°‡Lvenv/lib64/python3.6/site-packages/django_extensions/jobs/yearly/__init__.py 2pyXh
+°‡@venv/lib64/python3.6/site-packages/django_extensions/jobs/yearly :¯‡

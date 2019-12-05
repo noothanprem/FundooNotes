@@ -1,1 +1,1 @@
-ä.venv/lib/python3.6/site-packages/botocore/docs :$ãåæçèéø†‡ˆ‰Š
+ä;venv/lib/python3.6/site-packages/botocore/docs/paginator.py 2pyX²h

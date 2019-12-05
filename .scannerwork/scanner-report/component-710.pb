@@ -1,1 +1,1 @@
-∆Avenv/lib/python3.6/site-packages/celery/backends/elasticsearch.py 2pyXèh
+∆6venv/lib/python3.6/site-packages/celery/backends/s3.py 2pyXTh

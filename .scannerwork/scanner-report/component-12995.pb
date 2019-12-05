@@ -1,1 +1,1 @@
-Ãe8venv/lib/python3.6/site-packages/chardet/cli/__init__.py 2pyXh
+Ãe,venv/lib/python3.6/site-packages/chardet/cli :ÂeÇe

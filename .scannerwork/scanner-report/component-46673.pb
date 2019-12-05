@@ -1,1 +1,1 @@
-—ÏSvenv/lib64/python3.6/site-packages/django_social_share/templatetags/social_share.py 2pyXøh
+—ÏCvenv/lib64/python3.6/site-packages/django_social_share/templatetags :–Ï“Ï

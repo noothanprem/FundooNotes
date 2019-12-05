@@ -1,1 +1,1 @@
- e-venv/lib/python3.6/site-packages/django_admin :Ÿe¡e
+ e9venv/lib/python3.6/site-packages/django_admin/__init__.py 2pyXh

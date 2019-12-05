@@ -1,1 +1,1 @@
-—ý.venv/lib64/python3.6/site-packages/django_nine :–ý ý¡ý¢ý©ý
+—ý.venv/lib64/python3.6/site-packages/django_nine :–ýŸý ý¢ý©ý

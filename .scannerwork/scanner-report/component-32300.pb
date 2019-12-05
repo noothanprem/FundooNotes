@@ -1,1 +1,1 @@
-¬üFvenv/lib64/python3.6/site-packages/django/contrib/sitemaps/__init__.py 2pyX¤h
+¬üVvenv/lib64/python3.6/site-packages/django/contrib/sitemaps/templates/sitemap_index.xml 2xmlXh

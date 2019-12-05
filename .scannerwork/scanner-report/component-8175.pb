@@ -1,1 +1,1 @@
-ï?Hvenv/lib/python3.6/site-packages/django/core/checks/security/__init__.py 2pyXh
+ï?<venv/lib/python3.6/site-packages/django/core/checks/security :î?ð?ñ?ò?

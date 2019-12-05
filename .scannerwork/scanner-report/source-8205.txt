@@ -1,59 +1,30 @@
-"""Base email backend class."""
+"""
+Backend for test environment.
+"""
+
+from django.core import mail
+from django.core.mail.backends.base import BaseEmailBackend
 
 
-class BaseEmailBackend:
+class EmailBackend(BaseEmailBackend):
     """
-    Base class for email backend implementations.
+    An email backend for use during test sessions.
 
-    Subclasses must at least overwrite send_messages().
+    The test connection stores email messages in a dummy outbox,
+    rather than sending them out on the wire.
 
-    open() and close() can be called indirectly by using a backend object as a
-    context manager:
-
-       with backend as connection:
-           # do something with connection
-           pass
+    The dummy outbox is accessible through the outbox instance attribute.
     """
-    def __init__(self, fail_silently=False, **kwargs):
-        self.fail_silently = fail_silently
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not hasattr(mail, 'outbox'):
+            mail.outbox = []
 
-    def open(self):
-        """
-        Open a network connection.
-
-        This method can be overwritten by backend implementations to
-        open a network connection.
-
-        It's up to the backend implementation to track the status of
-        a network connection if it's needed by the backend.
-
-        This method can be called by applications to force a single
-        network connection to be used when sending mails. See the
-        send_messages() method of the SMTP backend for a reference
-        implementation.
-
-        The default implementation does nothing.
-        """
-        pass
-
-    def close(self):
-        """Close a network connection."""
-        pass
-
-    def __enter__(self):
-        try:
-            self.open()
-        except Exception:
-            self.close()
-            raise
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
-
-    def send_messages(self, email_messages):
-        """
-        Send one or more EmailMessage objects and return the number of email
-        messages sent.
-        """
-        raise NotImplementedError('subclasses of BaseEmailBackend must override send_messages() method')
+    def send_messages(self, messages):
+        """Redirect messages to the dummy outbox"""
+        msg_count = 0
+        for message in messages:  # .message() triggers header validation
+            message.message()
+            mail.outbox.append(message)
+            msg_count += 1
+        return msg_count

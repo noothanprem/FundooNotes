@@ -1,1 +1,1 @@
-ชนAvenv/lib/python3.6/site-packages/social_core/backends/coinbase.py 2pyX&h
+ชน?venv/lib/python3.6/site-packages/social_core/backends/goclio.py 2pyX$h

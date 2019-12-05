@@ -1,1 +1,0 @@
-ø[Fvenv/lib/python3.6/site-packages/faker/providers/job/fa_IR/__init__.py 2pyXhh

@@ -1,1 +1,1 @@
-ÊE6venv/lib/python3.6/site-packages/django/conf/locale/ca :ÉEËE
+ÊEBvenv/lib/python3.6/site-packages/django/conf/locale/ca/__init__.py 2pyXh

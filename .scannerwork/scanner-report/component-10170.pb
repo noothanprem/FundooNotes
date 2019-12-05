@@ -1,1 +1,1 @@
-ºO3venv/lib/python3.6/site-packages/xlwt/Formatting.py 2pyXŠh
+ºO/venv/lib/python3.6/site-packages/xlwt/Column.py 2pyX2h

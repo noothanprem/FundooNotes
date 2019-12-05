@@ -1,47 +1,30 @@
 """
-OpenStack OpenId backend
+Discord Auth OAuth2 backend, docs at:
+    https://discordapp.com/developers/docs/topics/oauth2
 """
-from six.moves.urllib_parse import urlsplit
-from openid.extensions import ax
-
-from .open_id import OpenIdAuth
+from .oauth import BaseOAuth2
 
 
-class OpenStackOpenId(OpenIdAuth):
-    name = 'openstack'
-    URL = 'openstackid.org'
+class DiscordOAuth2(BaseOAuth2):
+    name = 'discord'
+    AUTHORIZATION_URL = 'https://discordapp.com/api/oauth2/authorize'
+    ACCESS_TOKEN_URL = 'https://discordapp.com/api/oauth2/token'
+    ACCESS_TOKEN_METHOD = 'POST'
+    REVOKE_TOKEN_URL = 'https://discordapp.com/api/oauth2/token/revoke'
+    REVOKE_TOKEN_METHOD = 'GET'
+    DEFAULT_SCOPE = ['identify']
+    SCOPE_SEPARATOR = '+'
+    REDIRECT_STATE = False
+    EXTRA_DATA = [
+        ('expires_in', 'expires'),
+        ('refresh_token', 'refresh_token')
+    ]
 
     def get_user_details(self, response):
-        """Generate username from identity url"""
-        values = super(OpenStackDevOpenId, self).get_user_details(response)
-        values['username'] = values.get('username') or \
-            urlsplit(response.identity_url).path.strip('/')
-        values['nickname'] = values.get('nickname', '')
-        return values
+        return {'username': response.get('username'),
+                'email': response.get('email') or ''}
 
-    def setup_request(self, params=None):
-        """Fetch email, firstname, lastname from openid"""
-        request = self.openid_request(params)
-
-        # TODO: use sreg instead ax request to fetch nickname as username
-        fetch_request = ax.FetchRequest()
-        fetch_request.add(ax.AttrInfo(
-            'http://axschema.org/contact/email',
-            alias='email',
-            required=True
-        ))
-
-        fetch_request.add(ax.AttrInfo(
-            'http://axschema.org/namePerson/first',
-            alias='firstname',
-            required=True
-        ))
-
-        fetch_request.add(ax.AttrInfo(
-            'http://axschema.org/namePerson/last',
-            alias='lastname',
-            required=True
-        ))
-
-        request.addExtension(fetch_request)
-        return request
+    def user_data(self, access_token, *args, **kwargs):
+        url = 'https://discordapp.com/api/users/@me'
+        auth_header = {"Authorization": "Bearer %s" % access_token}
+        return self.get_json(url, headers=auth_header)

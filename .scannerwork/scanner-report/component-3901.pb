@@ -1,1 +1,1 @@
-½9venv/lib/python3.6/site-packages/django/db/models/base.py 2pyX©h
+½:venv/lib/python3.6/site-packages/django/db/models/query.py 2pyXêh

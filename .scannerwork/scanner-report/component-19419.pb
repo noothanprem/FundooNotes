@@ -1,1 +1,1 @@
-ۗ/venv/lib/python3.6/site-packages/isort/hooks.py 2pyX\h
+ۗ3venv/lib/python3.6/site-packages/isort/pie_slice.py 2pyX�h

@@ -1,1 +1,1 @@
-®»@venv/lib/python3.6/site-packages/social_core/pipeline/partial.py 2pyX0h
+®»Avenv/lib/python3.6/site-packages/social_core/pipeline/__init__.py 2pyX<h

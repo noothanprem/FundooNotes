@@ -1,1 +1,0 @@
-ÒZ>venv/lib/python3.6/site-packages/faker/providers/company/it_IT :ÑZ

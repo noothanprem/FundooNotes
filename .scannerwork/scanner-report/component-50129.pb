@@ -1,1 +1,1 @@
-чPvenv/lib64/python3.6/site-packages/django_extensions/templatetags/indent_text.py 2pyX8h
+чMvenv/lib64/python3.6/site-packages/django_extensions/templatetags/__init__.py 2pyXh

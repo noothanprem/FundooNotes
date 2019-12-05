@@ -1,2 +1,6 @@
-g
-pythonS107KMethod "__init__" has 8 parameters, which is greater than the 7 authorized. 2BC H
+r
+pythonS117VRename this parameter "userLogger" to match the regular expression ^[_a-z][a-z0-9_]*$. 2vv r
+pythonS116VRename this field "defaultPrinter" to match the regular expression ^[_a-z][_a-z0-9]*$. 2EE o
+pythonS1542RRename function "setLogger" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2vv v
+pythonS1542WRename function "registerLoggee" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ƒƒ 

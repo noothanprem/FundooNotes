@@ -1,4 +1,4 @@
-# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2014 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -10,81 +10,126 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-"""Add S3 specific event streaming output arg."""
-from awscli.arguments import CustomArgument
+import json
+import sys
+
+from botocore import xform_name
+from botocore.stub import Stubber
+from botocore.utils import ArgumentGenerator
+
+from awscli.clidriver import CLIOperationCaller
+from awscli.customizations.arguments import OverrideRequiredArgsArgument
+from awscli.utils import json_encoder
 
 
-STREAM_HELP_TEXT = 'Filename where the records will be saved'
+def register_generate_cli_skeleton(cli):
+    cli.register('building-argument-table', add_generate_skeleton)
 
 
-class DocSectionNotFoundError(Exception):
-    pass
+def add_generate_skeleton(session, operation_model, argument_table, **kwargs):
+    # This argument cannot support operations with streaming output which
+    # is designated by the argument name `outfile`.
+    if 'outfile' not in argument_table:
+        generate_cli_skeleton_argument = GenerateCliSkeletonArgument(
+            session, operation_model)
+        generate_cli_skeleton_argument.add_to_arg_table(argument_table)
 
 
-def register_event_stream_arg(event_handlers):
-    event_handlers.register(
-        'building-argument-table.s3api.select-object-content',
-        add_event_stream_output_arg)
-    event_handlers.register_last(
-        'doc-output.s3api.select-object-content',
-        replace_event_stream_docs
-    )
+class GenerateCliSkeletonArgument(OverrideRequiredArgsArgument):
+    """This argument writes a generated JSON skeleton to stdout
+
+    The argument, if present in the command line, will prevent the intended
+    command from taking place. Instead, it will generate a JSON skeleton and
+    print it to standard output.
+    """
+    ARG_DATA = {
+        'name': 'generate-cli-skeleton',
+        'help_text': (
+            'Prints a JSON skeleton to standard output without sending '
+            'an API request. If provided with no value or the value '
+            '``input``, prints a sample input JSON that can be used as an '
+            'argument for ``--cli-input-json``. If provided with the value '
+            '``output``, it validates the command inputs and returns a '
+            'sample output JSON for that command.'
+        ),
+        'nargs': '?',
+        'const': 'input',
+        'choices': ['input', 'output'],
+    }
+
+    def __init__(self, session, operation_model):
+        super(GenerateCliSkeletonArgument, self).__init__(session)
+        self._operation_model = operation_model
+
+    def _register_argument_action(self):
+        self._session.register(
+            'calling-command.*', self.generate_json_skeleton)
+        super(GenerateCliSkeletonArgument, self)._register_argument_action()
+
+    def override_required_args(self, argument_table, args, **kwargs):
+        arg_name = '--' + self.name
+        if arg_name in args:
+            arg_location = args.index(arg_name)
+            try:
+                # If the value of --generate-cli-skeleton is ``output``,
+                # do not force required arguments to be optional as
+                # ``--generate-cli-skeleton output`` validates commands
+                # as well as print out the sample output.
+                if args[arg_location + 1] == 'output':
+                    return
+            except IndexError:
+                pass
+            super(GenerateCliSkeletonArgument, self).override_required_args(
+                argument_table, args, **kwargs)
+
+    def generate_json_skeleton(self, call_parameters, parsed_args,
+                               parsed_globals, **kwargs):
+        if getattr(parsed_args, 'generate_cli_skeleton', None):
+            for_output = parsed_args.generate_cli_skeleton == 'output'
+            operation_model = self._operation_model
+
+            if for_output:
+                service_name = operation_model.service_model.service_name
+                operation_name = operation_model.name
+                # TODO: It would be better to abstract this logic into
+                # classes for both the input and output option such that
+                # a similar set of inputs are taken in and output
+                # similar functionality.
+                return StubbedCLIOperationCaller(self._session).invoke(
+                    service_name, operation_name, call_parameters,
+                    parsed_globals)
+            else:
+                argument_generator = ArgumentGenerator()
+                operation_input_shape = operation_model.input_shape
+                if operation_input_shape is None:
+                    skeleton = {}
+                else:
+                    skeleton = argument_generator.generate_skeleton(
+                        operation_input_shape)
+
+                sys.stdout.write(
+                    json.dumps(skeleton, indent=4, default=json_encoder)
+                )
+                sys.stdout.write('\n')
+                return 0
 
 
-def add_event_stream_output_arg(argument_table, operation_model,
-                                session, **kwargs):
-    argument_table['outfile'] = S3SelectStreamOutputArgument(
-        name='outfile', help_text=STREAM_HELP_TEXT,
-        cli_type_name='string', positional_arg=True,
-        stream_key=operation_model.output_shape.serialization['payload'],
-        session=session)
+class StubbedCLIOperationCaller(CLIOperationCaller):
+    """A stubbed CLIOperationCaller
 
-
-def replace_event_stream_docs(help_command, **kwargs):
-    doc = help_command.doc
-    current = ''
-    while current != '======\nOutput\n======':
-        try:
-            current = doc.pop_write()
-        except IndexError:
-            # This should never happen, but in the rare case that it does
-            # we should be raising something with a helpful error message.
-            raise DocSectionNotFoundError(
-                'Could not find the "output" section for the command: %s'
-                % help_command)
-    doc.write('======\nOutput\n======\n')
-    doc.write("This command generates no output.  The selected "
-              "object content is written to the specified outfile.\n")
-
-
-class S3SelectStreamOutputArgument(CustomArgument):
-
-    def __init__(self, stream_key, session, **kwargs):
-        super(S3SelectStreamOutputArgument, self).__init__(**kwargs)
-        # This is the key in the response body where we can find the
-        # streamed contents.
-        self._stream_key = stream_key
-        self._output_file = None
-        self._session = session
-
-    def add_to_params(self, parameters, value):
-        self._output_file = value
-        self._session.register('after-call.s3.SelectObjectContent',
-                               self.save_file)
-
-    def save_file(self, parsed, **kwargs):
-        # This method is hooked into after-call which fires
-        # before the error checking happens in the client.
-        # Therefore if the stream_key is not in the parsed
-        # response we immediately return and let the default
-        # error handling happen.
-        if self._stream_key not in parsed:
-            return
-        event_stream = parsed[self._stream_key]
-        with open(self._output_file, 'wb') as fp:
-            for event in event_stream:
-                if 'Records' in event:
-                    fp.write(event['Records']['Payload'])
-        # We don't want to include the streaming param in
-        # the returned response, it's not JSON serializable.
-        del parsed[self._stream_key]
+    It generates a fake response and uses the response and provided parameters
+    to make a stubbed client call for an operation command.
+    """
+    def _make_client_call(self, client, operation_name, parameters,
+                          parsed_globals):
+        method_name = xform_name(operation_name)
+        operation_model = client.meta.service_model.operation_model(
+            operation_name)
+        fake_response = {}
+        if operation_model.output_shape:
+            argument_generator = ArgumentGenerator(use_member_names=True)
+            fake_response = argument_generator.generate_skeleton(
+                operation_model.output_shape)
+        with Stubber(client) as stubber:
+            stubber.add_response(method_name, fake_response)
+            return getattr(client, method_name)(**parameters)

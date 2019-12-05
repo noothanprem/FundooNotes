@@ -1,1 +1,1 @@
-´UAvenv/lib/python3.6/site-packages/faker/providers/automotive/hu_HU :³U
+´UAvenv/lib/python3.6/site-packages/faker/providers/automotive/hu_HU :²U

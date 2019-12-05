@@ -1,1 +1,0 @@
-ым;venv/lib64/python3.6/site-packages/django_short_url/urls.py 2pyXh

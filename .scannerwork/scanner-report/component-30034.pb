@@ -1,1 +1,1 @@
-“ÍIvenv/lib64/python3.6/site-packages/django/db/backends/sqlite3/__init__.py 2pyXh
+“ÍGvenv/lib64/python3.6/site-packages/django/db/backends/sqlite3/schema.py 2pyXúh

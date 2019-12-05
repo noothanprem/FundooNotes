@@ -1,1 +1,1 @@
-¥yJvenv/lib/python3.6/site-packages/awscli/customizations/configure/writer.py 2pyXÆh
+¥yLvenv/lib/python3.6/site-packages/awscli/customizations/configure/__init__.py 2pyX2h

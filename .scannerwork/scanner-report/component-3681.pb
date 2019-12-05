@@ -1,1 +1,1 @@
-á;venv/lib/python3.6/site-packages/django/utils/decorators.py 2pyX±h
+á;venv/lib/python3.6/site-packages/django/utils/termcolors.py 2pyXØh

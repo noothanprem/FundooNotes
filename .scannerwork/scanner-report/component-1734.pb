@@ -1,1 +1,1 @@
-Æ6venv/lib/python3.6/site-packages/markupsafe/_native.py 2pyXFh
+Æ7venv/lib/python3.6/site-packages/markupsafe/__init__.py 2pyXÈh

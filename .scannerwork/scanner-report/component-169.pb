@@ -1,1 +1,0 @@
-©Evenv/lib/python3.6/site-packages/oauth2_provider/oauth2_validators.py 2pyXöh

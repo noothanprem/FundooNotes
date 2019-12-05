@@ -1,1 +1,1 @@
-õ,Svenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/mysql/operations.py 2pyXeh
+õ,Kvenv/lib/python3.6/site-packages/django/contrib/gis/db/backends/__init__.py 2pyXh

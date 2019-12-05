@@ -1,1 +1,1 @@
-ª ?venv/lib/python3.6/site-packages/Crypto/SelfTest/Random/Fortuna :© « ± ² 
+ª ?venv/lib/python3.6/site-packages/Crypto/SelfTest/Random/Fortuna :© « ° ² 

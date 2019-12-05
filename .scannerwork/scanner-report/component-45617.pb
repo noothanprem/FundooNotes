@@ -1,1 +1,1 @@
-±ä;venv/lib64/python3.6/site-packages/social_django/storage.py 2pyXÔh
+±ä:venv/lib64/python3.6/site-packages/social_django/models.py 2pyXŒh

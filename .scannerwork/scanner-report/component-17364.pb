@@ -1,1 +1,1 @@
-ԇ@venv/lib/python3.6/site-packages/kombu/asynchronous/http/base.py 2pyX�h
+ԇ8venv/lib/python3.6/site-packages/kombu/asynchronous/http :	ӇՇه

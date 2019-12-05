@@ -1,102 +1,79 @@
-import os
-import select
-import sys
-import traceback
+from django.core.management.base import BaseCommand
 
-from django.core.management import BaseCommand, CommandError
-from django.utils.datastructures import OrderedSet
+
+def module_to_dict(module, omittable=lambda k: k.startswith('_') or not k.isupper()):
+    """Convert a module namespace to a Python dictionary."""
+    return {k: repr(getattr(module, k)) for k in dir(module) if not omittable(k)}
 
 
 class Command(BaseCommand):
-    help = (
-        "Runs a Python interactive interpreter. Tries to use IPython or "
-        "bpython, if one of them is available. Any standard input is executed "
-        "as code."
-    )
+    help = """Displays differences between the current settings.py and Django's
+    default settings."""
 
     requires_system_checks = False
-    shells = ['ipython', 'bpython', 'python']
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--no-startup', action='store_true',
-            help='When using plain Python, ignore the PYTHONSTARTUP environment variable and ~/.pythonrc.py script.',
+            '--all', action='store_true',
+            help=(
+                'Display all settings, regardless of their value. In "hash" '
+                'mode, default values are prefixed by "###".'
+            ),
         )
         parser.add_argument(
-            '-i', '--interface', choices=self.shells,
-            help='Specify an interactive interpreter interface. Available options: "ipython", "bpython", and "python"',
+            '--default', metavar='MODULE',
+            help=(
+                "The settings module to compare the current settings against. Leave empty to "
+                "compare against Django's default settings."
+            ),
         )
         parser.add_argument(
-            '-c', '--command',
-            help='Instead of opening an interactive shell, run a command as Django and exit.',
+            '--output', default='hash', choices=('hash', 'unified'),
+            help=(
+                "Selects the output format. 'hash' mode displays each changed "
+                "setting, with the settings that don't appear in the defaults "
+                "followed by ###. 'unified' mode prefixes the default setting "
+                "with a minus sign, followed by the changed setting prefixed "
+                "with a plus sign."
+            ),
         )
-
-    def ipython(self, options):
-        from IPython import start_ipython
-        start_ipython(argv=[])
-
-    def bpython(self, options):
-        import bpython
-        bpython.embed()
-
-    def python(self, options):
-        import code
-        # Set up a dictionary to serve as the environment for the shell, so
-        # that tab completion works on objects that are imported at runtime.
-        imported_objects = {}
-        try:  # Try activating rlcompleter, because it's handy.
-            import readline
-        except ImportError:
-            pass
-        else:
-            # We don't have to wrap the following import in a 'try', because
-            # we already know 'readline' was imported successfully.
-            import rlcompleter
-            readline.set_completer(rlcompleter.Completer(imported_objects).complete)
-            # Enable tab completion on systems using libedit (e.g. macOS).
-            # These lines are copied from Python's Lib/site.py.
-            readline_doc = getattr(readline, '__doc__', '')
-            if readline_doc is not None and 'libedit' in readline_doc:
-                readline.parse_and_bind("bind ^I rl_complete")
-            else:
-                readline.parse_and_bind("tab:complete")
-
-        # We want to honor both $PYTHONSTARTUP and .pythonrc.py, so follow system
-        # conventions and get $PYTHONSTARTUP first then .pythonrc.py.
-        if not options['no_startup']:
-            for pythonrc in OrderedSet([os.environ.get("PYTHONSTARTUP"), os.path.expanduser('~/.pythonrc.py')]):
-                if not pythonrc:
-                    continue
-                if not os.path.isfile(pythonrc):
-                    continue
-                with open(pythonrc) as handle:
-                    pythonrc_code = handle.read()
-                # Match the behavior of the cpython shell where an error in
-                # PYTHONSTARTUP prints an exception and continues.
-                try:
-                    exec(compile(pythonrc_code, pythonrc, 'exec'), imported_objects)
-                except Exception:
-                    traceback.print_exc()
-
-        code.interact(local=imported_objects)
 
     def handle(self, **options):
-        # Execute the command and exit.
-        if options['command']:
-            exec(options['command'])
-            return
+        from django.conf import settings, Settings, global_settings
 
-        # Execute stdin if it has anything to read and exit.
-        # Not supported on Windows due to select.select() limitations.
-        if sys.platform != 'win32' and not sys.stdin.isatty() and select.select([sys.stdin], [], [], 0)[0]:
-            exec(sys.stdin.read())
-            return
+        # Because settings are imported lazily, we need to explicitly load them.
+        if not settings.configured:
+            settings._setup()
 
-        available_shells = [options['interface']] if options['interface'] else self.shells
+        user_settings = module_to_dict(settings._wrapped)
+        default = options['default']
+        default_settings = module_to_dict(Settings(default) if default else global_settings)
+        output_func = {
+            'hash': self.output_hash,
+            'unified': self.output_unified,
+        }[options['output']]
+        return '\n'.join(output_func(user_settings, default_settings, **options))
 
-        for shell in available_shells:
-            try:
-                return getattr(self, shell)(options)
-            except ImportError:
-                pass
-        raise CommandError("Couldn't import {} interface.".format(shell))
+    def output_hash(self, user_settings, default_settings, **options):
+        # Inspired by Postfix's "postconf -n".
+        output = []
+        for key in sorted(user_settings):
+            if key not in default_settings:
+                output.append("%s = %s  ###" % (key, user_settings[key]))
+            elif user_settings[key] != default_settings[key]:
+                output.append("%s = %s" % (key, user_settings[key]))
+            elif options['all']:
+                output.append("### %s = %s" % (key, user_settings[key]))
+        return output
+
+    def output_unified(self, user_settings, default_settings, **options):
+        output = []
+        for key in sorted(user_settings):
+            if key not in default_settings:
+                output.append(self.style.SUCCESS("+ %s = %s" % (key, user_settings[key])))
+            elif user_settings[key] != default_settings[key]:
+                output.append(self.style.ERROR("- %s = %s" % (key, default_settings[key])))
+                output.append(self.style.SUCCESS("+ %s = %s" % (key, user_settings[key])))
+            elif options['all']:
+                output.append("  %s = %s" % (key, user_settings[key]))
+        return output

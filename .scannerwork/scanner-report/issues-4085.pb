@@ -1,3 +1,2 @@
-=
-pythonS125Remove this commented out code. 2
-šš %
+p
+pythonS101TRename class "Oracle_datetime" to match the regular expression ^[A-Z_][a-zA-Z0-9]+$. 2 

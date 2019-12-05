@@ -1,1 +1,1 @@
-§°3venv/lib/python3.6/site-packages/lazr/restfulclient :¦°´°Ê°Ó°Ô°
+§°3venv/lib/python3.6/site-packages/lazr/restfulclient :¦°¸°Ë°Ô°Ö°

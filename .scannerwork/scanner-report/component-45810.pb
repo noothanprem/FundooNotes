@@ -1,1 +1,1 @@
-те@venv/lib64/python3.6/site-packages/past/builtins/noniterators.py 2pyXСh
+те0venv/lib64/python3.6/site-packages/past/builtins :	сеуефе

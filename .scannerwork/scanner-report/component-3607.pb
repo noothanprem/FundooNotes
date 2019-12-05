@@ -1,1 +1,1 @@
-—>venv/lib/python3.6/site-packages/django/utils/datetime_safe.py 2pyXjh
+—4venv/lib/python3.6/site-packages/django/utils/six.py 2pyXóh

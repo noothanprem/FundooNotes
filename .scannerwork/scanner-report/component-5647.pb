@@ -1,1 +1,0 @@
-è,Avenv/lib/python3.6/site-packages/django/contrib/sessions/backends :é,ê,ë,í,ì,î,ù,

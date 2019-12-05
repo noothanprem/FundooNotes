@@ -1,1 +1,1 @@
-â>venv/lib/python3.6/site-packages/django/views/generic/dates.py 2pyXÕh
+â=venv/lib/python3.6/site-packages/django/views/generic/list.py 2pyXÇh

@@ -1,1 +1,1 @@
-ÚÇbvenv/lib64/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lang/es.js 2jsX6h
+ÚÇ\venv/lib64/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lang :'ØÇÙÇÛÇÜÇİÇŞÇßÇàÇáÇâÇãÇäÇåÇ

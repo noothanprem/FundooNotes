@@ -1,1 +1,1 @@
-§½Wvenv/lib/python3.6/site-packages/django_extensions/management/commands/describe_form.py 2pyXKh
+§½Tvenv/lib/python3.6/site-packages/django_extensions/management/commands/pipchecker.py 2pyXºh

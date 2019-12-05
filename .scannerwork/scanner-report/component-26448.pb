@@ -1,1 +1,1 @@
-пнWvenv/lib64/python3.6/site-packages/cryptography/hazmat/primitives/asymmetric/ed25519.py 2pyXUh
+пнVvenv/lib64/python3.6/site-packages/cryptography/hazmat/primitives/asymmetric/x25519.py 2pyXJh

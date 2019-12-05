@@ -1,1 +1,1 @@
-ƒşVvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/filter_backends/search :‚ş„ş…ş†ş‡şšş¢ş
+ƒşVvenv/lib64/python3.6/site-packages/django_elasticsearch_dsl_drf/filter_backends/search :ş„ş…ş†ş‡şšş£ş

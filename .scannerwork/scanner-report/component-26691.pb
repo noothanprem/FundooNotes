@@ -1,1 +1,1 @@
-ÃÐ:venv/lib64/python3.6/site-packages/celery/task/__init__.py 2pyX5h
+ÃÐ7venv/lib64/python3.6/site-packages/celery/exceptions.py 2pyX…h

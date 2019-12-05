@@ -1,4 +1,4 @@
-# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2014 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -10,83 +10,111 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-import re
+import sys
+import os
 
-from awscli.arguments import CustomArgument
+from botocore.client import Config
+from botocore.endpoint import DEFAULT_TIMEOUT
+from botocore.handlers import disable_signing
+import jmespath
 
-
-IMAGE_FILE_DOCSTRING = ('<p>The content of the image to be uploaded. '
-                        'To specify the content of a local file use the '
-                        'fileb:// prefix. '
-                        'Example: fileb://image.png</p>')
-IMAGE_DOCSTRING_ADDENDUM = ('<p>To specify a local file use <code>--%s</code> '
-                            'instead.</p>')
+from awscli.compat import urlparse
 
 
-FILE_PARAMETER_UPDATES = {
-    'compare-faces.source-image': 'source-image-bytes',
-    'compare-faces.target-image': 'target-image-bytes',
-    '*.image': 'image-bytes',
-}
+def register_parse_global_args(cli):
+    cli.register('top-level-args-parsed', resolve_types,
+                 unique_id='resolve-types')
+    cli.register('top-level-args-parsed', no_sign_request,
+                 unique_id='no-sign')
+    cli.register('top-level-args-parsed', resolve_verify_ssl,
+                 unique_id='resolve-verify-ssl')
+    cli.register('top-level-args-parsed', resolve_cli_read_timeout,
+                 unique_id='resolve-cli-read-timeout')
+    cli.register('top-level-args-parsed', resolve_cli_connect_timeout,
+                 unique_id='resolve-cli-connect-timeout')
 
 
-def register_rekognition_detect_labels(cli):
-    for target, new_param in FILE_PARAMETER_UPDATES.items():
-        operation, old_param = target.rsplit('.', 1)
-        cli.register('building-argument-table.rekognition.%s' % operation,
-                     ImageArgUpdater(old_param, new_param))
+def resolve_types(parsed_args, **kwargs):
+    # This emulates the "type" arg from argparse, but does so in a way
+    # that plugins can also hook into this process.
+    _resolve_arg(parsed_args, 'query')
+    _resolve_arg(parsed_args, 'endpoint_url')
 
 
-class ImageArgUpdater(object):
-    def __init__(self, source_param, new_param):
-        self._source_param = source_param
-        self._new_param = new_param
-
-    def __call__(self, session, argument_table, **kwargs):
-        if not self._valid_target(argument_table):
-            return
-        self._update_param(
-            argument_table, self._source_param, self._new_param)
-
-    def _valid_target(self, argument_table):
-        # We need to ensure that the target parameter is a shape that
-        # looks like it is the Image shape. This means checking that it
-        # has a member named Bytes of the blob type.
-        if self._source_param in argument_table:
-            param = argument_table[self._source_param]
-            input_model = param.argument_model
-            bytes_member = input_model.members.get('Bytes')
-            if bytes_member is not None and bytes_member.type_name == 'blob':
-                return True
-        return False
-
-    def _update_param(self, argument_table, source_param, new_param):
-        argument_table[new_param] = ImageArgument(
-            new_param, source_param,
-            help_text=IMAGE_FILE_DOCSTRING, cli_type_name='blob')
-        argument_table[source_param].required = False
-        doc_addendum = IMAGE_DOCSTRING_ADDENDUM % new_param
-        argument_table[source_param].documentation += doc_addendum
+def _resolve_arg(parsed_args, name):
+    value = getattr(parsed_args, name, None)
+    if value is not None:
+        new_value = getattr(sys.modules[__name__], '_resolve_%s' % name)(value)
+        setattr(parsed_args, name, new_value)
 
 
-class ImageArgument(CustomArgument):
-    def __init__(self, name, source_param, **kwargs):
-        super(ImageArgument, self).__init__(name, **kwargs)
-        self._parameter_to_overwrite = reverse_xform_name(source_param)
+def _resolve_query(value):
+    try:
+        return jmespath.compile(value)
+    except Exception as e:
+        raise ValueError("Bad value for --query %s: %s" % (value, str(e)))
 
-    def add_to_params(self, parameters, value):
-        if value is None:
-            return
-        image_file_param = {'Bytes': value}
-        if parameters.get(self._parameter_to_overwrite):
-            parameters[self._parameter_to_overwrite].update(image_file_param)
+
+def _resolve_endpoint_url(value):
+    parsed = urlparse.urlparse(value)
+    # Our http library requires you specify an endpoint url
+    # that contains a scheme, so we'll verify that up front.
+    if not parsed.scheme:
+        raise ValueError('Bad value for --endpoint-url "%s": scheme is '
+                         'missing.  Must be of the form '
+                         'http://<hostname>/ or https://<hostname>/' % value)
+    return value
+
+
+def resolve_verify_ssl(parsed_args, session, **kwargs):
+    arg_name = 'verify_ssl'
+    arg_value = getattr(parsed_args, arg_name, None)
+    if arg_value is not None:
+        verify = None
+        # Only consider setting a custom ca_bundle if they
+        # haven't provided --no-verify-ssl.
+        if not arg_value:
+            verify = False
         else:
-            parameters[self._parameter_to_overwrite] = image_file_param
+            verify = getattr(parsed_args, 'ca_bundle', None) or \
+                        session.get_config_variable('ca_bundle')
+        setattr(parsed_args, arg_name, verify)
 
 
-def _upper(match):
-    return match.group(1).lstrip('-').upper()
+def no_sign_request(parsed_args, session, **kwargs):
+    if not parsed_args.sign_request:
+        # In order to make signing disabled for all requests
+        # we need to use botocore's ``disable_signing()`` handler.
+        session.register(
+            'choose-signer', disable_signing, unique_id='disable-signing')
 
 
-def reverse_xform_name(name):
-    return re.sub(r'(^.|-.)', _upper, name)
+def resolve_cli_connect_timeout(parsed_args, session, **kwargs):
+    arg_name = 'connect_timeout'
+    _resolve_timeout(session, parsed_args, arg_name)
+
+
+def resolve_cli_read_timeout(parsed_args, session, **kwargs):
+    arg_name = 'read_timeout'
+    _resolve_timeout(session, parsed_args, arg_name)
+
+
+def _resolve_timeout(session, parsed_args, arg_name):
+    arg_value = getattr(parsed_args, arg_name, None)
+    if arg_value is None:
+        arg_value = DEFAULT_TIMEOUT
+    arg_value = int(arg_value)
+    if arg_value == 0:
+        arg_value = None
+    setattr(parsed_args, arg_name, arg_value)
+    # Update in the default client config so that the timeout will be used
+    # by all clients created from then on.
+    _update_default_client_config(session, arg_name, arg_value)
+
+
+def _update_default_client_config(session, arg_name, arg_value):
+    current_default_config = session.get_default_client_config()
+    new_default_config = Config(**{arg_name: arg_value})
+    if current_default_config is not None:
+        new_default_config = current_default_config.merge(new_default_config)
+    session.set_default_client_config(new_default_config)

@@ -1,1 +1,0 @@
-‹SEvenv/lib/python3.6/site-packages/faker/providers/currency/__init__.py 2pyXïh

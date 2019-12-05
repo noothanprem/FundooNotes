@@ -1,1 +1,1 @@
-ТыAvenv/lib64/python3.6/site-packages/Crypto/SelfTest/Hash/common.py 2pyXЦh
+ТыFvenv/lib64/python3.6/site-packages/Crypto/SelfTest/Hash/test_SHA256.py 2pyXah

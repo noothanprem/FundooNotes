@@ -1,104 +1,118 @@
 """
-Mixins.
+Ids filtering backend.
+
+Filters documents that only have the provided ids. Note, this query uses the
+`_uid` field.
+
+Elastic query:
+
+    {
+        "query": {
+            "ids": {
+                "type": "book_document",
+                "values": ["68", "64", "58"]
+            }
+        }
+    }
+
+REST framework request equivalent:
+
+- http://localhost:8000/api/articles/?ids=68__64__58
+- http://localhost:8000/api/articles/?ids=68&ids=64&ids=58
+
+Official Elastic docs:
+
+- https://www.elastic.co/guide/en/elasticsearch/reference/current/
+  query-dsl-ids-query.html
 """
 
-from ..constants import (
-    SEPARATOR_LOOKUP_NAME,
-    SEPARATOR_LOOKUP_FILTER,
-    SEPARATOR_LOOKUP_COMPLEX_VALUE,
-    SEPARATOR_LOOKUP_COMPLEX_MULTIPLE_VALUE,
-)
+from rest_framework.filters import BaseFilterBackend
 
-__title__ = 'django_elasticsearch_dsl_drf.filter_backends.mixins'
+from ..mixins import FilterBackendMixin
+
+__title__ = 'django_elasticsearch_dsl_drf.filter_backends.filtering.ids'
 __author__ = 'Artur Barseghyan <artur.barseghyan@gmail.com>'
 __copyright__ = '2017-2019 Artur Barseghyan'
 __license__ = 'GPL 2.0/LGPL 2.1'
-__all__ = ('FilterBackendMixin',)
+__all__ = ('IdsFilterBackend',)
 
 
-class FilterBackendMixin(object):
-    """Filter backend mixin."""
+class IdsFilterBackend(BaseFilterBackend, FilterBackendMixin):
+    """Ids filter backend for Elasticsearch.
 
-    @classmethod
-    def split_lookup_name(cls, value, maxsplit=-1):
-        """Split lookup value.
+    Example:
 
-        :param value: Value to split.
-        :param maxsplit: The `maxsplit` option of `string.split`.
-        :type value: str
-        :type maxsplit: int
-        :return: Lookup value split into a list.
+        >>> from django_elasticsearch_dsl_drf.filter_backends import (
+        >>>     IdsFilterBackend
+        >>> )
+        >>> from django_elasticsearch_dsl_drf.viewsets import (
+        >>>     BaseDocumentViewSet,
+        >>> )
+        >>>
+        >>> # Local article document definition
+        >>> from .documents import ArticleDocument
+        >>>
+        >>> # Local article document serializer
+        >>> from .serializers import ArticleDocumentSerializer
+        >>>
+        >>> class ArticleDocumentView(BaseDocumentViewSet):
+        >>>
+        >>>     document = ArticleDocument
+        >>>     serializer_class = ArticleDocumentSerializer
+        >>>     filter_backends = [IdsFilterBackend]
+    """
+
+    ids_query_param = 'ids'
+
+    def get_ids_query_params(self, request):
+        """Get search query params.
+
+        :param request: Django REST framework request.
+        :type request: rest_framework.request.Request
+        :return: List of search query params.
         :rtype: list
         """
-        return value.split(SEPARATOR_LOOKUP_NAME, maxsplit)
+        query_params = request.query_params.copy()
+        return query_params.getlist(self.ids_query_param, [])
 
-    @classmethod
-    def split_lookup_filter(cls, value, maxsplit=-1):
-        """Split lookup filter.
+    def get_ids_values(self, request, view):
+        """Get ids values for query.
 
-        :param value: Value to split.
-        :param maxsplit: The `maxsplit` option of `string.split`.
-        :type value: str
-        :type maxsplit: int
-        :return: Lookup filter split into a list.
-        :rtype: list
+        :param request: Django REST framework request.
+        :param queryset: Base queryset.
+        :param view: View.
+        :type request: rest_framework.request.Request
+        :type queryset: elasticsearch_dsl.search.Search
+        :type view: rest_framework.viewsets.ReadOnlyModelViewSet
+        :return: Updated queryset.
+        :rtype: elasticsearch_dsl.search.Search
         """
-        return value.split(SEPARATOR_LOOKUP_FILTER, maxsplit)
+        query_params = self.get_ids_query_params(request)
+        _ids = []
+        for _id in query_params:
+            _values = self.split_lookup_complex_value(_id)
+            _ids += _values
+        return _ids
 
-    @classmethod
-    def split_lookup_complex_value(cls, value, maxsplit=-1):
-        """Split lookup complex value.
+    def filter_queryset(self, request, queryset, view):
+        """Filter the queryset.
 
-        :param value: Value to split.
-        :param maxsplit: The `maxsplit` option of `string.split`.
-        :type value: str
-        :type maxsplit: int
-        :return: Lookup filter split into a list.
-        :rtype: list
+        :param request: Django REST framework request.
+        :param queryset: Base queryset.
+        :param view: View.
+        :type request: rest_framework.request.Request
+        :type queryset: elasticsearch_dsl.search.Search
+        :type view: rest_framework.viewsets.ReadOnlyModelViewSet
+        :return: Updated queryset.
+        :rtype: elasticsearch_dsl.search.Search
         """
-        return value.split(SEPARATOR_LOOKUP_COMPLEX_VALUE, maxsplit)
+        __ids = self.get_ids_values(request, view)
 
-    @classmethod
-    def split_lookup_complex_multiple_value(cls, value, maxsplit=-1):
-        """Split lookup complex multiple value.
+        if __ids:
+            _ids = [_i for _i in __ids if _i]
+            queryset = queryset.query(
+                'ids',
+                **{'values': _ids, 'type': view.mapping}
+            )
 
-        :param value: Value to split.
-        :param maxsplit: The `maxsplit` option of `string.split`.
-        :type value: str
-        :type maxsplit: int
-        :return: Lookup filter split into a list.
-        :rtype: list
-        """
-        return value.split(SEPARATOR_LOOKUP_COMPLEX_MULTIPLE_VALUE, maxsplit)
-
-    @classmethod
-    def apply_filter(cls, queryset, options=None, args=None, kwargs=None):
-        """Apply filter.
-
-        :param queryset:
-        :param options:
-        :param args:
-        :param kwargs:
-        :return:
-        """
-        if args is None:
-            args = []
-        if kwargs is None:
-            kwargs = {}
-        return queryset.filter(*args, **kwargs)
-
-    @classmethod
-    def apply_query(cls, queryset, options=None, args=None, kwargs=None):
-        """Apply query.
-
-        :param queryset:
-        :param options:
-        :param args:
-        :param kwargs:
-        :return:
-        """
-        if args is None:
-            args = []
-        if kwargs is None:
-            kwargs = {}
-        return queryset.query(*args, **kwargs)
+        return queryset

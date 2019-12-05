@@ -49,10 +49,10 @@ v
 áá I
 pythonS1481*Remove the unused local variable "Meta_A". 2
 ŠŠ I
-pythonS1481*Remove the unused local variable "Meta_B". 2
-¬¬ I
 pythonS1481*Remove the unused local variable "Meta_A". 2
-«« p
+«« I
+pythonS1481*Remove the unused local variable "Meta_B". 2
+¬¬ p
 pythonS117TRename this local variable "Foo" to match the regular expression ^[_a-z][a-z0-9_]*$. 2ll u
 pythonS117YRename this local variable "Concrete" to match the regular expression ^[_a-z][a-z0-9_]*$. 2{{ v
 pythonS117XRename this local variable "Derived" to match the regular expression ^[_a-z][a-z0-9_]*$. 2

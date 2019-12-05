@@ -1,1 +1,1 @@
-Å5Avenv/lib/python3.6/site-packages/django/contrib/sites/__init__.py 2pyXh
+Å5Bvenv/lib/python3.6/site-packages/django/contrib/sites/shortcuts.py 2pyXh

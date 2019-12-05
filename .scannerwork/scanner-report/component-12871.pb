@@ -1,1 +1,1 @@
-ÇdFvenv/lib/python3.6/site-packages/macaroonbakery/bakery/_third_party.py 2pyX:h
+Çd@venv/lib/python3.6/site-packages/macaroonbakery/bakery/_error.py 2pyXNh

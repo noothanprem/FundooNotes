@@ -1,1 +1,1 @@
-ÉE6venv/lib/python3.6/site-packages/django/conf/locale/et :ÇEÑE
+ÉE6venv/lib/python3.6/site-packages/django/conf/locale/et :ÇEÖE

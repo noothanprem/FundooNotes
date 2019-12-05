@@ -1,1 +1,1 @@
-Ô°?venv/lib/python3.6/site-packages/lazr/restfulclient/resource.py 2pyXÙh
+Ô°?venv/lib/python3.6/site-packages/lazr/restfulclient/_browser.py 2pyXêh

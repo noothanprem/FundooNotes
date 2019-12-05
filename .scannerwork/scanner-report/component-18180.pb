@@ -1,1 +1,1 @@
-„Ž-venv/lib/python3.6/site-packages/itsdangerous :‚ŽƒŽ…Ž†Ž‡ŽˆŽ‰ŽŠŽ‹Ž—Ž
+„Ž-venv/lib/python3.6/site-packages/itsdangerous :‚Ž…Ž†Ž‡ŽˆŽ‰ŽŠŽ‹ŽŒŽ–Ž

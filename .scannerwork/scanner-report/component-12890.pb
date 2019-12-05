@@ -1,1 +1,1 @@
-Úd@venv/lib/python3.6/site-packages/macaroonbakery/bakery/_codec.py 2pyX®h
+Úd@venv/lib/python3.6/site-packages/macaroonbakery/bakery/_store.py 2pyXNh

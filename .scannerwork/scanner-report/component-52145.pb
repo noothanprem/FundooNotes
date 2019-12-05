@@ -1,1 +1,1 @@
-±—fundoo/settings.py 2pyX‚h
+±—fundoo/setting :°—²—³—´—µ—¶—

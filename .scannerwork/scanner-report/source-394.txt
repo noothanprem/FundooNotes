@@ -4,120 +4,66 @@
 
 from __future__ import absolute_import, division, print_function
 
+import warnings
+
 from cryptography import utils
-from cryptography.hazmat.backends.openssl.utils import _evp_pkey_derive
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.x448 import (
-    X448PrivateKey, X448PublicKey
-)
-
-_X448_KEY_SIZE = 56
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
 
 
-@utils.register_interface(X448PublicKey)
-class _X448PublicKey(object):
-    def __init__(self, backend, evp_pkey):
-        self._backend = backend
-        self._evp_pkey = evp_pkey
-
-    def public_bytes(self, encoding, format):
-        if (
-            encoding is serialization.Encoding.Raw or
-            format is serialization.PublicFormat.Raw
-        ):
-            if (
-                encoding is not serialization.Encoding.Raw or
-                format is not serialization.PublicFormat.Raw
-            ):
-                raise ValueError(
-                    "When using Raw both encoding and format must be Raw"
-                )
-
-            return self._raw_public_bytes()
-
-        if (
-            encoding in serialization._PEM_DER and
-            format is not serialization.PublicFormat.SubjectPublicKeyInfo
-        ):
-            raise ValueError(
-                "format must be SubjectPublicKeyInfo when encoding is PEM or "
-                "DER"
-            )
-
-        return self._backend._public_key_bytes(
-            encoding, format, self, self._evp_pkey, None
+def _evp_pkey_derive(backend, evp_pkey, peer_public_key):
+    ctx = backend._lib.EVP_PKEY_CTX_new(evp_pkey, backend._ffi.NULL)
+    backend.openssl_assert(ctx != backend._ffi.NULL)
+    ctx = backend._ffi.gc(ctx, backend._lib.EVP_PKEY_CTX_free)
+    res = backend._lib.EVP_PKEY_derive_init(ctx)
+    backend.openssl_assert(res == 1)
+    res = backend._lib.EVP_PKEY_derive_set_peer(
+        ctx, peer_public_key._evp_pkey
+    )
+    backend.openssl_assert(res == 1)
+    keylen = backend._ffi.new("size_t *")
+    res = backend._lib.EVP_PKEY_derive(ctx, backend._ffi.NULL, keylen)
+    backend.openssl_assert(res == 1)
+    backend.openssl_assert(keylen[0] > 0)
+    buf = backend._ffi.new("unsigned char[]", keylen[0])
+    res = backend._lib.EVP_PKEY_derive(ctx, buf, keylen)
+    if res != 1:
+        raise ValueError(
+            "Null shared key derived from public/private pair."
         )
 
-    def _raw_public_bytes(self):
-        buf = self._backend._ffi.new("unsigned char []", _X448_KEY_SIZE)
-        buflen = self._backend._ffi.new("size_t *", _X448_KEY_SIZE)
-        res = self._backend._lib.EVP_PKEY_get_raw_public_key(
-            self._evp_pkey, buf, buflen
-        )
-        self._backend.openssl_assert(res == 1)
-        self._backend.openssl_assert(buflen[0] == _X448_KEY_SIZE)
-        return self._backend._ffi.buffer(buf, _X448_KEY_SIZE)[:]
+    return backend._ffi.buffer(buf, keylen[0])[:]
 
 
-@utils.register_interface(X448PrivateKey)
-class _X448PrivateKey(object):
-    def __init__(self, backend, evp_pkey):
-        self._backend = backend
-        self._evp_pkey = evp_pkey
+def _calculate_digest_and_algorithm(backend, data, algorithm):
+    if not isinstance(algorithm, Prehashed):
+        hash_ctx = hashes.Hash(algorithm, backend)
+        hash_ctx.update(data)
+        data = hash_ctx.finalize()
+    else:
+        algorithm = algorithm._algorithm
 
-    def public_key(self):
-        buf = self._backend._ffi.new("unsigned char []", _X448_KEY_SIZE)
-        buflen = self._backend._ffi.new("size_t *", _X448_KEY_SIZE)
-        res = self._backend._lib.EVP_PKEY_get_raw_public_key(
-            self._evp_pkey, buf, buflen
-        )
-        self._backend.openssl_assert(res == 1)
-        self._backend.openssl_assert(buflen[0] == _X448_KEY_SIZE)
-        return self._backend.x448_load_public_bytes(buf)
-
-    def exchange(self, peer_public_key):
-        if not isinstance(peer_public_key, X448PublicKey):
-            raise TypeError("peer_public_key must be X448PublicKey.")
-
-        return _evp_pkey_derive(
-            self._backend, self._evp_pkey, peer_public_key
+    if len(data) != algorithm.digest_size:
+        raise ValueError(
+            "The provided data must be the same length as the hash "
+            "algorithm's digest size."
         )
 
-    def private_bytes(self, encoding, format, encryption_algorithm):
-        if (
-            encoding is serialization.Encoding.Raw or
-            format is serialization.PublicFormat.Raw
-        ):
-            if (
-                format is not serialization.PrivateFormat.Raw or
-                encoding is not serialization.Encoding.Raw or not
-                isinstance(encryption_algorithm, serialization.NoEncryption)
-            ):
-                raise ValueError(
-                    "When using Raw both encoding and format must be Raw "
-                    "and encryption_algorithm must be NoEncryption"
-                )
+    return (data, algorithm)
 
-            return self._raw_private_bytes()
 
-        if (
-            encoding in serialization._PEM_DER and
-            format is not serialization.PrivateFormat.PKCS8
-        ):
-            raise ValueError(
-                "format must be PKCS8 when encoding is PEM or DER"
-            )
-
-        return self._backend._private_key_bytes(
-            encoding, format, encryption_algorithm, self._evp_pkey, None
+def _check_not_prehashed(signature_algorithm):
+    if isinstance(signature_algorithm, Prehashed):
+        raise TypeError(
+            "Prehashed is only supported in the sign and verify methods. "
+            "It cannot be used with signer or verifier."
         )
 
-    def _raw_private_bytes(self):
-        buf = self._backend._ffi.new("unsigned char []", _X448_KEY_SIZE)
-        buflen = self._backend._ffi.new("size_t *", _X448_KEY_SIZE)
-        res = self._backend._lib.EVP_PKEY_get_raw_private_key(
-            self._evp_pkey, buf, buflen
-        )
-        self._backend.openssl_assert(res == 1)
-        self._backend.openssl_assert(buflen[0] == _X448_KEY_SIZE)
-        return self._backend._ffi.buffer(buf, _X448_KEY_SIZE)[:]
+
+def _warn_sign_verify_deprecated():
+    warnings.warn(
+        "signer and verifier have been deprecated. Please use sign "
+        "and verify instead.",
+        utils.PersistentlyDeprecated2017,
+        stacklevel=3
+    )

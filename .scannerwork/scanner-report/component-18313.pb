@@ -1,1 +1,1 @@
-âè7venv/lib/python3.6/site-packages/botocore/docs/utils.py 2pyX∆h
+âè7venv/lib/python3.6/site-packages/botocore/docs/shape.py 2pyXvh

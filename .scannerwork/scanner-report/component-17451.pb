@@ -1,1 +1,1 @@
-«ˆ9venv/lib/python3.6/site-packages/kombu/transport/redis.py 2pyX”	h
+«ˆ8venv/lib/python3.6/site-packages/kombu/transport/qpid.py 2pyXÖh

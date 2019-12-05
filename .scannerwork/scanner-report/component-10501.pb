@@ -1,1 +1,1 @@
-…R1venv/lib/python3.6/site-packages/channels/testing :„R†R‡RR
+…R1venv/lib/python3.6/site-packages/channels/testing :ƒR†R‡RR

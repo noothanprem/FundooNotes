@@ -1,1 +1,1 @@
-£Ù-venv/lib64/python3.6/site-packages/asgi_redis :¢Ù«Ù­Ù³Ù
+£Ù-venv/lib64/python3.6/site-packages/asgi_redis :¢Ù¬Ù­Ù²Ù

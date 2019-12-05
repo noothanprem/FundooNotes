@@ -1,1 +1,1 @@
-†4venv/lib/python3.6/site-packages/redis/connection.py 2pyXð	h
+†2venv/lib/python3.6/site-packages/redis/__init__.py 2pyX*h

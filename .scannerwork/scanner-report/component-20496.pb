@@ -1,1 +1,1 @@
-РаAvenv/lib/python3.6/site-packages/Crypto/SelfTest/Hash/__init__.py 2pyX5h
+РаAvenv/lib/python3.6/site-packages/Crypto/SelfTest/Hash/test_SHA.py 2pyXAh

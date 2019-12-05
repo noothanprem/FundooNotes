@@ -1,1 +1,1 @@
-ó‘=venv/lib64/python3.6/site-packages/lazy_object_proxy/slots.py 2pyXŸh
+ó‘@venv/lib64/python3.6/site-packages/lazy_object_proxy/__init__.py 2pyXh

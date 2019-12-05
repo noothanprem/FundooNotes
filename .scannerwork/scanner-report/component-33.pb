@@ -1,1 +1,1 @@
-!notes/service/label.py 2pyXàh
+!notes/service/note.py 2pyXºh

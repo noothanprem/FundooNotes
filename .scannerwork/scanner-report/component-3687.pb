@@ -1,1 +1,1 @@
-ç;venv/lib/python3.6/site-packages/django/utils/itercompat.py 2pyX	h
+ç;venv/lib/python3.6/site-packages/django/utils/dateformat.py 2pyXðh

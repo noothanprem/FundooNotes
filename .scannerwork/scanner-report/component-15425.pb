@@ -1,1 +1,1 @@
-¡xAvenv/lib/python3.6/site-packages/awscli/customizations/cloudtrail :¿x¬x√x…x
+¡xNvenv/lib/python3.6/site-packages/awscli/customizations/cloudtrail/subscribe.py 2pyXÂh

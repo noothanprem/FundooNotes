@@ -1,1 +1,1 @@
-‰Ë4venv/lib/python3.6/site-packages/cssutils/_codec2.py 2pyXÉh
+‰Ë6venv/lib/python3.6/site-packages/cssutils/tokenize2.py 2pyX™h

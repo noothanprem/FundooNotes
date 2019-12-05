@@ -1,2 +1,1 @@
-Á…Mvenv/lib/python3.6/site-packages/google/protobuf/internal/text_format_test.py 2pyXÐ
-h
+Á…Pvenv/lib/python3.6/site-packages/google/protobuf/internal/more_extensions_pb2.py 2pyX¸h

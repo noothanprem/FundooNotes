@@ -1,1 +1,1 @@
-å8venv/lib/python3.6/site-packages/botocore/docs/method.py 2pyX›h
+å.venv/lib/python3.6/site-packages/botocore/docs :$äæèéêçù†ˆ‰Š‹

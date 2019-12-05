@@ -1,1 +1,1 @@
-èàavenv/lib64/python3.6/site-packages/django_extensions/management/commands/merge_model_instances.py 2pyXﬂh
+èàUvenv/lib64/python3.6/site-packages/django_extensions/management/commands/clean_pyc.py 2pyX.h

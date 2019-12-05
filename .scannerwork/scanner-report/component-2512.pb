@@ -1,1 +1,1 @@
-Ð7venv/lib/python3.6/site-packages/openid/yadis/xrires.py 2pyX|h
+Ð:venv/lib/python3.6/site-packages/openid/yadis/parsehtml.py 2pyXÐh

@@ -1,164 +1,106 @@
-"""Embedded workers for integration tests."""
+"""Create Celery app instances used for testing."""
 from __future__ import absolute_import, unicode_literals
 
-import os
-import threading
+import weakref
 from contextlib import contextmanager
+from copy import deepcopy
 
-from celery import worker
-from celery.result import _set_task_join_will_block, allow_join_result
-from celery.utils.dispatch import Signal
-from celery.utils.nodenames import anon_nodename
+from kombu.utils.imports import symbol_by_name
 
-WORKER_LOGLEVEL = os.environ.get('WORKER_LOGLEVEL', 'error')
+from celery import Celery, _state
 
-test_worker_starting = Signal(
-    name='test_worker_starting',
-    providing_args={},
-)
-test_worker_started = Signal(
-    name='test_worker_started',
-    providing_args={'worker', 'consumer'},
-)
-test_worker_stopped = Signal(
-    name='test_worker_stopped',
-    providing_args={'worker'},
-)
+#: Contains the default configuration values for the test app.
+DEFAULT_TEST_CONFIG = {
+    'worker_hijack_root_logger': False,
+    'worker_log_color': False,
+    'accept_content': {'json'},
+    'enable_utc': True,
+    'timezone': 'UTC',
+    'broker_url': 'memory://',
+    'result_backend': 'cache+memory://',
+    'broker_heartbeat': 0,
+}
 
 
-class TestWorkController(worker.WorkController):
-    """Worker that can synchronize on being fully started."""
+class Trap(object):
+    """Trap that pretends to be an app but raises an exception instead.
+
+    This to protect from code that does not properly pass app instances,
+    then falls back to the current_app.
+    """
+
+    def __getattr__(self, name):
+        raise RuntimeError('Test depends on current_app')
+
+
+class UnitLogging(symbol_by_name(Celery.log_cls)):
+    """Sets up logging for the test application."""
 
     def __init__(self, *args, **kwargs):
-        # type: (*Any, **Any) -> None
-        self._on_started = threading.Event()
-        super(TestWorkController, self).__init__(*args, **kwargs)
-
-    def on_consumer_ready(self, consumer):
-        # type: (celery.worker.consumer.Consumer) -> None
-        """Callback called when the Consumer blueprint is fully started."""
-        self._on_started.set()
-        test_worker_started.send(
-            sender=self.app, worker=self, consumer=consumer)
-
-    def ensure_started(self):
-        # type: () -> None
-        """Wait for worker to be fully up and running.
-
-        Warning:
-            Worker must be started within a thread for this to work,
-            or it will block forever.
-        """
-        self._on_started.wait()
+        super(UnitLogging, self).__init__(*args, **kwargs)
+        self.already_setup = True
 
 
-@contextmanager
-def start_worker(app,
-                 concurrency=1,
-                 pool='solo',
-                 loglevel=WORKER_LOGLEVEL,
-                 logfile=None,
-                 perform_ping_check=True,
-                 ping_task_timeout=10.0,
-                 **kwargs):
-    # type: (Celery, int, str, Union[str, int],
-    #        str, bool, float, **Any) -> # Iterable
-    """Start embedded worker.
-
-    Yields:
-        celery.app.worker.Worker: worker instance.
-    """
-    test_worker_starting.send(sender=app)
-
-    with _start_worker_thread(app,
-                              concurrency=concurrency,
-                              pool=pool,
-                              loglevel=loglevel,
-                              logfile=logfile,
-                              **kwargs) as worker:
-        if perform_ping_check:
-            from .tasks import ping
-            with allow_join_result():
-                assert ping.delay().get(timeout=ping_task_timeout) == 'pong'
-
-        yield worker
-    test_worker_stopped.send(sender=app, worker=worker)
-
-
-@contextmanager
-def _start_worker_thread(app,
-                         concurrency=1,
-                         pool='solo',
-                         loglevel=WORKER_LOGLEVEL,
-                         logfile=None,
-                         WorkController=TestWorkController,
-                         **kwargs):
-    # type: (Celery, int, str, Union[str, int], str, Any, **Any) -> Iterable
-    """Start Celery worker in a thread.
-
-    Yields:
-        celery.worker.Worker: worker instance.
-    """
-    setup_app_for_worker(app, loglevel, logfile)
-    assert 'celery.ping' in app.tasks
-    # Make sure we can connect to the broker
-    with app.connection(hostname=os.environ.get('TEST_BROKER')) as conn:
-        conn.default_channel.queue_declare
-
-    worker = WorkController(
-        app=app,
-        concurrency=concurrency,
-        hostname=anon_nodename(),
-        pool=pool,
-        loglevel=loglevel,
-        logfile=logfile,
-        # not allowed to override TestWorkController.on_consumer_ready
-        ready_callback=None,
-        without_heartbeat=True,
-        without_mingle=True,
-        without_gossip=True,
+def TestApp(name=None, config=None, enable_logging=False, set_as_current=False,
+            log=UnitLogging, backend=None, broker=None, **kwargs):
+    """App used for testing."""
+    from . import tasks  # noqa
+    config = dict(deepcopy(DEFAULT_TEST_CONFIG), **config or {})
+    if broker is not None:
+        config.pop('broker_url', None)
+    if backend is not None:
+        config.pop('result_backend', None)
+    log = None if enable_logging else log
+    test_app = Celery(
+        name or 'celery.tests',
+        set_as_current=set_as_current,
+        log=log,
+        broker=broker,
+        backend=backend,
         **kwargs)
-
-    t = threading.Thread(target=worker.start)
-    t.start()
-    worker.ensure_started()
-    _set_task_join_will_block(False)
-
-    yield worker
-
-    from celery.worker import state
-    state.should_terminate = 0
-    t.join(10)
-    state.should_terminate = None
+    test_app.add_defaults(config)
+    return test_app
 
 
 @contextmanager
-def _start_worker_process(app,
-                          concurrency=1,
-                          pool='solo',
-                          loglevel=WORKER_LOGLEVEL,
-                          logfile=None,
-                          **kwargs):
-    # type (Celery, int, str, Union[int, str], str, **Any) -> Iterable
-    """Start worker in separate process.
+def set_trap(app):
+    """Contextmanager that installs the trap app.
 
-    Yields:
-        celery.app.worker.Worker: worker instance.
+    The trap means that anything trying to use the current or default app
+    will raise an exception.
     """
-    from celery.apps.multi import Cluster, Node
+    trap = Trap()
+    prev_tls = _state._tls
+    _state.set_default_app(trap)
 
-    app.set_current()
-    cluster = Cluster([Node('testworker1@%h')])
-    cluster.start()
+    class NonTLS(object):
+        current_app = trap
+    _state._tls = NonTLS()
+
     yield
-    cluster.stopwait()
+    _state._tls = prev_tls
 
 
-def setup_app_for_worker(app, loglevel, logfile):
-    # type: (Celery, Union[str, int], str) -> None
-    """Setup the app to be used for starting an embedded worker."""
-    app.finalize()
-    app.set_current()
-    app.set_default()
-    type(app.log)._setup = False
-    app.log.setup(loglevel=loglevel, logfile=logfile)
+@contextmanager
+def setup_default_app(app, use_trap=False):
+    """Setup default app for testing.
+
+    Ensures state is clean after the test returns.
+    """
+    prev_current_app = _state.get_current_app()
+    prev_default_app = _state.default_app
+    prev_finalizers = set(_state._on_app_finalizers)
+    prev_apps = weakref.WeakSet(_state._apps)
+
+    if use_trap:
+        with set_trap(app):
+            yield
+    else:
+        yield
+
+    _state.set_default_app(prev_default_app)
+    _state._tls.current_app = prev_current_app
+    if app is not prev_current_app:
+        app.close()
+    _state._on_app_finalizers = prev_finalizers
+    _state._apps = prev_apps

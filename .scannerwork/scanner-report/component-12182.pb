@@ -1,1 +1,1 @@
-–_7venv/lib/python3.6/site-packages/PIL/PalmImagePlugin.py 2pyXíh
+–_0venv/lib/python3.6/site-packages/PIL/ExifTags.py 2pyX¼h

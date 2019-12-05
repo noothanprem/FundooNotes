@@ -1,296 +1,353 @@
 # -*- coding: utf-8 -*-
-"""Logging utilities."""
+"""Functional-style utilties."""
 from __future__ import absolute_import, print_function, unicode_literals
 
-import logging
-import numbers
-import os
+import inspect
 import sys
-import threading
-import traceback
-from contextlib import contextmanager
+from functools import partial
+from itertools import chain, islice
 
-from kombu.five import PY3, values
-from kombu.log import LOG_LEVELS
-from kombu.log import get_logger as _get_logger
-from kombu.utils.encoding import safe_str
+from kombu.utils.functional import (LRUCache, dictfilter, is_list, lazy,
+                                    maybe_evaluate, maybe_list, memoize)
+from vine import promise
 
-from celery.five import string_t, text_t
-
-from .term import colored
+from celery.five import UserList, getfullargspec, range
 
 __all__ = (
-    'ColorFormatter', 'LoggingProxy', 'base_logger',
-    'set_in_sighandler', 'in_sighandler', 'get_logger',
-    'get_task_logger', 'mlevel',
-    'get_multiprocessing_logger', 'reset_multiprocessing_logger',
+    'LRUCache', 'is_list', 'maybe_list', 'memoize', 'mlazy', 'noop',
+    'first', 'firstmethod', 'chunks', 'padlist', 'mattrgetter', 'uniq',
+    'regen', 'dictfilter', 'lazy', 'maybe_evaluate', 'head_from_fun',
+    'maybe', 'fun_accepts_kwargs',
 )
 
-_process_aware = False
-_in_sighandler = False
-
-MP_LOG = os.environ.get('MP_LOG', False)
-
-RESERVED_LOGGER_NAMES = {'celery', 'celery.task'}
-
-# Sets up our logging hierarchy.
-#
-# Every logger in the celery package inherits from the "celery"
-# logger, and every task logger inherits from the "celery.task"
-# logger.
-base_logger = logger = _get_logger('celery')
+FUNHEAD_TEMPLATE = """
+def {fun_name}({fun_args}):
+    return {fun_value}
+"""
 
 
-def set_in_sighandler(value):
-    """Set flag signifiying that we're inside a signal handler."""
-    global _in_sighandler
-    _in_sighandler = value
+class DummyContext(object):
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        pass
 
 
-def iter_open_logger_fds():
-    seen = set()
-    loggers = (list(values(logging.Logger.manager.loggerDict)) +
-               [logging.getLogger(None)])
-    for l in loggers:
-        try:
-            for handler in l.handlers:
-                try:
-                    if handler not in seen:  # pragma: no cover
-                        yield handler.stream
-                        seen.add(handler)
-                except AttributeError:
-                    pass
-        except AttributeError:  # PlaceHolder does not have handlers
-            pass
+class mlazy(lazy):
+    """Memoized lazy evaluation.
 
-
-@contextmanager
-def in_sighandler():
-    """Context that records that we are in a signal handler."""
-    set_in_sighandler(True)
-    try:
-        yield
-    finally:
-        set_in_sighandler(False)
-
-
-def logger_isa(l, p, max=1000):
-    this, seen = l, set()
-    for _ in range(max):
-        if this == p:
-            return True
-        else:
-            if this in seen:
-                raise RuntimeError(
-                    'Logger {0!r} parents recursive'.format(l.name),
-                )
-            seen.add(this)
-            this = this.parent
-            if not this:
-                break
-    else:  # pragma: no cover
-        raise RuntimeError('Logger hierarchy exceeds {0}'.format(max))
-    return False
-
-
-def _using_logger_parent(parent_logger, logger_):
-    if not logger_isa(logger_, parent_logger):
-        logger_.parent = parent_logger
-    return logger_
-
-
-def get_logger(name):
-    """Get logger by name."""
-    l = _get_logger(name)
-    if logging.root not in (l, l.parent) and l is not base_logger:
-        l = _using_logger_parent(base_logger, l)
-    return l
-
-
-task_logger = get_logger('celery.task')
-worker_logger = get_logger('celery.worker')
-
-
-def get_task_logger(name):
-    """Get logger for task module by name."""
-    if name in RESERVED_LOGGER_NAMES:
-        raise RuntimeError('Logger name {0!r} is reserved!'.format(name))
-    return _using_logger_parent(task_logger, get_logger(name))
-
-
-def mlevel(level):
-    """Convert level name/int to log level."""
-    if level and not isinstance(level, numbers.Integral):
-        return LOG_LEVELS[level.upper()]
-    return level
-
-
-class ColorFormatter(logging.Formatter):
-    """Logging formatter that adds colors based on severity."""
-
-    #: Loglevel -> Color mapping.
-    COLORS = colored().names
-    colors = {
-        'DEBUG': COLORS['blue'],
-        'WARNING': COLORS['yellow'],
-        'ERROR': COLORS['red'],
-        'CRITICAL': COLORS['magenta'],
-    }
-
-    def __init__(self, fmt=None, use_color=True):
-        logging.Formatter.__init__(self, fmt)
-        self.use_color = use_color
-
-    def formatException(self, ei):
-        if ei and not isinstance(ei, tuple):
-            ei = sys.exc_info()
-        r = logging.Formatter.formatException(self, ei)
-        if isinstance(r, str) and not PY3:
-            return safe_str(r)
-        return r
-
-    def format(self, record):
-        msg = logging.Formatter.format(self, record)
-        color = self.colors.get(record.levelname)
-
-        # reset exception info later for other handlers...
-        einfo = sys.exc_info() if record.exc_info == 1 else record.exc_info
-
-        if color and self.use_color:
-            try:
-                # safe_str will repr the color object
-                # and color will break on non-string objects
-                # so need to reorder calls based on type.
-                # Issue #427
-                try:
-                    if isinstance(msg, string_t):
-                        return text_t(color(safe_str(msg)))
-                    return safe_str(color(msg))
-                except UnicodeDecodeError:  # pragma: no cover
-                    return safe_str(msg)  # skip colors
-            except Exception as exc:  # pylint: disable=broad-except
-                prev_msg, record.exc_info, record.msg = (
-                    record.msg, 1, '<Unrepresentable {0!r}: {1!r}>'.format(
-                        type(msg), exc
-                    ),
-                )
-                try:
-                    return logging.Formatter.format(self, record)
-                finally:
-                    record.msg, record.exc_info = prev_msg, einfo
-        else:
-            return safe_str(msg)
-
-
-class LoggingProxy(object):
-    """Forward file object to :class:`logging.Logger` instance.
-
-    Arguments:
-        logger (~logging.Logger): Logger instance to forward to.
-        loglevel (int, str): Log level to use when logging messages.
+    The function is only evaluated once, every subsequent access
+    will return the same value.
     """
 
-    mode = 'w'
-    name = None
-    closed = False
-    loglevel = logging.ERROR
-    _thread = threading.local()
+    #: Set to :const:`True` after the object has been evaluated.
+    evaluated = False
+    _value = None
 
-    def __init__(self, logger, loglevel=None):
-        # pylint: disable=redefined-outer-name
-        # Note that the logger global is redefined here, be careful changing.
-        self.logger = logger
-        self.loglevel = mlevel(loglevel or self.logger.level or self.loglevel)
-        self._safewrap_handlers()
+    def evaluate(self):
+        if not self.evaluated:
+            self._value = super(mlazy, self).evaluate()
+            self.evaluated = True
+        return self._value
 
-    def _safewrap_handlers(self):
-        # Make the logger handlers dump internal errors to
-        # :data:`sys.__stderr__` instead of :data:`sys.stderr` to circumvent
-        # infinite loops.
 
-        def wrap_handler(handler):                  # pragma: no cover
+def noop(*args, **kwargs):
+    """No operation.
 
-            class WithSafeHandleError(logging.Handler):
+    Takes any arguments/keyword arguments and does nothing.
+    """
 
-                def handleError(self, record):
-                    try:
-                        traceback.print_exc(None, sys.__stderr__)
-                    except IOError:
-                        pass    # see python issue 5971
 
-            handler.handleError = WithSafeHandleError().handleError
-        return [wrap_handler(h) for h in self.logger.handlers]
+def pass1(arg, *args, **kwargs):
+    """Return the first positional argument."""
+    return arg
 
-    def write(self, data):
-        """Write message to logging object."""
-        if _in_sighandler:
-            return print(safe_str(data), file=sys.__stderr__)
-        if getattr(self._thread, 'recurse_protection', False):
-            # Logger is logging back to this file, so stop recursing.
-            return
-        data = data.strip()
-        if data and not self.closed:
-            self._thread.recurse_protection = True
+
+def evaluate_promises(it):
+    for value in it:
+        if isinstance(value, promise):
+            value = value()
+        yield value
+
+
+def first(predicate, it):
+    """Return the first element in ``it`` that ``predicate`` accepts.
+
+    If ``predicate`` is None it will return the first item that's not
+    :const:`None`.
+    """
+    return next(
+        (v for v in evaluate_promises(it) if (
+            predicate(v) if predicate is not None else v is not None)),
+        None,
+    )
+
+
+def firstmethod(method, on_call=None):
+    """Multiple dispatch.
+
+    Return a function that with a list of instances,
+    finds the first instance that gives a value for the given method.
+
+    The list can also contain lazy instances
+    (:class:`~kombu.utils.functional.lazy`.)
+    """
+    def _matcher(it, *args, **kwargs):
+        for obj in it:
             try:
-                self.logger.log(self.loglevel, safe_str(data))
-            finally:
-                self._thread.recurse_protection = False
-
-    def writelines(self, sequence):
-        # type: (Sequence[str]) -> None
-        """Write list of strings to file.
-
-        The sequence can be any iterable object producing strings.
-        This is equivalent to calling :meth:`write` for each string.
-        """
-        for part in sequence:
-            self.write(part)
-
-    def flush(self):
-        # This object is not buffered so any :meth:`flush`
-        # requests are ignored.
-        pass
-
-    def close(self):
-        # when the object is closed, no write requests are
-        # forwarded to the logging object anymore.
-        self.closed = True
-
-    def isatty(self):
-        """Here for file support."""
-        return False
+                meth = getattr(maybe_evaluate(obj), method)
+                reply = (on_call(meth, *args, **kwargs) if on_call
+                         else meth(*args, **kwargs))
+            except AttributeError:
+                pass
+            else:
+                if reply is not None:
+                    return reply
+    return _matcher
 
 
-def get_multiprocessing_logger():
-    """Return the multiprocessing logger."""
-    try:
-        from billiard import util
-    except ImportError:  # pragma: no cover
-        pass
+def chunks(it, n):
+    """Split an iterator into chunks with `n` elements each.
+
+    Warning:
+        ``it`` must be an actual iterator, if you pass this a
+        concrete sequence will get you repeating elements.
+
+        So ``chunks(iter(range(1000)), 10)`` is fine, but
+        ``chunks(range(1000), 10)`` is not.
+
+    Example:
+        # n == 2
+        >>> x = chunks(iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), 2)
+        >>> list(x)
+        [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9], [10]]
+
+        # n == 3
+        >>> x = chunks(iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), 3)
+        >>> list(x)
+        [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]]
+    """
+    for item in it:
+        yield [item] + list(islice(it, n - 1))
+
+
+def padlist(container, size, default=None):
+    """Pad list with default elements.
+
+    Example:
+        >>> first, last, city = padlist(['George', 'Costanza', 'NYC'], 3)
+        ('George', 'Costanza', 'NYC')
+        >>> first, last, city = padlist(['George', 'Costanza'], 3)
+        ('George', 'Costanza', None)
+        >>> first, last, city, planet = padlist(
+        ...     ['George', 'Costanza', 'NYC'], 4, default='Earth',
+        ... )
+        ('George', 'Costanza', 'NYC', 'Earth')
+    """
+    return list(container)[:size] + [default] * (size - len(container))
+
+
+def mattrgetter(*attrs):
+    """Get attributes, ignoring attribute errors.
+
+    Like :func:`operator.itemgetter` but return :const:`None` on missing
+    attributes instead of raising :exc:`AttributeError`.
+    """
+    return lambda obj: {attr: getattr(obj, attr, None) for attr in attrs}
+
+
+def uniq(it):
+    """Return all unique elements in ``it``, preserving order."""
+    seen = set()
+    return (seen.add(obj) or obj for obj in it if obj not in seen)
+
+
+def regen(it):
+    """Convert iterator to an object that can be consumed multiple times.
+
+    ``Regen`` takes any iterable, and if the object is an
+    generator it will cache the evaluated list on first access,
+    so that the generator can be "consumed" multiple times.
+    """
+    if isinstance(it, (list, tuple)):
+        return it
+    return _regen(it)
+
+
+class _regen(UserList, list):
+    # must be subclass of list so that json can encode.
+
+    def __init__(self, it):
+        # pylint: disable=super-init-not-called
+        # UserList creates a new list and sets .data, so we don't
+        # want to call init here.
+        self.__it = it
+        self.__index = 0
+        self.__consumed = []
+
+    def __reduce__(self):
+        return list, (self.data,)
+
+    def __length_hint__(self):
+        return self.__it.__length_hint__()
+
+    def __iter__(self):
+        return chain(self.__consumed, self.__it)
+
+    def __getitem__(self, index):
+        if index < 0:
+            return self.data[index]
+        try:
+            return self.__consumed[index]
+        except IndexError:
+            try:
+                for _ in range(self.__index, index + 1):
+                    self.__consumed.append(next(self.__it))
+            except StopIteration:
+                raise IndexError(index)
+            else:
+                return self.__consumed[index]
+
+    @property
+    def data(self):
+        try:
+            self.__consumed.extend(list(self.__it))
+        except StopIteration:
+            pass
+        return self.__consumed
+
+
+def _argsfromspec(spec, replace_defaults=True):
+    if spec.defaults:
+        split = len(spec.defaults)
+        defaults = (list(range(len(spec.defaults))) if replace_defaults
+                    else spec.defaults)
+        positional = spec.args[:-split]
+        optional = list(zip(spec.args[-split:], defaults))
     else:
-        return util.get_logger()
+        positional, optional = spec.args, []
 
-
-def reset_multiprocessing_logger():
-    """Reset multiprocessing logging setup."""
-    try:
-        from billiard import util
-    except ImportError:  # pragma: no cover
-        pass
+    varargs = spec.varargs
+    varkw = spec.varkw
+    if spec.kwonlydefaults:
+        split = len(spec.kwonlydefaults)
+        kwonlyargs = spec.kwonlyargs[:-split]
+        if replace_defaults:
+            kwonlyargs_optional = [
+                (kw, i) for i, kw in enumerate(spec.kwonlyargs[-split:])]
+        else:
+            kwonlyargs_optional = list(spec.kwonlydefaults.items())
     else:
-        if hasattr(util, '_logger'):  # pragma: no cover
-            util._logger = None
+        kwonlyargs, kwonlyargs_optional = spec.kwonlyargs, []
+
+    return ', '.join(filter(None, [
+        ', '.join(positional),
+        ', '.join('{0}={1}'.format(k, v) for k, v in optional),
+        '*{0}'.format(varargs) if varargs else None,
+        '*' if (kwonlyargs or kwonlyargs_optional) and not varargs else None,
+        ', '.join(kwonlyargs) if kwonlyargs else None,
+        ', '.join('{0}="{1}"'.format(k, v) for k, v in kwonlyargs_optional),
+        '**{0}'.format(varkw) if varkw else None,
+    ]))
 
 
-def current_process():
-    try:
-        from billiard import process
-    except ImportError:  # pragma: no cover
-        pass
+def head_from_fun(fun, bound=False, debug=False):
+    """Generate signature function from actual function."""
+    # we could use inspect.Signature here, but that implementation
+    # is very slow since it implements the argument checking
+    # in pure-Python.  Instead we use exec to create a new function
+    # with an empty body, meaning it has the same performance as
+    # as just calling a function.
+    is_function = inspect.isfunction(fun)
+    is_callable = hasattr(fun, '__call__')
+    is_cython = fun.__class__.__name__ == 'cython_function_or_method'
+    is_method = inspect.ismethod(fun)
+
+    if not is_function and is_callable and not is_method and not is_cython:
+        name, fun = fun.__class__.__name__, fun.__call__
     else:
-        return process.current_process()
+        name = fun.__name__
+    definition = FUNHEAD_TEMPLATE.format(
+        fun_name=name,
+        fun_args=_argsfromspec(getfullargspec(fun)),
+        fun_value=1,
+    )
+    if debug:  # pragma: no cover
+        print(definition, file=sys.stderr)
+    namespace = {'__name__': fun.__module__}
+    # pylint: disable=exec-used
+    # Tasks are rarely, if ever, created at runtime - exec here is fine.
+    exec(definition, namespace)
+    result = namespace[name]
+    result._source = definition
+    if bound:
+        return partial(result, object())
+    return result
 
 
-def current_process_index(base=1):
-    index = getattr(current_process(), 'index', None)
-    return index + base if index is not None else index
+def arity_greater(fun, n):
+    argspec = getfullargspec(fun)
+    return argspec.varargs or len(argspec.args) > n
+
+
+def fun_takes_argument(name, fun, position=None):
+    spec = getfullargspec(fun)
+    return (
+        spec.varkw or spec.varargs or
+        (len(spec.args) >= position if position else name in spec.args)
+    )
+
+
+if hasattr(inspect, 'signature'):
+    def fun_accepts_kwargs(fun):
+        """Return true if function accepts arbitrary keyword arguments."""
+        return any(
+            p for p in inspect.signature(fun).parameters.values()
+            if p.kind == p.VAR_KEYWORD
+        )
+else:
+    def fun_accepts_kwargs(fun):  # noqa
+        """Return true if function accepts arbitrary keyword arguments."""
+        try:
+            argspec = inspect.getargspec(fun)
+        except TypeError:
+            try:
+                argspec = inspect.getargspec(fun.__call__)
+            except (TypeError, AttributeError):
+                return
+        return not argspec or argspec[2] is not None
+
+
+def maybe(typ, val):
+    """Call typ on value if val is defined."""
+    return typ(val) if val is not None else val
+
+
+def seq_concat_item(seq, item):
+    """Return copy of sequence seq with item added.
+
+    Returns:
+        Sequence: if seq is a tuple, the result will be a tuple,
+           otherwise it depends on the implementation of ``__add__``.
+    """
+    return seq + (item,) if isinstance(seq, tuple) else seq + [item]
+
+
+def seq_concat_seq(a, b):
+    """Concatenate two sequences: ``a + b``.
+
+    Returns:
+        Sequence: The return value will depend on the largest sequence
+            - if b is larger and is a tuple, the return value will be a tuple.
+            - if a is larger and is a list, the return value will be a list,
+    """
+    # find the type of the largest sequence
+    prefer = type(max([a, b], key=len))
+    # convert the smallest list to the type of the largest sequence.
+    if not isinstance(a, prefer):
+        a = prefer(a)
+    if not isinstance(b, prefer):
+        b = prefer(b)
+    return a + b

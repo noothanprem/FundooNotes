@@ -1,1 +1,1 @@
-ä•&venv/lib64/python3.6/site-packages/bs4 :ã•æ•ø•ú•û•ü•„–
+ä•2venv/lib64/python3.6/site-packages/bs4/diagnose.py 2pyXáh

@@ -1,58 +1,76 @@
-import json
-
-from django import forms
 from django.core.exceptions import ValidationError
-from django.utils.translation import gettext_lazy as _
+from django.core.validators import (
+    MaxLengthValidator, MaxValueValidator, MinLengthValidator,
+    MinValueValidator,
+)
+from django.utils.deconstruct import deconstructible
+from django.utils.translation import gettext_lazy as _, ngettext_lazy
 
-__all__ = ['HStoreField']
+
+class ArrayMaxLengthValidator(MaxLengthValidator):
+    message = ngettext_lazy(
+        'List contains %(show_value)d item, it should contain no more than %(limit_value)d.',
+        'List contains %(show_value)d items, it should contain no more than %(limit_value)d.',
+        'limit_value')
 
 
-class HStoreField(forms.CharField):
-    """
-    A field for HStore data which accepts dictionary JSON input.
-    """
-    widget = forms.Textarea
-    default_error_messages = {
-        'invalid_json': _('Could not load JSON data.'),
-        'invalid_format': _('Input must be a JSON dictionary.'),
+class ArrayMinLengthValidator(MinLengthValidator):
+    message = ngettext_lazy(
+        'List contains %(show_value)d item, it should contain no fewer than %(limit_value)d.',
+        'List contains %(show_value)d items, it should contain no fewer than %(limit_value)d.',
+        'limit_value')
+
+
+@deconstructible
+class KeysValidator:
+    """A validator designed for HStore to require/restrict keys."""
+
+    messages = {
+        'missing_keys': _('Some keys were missing: %(keys)s'),
+        'extra_keys': _('Some unknown keys were provided: %(keys)s'),
     }
+    strict = False
 
-    def prepare_value(self, value):
-        if isinstance(value, dict):
-            return json.dumps(value)
-        return value
+    def __init__(self, keys, strict=False, messages=None):
+        self.keys = set(keys)
+        self.strict = strict
+        if messages is not None:
+            self.messages = {**self.messages, **messages}
 
-    def to_python(self, value):
-        if not value:
-            return {}
-        if not isinstance(value, dict):
-            try:
-                value = json.loads(value)
-            except json.JSONDecodeError:
+    def __call__(self, value):
+        keys = set(value)
+        missing_keys = self.keys - keys
+        if missing_keys:
+            raise ValidationError(
+                self.messages['missing_keys'],
+                code='missing_keys',
+                params={'keys': ', '.join(missing_keys)},
+            )
+        if self.strict:
+            extra_keys = keys - self.keys
+            if extra_keys:
                 raise ValidationError(
-                    self.error_messages['invalid_json'],
-                    code='invalid_json',
+                    self.messages['extra_keys'],
+                    code='extra_keys',
+                    params={'keys': ', '.join(extra_keys)},
                 )
 
-        if not isinstance(value, dict):
-            raise ValidationError(
-                self.error_messages['invalid_format'],
-                code='invalid_format',
-            )
+    def __eq__(self, other):
+        return (
+            isinstance(other, self.__class__) and
+            self.keys == other.keys and
+            self.messages == other.messages and
+            self.strict == other.strict
+        )
 
-        # Cast everything to strings for ease.
-        for key, val in value.items():
-            if val is not None:
-                val = str(val)
-            value[key] = val
-        return value
 
-    def has_changed(self, initial, data):
-        """
-        Return True if data differs from initial.
-        """
-        # For purposes of seeing whether something has changed, None is
-        # the same as an empty dict, if the data or initial value we get
-        # is None, replace it w/ {}.
-        initial_value = self.to_python(initial)
-        return super().has_changed(initial_value, data)
+class RangeMaxValueValidator(MaxValueValidator):
+    def compare(self, a, b):
+        return a.upper is None or a.upper > b
+    message = _('Ensure that this range is completely less than or equal to %(limit_value)s.')
+
+
+class RangeMinValueValidator(MinValueValidator):
+    def compare(self, a, b):
+        return a.lower is None or a.lower < b
+    message = _('Ensure that this range is completely greater than or equal to %(limit_value)s.')

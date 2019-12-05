@@ -1,1 +1,1 @@
-ËZ>venv/lib/python3.6/site-packages/faker/providers/company/hr_HR :ÁZ
+ËZ8venv/lib/python3.6/site-packages/faker/providers/company :ÁZ

@@ -1,158 +1,95 @@
-"""
- This module contains functions that generate ctypes prototypes for the
- GDAL routines.
-"""
-from ctypes import POINTER, c_char_p, c_double, c_int, c_int64, c_void_p
-from functools import partial
-
-from django.contrib.gis.gdal.prototypes.errcheck import (
-    check_arg_errcode, check_const_string, check_errcode, check_geom,
-    check_geom_offset, check_pointer, check_srs, check_str_arg, check_string,
-)
+from django.contrib.gis.gdal.error import GDALException
 
 
-class gdal_char_p(c_char_p):
-    pass
+class OGRGeomType:
+    "Encapsulate OGR Geometry Types."
 
+    wkb25bit = -2147483648
 
-def double_output(func, argtypes, errcheck=False, strarg=False, cpl=False):
-    "Generate a ctypes function that returns a double value."
-    func.argtypes = argtypes
-    func.restype = c_double
-    if errcheck:
-        func.errcheck = partial(check_arg_errcode, cpl=cpl)
-    if strarg:
-        func.errcheck = check_str_arg
-    return func
+    # Dictionary of acceptable OGRwkbGeometryType s and their string names.
+    _types = {
+        0: 'Unknown',
+        1: 'Point',
+        2: 'LineString',
+        3: 'Polygon',
+        4: 'MultiPoint',
+        5: 'MultiLineString',
+        6: 'MultiPolygon',
+        7: 'GeometryCollection',
+        100: 'None',
+        101: 'LinearRing',
+        102: 'PointZ',
+        1 + wkb25bit: 'Point25D',
+        2 + wkb25bit: 'LineString25D',
+        3 + wkb25bit: 'Polygon25D',
+        4 + wkb25bit: 'MultiPoint25D',
+        5 + wkb25bit: 'MultiLineString25D',
+        6 + wkb25bit: 'MultiPolygon25D',
+        7 + wkb25bit: 'GeometryCollection25D',
+    }
+    # Reverse type dictionary, keyed by lowercase of the name.
+    _str_types = {v.lower(): k for k, v in _types.items()}
 
+    def __init__(self, type_input):
+        "Figure out the correct OGR Type based upon the input."
+        if isinstance(type_input, OGRGeomType):
+            num = type_input.num
+        elif isinstance(type_input, str):
+            type_input = type_input.lower()
+            if type_input == 'geometry':
+                type_input = 'unknown'
+            num = self._str_types.get(type_input)
+            if num is None:
+                raise GDALException('Invalid OGR String Type "%s"' % type_input)
+        elif isinstance(type_input, int):
+            if type_input not in self._types:
+                raise GDALException('Invalid OGR Integer Type: %d' % type_input)
+            num = type_input
+        else:
+            raise TypeError('Invalid OGR input type given.')
 
-def geom_output(func, argtypes, offset=None):
-    """
-    Generate a function that returns a Geometry either by reference
-    or directly (if the return_geom keyword is set to True).
-    """
-    # Setting the argument types
-    func.argtypes = argtypes
+        # Setting the OGR geometry type number.
+        self.num = num
 
-    if not offset:
-        # When a geometry pointer is directly returned.
-        func.restype = c_void_p
-        func.errcheck = check_geom
-    else:
-        # Error code returned, geometry is returned by-reference.
-        func.restype = c_int
+    def __str__(self):
+        "Return the value of the name property."
+        return self.name
 
-        def geomerrcheck(result, func, cargs):
-            return check_geom_offset(result, func, cargs, offset)
-        func.errcheck = geomerrcheck
+    def __eq__(self, other):
+        """
+        Do an equivalence test on the OGR type with the given
+        other OGRGeomType, the short-hand string, or the integer.
+        """
+        if isinstance(other, OGRGeomType):
+            return self.num == other.num
+        elif isinstance(other, str):
+            return self.name.lower() == other.lower()
+        elif isinstance(other, int):
+            return self.num == other
+        else:
+            return False
 
-    return func
+    @property
+    def name(self):
+        "Return a short-hand string form of the OGR Geometry type."
+        return self._types[self.num]
 
+    @property
+    def django(self):
+        "Return the Django GeometryField for this OGR Type."
+        s = self.name.replace('25D', '')
+        if s in ('LinearRing', 'None'):
+            return None
+        elif s == 'Unknown':
+            s = 'Geometry'
+        elif s == 'PointZ':
+            s = 'Point'
+        return s + 'Field'
 
-def int_output(func, argtypes, errcheck=None):
-    "Generate a ctypes function that returns an integer value."
-    func.argtypes = argtypes
-    func.restype = c_int
-    if errcheck:
-        func.errcheck = errcheck
-    return func
-
-
-def int64_output(func, argtypes):
-    "Generate a ctypes function that returns a 64-bit integer value."
-    func.argtypes = argtypes
-    func.restype = c_int64
-    return func
-
-
-def srs_output(func, argtypes):
-    """
-    Generate a ctypes prototype for the given function with
-    the given C arguments that returns a pointer to an OGR
-    Spatial Reference System.
-    """
-    func.argtypes = argtypes
-    func.restype = c_void_p
-    func.errcheck = check_srs
-    return func
-
-
-def const_string_output(func, argtypes, offset=None, decoding=None, cpl=False):
-    func.argtypes = argtypes
-    if offset:
-        func.restype = c_int
-    else:
-        func.restype = c_char_p
-
-    def _check_const(result, func, cargs):
-        res = check_const_string(result, func, cargs, offset=offset, cpl=cpl)
-        if res and decoding:
-            res = res.decode(decoding)
-        return res
-    func.errcheck = _check_const
-
-    return func
-
-
-def string_output(func, argtypes, offset=-1, str_result=False, decoding=None):
-    """
-    Generate a ctypes prototype for the given function with the
-    given argument types that returns a string from a GDAL pointer.
-    The `const` flag indicates whether the allocated pointer should
-    be freed via the GDAL library routine VSIFree -- but only applies
-    only when `str_result` is True.
-    """
-    func.argtypes = argtypes
-    if str_result:
-        # Use subclass of c_char_p so the error checking routine
-        # can free the memory at the pointer's address.
-        func.restype = gdal_char_p
-    else:
-        # Error code is returned
-        func.restype = c_int
-
-    # Dynamically defining our error-checking function with the
-    # given offset.
-    def _check_str(result, func, cargs):
-        res = check_string(result, func, cargs, offset=offset, str_result=str_result)
-        if res and decoding:
-            res = res.decode(decoding)
-        return res
-    func.errcheck = _check_str
-    return func
-
-
-def void_output(func, argtypes, errcheck=True, cpl=False):
-    """
-    For functions that don't only return an error code that needs to
-    be examined.
-    """
-    if argtypes:
-        func.argtypes = argtypes
-    if errcheck:
-        # `errcheck` keyword may be set to False for routines that
-        # return void, rather than a status code.
-        func.restype = c_int
-        func.errcheck = partial(check_errcode, cpl=cpl)
-    else:
-        func.restype = None
-
-    return func
-
-
-def voidptr_output(func, argtypes, errcheck=True):
-    "For functions that return c_void_p."
-    func.argtypes = argtypes
-    func.restype = c_void_p
-    if errcheck:
-        func.errcheck = check_pointer
-    return func
-
-
-def chararray_output(func, argtypes, errcheck=True):
-    """For functions that return a c_char_p array."""
-    func.argtypes = argtypes
-    func.restype = POINTER(c_char_p)
-    if errcheck:
-        func.errcheck = check_pointer
-    return func
+    def to_multi(self):
+        """
+        Transform Point, LineString, Polygon, and their 25D equivalents
+        to their Multi... counterpart.
+        """
+        if self.name.startswith(('Point', 'LineString', 'Polygon')):
+            self.num += 3

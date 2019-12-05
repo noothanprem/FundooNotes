@@ -1,712 +1,932 @@
 # coding: utf-8
 
 """
-Miscellaneous data helpers, including functions for converting integers to and
-from bytes and UTC timezone. Exports the following items:
+ASN.1 type classes for cryptographic message syntax (CMS). Structures are also
+compatible with PKCS#7. Exports the following items:
 
- - OrderedDict()
- - int_from_bytes()
- - int_to_bytes()
- - timezone.utc
- - inet_ntop()
- - inet_pton()
- - uri_to_iri()
- - iri_to_uri()
+ - AuthenticatedData()
+ - AuthEnvelopedData()
+ - CompressedData()
+ - ContentInfo()
+ - DigestedData()
+ - EncryptedData()
+ - EnvelopedData()
+ - SignedAndEnvelopedData()
+ - SignedData()
+
+Other type classes are defined that help compose the types listed above.
+
+Most CMS structures in the wild are formatted as ContentInfo encapsulating one of the other types.
 """
 
 from __future__ import unicode_literals, division, absolute_import, print_function
 
-import math
-import sys
-from datetime import datetime, date, time
+try:
+    import zlib
+except (ImportError):
+    zlib = None
 
-from ._errors import unwrap
-from ._iri import iri_to_uri, uri_to_iri  # noqa
-from ._ordereddict import OrderedDict  # noqa
-from ._types import type_name
+from .algos import (
+    _ForceNullParameters,
+    DigestAlgorithm,
+    EncryptionAlgorithm,
+    HmacAlgorithm,
+    KdfAlgorithm,
+    SignedDigestAlgorithm,
+)
+from .core import (
+    Any,
+    BitString,
+    Choice,
+    Enumerated,
+    GeneralizedTime,
+    Integer,
+    ObjectIdentifier,
+    OctetBitString,
+    OctetString,
+    ParsableOctetString,
+    Sequence,
+    SequenceOf,
+    SetOf,
+    UTCTime,
+    UTF8String,
+)
+from .crl import CertificateList
+from .keys import PublicKeyInfo
+from .ocsp import OCSPResponse
+from .x509 import Attributes, Certificate, Extensions, GeneralName, GeneralNames, Name
 
-if sys.platform == 'win32':
-    from ._inet import inet_ntop, inet_pton
-else:
-    from socket import inet_ntop, inet_pton  # noqa
+
+# These structures are taken from
+# ftp://ftp.rsasecurity.com/pub/pkcs/ascii/pkcs-6.asc
+
+class ExtendedCertificateInfo(Sequence):
+    _fields = [
+        ('version', Integer),
+        ('certificate', Certificate),
+        ('attributes', Attributes),
+    ]
 
 
-# Python 2
-if sys.version_info <= (3,):
+class ExtendedCertificate(Sequence):
+    _fields = [
+        ('extended_certificate_info', ExtendedCertificateInfo),
+        ('signature_algorithm', SignedDigestAlgorithm),
+        ('signature', OctetBitString),
+    ]
 
-    from datetime import timedelta, tzinfo
 
-    py2 = True
+# These structures are taken from https://tools.ietf.org/html/rfc5652,
+# https://tools.ietf.org/html/rfc5083, http://tools.ietf.org/html/rfc2315,
+# https://tools.ietf.org/html/rfc5940, https://tools.ietf.org/html/rfc3274,
+# https://tools.ietf.org/html/rfc3281
 
-    def int_to_bytes(value, signed=False, width=None):
+
+class CMSVersion(Integer):
+    _map = {
+        0: 'v0',
+        1: 'v1',
+        2: 'v2',
+        3: 'v3',
+        4: 'v4',
+        5: 'v5',
+    }
+
+
+class CMSAttributeType(ObjectIdentifier):
+    _map = {
+        '1.2.840.113549.1.9.3': 'content_type',
+        '1.2.840.113549.1.9.4': 'message_digest',
+        '1.2.840.113549.1.9.5': 'signing_time',
+        '1.2.840.113549.1.9.6': 'counter_signature',
+        # https://tools.ietf.org/html/rfc3161#page-20
+        '1.2.840.113549.1.9.16.2.14': 'signature_time_stamp_token',
+        # https://tools.ietf.org/html/rfc6211#page-5
+        '1.2.840.113549.1.9.52': 'cms_algorithm_protection',
+    }
+
+
+class Time(Choice):
+    _alternatives = [
+        ('utc_time', UTCTime),
+        ('generalized_time', GeneralizedTime),
+    ]
+
+
+class ContentType(ObjectIdentifier):
+    _map = {
+        '1.2.840.113549.1.7.1': 'data',
+        '1.2.840.113549.1.7.2': 'signed_data',
+        '1.2.840.113549.1.7.3': 'enveloped_data',
+        '1.2.840.113549.1.7.4': 'signed_and_enveloped_data',
+        '1.2.840.113549.1.7.5': 'digested_data',
+        '1.2.840.113549.1.7.6': 'encrypted_data',
+        '1.2.840.113549.1.9.16.1.2': 'authenticated_data',
+        '1.2.840.113549.1.9.16.1.9': 'compressed_data',
+        '1.2.840.113549.1.9.16.1.23': 'authenticated_enveloped_data',
+    }
+
+
+class CMSAlgorithmProtection(Sequence):
+    _fields = [
+        ('digest_algorithm', DigestAlgorithm),
+        ('signature_algorithm', SignedDigestAlgorithm, {'implicit': 1, 'optional': True}),
+        ('mac_algorithm', HmacAlgorithm, {'implicit': 2, 'optional': True}),
+    ]
+
+
+class SetOfContentType(SetOf):
+    _child_spec = ContentType
+
+
+class SetOfOctetString(SetOf):
+    _child_spec = OctetString
+
+
+class SetOfTime(SetOf):
+    _child_spec = Time
+
+
+class SetOfAny(SetOf):
+    _child_spec = Any
+
+
+class SetOfCMSAlgorithmProtection(SetOf):
+    _child_spec = CMSAlgorithmProtection
+
+
+class CMSAttribute(Sequence):
+    _fields = [
+        ('type', CMSAttributeType),
+        ('values', None),
+    ]
+
+    _oid_specs = {}
+
+    def _values_spec(self):
+        return self._oid_specs.get(self['type'].native, SetOfAny)
+
+    _spec_callbacks = {
+        'values': _values_spec
+    }
+
+
+class CMSAttributes(SetOf):
+    _child_spec = CMSAttribute
+
+
+class IssuerSerial(Sequence):
+    _fields = [
+        ('issuer', GeneralNames),
+        ('serial', Integer),
+        ('issuer_uid', OctetBitString, {'optional': True}),
+    ]
+
+
+class AttCertVersion(Integer):
+    _map = {
+        0: 'v1',
+        1: 'v2',
+    }
+
+
+class AttCertSubject(Choice):
+    _alternatives = [
+        ('base_certificate_id', IssuerSerial, {'explicit': 0}),
+        ('subject_name', GeneralNames, {'explicit': 1}),
+    ]
+
+
+class AttCertValidityPeriod(Sequence):
+    _fields = [
+        ('not_before_time', GeneralizedTime),
+        ('not_after_time', GeneralizedTime),
+    ]
+
+
+class AttributeCertificateInfoV1(Sequence):
+    _fields = [
+        ('version', AttCertVersion, {'default': 'v1'}),
+        ('subject', AttCertSubject),
+        ('issuer', GeneralNames),
+        ('signature', SignedDigestAlgorithm),
+        ('serial_number', Integer),
+        ('att_cert_validity_period', AttCertValidityPeriod),
+        ('attributes', Attributes),
+        ('issuer_unique_id', OctetBitString, {'optional': True}),
+        ('extensions', Extensions, {'optional': True}),
+    ]
+
+
+class AttributeCertificateV1(Sequence):
+    _fields = [
+        ('ac_info', AttributeCertificateInfoV1),
+        ('signature_algorithm', SignedDigestAlgorithm),
+        ('signature', OctetBitString),
+    ]
+
+
+class DigestedObjectType(Enumerated):
+    _map = {
+        0: 'public_key',
+        1: 'public_key_cert',
+        2: 'other_objy_types',
+    }
+
+
+class ObjectDigestInfo(Sequence):
+    _fields = [
+        ('digested_object_type', DigestedObjectType),
+        ('other_object_type_id', ObjectIdentifier, {'optional': True}),
+        ('digest_algorithm', DigestAlgorithm),
+        ('object_digest', OctetBitString),
+    ]
+
+
+class Holder(Sequence):
+    _fields = [
+        ('base_certificate_id', IssuerSerial, {'implicit': 0, 'optional': True}),
+        ('entity_name', GeneralNames, {'implicit': 1, 'optional': True}),
+        ('object_digest_info', ObjectDigestInfo, {'implicit': 2, 'optional': True}),
+    ]
+
+
+class V2Form(Sequence):
+    _fields = [
+        ('issuer_name', GeneralNames, {'optional': True}),
+        ('base_certificate_id', IssuerSerial, {'explicit': 0, 'optional': True}),
+        ('object_digest_info', ObjectDigestInfo, {'explicit': 1, 'optional': True}),
+    ]
+
+
+class AttCertIssuer(Choice):
+    _alternatives = [
+        ('v1_form', GeneralNames),
+        ('v2_form', V2Form, {'explicit': 0}),
+    ]
+
+
+class IetfAttrValue(Choice):
+    _alternatives = [
+        ('octets', OctetString),
+        ('oid', ObjectIdentifier),
+        ('string', UTF8String),
+    ]
+
+
+class IetfAttrValues(SequenceOf):
+    _child_spec = IetfAttrValue
+
+
+class IetfAttrSyntax(Sequence):
+    _fields = [
+        ('policy_authority', GeneralNames, {'implicit': 0, 'optional': True}),
+        ('values', IetfAttrValues),
+    ]
+
+
+class SetOfIetfAttrSyntax(SetOf):
+    _child_spec = IetfAttrSyntax
+
+
+class SvceAuthInfo(Sequence):
+    _fields = [
+        ('service', GeneralName),
+        ('ident', GeneralName),
+        ('auth_info', OctetString, {'optional': True}),
+    ]
+
+
+class SetOfSvceAuthInfo(SetOf):
+    _child_spec = SvceAuthInfo
+
+
+class RoleSyntax(Sequence):
+    _fields = [
+        ('role_authority', GeneralNames, {'implicit': 0, 'optional': True}),
+        ('role_name', GeneralName, {'implicit': 1}),
+    ]
+
+
+class SetOfRoleSyntax(SetOf):
+    _child_spec = RoleSyntax
+
+
+class ClassList(BitString):
+    _map = {
+        0: 'unmarked',
+        1: 'unclassified',
+        2: 'restricted',
+        3: 'confidential',
+        4: 'secret',
+        5: 'top_secret',
+    }
+
+
+class SecurityCategory(Sequence):
+    _fields = [
+        ('type', ObjectIdentifier, {'implicit': 0}),
+        ('value', Any, {'implicit': 1}),
+    ]
+
+
+class SetOfSecurityCategory(SetOf):
+    _child_spec = SecurityCategory
+
+
+class Clearance(Sequence):
+    _fields = [
+        ('policy_id', ObjectIdentifier, {'implicit': 0}),
+        ('class_list', ClassList, {'implicit': 1, 'default': 'unclassified'}),
+        ('security_categories', SetOfSecurityCategory, {'implicit': 2, 'optional': True}),
+    ]
+
+
+class SetOfClearance(SetOf):
+    _child_spec = Clearance
+
+
+class BigTime(Sequence):
+    _fields = [
+        ('major', Integer),
+        ('fractional_seconds', Integer),
+        ('sign', Integer, {'optional': True}),
+    ]
+
+
+class LeapData(Sequence):
+    _fields = [
+        ('leap_time', BigTime),
+        ('action', Integer),
+    ]
+
+
+class SetOfLeapData(SetOf):
+    _child_spec = LeapData
+
+
+class TimingMetrics(Sequence):
+    _fields = [
+        ('ntp_time', BigTime),
+        ('offset', BigTime),
+        ('delay', BigTime),
+        ('expiration', BigTime),
+        ('leap_event', SetOfLeapData, {'optional': True}),
+    ]
+
+
+class SetOfTimingMetrics(SetOf):
+    _child_spec = TimingMetrics
+
+
+class TimingPolicy(Sequence):
+    _fields = [
+        ('policy_id', SequenceOf, {'spec': ObjectIdentifier}),
+        ('max_offset', BigTime, {'explicit': 0, 'optional': True}),
+        ('max_delay', BigTime, {'explicit': 1, 'optional': True}),
+    ]
+
+
+class SetOfTimingPolicy(SetOf):
+    _child_spec = TimingPolicy
+
+
+class AttCertAttributeType(ObjectIdentifier):
+    _map = {
+        '1.3.6.1.5.5.7.10.1': 'authentication_info',
+        '1.3.6.1.5.5.7.10.2': 'access_identity',
+        '1.3.6.1.5.5.7.10.3': 'charging_identity',
+        '1.3.6.1.5.5.7.10.4': 'group',
+        '2.5.4.72': 'role',
+        '2.5.4.55': 'clearance',
+        '1.3.6.1.4.1.601.10.4.1': 'timing_metrics',
+        '1.3.6.1.4.1.601.10.4.2': 'timing_policy',
+    }
+
+
+class AttCertAttribute(Sequence):
+    _fields = [
+        ('type', AttCertAttributeType),
+        ('values', None),
+    ]
+
+    _oid_specs = {
+        'authentication_info': SetOfSvceAuthInfo,
+        'access_identity': SetOfSvceAuthInfo,
+        'charging_identity': SetOfIetfAttrSyntax,
+        'group': SetOfIetfAttrSyntax,
+        'role': SetOfRoleSyntax,
+        'clearance': SetOfClearance,
+        'timing_metrics': SetOfTimingMetrics,
+        'timing_policy': SetOfTimingPolicy,
+    }
+
+    def _values_spec(self):
+        return self._oid_specs.get(self['type'].native, SetOfAny)
+
+    _spec_callbacks = {
+        'values': _values_spec
+    }
+
+
+class AttCertAttributes(SequenceOf):
+    _child_spec = AttCertAttribute
+
+
+class AttributeCertificateInfoV2(Sequence):
+    _fields = [
+        ('version', AttCertVersion),
+        ('holder', Holder),
+        ('issuer', AttCertIssuer),
+        ('signature', SignedDigestAlgorithm),
+        ('serial_number', Integer),
+        ('att_cert_validity_period', AttCertValidityPeriod),
+        ('attributes', AttCertAttributes),
+        ('issuer_unique_id', OctetBitString, {'optional': True}),
+        ('extensions', Extensions, {'optional': True}),
+    ]
+
+
+class AttributeCertificateV2(Sequence):
+    # Handle the situation where a V2 cert is encoded as V1
+    _bad_tag = 1
+
+    _fields = [
+        ('ac_info', AttributeCertificateInfoV2),
+        ('signature_algorithm', SignedDigestAlgorithm),
+        ('signature', OctetBitString),
+    ]
+
+
+class OtherCertificateFormat(Sequence):
+    _fields = [
+        ('other_cert_format', ObjectIdentifier),
+        ('other_cert', Any),
+    ]
+
+
+class CertificateChoices(Choice):
+    _alternatives = [
+        ('certificate', Certificate),
+        ('extended_certificate', ExtendedCertificate, {'implicit': 0}),
+        ('v1_attr_cert', AttributeCertificateV1, {'implicit': 1}),
+        ('v2_attr_cert', AttributeCertificateV2, {'implicit': 2}),
+        ('other', OtherCertificateFormat, {'implicit': 3}),
+    ]
+
+    def validate(self, class_, tag, contents):
         """
-        Converts an integer to a byte string
+        Ensures that the class and tag specified exist as an alternative. This
+        custom version fixes parsing broken encodings there a V2 attribute
+        # certificate is encoded as a V1
 
-        :param value:
-            The integer to convert
+        :param class_:
+            The integer class_ from the encoded value header
 
-        :param signed:
-            If the byte string should be encoded using two's complement
+        :param tag:
+            The integer tag from the encoded value header
 
-        :param width:
-            None == auto, otherwise an integer of the byte width for the return
-            value
+        :param contents:
+            A byte string of the contents of the value - used when the object
+            is explicitly tagged
 
-        :return:
-            A byte string
+        :raises:
+            ValueError - when value is not a valid alternative
         """
 
-        # Handle negatives in two's complement
-        is_neg = False
-        if signed and value < 0:
-            is_neg = True
-            bits = int(math.ceil(len('%x' % abs(value)) / 2.0) * 8)
-            value = (value + (1 << bits)) % (1 << bits)
-
-        hex_str = '%x' % value
-        if len(hex_str) & 1:
-            hex_str = '0' + hex_str
-
-        output = hex_str.decode('hex')
-
-        if signed and not is_neg and ord(output[0:1]) & 0x80:
-            output = b'\x00' + output
-
-        if width is not None:
-            if is_neg:
-                pad_char = b'\xFF'
-            else:
-                pad_char = b'\x00'
-            output = (pad_char * (width - len(output))) + output
-        elif is_neg and ord(output[0:1]) & 0x80 == 0:
-            output = b'\xFF' + output
-
-        return output
-
-    def int_from_bytes(value, signed=False):
-        """
-        Converts a byte string to an integer
-
-        :param value:
-            The byte string to convert
-
-        :param signed:
-            If the byte string should be interpreted using two's complement
-
-        :return:
-            An integer
-        """
-
-        if value == b'':
-            return 0
-
-        num = long(value.encode("hex"), 16)  # noqa
-
-        if not signed:
-            return num
-
-        # Check for sign bit and handle two's complement
-        if ord(value[0:1]) & 0x80:
-            bit_len = len(value) * 8
-            return num - (1 << bit_len)
-
-        return num
-
-    class utc(tzinfo):  # noqa
-
-        def tzname(self, _):
-            return b'UTC+00:00'
-
-        def utcoffset(self, _):
-            return timedelta(0)
-
-        def dst(self, _):
-            return timedelta(0)
-
-    class timezone():  # noqa
-
-        utc = utc()
+        super(CertificateChoices, self).validate(class_, tag, contents)
+        if self._choice == 2:
+            if AttCertVersion.load(Sequence.load(contents)[0].dump()).native == 'v2':
+                self._choice = 3
 
 
-# Python 3
-else:
-
-    from datetime import timezone  # noqa
-
-    py2 = False
-
-    def int_to_bytes(value, signed=False, width=None):
-        """
-        Converts an integer to a byte string
-
-        :param value:
-            The integer to convert
-
-        :param signed:
-            If the byte string should be encoded using two's complement
-
-        :param width:
-            None == auto, otherwise an integer of the byte width for the return
-            value
-
-        :return:
-            A byte string
-        """
-
-        if width is None:
-            if signed:
-                if value < 0:
-                    bits_required = abs(value + 1).bit_length()
-                else:
-                    bits_required = value.bit_length()
-                if bits_required % 8 == 0:
-                    bits_required += 1
-            else:
-                bits_required = value.bit_length()
-            width = math.ceil(bits_required / 8) or 1
-        return value.to_bytes(width, byteorder='big', signed=signed)
-
-    def int_from_bytes(value, signed=False):
-        """
-        Converts a byte string to an integer
-
-        :param value:
-            The byte string to convert
-
-        :param signed:
-            If the byte string should be interpreted using two's complement
-
-        :return:
-            An integer
-        """
-
-        return int.from_bytes(value, 'big', signed=signed)
+class CertificateSet(SetOf):
+    _child_spec = CertificateChoices
 
 
-_DAYS_PER_MONTH_YEAR_0 = {
-    1: 31,
-    2: 29,  # Year 0 was a leap year
-    3: 31,
-    4: 30,
-    5: 31,
-    6: 30,
-    7: 31,
-    8: 31,
-    9: 30,
-    10: 31,
-    11: 30,
-    12: 31
+class ContentInfo(Sequence):
+    _fields = [
+        ('content_type', ContentType),
+        ('content', Any, {'explicit': 0, 'optional': True}),
+    ]
+
+    _oid_pair = ('content_type', 'content')
+    _oid_specs = {}
+
+
+class SetOfContentInfo(SetOf):
+    _child_spec = ContentInfo
+
+
+class EncapsulatedContentInfo(Sequence):
+    _fields = [
+        ('content_type', ContentType),
+        ('content', ParsableOctetString, {'explicit': 0, 'optional': True}),
+    ]
+
+    _oid_pair = ('content_type', 'content')
+    _oid_specs = {}
+
+
+class IssuerAndSerialNumber(Sequence):
+    _fields = [
+        ('issuer', Name),
+        ('serial_number', Integer),
+    ]
+
+
+class SignerIdentifier(Choice):
+    _alternatives = [
+        ('issuer_and_serial_number', IssuerAndSerialNumber),
+        ('subject_key_identifier', OctetString, {'implicit': 0}),
+    ]
+
+
+class DigestAlgorithms(SetOf):
+    _child_spec = DigestAlgorithm
+
+
+class CertificateRevocationLists(SetOf):
+    _child_spec = CertificateList
+
+
+class SCVPReqRes(Sequence):
+    _fields = [
+        ('request', ContentInfo, {'explicit': 0, 'optional': True}),
+        ('response', ContentInfo),
+    ]
+
+
+class OtherRevInfoFormatId(ObjectIdentifier):
+    _map = {
+        '1.3.6.1.5.5.7.16.2': 'ocsp_response',
+        '1.3.6.1.5.5.7.16.4': 'scvp',
+    }
+
+
+class OtherRevocationInfoFormat(Sequence):
+    _fields = [
+        ('other_rev_info_format', OtherRevInfoFormatId),
+        ('other_rev_info', Any),
+    ]
+
+    _oid_pair = ('other_rev_info_format', 'other_rev_info')
+    _oid_specs = {
+        'ocsp_response': OCSPResponse,
+        'scvp': SCVPReqRes,
+    }
+
+
+class RevocationInfoChoice(Choice):
+    _alternatives = [
+        ('crl', CertificateList),
+        ('other', OtherRevocationInfoFormat, {'implicit': 1}),
+    ]
+
+
+class RevocationInfoChoices(SetOf):
+    _child_spec = RevocationInfoChoice
+
+
+class SignerInfo(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('sid', SignerIdentifier),
+        ('digest_algorithm', DigestAlgorithm),
+        ('signed_attrs', CMSAttributes, {'implicit': 0, 'optional': True}),
+        ('signature_algorithm', SignedDigestAlgorithm),
+        ('signature', OctetString),
+        ('unsigned_attrs', CMSAttributes, {'implicit': 1, 'optional': True}),
+    ]
+
+
+class SignerInfos(SetOf):
+    _child_spec = SignerInfo
+
+
+class SignedData(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('digest_algorithms', DigestAlgorithms),
+        ('encap_content_info', None),
+        ('certificates', CertificateSet, {'implicit': 0, 'optional': True}),
+        ('crls', RevocationInfoChoices, {'implicit': 1, 'optional': True}),
+        ('signer_infos', SignerInfos),
+    ]
+
+    def _encap_content_info_spec(self):
+        # If the encap_content_info is version v1, then this could be a PKCS#7
+        # structure, or a CMS structure. CMS wraps the encoded value in an
+        # Octet String tag.
+
+        # If the version is greater than 1, it is definite CMS
+        if self['version'].native != 'v1':
+            return EncapsulatedContentInfo
+
+        # Otherwise, the ContentInfo spec from PKCS#7 will be compatible with
+        # CMS v1 (which only allows Data, an Octet String) and PKCS#7, which
+        # allows Any
+        return ContentInfo
+
+    _spec_callbacks = {
+        'encap_content_info': _encap_content_info_spec
+    }
+
+
+class OriginatorInfo(Sequence):
+    _fields = [
+        ('certs', CertificateSet, {'implicit': 0, 'optional': True}),
+        ('crls', RevocationInfoChoices, {'implicit': 1, 'optional': True}),
+    ]
+
+
+class RecipientIdentifier(Choice):
+    _alternatives = [
+        ('issuer_and_serial_number', IssuerAndSerialNumber),
+        ('subject_key_identifier', OctetString, {'implicit': 0}),
+    ]
+
+
+class KeyEncryptionAlgorithmId(ObjectIdentifier):
+    _map = {
+        '1.2.840.113549.1.1.1': 'rsa',
+        '2.16.840.1.101.3.4.1.5': 'aes128_wrap',
+        '2.16.840.1.101.3.4.1.8': 'aes128_wrap_pad',
+        '2.16.840.1.101.3.4.1.25': 'aes192_wrap',
+        '2.16.840.1.101.3.4.1.28': 'aes192_wrap_pad',
+        '2.16.840.1.101.3.4.1.45': 'aes256_wrap',
+        '2.16.840.1.101.3.4.1.48': 'aes256_wrap_pad',
+    }
+
+
+class KeyEncryptionAlgorithm(_ForceNullParameters, Sequence):
+    _fields = [
+        ('algorithm', KeyEncryptionAlgorithmId),
+        ('parameters', Any, {'optional': True}),
+    ]
+
+
+class KeyTransRecipientInfo(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('rid', RecipientIdentifier),
+        ('key_encryption_algorithm', KeyEncryptionAlgorithm),
+        ('encrypted_key', OctetString),
+    ]
+
+
+class OriginatorIdentifierOrKey(Choice):
+    _alternatives = [
+        ('issuer_and_serial_number', IssuerAndSerialNumber),
+        ('subject_key_identifier', OctetString, {'implicit': 0}),
+        ('originator_key', PublicKeyInfo, {'implicit': 1}),
+    ]
+
+
+class OtherKeyAttribute(Sequence):
+    _fields = [
+        ('key_attr_id', ObjectIdentifier),
+        ('key_attr', Any),
+    ]
+
+
+class RecipientKeyIdentifier(Sequence):
+    _fields = [
+        ('subject_key_identifier', OctetString),
+        ('date', GeneralizedTime, {'optional': True}),
+        ('other', OtherKeyAttribute, {'optional': True}),
+    ]
+
+
+class KeyAgreementRecipientIdentifier(Choice):
+    _alternatives = [
+        ('issuer_and_serial_number', IssuerAndSerialNumber),
+        ('r_key_id', RecipientKeyIdentifier, {'implicit': 0}),
+    ]
+
+
+class RecipientEncryptedKey(Sequence):
+    _fields = [
+        ('rid', KeyAgreementRecipientIdentifier),
+        ('encrypted_key', OctetString),
+    ]
+
+
+class RecipientEncryptedKeys(SequenceOf):
+    _child_spec = RecipientEncryptedKey
+
+
+class KeyAgreeRecipientInfo(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('originator', OriginatorIdentifierOrKey, {'explicit': 0}),
+        ('ukm', OctetString, {'explicit': 1, 'optional': True}),
+        ('key_encryption_algorithm', KeyEncryptionAlgorithm),
+        ('recipient_encrypted_keys', RecipientEncryptedKeys),
+    ]
+
+
+class KEKIdentifier(Sequence):
+    _fields = [
+        ('key_identifier', OctetString),
+        ('date', GeneralizedTime, {'optional': True}),
+        ('other', OtherKeyAttribute, {'optional': True}),
+    ]
+
+
+class KEKRecipientInfo(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('kekid', KEKIdentifier),
+        ('key_encryption_algorithm', KeyEncryptionAlgorithm),
+        ('encrypted_key', OctetString),
+    ]
+
+
+class PasswordRecipientInfo(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('key_derivation_algorithm', KdfAlgorithm, {'implicit': 0, 'optional': True}),
+        ('key_encryption_algorithm', KeyEncryptionAlgorithm),
+        ('encrypted_key', OctetString),
+    ]
+
+
+class OtherRecipientInfo(Sequence):
+    _fields = [
+        ('ori_type', ObjectIdentifier),
+        ('ori_value', Any),
+    ]
+
+
+class RecipientInfo(Choice):
+    _alternatives = [
+        ('ktri', KeyTransRecipientInfo),
+        ('kari', KeyAgreeRecipientInfo, {'implicit': 1}),
+        ('kekri', KEKRecipientInfo, {'implicit': 2}),
+        ('pwri', PasswordRecipientInfo, {'implicit': 3}),
+        ('ori', OtherRecipientInfo, {'implicit': 4}),
+    ]
+
+
+class RecipientInfos(SetOf):
+    _child_spec = RecipientInfo
+
+
+class EncryptedContentInfo(Sequence):
+    _fields = [
+        ('content_type', ContentType),
+        ('content_encryption_algorithm', EncryptionAlgorithm),
+        ('encrypted_content', OctetString, {'implicit': 0, 'optional': True}),
+    ]
+
+
+class EnvelopedData(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('originator_info', OriginatorInfo, {'implicit': 0, 'optional': True}),
+        ('recipient_infos', RecipientInfos),
+        ('encrypted_content_info', EncryptedContentInfo),
+        ('unprotected_attrs', CMSAttributes, {'implicit': 1, 'optional': True}),
+    ]
+
+
+class SignedAndEnvelopedData(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('recipient_infos', RecipientInfos),
+        ('digest_algorithms', DigestAlgorithms),
+        ('encrypted_content_info', EncryptedContentInfo),
+        ('certificates', CertificateSet, {'implicit': 0, 'optional': True}),
+        ('crls', CertificateRevocationLists, {'implicit': 1, 'optional': True}),
+        ('signer_infos', SignerInfos),
+    ]
+
+
+class DigestedData(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('digest_algorithm', DigestAlgorithm),
+        ('encap_content_info', None),
+        ('digest', OctetString),
+    ]
+
+    def _encap_content_info_spec(self):
+        # If the encap_content_info is version v1, then this could be a PKCS#7
+        # structure, or a CMS structure. CMS wraps the encoded value in an
+        # Octet String tag.
+
+        # If the version is greater than 1, it is definite CMS
+        if self['version'].native != 'v1':
+            return EncapsulatedContentInfo
+
+        # Otherwise, the ContentInfo spec from PKCS#7 will be compatible with
+        # CMS v1 (which only allows Data, an Octet String) and PKCS#7, which
+        # allows Any
+        return ContentInfo
+
+    _spec_callbacks = {
+        'encap_content_info': _encap_content_info_spec
+    }
+
+
+class EncryptedData(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('encrypted_content_info', EncryptedContentInfo),
+        ('unprotected_attrs', CMSAttributes, {'implicit': 1, 'optional': True}),
+    ]
+
+
+class AuthenticatedData(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('originator_info', OriginatorInfo, {'implicit': 0, 'optional': True}),
+        ('recipient_infos', RecipientInfos),
+        ('mac_algorithm', HmacAlgorithm),
+        ('digest_algorithm', DigestAlgorithm, {'implicit': 1, 'optional': True}),
+        # This does not require the _spec_callbacks approach of SignedData and
+        # DigestedData since AuthenticatedData was not part of PKCS#7
+        ('encap_content_info', EncapsulatedContentInfo),
+        ('auth_attrs', CMSAttributes, {'implicit': 2, 'optional': True}),
+        ('mac', OctetString),
+        ('unauth_attrs', CMSAttributes, {'implicit': 3, 'optional': True}),
+    ]
+
+
+class AuthEnvelopedData(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('originator_info', OriginatorInfo, {'implicit': 0, 'optional': True}),
+        ('recipient_infos', RecipientInfos),
+        ('auth_encrypted_content_info', EncryptedContentInfo),
+        ('auth_attrs', CMSAttributes, {'implicit': 1, 'optional': True}),
+        ('mac', OctetString),
+        ('unauth_attrs', CMSAttributes, {'implicit': 2, 'optional': True}),
+    ]
+
+
+class CompressionAlgorithmId(ObjectIdentifier):
+    _map = {
+        '1.2.840.113549.1.9.16.3.8': 'zlib',
+    }
+
+
+class CompressionAlgorithm(Sequence):
+    _fields = [
+        ('algorithm', CompressionAlgorithmId),
+        ('parameters', Any, {'optional': True}),
+    ]
+
+
+class CompressedData(Sequence):
+    _fields = [
+        ('version', CMSVersion),
+        ('compression_algorithm', CompressionAlgorithm),
+        ('encap_content_info', EncapsulatedContentInfo),
+    ]
+
+    _decompressed = None
+
+    @property
+    def decompressed(self):
+        if self._decompressed is None:
+            if zlib is None:
+                raise SystemError('The zlib module is not available')
+            self._decompressed = zlib.decompress(self['encap_content_info']['content'].native)
+        return self._decompressed
+
+
+ContentInfo._oid_specs = {
+    'data': OctetString,
+    'signed_data': SignedData,
+    'enveloped_data': EnvelopedData,
+    'signed_and_enveloped_data': SignedAndEnvelopedData,
+    'digested_data': DigestedData,
+    'encrypted_data': EncryptedData,
+    'authenticated_data': AuthenticatedData,
+    'compressed_data': CompressedData,
+    'authenticated_enveloped_data': AuthEnvelopedData,
 }
 
 
-class extended_date(object):
-    """
-    A datetime.date-like object that can represent the year 0. This is just
-    to handle 0000-01-01 found in some certificates.
-    """
-
-    year = None
-    month = None
-    day = None
-
-    def __init__(self, year, month, day):
-        """
-        :param year:
-            The integer 0
-
-        :param month:
-            An integer from 1 to 12
-
-        :param day:
-            An integer from 1 to 31
-        """
-
-        if year != 0:
-            raise ValueError('year must be 0')
-
-        if month < 1 or month > 12:
-            raise ValueError('month is out of range')
-
-        if day < 0 or day > _DAYS_PER_MONTH_YEAR_0[month]:
-            raise ValueError('day is out of range')
-
-        self.year = year
-        self.month = month
-        self.day = day
-
-    def _format(self, format):
-        """
-        Performs strftime(), always returning a unicode string
-
-        :param format:
-            A strftime() format string
-
-        :return:
-            A unicode string of the formatted date
-        """
-
-        format = format.replace('%Y', '0000')
-        # Year 0 is 1BC and a leap year. Leap years repeat themselves
-        # every 28 years. Because of adjustments and the proleptic gregorian
-        # calendar, the simplest way to format is to substitute year 2000.
-        temp = date(2000, self.month, self.day)
-        if '%c' in format:
-            c_out = temp.strftime('%c')
-            # Handle full years
-            c_out = c_out.replace('2000', '0000')
-            c_out = c_out.replace('%', '%%')
-            format = format.replace('%c', c_out)
-        if '%x' in format:
-            x_out = temp.strftime('%x')
-            # Handle formats such as 08/16/2000 or 16.08.2000
-            x_out = x_out.replace('2000', '0000')
-            x_out = x_out.replace('%', '%%')
-            format = format.replace('%x', x_out)
-        return temp.strftime(format)
-
-    def isoformat(self):
-        """
-        Formats the date as %Y-%m-%d
-
-        :return:
-            The date formatted to %Y-%m-%d as a unicode string in Python 3
-            and a byte string in Python 2
-        """
-
-        return self.strftime('0000-%m-%d')
-
-    def strftime(self, format):
-        """
-        Formats the date using strftime()
-
-        :param format:
-            The strftime() format string
-
-        :return:
-            The formatted date as a unicode string in Python 3 and a byte
-            string in Python 2
-        """
-
-        output = self._format(format)
-        if py2:
-            return output.encode('utf-8')
-        return output
-
-    def replace(self, year=None, month=None, day=None):
-        """
-        Returns a new datetime.date or asn1crypto.util.extended_date
-        object with the specified components replaced
-
-        :return:
-            A datetime.date or asn1crypto.util.extended_date object
-        """
-
-        if year is None:
-            year = self.year
-        if month is None:
-            month = self.month
-        if day is None:
-            day = self.day
-
-        if year > 0:
-            cls = date
-        else:
-            cls = extended_date
-
-        return cls(
-            year,
-            month,
-            day
-        )
-
-    def __str__(self):
-        if py2:
-            return self.__bytes__()
-        else:
-            return self.__unicode__()
-
-    def __bytes__(self):
-        return self.__unicode__().encode('utf-8')
-
-    def __unicode__(self):
-        return self._format('%Y-%m-%d')
-
-    def __eq__(self, other):
-        if not isinstance(other, self.__class__):
-            return False
-        return self.__cmp__(other) == 0
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-    def _comparison_error(self, other):
-        raise TypeError(unwrap(
-            '''
-            An asn1crypto.util.extended_date object can only be compared to
-            an asn1crypto.util.extended_date or datetime.date object, not %s
-            ''',
-            type_name(other)
-        ))
-
-    def __cmp__(self, other):
-        if isinstance(other, date):
-            return -1
-
-        if not isinstance(other, self.__class__):
-            self._comparison_error(other)
-
-        st = (
-            self.year,
-            self.month,
-            self.day
-        )
-        ot = (
-            other.year,
-            other.month,
-            other.day
-        )
-
-        if st < ot:
-            return -1
-        if st > ot:
-            return 1
-        return 0
-
-    def __lt__(self, other):
-        return self.__cmp__(other) < 0
-
-    def __le__(self, other):
-        return self.__cmp__(other) <= 0
-
-    def __gt__(self, other):
-        return self.__cmp__(other) > 0
-
-    def __ge__(self, other):
-        return self.__cmp__(other) >= 0
-
-
-class extended_datetime(object):
-    """
-    A datetime.datetime-like object that can represent the year 0. This is just
-    to handle 0000-01-01 found in some certificates.
-    """
-
-    year = None
-    month = None
-    day = None
-    hour = None
-    minute = None
-    second = None
-    microsecond = None
-    tzinfo = None
-
-    def __init__(self, year, month, day, hour=0, minute=0, second=0, microsecond=0, tzinfo=None):
-        """
-        :param year:
-            The integer 0
-
-        :param month:
-            An integer from 1 to 12
-
-        :param day:
-            An integer from 1 to 31
-
-        :param hour:
-            An integer from 0 to 23
-
-        :param minute:
-            An integer from 0 to 59
-
-        :param second:
-            An integer from 0 to 59
-
-        :param microsecond:
-            An integer from 0 to 999999
-        """
-
-        if year != 0:
-            raise ValueError('year must be 0')
-
-        if month < 1 or month > 12:
-            raise ValueError('month is out of range')
-
-        if day < 0 or day > _DAYS_PER_MONTH_YEAR_0[month]:
-            raise ValueError('day is out of range')
-
-        if hour < 0 or hour > 23:
-            raise ValueError('hour is out of range')
-
-        if minute < 0 or minute > 59:
-            raise ValueError('minute is out of range')
-
-        if second < 0 or second > 59:
-            raise ValueError('second is out of range')
-
-        if microsecond < 0 or microsecond > 999999:
-            raise ValueError('microsecond is out of range')
-
-        self.year = year
-        self.month = month
-        self.day = day
-        self.hour = hour
-        self.minute = minute
-        self.second = second
-        self.microsecond = microsecond
-        self.tzinfo = tzinfo
-
-    def date(self):
-        """
-        :return:
-            An asn1crypto.util.extended_date of the date
-        """
-
-        return extended_date(self.year, self.month, self.day)
-
-    def time(self):
-        """
-        :return:
-            A datetime.time object of the time
-        """
-
-        return time(self.hour, self.minute, self.second, self.microsecond, self.tzinfo)
-
-    def utcoffset(self):
-        """
-        :return:
-            None or a datetime.timedelta() of the offset from UTC
-        """
-
-        if self.tzinfo is None:
-            return None
-        return self.tzinfo.utcoffset(self.replace(year=2000))
-
-    def dst(self):
-        """
-        :return:
-            None or a datetime.timedelta() of the daylight savings time offset
-        """
-
-        if self.tzinfo is None:
-            return None
-        return self.tzinfo.dst(self.replace(year=2000))
-
-    def tzname(self):
-        """
-        :return:
-            None or the name of the timezone as a unicode string in Python 3
-            and a byte string in Python 2
-        """
-
-        if self.tzinfo is None:
-            return None
-        return self.tzinfo.tzname(self.replace(year=2000))
-
-    def _format(self, format):
-        """
-        Performs strftime(), always returning a unicode string
-
-        :param format:
-            A strftime() format string
-
-        :return:
-            A unicode string of the formatted datetime
-        """
-
-        format = format.replace('%Y', '0000')
-        # Year 0 is 1BC and a leap year. Leap years repeat themselves
-        # every 28 years. Because of adjustments and the proleptic gregorian
-        # calendar, the simplest way to format is to substitute year 2000.
-        temp = datetime(
-            2000,
-            self.month,
-            self.day,
-            self.hour,
-            self.minute,
-            self.second,
-            self.microsecond,
-            self.tzinfo
-        )
-        if '%c' in format:
-            c_out = temp.strftime('%c')
-            # Handle full years
-            c_out = c_out.replace('2000', '0000')
-            c_out = c_out.replace('%', '%%')
-            format = format.replace('%c', c_out)
-        if '%x' in format:
-            x_out = temp.strftime('%x')
-            # Handle formats such as 08/16/2000 or 16.08.2000
-            x_out = x_out.replace('2000', '0000')
-            x_out = x_out.replace('%', '%%')
-            format = format.replace('%x', x_out)
-        return temp.strftime(format)
-
-    def isoformat(self, sep='T'):
-        """
-        Formats the date as "%Y-%m-%d %H:%M:%S" with the sep param between the
-        date and time portions
-
-        :param set:
-            A single character of the separator to place between the date and
-            time
-
-        :return:
-            The formatted datetime as a unicode string in Python 3 and a byte
-            string in Python 2
-        """
-
-        if self.microsecond == 0:
-            return self.strftime('0000-%%m-%%d%s%%H:%%M:%%S' % sep)
-        return self.strftime('0000-%%m-%%d%s%%H:%%M:%%S.%%f' % sep)
-
-    def strftime(self, format):
-        """
-        Formats the date using strftime()
-
-        :param format:
-            The strftime() format string
-
-        :return:
-            The formatted date as a unicode string in Python 3 and a byte
-            string in Python 2
-        """
-
-        output = self._format(format)
-        if py2:
-            return output.encode('utf-8')
-        return output
-
-    def replace(self, year=None, month=None, day=None, hour=None, minute=None,
-                second=None, microsecond=None, tzinfo=None):
-        """
-        Returns a new datetime.datetime or asn1crypto.util.extended_datetime
-        object with the specified components replaced
-
-        :return:
-            A datetime.datetime or asn1crypto.util.extended_datetime object
-        """
-
-        if year is None:
-            year = self.year
-        if month is None:
-            month = self.month
-        if day is None:
-            day = self.day
-        if hour is None:
-            hour = self.hour
-        if minute is None:
-            minute = self.minute
-        if second is None:
-            second = self.second
-        if microsecond is None:
-            microsecond = self.microsecond
-        if tzinfo is None:
-            tzinfo = self.tzinfo
-
-        if year > 0:
-            cls = datetime
-        else:
-            cls = extended_datetime
-
-        return cls(
-            year,
-            month,
-            day,
-            hour,
-            minute,
-            second,
-            microsecond,
-            tzinfo
-        )
-
-    def __str__(self):
-        if py2:
-            return self.__bytes__()
-        else:
-            return self.__unicode__()
-
-    def __bytes__(self):
-        return self.__unicode__().encode('utf-8')
-
-    def __unicode__(self):
-        format = '%Y-%m-%d %H:%M:%S'
-        if self.microsecond != 0:
-            format += '.%f'
-        return self._format(format)
-
-    def __eq__(self, other):
-        if not isinstance(other, self.__class__):
-            return False
-        return self.__cmp__(other) == 0
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-    def _comparison_error(self, other):
-        """
-        Raises a TypeError about the other object not being suitable for
-        comparison
-
-        :param other:
-            The object being compared to
-        """
-
-        raise TypeError(unwrap(
-            '''
-            An asn1crypto.util.extended_datetime object can only be compared to
-            an asn1crypto.util.extended_datetime or datetime.datetime object,
-            not %s
-            ''',
-            type_name(other)
-        ))
-
-    def __cmp__(self, other):
-        so = self.utcoffset()
-        oo = other.utcoffset()
-
-        if (so is not None and oo is None) or (so is None and oo is not None):
-            raise TypeError("can't compare offset-naive and offset-aware datetimes")
-
-        if isinstance(other, datetime):
-            return -1
-
-        if not isinstance(other, self.__class__):
-            self._comparison_error(other)
-
-        st = (
-            self.year,
-            self.month,
-            self.day,
-            self.hour,
-            self.minute,
-            self.second,
-            self.microsecond,
-            so
-        )
-        ot = (
-            other.year,
-            other.month,
-            other.day,
-            other.hour,
-            other.minute,
-            other.second,
-            other.microsecond,
-            oo
-        )
-
-        if st < ot:
-            return -1
-        if st > ot:
-            return 1
-        return 0
-
-    def __lt__(self, other):
-        return self.__cmp__(other) < 0
-
-    def __le__(self, other):
-        return self.__cmp__(other) <= 0
-
-    def __gt__(self, other):
-        return self.__cmp__(other) > 0
-
-    def __ge__(self, other):
-        return self.__cmp__(other) >= 0
+EncapsulatedContentInfo._oid_specs = {
+    'signed_data': SignedData,
+    'enveloped_data': EnvelopedData,
+    'signed_and_enveloped_data': SignedAndEnvelopedData,
+    'digested_data': DigestedData,
+    'encrypted_data': EncryptedData,
+    'authenticated_data': AuthenticatedData,
+    'compressed_data': CompressedData,
+    'authenticated_enveloped_data': AuthEnvelopedData,
+}
+
+
+CMSAttribute._oid_specs = {
+    'content_type': SetOfContentType,
+    'message_digest': SetOfOctetString,
+    'signing_time': SetOfTime,
+    'counter_signature': SignerInfos,
+    'signature_time_stamp_token': SetOfContentInfo,
+    'cms_algorithm_protection': SetOfCMSAlgorithmProtection,
+}

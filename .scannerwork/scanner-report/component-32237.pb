@@ -1,1 +1,1 @@
-ныFvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/geomtype.py 2pyX`h
+ныAvenv/lib64/python3.6/site-packages/django/contrib/gis/gdal/srs.py 2pyXРh

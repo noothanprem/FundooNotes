@@ -1,1 +1,1 @@
-çè8venv/lib64/python3.6/site-packages/django/conf/locale/ro :åèéè
+çèCvenv/lib64/python3.6/site-packages/django/conf/locale/ro/formats.py 2pyX$h

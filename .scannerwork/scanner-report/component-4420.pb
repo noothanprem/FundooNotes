@@ -1,1 +1,1 @@
-Ä"<venv/lib/python3.6/site-packages/django/contrib/auth/urls.py 2pyXh
+Ä"Avenv/lib/python3.6/site-packages/django/contrib/auth/base_user.py 2pyXŒh

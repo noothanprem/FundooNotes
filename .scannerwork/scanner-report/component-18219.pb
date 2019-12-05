@@ -1,1 +1,1 @@
-«ŽAvenv/lib/python3.6/site-packages/aioredis/commands/transaction.py 2pyXÂh
+«Ž3venv/lib/python3.6/site-packages/aioredis/errors.py 2pyXsh

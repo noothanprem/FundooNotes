@@ -1,1 +1,1 @@
-¶‡:venv/lib/python3.6/site-packages/kombu/utils/scheduling.py 2pyXsh
+¶‡6venv/lib/python3.6/site-packages/kombu/utils/limits.py 2pyXTh

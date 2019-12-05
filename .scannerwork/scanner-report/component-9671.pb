@@ -1,1 +1,0 @@
-ÇK6venv/lib/python3.6/site-packages/libpasteurize/main.py 2pyXÍh

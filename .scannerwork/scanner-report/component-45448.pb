@@ -1,1 +1,1 @@
-à„(venv/lib64/python3.6/site-packages/isort :!á„â„å„ç„é„è„ê„ë„ú„ü„†„
+à„(venv/lib64/python3.6/site-packages/isort :!á„ä„å„ç„é„è„ê„ë„û„ü„†„

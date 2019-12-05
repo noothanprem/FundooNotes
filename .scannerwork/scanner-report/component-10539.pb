@@ -1,1 +1,1 @@
-«R2venv/lib/python3.6/site-packages/channels/hacks.py 2pyXh
+«R1venv/lib/python3.6/site-packages/channels/apps.py 2pyXh

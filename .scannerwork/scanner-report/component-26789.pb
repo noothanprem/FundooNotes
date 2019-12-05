@@ -1,1 +1,1 @@
-由0venv/lib64/python3.6/site-packages/celery/worker :!��老忘供戾股巷癸識珇旄
+由0venv/lib64/python3.6/site-packages/celery/worker :!天老忘供戾股巷癸識倳旄

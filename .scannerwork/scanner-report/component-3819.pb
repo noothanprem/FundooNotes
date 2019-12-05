@@ -1,1 +1,1 @@
-ëCvenv/lib/python3.6/site-packages/django/db/migrations/questioner.py 2pyXðh
+ëCvenv/lib/python3.6/site-packages/django/db/migrations/exceptions.py 2pyX7h

@@ -1,1 +1,1 @@
-ð1venv/lib/python3.6/site-packages/asgi_redis/tests :ïõû
+ð1venv/lib/python3.6/site-packages/asgi_redis/tests :ïñö

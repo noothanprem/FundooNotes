@@ -1,1 +1,1 @@
-πãDvenv/lib64/python3.6/site-packages/django/core/serializers/python.py 2pyXùh
+πã:venv/lib64/python3.6/site-packages/django/core/__init__.py 2pyXh

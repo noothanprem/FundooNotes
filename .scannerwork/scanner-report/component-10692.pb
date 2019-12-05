@@ -1,1 +1,0 @@
-ÄS:venv/lib/python3.6/site-packages/faker/providers/ssn/he_IL :ÃS

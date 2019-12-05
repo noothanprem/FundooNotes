@@ -1,381 +1,247 @@
-"""Generate and work with PEP 425 Compatibility Tags."""
 from __future__ import absolute_import
 
-import distutils.util
+import collections
 import logging
-import platform
+import os
 import re
-import sys
-import sysconfig
-import warnings
-from collections import OrderedDict
 
-import pip._internal.utils.glibc
-from pip._internal.utils.compat import get_extension_suffixes
+from pip._vendor import six
+from pip._vendor.packaging.utils import canonicalize_name
+from pip._vendor.pkg_resources import RequirementParseError
+
+from pip._internal.exceptions import BadCommand, InstallationError
+from pip._internal.req.constructors import (
+    install_req_from_editable, install_req_from_line,
+)
+from pip._internal.req.req_file import COMMENT_RE
+from pip._internal.utils.misc import (
+    dist_is_editable, get_installed_distributions,
+)
 from pip._internal.utils.typing import MYPY_CHECK_RUNNING
 
 if MYPY_CHECK_RUNNING:
     from typing import (  # noqa: F401
-        Tuple, Callable, List, Optional, Union, Dict
+        Iterator, Optional, List, Container, Set, Dict, Tuple, Iterable, Union
+    )
+    from pip._internal.cache import WheelCache  # noqa: F401
+    from pip._vendor.pkg_resources import (  # noqa: F401
+        Distribution, Requirement
     )
 
-    Pep425Tag = Tuple[str, str, str]
+    RequirementInfo = Tuple[Optional[Union[str, Requirement]], bool, List[str]]
+
 
 logger = logging.getLogger(__name__)
 
-_osx_arch_pat = re.compile(r'(.+)_(\d+)_(\d+)_(.+)')
 
-
-def get_config_var(var):
-    # type: (str) -> Optional[str]
-    try:
-        return sysconfig.get_config_var(var)
-    except IOError as e:  # Issue #1074
-        warnings.warn("{}".format(e), RuntimeWarning)
-        return None
-
-
-def get_abbr_impl():
-    # type: () -> str
-    """Return abbreviated implementation name."""
-    if hasattr(sys, 'pypy_version_info'):
-        pyimpl = 'pp'
-    elif sys.platform.startswith('java'):
-        pyimpl = 'jy'
-    elif sys.platform == 'cli':
-        pyimpl = 'ip'
-    else:
-        pyimpl = 'cp'
-    return pyimpl
-
-
-def get_impl_ver():
-    # type: () -> str
-    """Return implementation version."""
-    impl_ver = get_config_var("py_version_nodot")
-    if not impl_ver or get_abbr_impl() == 'pp':
-        impl_ver = ''.join(map(str, get_impl_version_info()))
-    return impl_ver
-
-
-def get_impl_version_info():
-    # type: () -> Tuple[int, ...]
-    """Return sys.version_info-like tuple for use in decrementing the minor
-    version."""
-    if get_abbr_impl() == 'pp':
-        # as per https://github.com/pypa/pip/issues/2882
-        # attrs exist only on pypy
-        return (sys.version_info[0],
-                sys.pypy_version_info.major,  # type: ignore
-                sys.pypy_version_info.minor)  # type: ignore
-    else:
-        return sys.version_info[0], sys.version_info[1]
-
-
-def get_impl_tag():
-    # type: () -> str
-    """
-    Returns the Tag for this specific implementation.
-    """
-    return "{}{}".format(get_abbr_impl(), get_impl_ver())
-
-
-def get_flag(var, fallback, expected=True, warn=True):
-    # type: (str, Callable[..., bool], Union[bool, int], bool) -> bool
-    """Use a fallback method for determining SOABI flags if the needed config
-    var is unset or unavailable."""
-    val = get_config_var(var)
-    if val is None:
-        if warn:
-            logger.debug("Config variable '%s' is unset, Python ABI tag may "
-                         "be incorrect", var)
-        return fallback()
-    return val == expected
-
-
-def get_abi_tag():
-    # type: () -> Optional[str]
-    """Return the ABI tag based on SOABI (if available) or emulate SOABI
-    (CPython 2, PyPy)."""
-    soabi = get_config_var('SOABI')
-    impl = get_abbr_impl()
-    if not soabi and impl in {'cp', 'pp'} and hasattr(sys, 'maxunicode'):
-        d = ''
-        m = ''
-        u = ''
-        if get_flag('Py_DEBUG',
-                    lambda: hasattr(sys, 'gettotalrefcount'),
-                    warn=(impl == 'cp')):
-            d = 'd'
-        if get_flag('WITH_PYMALLOC',
-                    lambda: impl == 'cp',
-                    warn=(impl == 'cp')):
-            m = 'm'
-        if get_flag('Py_UNICODE_SIZE',
-                    lambda: sys.maxunicode == 0x10ffff,
-                    expected=4,
-                    warn=(impl == 'cp' and
-                          sys.version_info < (3, 3))) \
-                and sys.version_info < (3, 3):
-            u = 'u'
-        abi = '%s%s%s%s%s' % (impl, get_impl_ver(), d, m, u)
-    elif soabi and soabi.startswith('cpython-'):
-        abi = 'cp' + soabi.split('-')[1]
-    elif soabi:
-        abi = soabi.replace('.', '_').replace('-', '_')
-    else:
-        abi = None
-    return abi
-
-
-def _is_running_32bit():
-    # type: () -> bool
-    return sys.maxsize == 2147483647
-
-
-def get_platform():
-    # type: () -> str
-    """Return our platform name 'win32', 'linux_x86_64'"""
-    if sys.platform == 'darwin':
-        # distutils.util.get_platform() returns the release based on the value
-        # of MACOSX_DEPLOYMENT_TARGET on which Python was built, which may
-        # be significantly older than the user's current machine.
-        release, _, machine = platform.mac_ver()
-        split_ver = release.split('.')
-
-        if machine == "x86_64" and _is_running_32bit():
-            machine = "i386"
-        elif machine == "ppc64" and _is_running_32bit():
-            machine = "ppc"
-
-        return 'macosx_{}_{}_{}'.format(split_ver[0], split_ver[1], machine)
-
-    # XXX remove distutils dependency
-    result = distutils.util.get_platform().replace('.', '_').replace('-', '_')
-    if result == "linux_x86_64" and _is_running_32bit():
-        # 32 bit Python program (running on a 64 bit Linux): pip should only
-        # install and run 32 bit compiled extensions in that case.
-        result = "linux_i686"
-
-    return result
-
-
-def is_manylinux1_compatible():
-    # type: () -> bool
-    # Only Linux, and only x86-64 / i686
-    if get_platform() not in {"linux_x86_64", "linux_i686"}:
-        return False
-
-    # Check for presence of _manylinux module
-    try:
-        import _manylinux
-        return bool(_manylinux.manylinux1_compatible)
-    except (ImportError, AttributeError):
-        # Fall through to heuristic check below
-        pass
-
-    # Check glibc version. CentOS 5 uses glibc 2.5.
-    return pip._internal.utils.glibc.have_compatible_glibc(2, 5)
-
-
-def is_manylinux2010_compatible():
-    # type: () -> bool
-    # Only Linux, and only x86-64 / i686
-    if get_platform() not in {"linux_x86_64", "linux_i686"}:
-        return False
-
-    # Check for presence of _manylinux module
-    try:
-        import _manylinux
-        return bool(_manylinux.manylinux2010_compatible)
-    except (ImportError, AttributeError):
-        # Fall through to heuristic check below
-        pass
-
-    # Check glibc version. CentOS 6 uses glibc 2.12.
-    return pip._internal.utils.glibc.have_compatible_glibc(2, 12)
-
-
-def get_darwin_arches(major, minor, machine):
-    # type: (int, int, str) -> List[str]
-    """Return a list of supported arches (including group arches) for
-    the given major, minor and machine architecture of an macOS machine.
-    """
-    arches = []
-
-    def _supports_arch(major, minor, arch):
-        # type: (int, int, str) -> bool
-        # Looking at the application support for macOS versions in the chart
-        # provided by https://en.wikipedia.org/wiki/OS_X#Versions it appears
-        # our timeline looks roughly like:
-        #
-        # 10.0 - Introduces ppc support.
-        # 10.4 - Introduces ppc64, i386, and x86_64 support, however the ppc64
-        #        and x86_64 support is CLI only, and cannot be used for GUI
-        #        applications.
-        # 10.5 - Extends ppc64 and x86_64 support to cover GUI applications.
-        # 10.6 - Drops support for ppc64
-        # 10.7 - Drops support for ppc
-        #
-        # Given that we do not know if we're installing a CLI or a GUI
-        # application, we must be conservative and assume it might be a GUI
-        # application and behave as if ppc64 and x86_64 support did not occur
-        # until 10.5.
-        #
-        # Note: The above information is taken from the "Application support"
-        #       column in the chart not the "Processor support" since I believe
-        #       that we care about what instruction sets an application can use
-        #       not which processors the OS supports.
-        if arch == 'ppc':
-            return (major, minor) <= (10, 5)
-        if arch == 'ppc64':
-            return (major, minor) == (10, 5)
-        if arch == 'i386':
-            return (major, minor) >= (10, 4)
-        if arch == 'x86_64':
-            return (major, minor) >= (10, 5)
-        if arch in groups:
-            for garch in groups[arch]:
-                if _supports_arch(major, minor, garch):
-                    return True
-        return False
-
-    groups = OrderedDict([
-        ("fat", ("i386", "ppc")),
-        ("intel", ("x86_64", "i386")),
-        ("fat64", ("x86_64", "ppc64")),
-        ("fat32", ("x86_64", "i386", "ppc")),
-    ])  # type: Dict[str, Tuple[str, ...]]
-
-    if _supports_arch(major, minor, machine):
-        arches.append(machine)
-
-    for garch in groups:
-        if machine in groups[garch] and _supports_arch(major, minor, garch):
-            arches.append(garch)
-
-    arches.append('universal')
-
-    return arches
-
-
-def get_all_minor_versions_as_strings(version_info):
-    # type: (Tuple[int, ...]) -> List[str]
-    versions = []
-    major = version_info[:-1]
-    # Support all previous minor Python versions.
-    for minor in range(version_info[-1], -1, -1):
-        versions.append(''.join(map(str, major + (minor,))))
-    return versions
-
-
-def get_supported(
-    versions=None,  # type: Optional[List[str]]
-    noarch=False,  # type: bool
-    platform=None,  # type: Optional[str]
-    impl=None,  # type: Optional[str]
-    abi=None  # type: Optional[str]
+def freeze(
+    requirement=None,  # type: Optional[List[str]]
+    find_links=None,  # type: Optional[List[str]]
+    local_only=None,  # type: Optional[bool]
+    user_only=None,  # type: Optional[bool]
+    skip_regex=None,  # type: Optional[str]
+    isolated=False,  # type: bool
+    wheel_cache=None,  # type: Optional[WheelCache]
+    exclude_editable=False,  # type: bool
+    skip=()  # type: Container[str]
 ):
-    # type: (...) -> List[Pep425Tag]
-    """Return a list of supported tags for each version specified in
-    `versions`.
+    # type: (...) -> Iterator[str]
+    find_links = find_links or []
+    skip_match = None
 
-    :param versions: a list of string versions, of the form ["33", "32"],
-        or None. The first version will be assumed to support our ABI.
-    :param platform: specify the exact platform you want valid
-        tags for, or None. If None, use the local system platform.
-    :param impl: specify the exact implementation you want valid
-        tags for, or None. If None, use the local interpreter impl.
-    :param abi: specify the exact abi you want valid
-        tags for, or None. If None, use the local interpreter abi.
+    if skip_regex:
+        skip_match = re.compile(skip_regex).search
+
+    for link in find_links:
+        yield '-f %s' % link
+    installations = {}  # type: Dict[str, FrozenRequirement]
+    for dist in get_installed_distributions(local_only=local_only,
+                                            skip=(),
+                                            user_only=user_only):
+        try:
+            req = FrozenRequirement.from_dist(dist)
+        except RequirementParseError:
+            logger.warning(
+                "Could not parse requirement: %s",
+                dist.project_name
+            )
+            continue
+        if exclude_editable and req.editable:
+            continue
+        installations[req.name] = req
+
+    if requirement:
+        # the options that don't get turned into an InstallRequirement
+        # should only be emitted once, even if the same option is in multiple
+        # requirements files, so we need to keep track of what has been emitted
+        # so that we don't emit it again if it's seen again
+        emitted_options = set()  # type: Set[str]
+        # keep track of which files a requirement is in so that we can
+        # give an accurate warning if a requirement appears multiple times.
+        req_files = collections.defaultdict(list)  # type: Dict[str, List[str]]
+        for req_file_path in requirement:
+            with open(req_file_path) as req_file:
+                for line in req_file:
+                    if (not line.strip() or
+                            line.strip().startswith('#') or
+                            (skip_match and skip_match(line)) or
+                            line.startswith((
+                                '-r', '--requirement',
+                                '-Z', '--always-unzip',
+                                '-f', '--find-links',
+                                '-i', '--index-url',
+                                '--pre',
+                                '--trusted-host',
+                                '--process-dependency-links',
+                                '--extra-index-url'))):
+                        line = line.rstrip()
+                        if line not in emitted_options:
+                            emitted_options.add(line)
+                            yield line
+                        continue
+
+                    if line.startswith('-e') or line.startswith('--editable'):
+                        if line.startswith('-e'):
+                            line = line[2:].strip()
+                        else:
+                            line = line[len('--editable'):].strip().lstrip('=')
+                        line_req = install_req_from_editable(
+                            line,
+                            isolated=isolated,
+                            wheel_cache=wheel_cache,
+                        )
+                    else:
+                        line_req = install_req_from_line(
+                            COMMENT_RE.sub('', line).strip(),
+                            isolated=isolated,
+                            wheel_cache=wheel_cache,
+                        )
+
+                    if not line_req.name:
+                        logger.info(
+                            "Skipping line in requirement file [%s] because "
+                            "it's not clear what it would install: %s",
+                            req_file_path, line.strip(),
+                        )
+                        logger.info(
+                            "  (add #egg=PackageName to the URL to avoid"
+                            " this warning)"
+                        )
+                    elif line_req.name not in installations:
+                        # either it's not installed, or it is installed
+                        # but has been processed already
+                        if not req_files[line_req.name]:
+                            logger.warning(
+                                "Requirement file [%s] contains %s, but "
+                                "package %r is not installed",
+                                req_file_path,
+                                COMMENT_RE.sub('', line).strip(), line_req.name
+                            )
+                        else:
+                            req_files[line_req.name].append(req_file_path)
+                    else:
+                        yield str(installations[line_req.name]).rstrip()
+                        del installations[line_req.name]
+                        req_files[line_req.name].append(req_file_path)
+
+        # Warn about requirements that were included multiple times (in a
+        # single requirements file or in different requirements files).
+        for name, files in six.iteritems(req_files):
+            if len(files) > 1:
+                logger.warning("Requirement %s included multiple times [%s]",
+                               name, ', '.join(sorted(set(files))))
+
+        yield(
+            '## The following requirements were added by '
+            'pip freeze:'
+        )
+    for installation in sorted(
+            installations.values(), key=lambda x: x.name.lower()):
+        if canonicalize_name(installation.name) not in skip:
+            yield str(installation).rstrip()
+
+
+def get_requirement_info(dist):
+    # type: (Distribution) -> RequirementInfo
     """
-    supported = []
+    Compute and return values (req, editable, comments) for use in
+    FrozenRequirement.from_dist().
+    """
+    if not dist_is_editable(dist):
+        return (None, False, [])
 
-    # Versions must be given with respect to the preference
-    if versions is None:
-        version_info = get_impl_version_info()
-        versions = get_all_minor_versions_as_strings(version_info)
+    location = os.path.normcase(os.path.abspath(dist.location))
 
-    impl = impl or get_abbr_impl()
+    from pip._internal.vcs import vcs, RemoteNotFoundError
+    vc_type = vcs.get_backend_type(location)
 
-    abis = []  # type: List[str]
+    if not vc_type:
+        req = dist.as_requirement()
+        logger.debug(
+            'No VCS found for editable requirement {!r} in: {!r}', req,
+            location,
+        )
+        comments = [
+            '# Editable install with no version control ({})'.format(req)
+        ]
+        return (location, True, comments)
 
-    abi = abi or get_abi_tag()
-    if abi:
-        abis[0:0] = [abi]
+    try:
+        req = vc_type.get_src_requirement(location, dist.project_name)
+    except RemoteNotFoundError:
+        req = dist.as_requirement()
+        comments = [
+            '# Editable {} install with no remote ({})'.format(
+                vc_type.__name__, req,
+            )
+        ]
+        return (location, True, comments)
 
-    abi3s = set()
-    for suffix in get_extension_suffixes():
-        if suffix.startswith('.abi'):
-            abi3s.add(suffix.split('.', 2)[1])
+    except BadCommand:
+        logger.warning(
+            'cannot determine version of editable source in %s '
+            '(%s command not found in path)',
+            location,
+            vc_type.name,
+        )
+        return (None, True, [])
 
-    abis.extend(sorted(list(abi3s)))
+    except InstallationError as exc:
+        logger.warning(
+            "Error when trying to get requirement for VCS system %s, "
+            "falling back to uneditable format", exc
+        )
+    else:
+        if req is not None:
+            return (req, True, [])
 
-    abis.append('none')
+    logger.warning(
+        'Could not determine repository location of %s', location
+    )
+    comments = ['## !! Could not determine repository location']
 
-    if not noarch:
-        arch = platform or get_platform()
-        arch_prefix, arch_sep, arch_suffix = arch.partition('_')
-        if arch.startswith('macosx'):
-            # support macosx-10.6-intel on macosx-10.9-x86_64
-            match = _osx_arch_pat.match(arch)
-            if match:
-                name, major, minor, actual_arch = match.groups()
-                tpl = '{}_{}_%i_%s'.format(name, major)
-                arches = []
-                for m in reversed(range(int(minor) + 1)):
-                    for a in get_darwin_arches(int(major), m, actual_arch):
-                        arches.append(tpl % (m, a))
-            else:
-                # arch pattern didn't match (?!)
-                arches = [arch]
-        elif arch_prefix == 'manylinux2010':
-            # manylinux1 wheels run on most manylinux2010 systems with the
-            # exception of wheels depending on ncurses. PEP 571 states
-            # manylinux1 wheels should be considered manylinux2010 wheels:
-            # https://www.python.org/dev/peps/pep-0571/#backwards-compatibility-with-manylinux1-wheels
-            arches = [arch, 'manylinux1' + arch_sep + arch_suffix]
-        elif platform is None:
-            arches = []
-            if is_manylinux2010_compatible():
-                arches.append('manylinux2010' + arch_sep + arch_suffix)
-            if is_manylinux1_compatible():
-                arches.append('manylinux1' + arch_sep + arch_suffix)
-            arches.append(arch)
-        else:
-            arches = [arch]
-
-        # Current version, current API (built specifically for our Python):
-        for abi in abis:
-            for arch in arches:
-                supported.append(('%s%s' % (impl, versions[0]), abi, arch))
-
-        # abi3 modules compatible with older version of Python
-        for version in versions[1:]:
-            # abi3 was introduced in Python 3.2
-            if version in {'31', '30'}:
-                break
-            for abi in abi3s:   # empty set if not Python 3
-                for arch in arches:
-                    supported.append(("%s%s" % (impl, version), abi, arch))
-
-        # Has binaries, does not use the Python API:
-        for arch in arches:
-            supported.append(('py%s' % (versions[0][0]), 'none', arch))
-
-    # No abi / arch, but requires our implementation:
-    supported.append(('%s%s' % (impl, versions[0]), 'none', 'any'))
-    # Tagged specifically as being cross-version compatible
-    # (with just the major version specified)
-    supported.append(('%s%s' % (impl, versions[0][0]), 'none', 'any'))
-
-    # No abi / arch, generic Python
-    for i, version in enumerate(versions):
-        supported.append(('py%s' % (version,), 'none', 'any'))
-        if i == 0:
-            supported.append(('py%s' % (version[0]), 'none', 'any'))
-
-    return supported
+    return (None, False, comments)
 
 
-implementation_tag = get_impl_tag()
+class FrozenRequirement(object):
+    def __init__(self, name, req, editable, comments=()):
+        # type: (str, Union[str, Requirement], bool, Iterable[str]) -> None
+        self.name = name
+        self.req = req
+        self.editable = editable
+        self.comments = comments
+
+    @classmethod
+    def from_dist(cls, dist):
+        # type: (Distribution) -> FrozenRequirement
+        req, editable, comments = get_requirement_info(dist)
+        if req is None:
+            req = dist.as_requirement()
+
+        return cls(dist.project_name, req, editable, comments=comments)
+
+    def __str__(self):
+        req = self.req
+        if self.editable:
+            req = '-e %s' % req
+        return '\n'.join(list(self.comments) + [str(req)]) + '\n'

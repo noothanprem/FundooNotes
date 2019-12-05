@@ -1,1 +1,1 @@
-ттNvenv/lib64/python3.6/site-packages/twisted/application/runner/test/__init__.py 2pyXh
+ттBvenv/lib64/python3.6/site-packages/twisted/application/runner/test :стутфтът

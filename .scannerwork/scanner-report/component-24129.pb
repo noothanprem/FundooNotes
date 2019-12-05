@@ -1,1 +1,1 @@
-Á¼Dvenv/lib/python3.6/site-packages/django_extensions/db/fields/json.py 2pyXyh
+Á¼Avenv/lib/python3.6/site-packages/django_extensions/db/__init__.py 2pyXh

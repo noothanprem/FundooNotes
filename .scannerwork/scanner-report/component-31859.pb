@@ -1,1 +1,1 @@
-ушTvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/postgis/adapter.py 2pyXBh
+ушSvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/postgis/schema.py 2pyXCh

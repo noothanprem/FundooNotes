@@ -1,1 +1,1 @@
-‚_7venv/lib/python3.6/site-packages/PIL/IcnsImagePlugin.py 2pyX÷h
+‚_6venv/lib/python3.6/site-packages/PIL/CurImagePlugin.py 2pyXWh

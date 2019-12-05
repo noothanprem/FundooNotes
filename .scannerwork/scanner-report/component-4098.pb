@@ -1,1 +1,0 @@
-‚ 6venv/lib/python3.6/site-packages/django/apps/config.py 2pyXÙh

@@ -1,1 +1,1 @@
-û÷=venv/lib64/python3.6/site-packages/twisted/test/test_paths.py 2pyXÄh
+û÷@venv/lib64/python3.6/site-packages/twisted/test/test_abstract.py 2pyXth

@@ -1,1 +1,0 @@
-¥{Uvenv/lib/python3.6/site-packages/pymacaroons/field_encryptors/base_field_encryptor.py 2pyXh

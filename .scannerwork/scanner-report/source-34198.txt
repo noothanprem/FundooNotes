@@ -1,97 +1,75 @@
-from itertools import chain
-
-from django.utils.itercompat import is_iterable
-
-
-class Tags:
-    """
-    Built-in tags for internal checks.
-    """
-    admin = 'admin'
-    caches = 'caches'
-    compatibility = 'compatibility'
-    database = 'database'
-    models = 'models'
-    security = 'security'
-    signals = 'signals'
-    templates = 'templates'
-    translation = 'translation'
-    urls = 'urls'
+# Levels
+DEBUG = 10
+INFO = 20
+WARNING = 30
+ERROR = 40
+CRITICAL = 50
 
 
-class CheckRegistry:
+class CheckMessage:
 
-    def __init__(self):
-        self.registered_checks = set()
-        self.deployment_checks = set()
+    def __init__(self, level, msg, hint=None, obj=None, id=None):
+        assert isinstance(level, int), "The first argument should be level."
+        self.level = level
+        self.msg = msg
+        self.hint = hint
+        self.obj = obj
+        self.id = id
 
-    def register(self, check=None, *tags, **kwargs):
-        """
-        Can be used as a function or a decorator. Register given function
-        `f` labeled with given `tags`. The function should receive **kwargs
-        and return list of Errors and Warnings.
+    def __eq__(self, other):
+        return (
+            isinstance(other, self.__class__) and
+            all(getattr(self, attr) == getattr(other, attr)
+                for attr in ['level', 'msg', 'hint', 'obj', 'id'])
+        )
 
-        Example::
+    def __str__(self):
+        from django.db import models
 
-            registry = CheckRegistry()
-            @registry.register('mytag', 'anothertag')
-            def my_check(apps, **kwargs):
-                # ... perform checks and collect `errors` ...
-                return errors
-            # or
-            registry.register(my_check, 'mytag', 'anothertag')
-        """
-        def inner(check):
-            check.tags = tags
-            checks = self.deployment_checks if kwargs.get('deploy') else self.registered_checks
-            checks.add(check)
-            return check
-
-        if callable(check):
-            return inner(check)
+        if self.obj is None:
+            obj = "?"
+        elif isinstance(self.obj, models.base.ModelBase):
+            # We need to hardcode ModelBase and Field cases because its __str__
+            # method doesn't return "applabel.modellabel" and cannot be changed.
+            obj = self.obj._meta.label
         else:
-            if check:
-                tags += (check,)
-            return inner
+            obj = str(self.obj)
+        id = "(%s) " % self.id if self.id else ""
+        hint = "\n\tHINT: %s" % self.hint if self.hint else ''
+        return "%s: %s%s%s" % (obj, id, self.msg, hint)
 
-    def run_checks(self, app_configs=None, tags=None, include_deployment_checks=False):
-        """
-        Run all registered checks and return list of Errors and Warnings.
-        """
-        errors = []
-        checks = self.get_checks(include_deployment_checks)
+    def __repr__(self):
+        return "<%s: level=%r, msg=%r, hint=%r, obj=%r, id=%r>" % \
+            (self.__class__.__name__, self.level, self.msg, self.hint, self.obj, self.id)
 
-        if tags is not None:
-            checks = [check for check in checks if not set(check.tags).isdisjoint(tags)]
-        else:
-            # By default, 'database'-tagged checks are not run as they do more
-            # than mere static code analysis.
-            checks = [check for check in checks if Tags.database not in check.tags]
+    def is_serious(self, level=ERROR):
+        return self.level >= level
 
-        for check in checks:
-            new_errors = check(app_configs=app_configs)
-            assert is_iterable(new_errors), (
-                "The function %r did not return a list. All functions registered "
-                "with the checks registry must return a list." % check)
-            errors.extend(new_errors)
-        return errors
-
-    def tag_exists(self, tag, include_deployment_checks=False):
-        return tag in self.tags_available(include_deployment_checks)
-
-    def tags_available(self, deployment_checks=False):
-        return set(chain.from_iterable(
-            check.tags for check in self.get_checks(deployment_checks)
-        ))
-
-    def get_checks(self, include_deployment_checks=False):
-        checks = list(self.registered_checks)
-        if include_deployment_checks:
-            checks.extend(self.deployment_checks)
-        return checks
+    def is_silenced(self):
+        from django.conf import settings
+        return self.id in settings.SILENCED_SYSTEM_CHECKS
 
 
-registry = CheckRegistry()
-register = registry.register
-run_checks = registry.run_checks
-tag_exists = registry.tag_exists
+class Debug(CheckMessage):
+    def __init__(self, *args, **kwargs):
+        super().__init__(DEBUG, *args, **kwargs)
+
+
+class Info(CheckMessage):
+    def __init__(self, *args, **kwargs):
+        super().__init__(INFO, *args, **kwargs)
+
+
+class Warning(CheckMessage):
+    def __init__(self, *args, **kwargs):
+        super().__init__(WARNING, *args, **kwargs)
+
+
+class Error(CheckMessage):
+    def __init__(self, *args, **kwargs):
+        super().__init__(ERROR, *args, **kwargs)
+
+
+class Critical(CheckMessage):
+    def __init__(self, *args, **kwargs):
+        super().__init__(CRITICAL, *args, **kwargs)

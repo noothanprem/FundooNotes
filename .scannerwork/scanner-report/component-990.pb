@@ -1,1 +1,1 @@
-Þ/venv/lib/python3.6/site-packages/coreapi/codecs :Ýßàâãíî‹
+Þ7venv/lib/python3.6/site-packages/coreapi/codecs/text.py 2pyXh

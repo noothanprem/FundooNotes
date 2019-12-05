@@ -1,1 +1,1 @@
-ð¢Ivenv/lib64/python3.6/site-packages/faker/providers/bank/no_NO/__init__.py 2pyXh
+ð¢=venv/lib64/python3.6/site-packages/faker/providers/bank/no_NO :ï¢

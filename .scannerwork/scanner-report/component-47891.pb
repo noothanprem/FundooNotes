@@ -1,1 +1,1 @@
-“öLvenv/lib64/python3.6/site-packages/twisted/words/protocols/jabber/ijabber.py 2pyXÊh
+“öNvenv/lib64/python3.6/site-packages/twisted/words/protocols/jabber/xmlstream.py 2pyX“	h

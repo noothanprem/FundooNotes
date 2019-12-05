@@ -1,1 +1,1 @@
-»Í5venv/lib64/python3.6/site-packages/colorful/models.py 2pyXh
+»Í8venv/lib64/python3.6/site-packages/soupsieve/__meta__.py 2pyX¿h

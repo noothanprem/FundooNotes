@@ -1,1 +1,0 @@
-™G<venv/lib/python3.6/site-packages/secretstorage/collection.py 2pyXÏh

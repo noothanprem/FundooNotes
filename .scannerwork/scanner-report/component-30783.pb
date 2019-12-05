@@ -1,1 +1,1 @@
-њр;venv/lib64/python3.6/site-packages/django/contrib/flatpages :Њрјр¬р…р рЋрЁтятат
+њр;venv/lib64/python3.6/site-packages/django/contrib/flatpages :ЊрЅр¬р»р рЋрётятат

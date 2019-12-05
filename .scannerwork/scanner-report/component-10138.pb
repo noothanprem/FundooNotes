@@ -1,1 +1,1 @@
-šO1venv/lib/python3.6/site-packages/xlwt/Workbook.py 2pyXÉh
+šO/venv/lib/python3.6/site-packages/xlwt/compat.py 2pyXh

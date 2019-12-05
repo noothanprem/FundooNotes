@@ -1,1 +1,1 @@
-á,Avenv/lib/python3.6/site-packages/django/contrib/gis/db/models/sql :à,â,
+á,Ivenv/lib/python3.6/site-packages/django/contrib/gis/db/models/__init__.py 2pyXh

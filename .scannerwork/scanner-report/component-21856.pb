@@ -1,1 +1,1 @@
-àªKvenv/lib/python3.6/site-packages/twisted/words/protocols/jabber/__init__.py 2pyX	h
+àª9venv/lib/python3.6/site-packages/twisted/words/service.py 2pyXö	h

@@ -1,1 +1,1 @@
-¸O/venv/lib/python3.6/site-packages/xlwt/Column.py 2pyX2h
+¸O4venv/lib/python3.6/site-packages/xlwt/BIFFRecords.py 2pyXšh

@@ -1,1 +1,0 @@
-È(venv/lib/python3.6/site-packages/coreapi :ÇÉÊÓÜïð

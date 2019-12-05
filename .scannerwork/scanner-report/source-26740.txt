@@ -1,325 +1,285 @@
 # -*- coding: utf-8 -*-
-"""MongoDB result store backend."""
+"""AWS DynamoDB result store backend."""
 from __future__ import absolute_import, unicode_literals
 
-from datetime import datetime, timedelta
+from collections import namedtuple
+from time import sleep, time
 
-from kombu.exceptions import EncodeError
-from kombu.utils.objects import cached_property
-from kombu.utils.url import maybe_sanitize_url, urlparse
+from kombu.utils.url import _parse_url as parse_url
 
-from celery import states
 from celery.exceptions import ImproperlyConfigured
-from celery.five import items, string_t
+from celery.five import string
+from celery.utils.log import get_logger
 
-from .base import BaseBackend
+from .base import KeyValueStoreBackend
 
 try:
-    import pymongo
+    import boto3
+    from botocore.exceptions import ClientError
 except ImportError:  # pragma: no cover
-    pymongo = None   # noqa
+    boto3 = ClientError = None  # noqa
 
-if pymongo:
-    try:
-        from bson.binary import Binary
-    except ImportError:                     # pragma: no cover
-        from pymongo.binary import Binary   # noqa
-    from pymongo.errors import InvalidDocument  # noqa
-else:                                       # pragma: no cover
-    Binary = None                           # noqa
-
-    class InvalidDocument(Exception):       # noqa
-        pass
-
-__all__ = ('MongoBackend',)
-
-BINARY_CODECS = frozenset(['pickle', 'msgpack'])
+__all__ = ('DynamoDBBackend',)
 
 
-class MongoBackend(BaseBackend):
-    """MongoDB result backend.
+# Helper class that describes a DynamoDB attribute
+DynamoDBAttribute = namedtuple('DynamoDBAttribute', ('name', 'data_type'))
+
+logger = get_logger(__name__)
+
+
+class DynamoDBBackend(KeyValueStoreBackend):
+    """AWS DynamoDB result backend.
 
     Raises:
         celery.exceptions.ImproperlyConfigured:
-            if module :pypi:`pymongo` is not available.
+            if module :pypi:`boto3` is not available.
     """
 
-    mongo_host = None
-    host = 'localhost'
-    port = 27017
-    user = None
-    password = None
-    database_name = 'celery'
-    taskmeta_collection = 'celery_taskmeta'
-    groupmeta_collection = 'celery_groupmeta'
-    max_pool_size = 10
-    options = None
+    #: default DynamoDB table name (`default`)
+    table_name = 'celery'
 
-    supports_autoexpire = False
+    #: Read Provisioned Throughput (`default`)
+    read_capacity_units = 1
 
-    _connection = None
+    #: Write Provisioned Throughput (`default`)
+    write_capacity_units = 1
 
-    def __init__(self, app=None, **kwargs):
-        self.options = {}
+    #: AWS region (`default`)
+    aws_region = None
 
-        super(MongoBackend, self).__init__(app, **kwargs)
+    #: The endpoint URL that is passed to boto3 (local DynamoDB) (`default`)
+    endpoint_url = None
 
-        if not pymongo:
+    _key_field = DynamoDBAttribute(name='id', data_type='S')
+    _value_field = DynamoDBAttribute(name='result', data_type='B')
+    _timestamp_field = DynamoDBAttribute(name='timestamp', data_type='N')
+    _available_fields = None
+
+    def __init__(self, url=None, table_name=None, *args, **kwargs):
+        super(DynamoDBBackend, self).__init__(*args, **kwargs)
+
+        self.url = url
+        self.table_name = table_name or self.table_name
+
+        if not boto3:
             raise ImproperlyConfigured(
-                'You need to install the pymongo library to use the '
-                'MongoDB backend.')
+                'You need to install the boto3 library to use the '
+                'DynamoDB backend.')
 
-        # Set option defaults
-        for key, value in items(self._prepare_client_options()):
-            self.options.setdefault(key, value)
+        aws_credentials_given = False
+        aws_access_key_id = None
+        aws_secret_access_key = None
 
-        # update conf with mongo uri data, only if uri was given
-        if self.url:
-            self.url = self._ensure_mongodb_uri_compliance(self.url)
+        if url is not None:
+            scheme, region, port, username, password, table, query = \
+                parse_url(url)
 
-            uri_data = pymongo.uri_parser.parse_uri(self.url)
-            # build the hosts list to create a mongo connection
-            hostslist = [
-                '{0}:{1}'.format(x[0], x[1]) for x in uri_data['nodelist']
-            ]
-            self.user = uri_data['username']
-            self.password = uri_data['password']
-            self.mongo_host = hostslist
-            if uri_data['database']:
-                # if no database is provided in the uri, use default
-                self.database_name = uri_data['database']
+            aws_access_key_id = username
+            aws_secret_access_key = password
 
-            self.options.update(uri_data['options'])
+            access_key_given = aws_access_key_id is not None
+            secret_key_given = aws_secret_access_key is not None
 
-        # update conf with specific settings
-        config = self.app.conf.get('mongodb_backend_settings')
-        if config is not None:
-            if not isinstance(config, dict):
+            if access_key_given != secret_key_given:
                 raise ImproperlyConfigured(
-                    'MongoDB backend settings should be grouped in a dict')
-            config = dict(config)  # don't modify original
+                    'You need to specify both the Access Key ID '
+                    'and Secret.')
 
-            if 'host' in config or 'port' in config:
-                # these should take over uri conf
-                self.mongo_host = None
+            aws_credentials_given = access_key_given
 
-            self.host = config.pop('host', self.host)
-            self.port = config.pop('port', self.port)
-            self.mongo_host = config.pop('mongo_host', self.mongo_host)
-            self.user = config.pop('user', self.user)
-            self.password = config.pop('password', self.password)
-            self.database_name = config.pop('database', self.database_name)
-            self.taskmeta_collection = config.pop(
-                'taskmeta_collection', self.taskmeta_collection,
+            if region == 'localhost':
+                # We are using the downloadable, local version of DynamoDB
+                self.endpoint_url = 'http://localhost:{}'.format(port)
+                self.aws_region = 'us-east-1'
+                logger.warning(
+                    'Using local-only DynamoDB endpoint URL: {}'.format(
+                        self.endpoint_url
+                    )
+                )
+            else:
+                self.aws_region = region
+
+            # If endpoint_url is explicitly set use it instead
+            _get = self.app.conf.get
+            config_endpoint_url = _get('dynamodb_endpoint_url')
+            if config_endpoint_url:
+                self.endpoint_url = config_endpoint_url
+
+            self.read_capacity_units = int(
+                query.get(
+                    'read',
+                    self.read_capacity_units
+                )
             )
-            self.groupmeta_collection = config.pop(
-                'groupmeta_collection', self.groupmeta_collection,
+            self.write_capacity_units = int(
+                query.get(
+                    'write',
+                    self.write_capacity_units
+                )
+            )
+            self.table_name = table or self.table_name
+
+        self._available_fields = (
+            self._key_field,
+            self._value_field,
+            self._timestamp_field
+        )
+
+        self._client = None
+        if aws_credentials_given:
+            self._get_client(
+                access_key_id=aws_access_key_id,
+                secret_access_key=aws_secret_access_key
             )
 
-            self.options.update(config.pop('options', {}))
-            self.options.update(config)
-
-    @staticmethod
-    def _ensure_mongodb_uri_compliance(url):
-        parsed_url = urlparse(url)
-        if not parsed_url.scheme.startswith('mongodb'):
-            url = 'mongodb+{}'.format(url)
-
-        if url == 'mongodb://':
-            url += 'localhost'
-
-        return url
-
-    def _prepare_client_options(self):
-        if pymongo.version_tuple >= (3,):
-            return {'maxPoolSize': self.max_pool_size}
-        else:  # pragma: no cover
-            return {'max_pool_size': self.max_pool_size,
-                    'auto_start_request': False}
-
-    def _get_connection(self):
-        """Connect to the MongoDB server."""
-        if self._connection is None:
-            from pymongo import MongoClient
-
-            host = self.mongo_host
-            if not host:
-                # The first pymongo.Connection() argument (host) can be
-                # a list of ['host:port'] elements or a mongodb connection
-                # URI.  If this is the case, don't use self.port
-                # but let pymongo get the port(s) from the URI instead.
-                # This enables the use of replica sets and sharding.
-                # See pymongo.Connection() for more info.
-                host = self.host
-                if isinstance(host, string_t) \
-                   and not host.startswith('mongodb://'):
-                    host = 'mongodb://{0}:{1}'.format(host, self.port)
-            # don't change self.options
-            conf = dict(self.options)
-            conf['host'] = host
-
-            self._connection = MongoClient(**conf)
-
-        return self._connection
-
-    def encode(self, data):
-        if self.serializer == 'bson':
-            # mongodb handles serialization
-            return data
-        payload = super(MongoBackend, self).encode(data)
-
-        # serializer which are in a unsupported format (pickle/binary)
-        if self.serializer in BINARY_CODECS:
-            payload = Binary(payload)
-        return payload
-
-    def decode(self, data):
-        if self.serializer == 'bson':
-            return data
-        return super(MongoBackend, self).decode(data)
-
-    def _store_result(self, task_id, result, state,
-                      traceback=None, request=None, **kwargs):
-        """Store return value and state of an executed task."""
-        meta = {
-            '_id': task_id,
-            'status': state,
-            'result': self.encode(result),
-            'date_done': datetime.utcnow(),
-            'traceback': self.encode(traceback),
-            'children': self.encode(
-                self.current_task_children(request),
-            ),
-        }
-        if request and getattr(request, 'parent_id', None):
-            meta['parent_id'] = request.parent_id
-
-        try:
-            self.collection.save(meta)
-        except InvalidDocument as exc:
-            raise EncodeError(exc)
-
-        return result
-
-    def _get_task_meta_for(self, task_id):
-        """Get task meta-data for a task by id."""
-        obj = self.collection.find_one({'_id': task_id})
-        if obj:
-            return self.meta_from_decoded({
-                'task_id': obj['_id'],
-                'status': obj['status'],
-                'result': self.decode(obj['result']),
-                'date_done': obj['date_done'],
-                'traceback': self.decode(obj['traceback']),
-                'children': self.decode(obj['children']),
-            })
-        return {'status': states.PENDING, 'result': None}
-
-    def _save_group(self, group_id, result):
-        """Save the group result."""
-        self.group_collection.save({
-            '_id': group_id,
-            'result': self.encode([i.id for i in result]),
-            'date_done': datetime.utcnow(),
-        })
-        return result
-
-    def _restore_group(self, group_id):
-        """Get the result for a group by id."""
-        obj = self.group_collection.find_one({'_id': group_id})
-        if obj:
-            return {
-                'task_id': obj['_id'],
-                'date_done': obj['date_done'],
-                'result': [
-                    self.app.AsyncResult(task)
-                    for task in self.decode(obj['result'])
-                ],
+    def _get_client(self, access_key_id=None, secret_access_key=None):
+        """Get client connection."""
+        if self._client is None:
+            client_parameters = {
+                'region_name': self.aws_region
             }
+            if access_key_id is not None:
+                client_parameters.update({
+                    'aws_access_key_id': access_key_id,
+                    'aws_secret_access_key': secret_access_key
+                })
 
-    def _delete_group(self, group_id):
-        """Delete a group by id."""
-        self.group_collection.remove({'_id': group_id})
+            if self.endpoint_url is not None:
+                client_parameters['endpoint_url'] = self.endpoint_url
 
-    def _forget(self, task_id):
-        """Remove result from MongoDB.
+            self._client = boto3.client(
+                'dynamodb',
+                **client_parameters
+            )
+            self._get_or_create_table()
+        return self._client
 
-        Raises:
-            pymongo.exceptions.OperationsError:
-                if the task_id could not be removed.
-        """
-        # By using safe=True, this will wait until it receives a response from
-        # the server.  Likewise, it will raise an OperationsError if the
-        # response was unable to be completed.
-        self.collection.remove({'_id': task_id})
+    def _get_table_schema(self):
+        """Get the boto3 structure describing the DynamoDB table schema."""
+        return {
+            'AttributeDefinitions': [
+                {
+                    'AttributeName': self._key_field.name,
+                    'AttributeType': self._key_field.data_type
+                }
+            ],
+            'TableName': self.table_name,
+            'KeySchema': [
+                {
+                    'AttributeName': self._key_field.name,
+                    'KeyType': 'HASH'
+                }
+            ],
+            'ProvisionedThroughput': {
+                'ReadCapacityUnits': self.read_capacity_units,
+                'WriteCapacityUnits': self.write_capacity_units
+            }
+        }
 
-    def cleanup(self):
-        """Delete expired meta-data."""
-        self.collection.remove(
-            {'date_done': {'$lt': self.app.now() - self.expires_delta}},
-        )
-        self.group_collection.remove(
-            {'date_done': {'$lt': self.app.now() - self.expires_delta}},
-        )
+    def _get_or_create_table(self):
+        """Create table if not exists, otherwise return the description."""
+        table_schema = self._get_table_schema()
+        try:
+            table_description = self._client.create_table(**table_schema)
+            logger.info(
+                'DynamoDB Table {} did not exist, creating.'.format(
+                    self.table_name
+                )
+            )
+            # In case we created the table, wait until it becomes available.
+            self._wait_for_table_status('ACTIVE')
+            logger.info(
+                'DynamoDB Table {} is now available.'.format(
+                    self.table_name
+                )
+            )
+            return table_description
+        except ClientError as e:
+            error_code = e.response['Error'].get('Code', 'Unknown')
 
-    def __reduce__(self, args=(), kwargs={}):
-        return super(MongoBackend, self).__reduce__(
-            args, dict(kwargs, expires=self.expires, url=self.url))
+            # If table exists, do not fail, just return the description.
+            if error_code == 'ResourceInUseException':
+                return self._client.describe_table(
+                    TableName=self.table_name
+                )
+            else:
+                raise e
 
-    def _get_database(self):
-        conn = self._get_connection()
-        db = conn[self.database_name]
-        if self.user and self.password:
-            if not db.authenticate(self.user, self.password):
-                raise ImproperlyConfigured(
-                    'Invalid MongoDB username or password.')
-        return db
+    def _wait_for_table_status(self, expected='ACTIVE'):
+        """Poll for the expected table status."""
+        achieved_state = False
+        while not achieved_state:
+            table_description = self.client.describe_table(
+                TableName=self.table_name
+            )
+            logger.debug(
+                'Waiting for DynamoDB table {} to become {}.'.format(
+                    self.table_name,
+                    expected
+                )
+            )
+            current_status = table_description['Table']['TableStatus']
+            achieved_state = current_status == expected
+            sleep(1)
 
-    @cached_property
-    def database(self):
-        """Get database from MongoDB connection.
+    def _prepare_get_request(self, key):
+        """Construct the item retrieval request parameters."""
+        return {
+            'TableName': self.table_name,
+            'Key': {
+                self._key_field.name: {
+                    self._key_field.data_type: key
+                }
+            }
+        }
 
-        performs authentication if necessary.
-        """
-        return self._get_database()
+    def _prepare_put_request(self, key, value):
+        """Construct the item creation request parameters."""
+        return {
+            'TableName': self.table_name,
+            'Item': {
+                self._key_field.name: {
+                    self._key_field.data_type: key
+                },
+                self._value_field.name: {
+                    self._value_field.data_type: value
+                },
+                self._timestamp_field.name: {
+                    self._timestamp_field.data_type: str(time())
+                }
+            }
+        }
 
-    @cached_property
-    def collection(self):
-        """Get the meta-data task collection."""
-        collection = self.database[self.taskmeta_collection]
+    def _item_to_dict(self, raw_response):
+        """Convert get_item() response to field-value pairs."""
+        if 'Item' not in raw_response:
+            return {}
+        return {
+            field.name: raw_response['Item'][field.name][field.data_type]
+            for field in self._available_fields
+        }
 
-        # Ensure an index on date_done is there, if not process the index
-        # in the background.  Once completed cleanup will be much faster
-        collection.ensure_index('date_done', background='true')
-        return collection
+    @property
+    def client(self):
+        return self._get_client()
 
-    @cached_property
-    def group_collection(self):
-        """Get the meta-data task collection."""
-        collection = self.database[self.groupmeta_collection]
+    def get(self, key):
+        key = string(key)
+        request_parameters = self._prepare_get_request(key)
+        item_response = self.client.get_item(**request_parameters)
+        item = self._item_to_dict(item_response)
+        return item.get(self._value_field.name)
 
-        # Ensure an index on date_done is there, if not process the index
-        # in the background.  Once completed cleanup will be much faster
-        collection.ensure_index('date_done', background='true')
-        return collection
+    def set(self, key, value):
+        key = string(key)
+        request_parameters = self._prepare_put_request(key, value)
+        self.client.put_item(**request_parameters)
 
-    @cached_property
-    def expires_delta(self):
-        return timedelta(seconds=self.expires)
+    def mget(self, keys):
+        return [self.get(key) for key in keys]
 
-    def as_uri(self, include_password=False):
-        """Return the backend as an URI.
-
-        Arguments:
-            include_password (bool): Password censored if disabled.
-        """
-        if not self.url:
-            return 'mongodb://'
-        if include_password:
-            return self.url
-
-        if ',' not in self.url:
-            return maybe_sanitize_url(self.url)
-
-        uri1, remainder = self.url.split(',', 1)
-        return ','.join([maybe_sanitize_url(uri1), remainder])
+    def delete(self, key):
+        key = string(key)
+        request_parameters = self._prepare_get_request(key)
+        self.client.delete_item(**request_parameters)

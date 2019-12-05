@@ -1,1 +1,1 @@
-“dGvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_discharge.py 2pyXÛh
+“dEvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_keyring.py 2pyXph

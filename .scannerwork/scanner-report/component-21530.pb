@@ -1,1 +1,1 @@
-š¨8venv/lib/python3.6/site-packages/twisted/spread/jelly.py 2pyXìh
+š¨5venv/lib/python3.6/site-packages/twisted/copyright.py 2pyX,h

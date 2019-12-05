@@ -1,1 +1,1 @@
-à–avenv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/universaldetector.py 2pyX«h
+à–`venv/lib/python3.6/site-packages/botocore/vendored/requests/packages/chardet/chardistribution.py 2pyXèh

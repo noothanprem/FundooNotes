@@ -1,1 +1,1 @@
-ת8venv/lib/python3.6/site-packages/twisted/words/ewords.py 2pyX#h
+תEvenv/lib/python3.6/site-packages/twisted/logger/test/test_observer.py 2pyX�h

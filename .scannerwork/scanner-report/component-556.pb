@@ -1,1 +1,1 @@
-¬-venv/lib/python3.6/site-packages/celery/utils :*«­®¯°±²³´½¾¿ÀÁÇÞßàáâã
+¬-venv/lib/python3.6/site-packages/celery/utils :*«­®¯°±²³´½¾¿ÀÁÇÜÞßàáã

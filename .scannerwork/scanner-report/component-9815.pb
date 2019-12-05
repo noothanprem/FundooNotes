@@ -1,1 +1,1 @@
-×LJvenv/lib/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/Principal.py 2pyX/h
+×LHvenv/lib/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/Goodbye.py 2pyX/h

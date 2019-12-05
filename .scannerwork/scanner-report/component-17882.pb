@@ -1,1 +1,1 @@
-ڋ*venv/lib/python3.6/site-packages/shortuuid :	ًۋ��
+ڋ*venv/lib/python3.6/site-packages/shortuuid :	ًۋߋ

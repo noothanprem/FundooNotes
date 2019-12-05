@@ -1,1 +1,0 @@
-˜Ž2venv/lib/python3.6/site-packages/validate_email.py 2pyXÕh

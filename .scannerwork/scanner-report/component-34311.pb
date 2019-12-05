@@ -1,1 +1,1 @@
-‡Œ9venv/lib64/python3.6/site-packages/django/core/management :†ŒˆŒ‰ŒŠŒ‹Œ“Œ
+‡Œ@venv/lib64/python3.6/site-packages/django/core/management/sql.py 2pyX5h

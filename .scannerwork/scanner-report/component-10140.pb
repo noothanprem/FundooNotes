@@ -1,1 +1,1 @@
-œO5venv/lib/python3.6/site-packages/xlwt/UnicodeUtils.py 2pyX{h
+œO,venv/lib/python3.6/site-packages/xlwt/Row.py 2pyX¦h

@@ -1,5 +1,4 @@
-# Copyright (c) 2012-2013 Mitch Garnaat http://garnaat.org/
-# Copyright 2012-2014 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# Copyright 2016 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"). You
 # may not use this file except in compliance with the License. A copy of
@@ -11,82 +10,385 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
+import copy
+from collections import deque
+from pprint import pformat
 
-import os
-import re
-import logging
-
-__version__ = '1.12.188'
-
-
-class NullHandler(logging.Handler):
-    def emit(self, record):
-        pass
-
-# Configure default logger to do nothing
-log = logging.getLogger('botocore')
-log.addHandler(NullHandler())
+from botocore.validate import validate_parameters
+from botocore.exceptions import ParamValidationError, \
+    StubResponseError, StubAssertionError, UnStubbedResponseError
+from botocore.awsrequest import AWSResponse
 
 
-_first_cap_regex = re.compile('(.)([A-Z][a-z]+)')
-_end_cap_regex = re.compile('([a-z0-9])([A-Z])')
-# The regex below handles the special case where some acryonym
-# name is pluralized, e.g GatewayARNs, ListWebACLs, SomeCNAMEs.
-_special_case_transform = re.compile('[A-Z]{3,}s$')
-# Prepopulate the cache with special cases that don't match
-# our regular transformation.
-_xform_cache = {
-    ('CreateCachediSCSIVolume', '_'): 'create_cached_iscsi_volume',
-    ('CreateCachediSCSIVolume', '-'): 'create-cached-iscsi-volume',
-    ('DescribeCachediSCSIVolumes', '_'): 'describe_cached_iscsi_volumes',
-    ('DescribeCachediSCSIVolumes', '-'): 'describe-cached-iscsi-volumes',
-    ('DescribeStorediSCSIVolumes', '_'): 'describe_stored_iscsi_volumes',
-    ('DescribeStorediSCSIVolumes', '-'): 'describe-stored-iscsi-volumes',
-    ('CreateStorediSCSIVolume', '_'): 'create_stored_iscsi_volume',
-    ('CreateStorediSCSIVolume', '-'): 'create-stored-iscsi-volume',
-    ('ListHITsForQualificationType', '_'): 'list_hits_for_qualification_type',
-    ('ListHITsForQualificationType', '-'): 'list-hits-for-qualification-type',
-}
-# The items in this dict represent partial renames to apply globally to all
-# services which might have a matching argument or operation. This way a
-# common mis-translation can be fixed without having to call out each
-# individual case.
-ScalarTypes = ('string', 'integer', 'boolean', 'timestamp', 'float', 'double')
-
-BOTOCORE_ROOT = os.path.dirname(os.path.abspath(__file__))
-
-
-# Used to specify anonymous (unsigned) request signature
-class UNSIGNED(object):
-    def __copy__(self):
-        return self
-
-    def __deepcopy__(self, memodict):
-        return self
-
-
-UNSIGNED = UNSIGNED()
-
-
-def xform_name(name, sep='_', _xform_cache=_xform_cache):
-    """Convert camel case to a "pythonic" name.
-
-    If the name contains the ``sep`` character, then it is
-    returned unchanged.
-
+class _ANY(object):
     """
-    if sep in name:
-        # If the sep is in the name, assume that it's already
-        # transformed and return the string unchanged.
-        return name
-    key = (name, sep)
-    if key not in _xform_cache:
-        if _special_case_transform.search(name) is not None:
-            is_special = _special_case_transform.search(name)
-            matched = is_special.group()
-            # Replace something like ARNs, ACLs with _arns, _acls.
-            name = name[:-len(matched)] + sep + matched.lower()
-        s1 = _first_cap_regex.sub(r'\1' + sep + r'\2', name)
-        transformed = _end_cap_regex.sub(r'\1' + sep + r'\2', s1).lower()
-        _xform_cache[key] = transformed
-    return _xform_cache[key]
+    A helper object that compares equal to everything. Copied from
+    unittest.mock
+    """
+
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    def __repr__(self):
+        return '<ANY>'
+
+ANY = _ANY()
+
+
+class Stubber(object):
+    """
+    This class will allow you to stub out requests so you don't have to hit
+    an endpoint to write tests. Responses are returned first in, first out.
+    If operations are called out of order, or are called with no remaining
+    queued responses, an error will be raised.
+
+    **Example:**
+    ::
+        import datetime
+        import botocore.session
+        from botocore.stub import Stubber
+
+
+        s3 = botocore.session.get_session().create_client('s3')
+        stubber = Stubber(s3)
+
+        response = {
+            'IsTruncated': False,
+            'Name': 'test-bucket',
+            'MaxKeys': 1000, 'Prefix': '',
+            'Contents': [{
+                'Key': 'test.txt',
+                'ETag': '"abc123"',
+                'StorageClass': 'STANDARD',
+                'LastModified': datetime.datetime(2016, 1, 20, 22, 9),
+                'Owner': {'ID': 'abc123', 'DisplayName': 'myname'},
+                'Size': 14814
+            }],
+            'EncodingType': 'url',
+            'ResponseMetadata': {
+                'RequestId': 'abc123',
+                'HTTPStatusCode': 200,
+                'HostId': 'abc123'
+            },
+            'Marker': ''
+        }
+
+        expected_params = {'Bucket': 'test-bucket'}
+
+        stubber.add_response('list_objects', response, expected_params)
+        stubber.activate()
+
+        service_response = s3.list_objects(Bucket='test-bucket')
+        assert service_response == response
+
+
+    This class can also be called as a context manager, which will handle
+    activation / deactivation for you.
+
+    **Example:**
+    ::
+        import datetime
+        import botocore.session
+        from botocore.stub import Stubber
+
+
+        s3 = botocore.session.get_session().create_client('s3')
+
+        response = {
+            "Owner": {
+                "ID": "foo",
+                "DisplayName": "bar"
+            },
+            "Buckets": [{
+                "CreationDate": datetime.datetime(2016, 1, 20, 22, 9),
+                "Name": "baz"
+            }]
+        }
+
+
+        with Stubber(s3) as stubber:
+            stubber.add_response('list_buckets', response, {})
+            service_response = s3.list_buckets()
+
+        assert service_response == response
+
+
+    If you have an input parameter that is a randomly generated value, or you
+    otherwise don't care about its value, you can use ``stub.ANY`` to ignore
+    it in validation.
+
+    **Example:**
+    ::
+        import datetime
+        import botocore.session
+        from botocore.stub import Stubber, ANY
+
+
+        s3 = botocore.session.get_session().create_client('s3')
+        stubber = Stubber(s3)
+
+        response = {
+            'IsTruncated': False,
+            'Name': 'test-bucket',
+            'MaxKeys': 1000, 'Prefix': '',
+            'Contents': [{
+                'Key': 'test.txt',
+                'ETag': '"abc123"',
+                'StorageClass': 'STANDARD',
+                'LastModified': datetime.datetime(2016, 1, 20, 22, 9),
+                'Owner': {'ID': 'abc123', 'DisplayName': 'myname'},
+                'Size': 14814
+            }],
+            'EncodingType': 'url',
+            'ResponseMetadata': {
+                'RequestId': 'abc123',
+                'HTTPStatusCode': 200,
+                'HostId': 'abc123'
+            },
+            'Marker': ''
+        }
+
+        expected_params = {'Bucket': ANY}
+        stubber.add_response('list_objects', response, expected_params)
+
+        with stubber:
+            service_response = s3.list_objects(Bucket='test-bucket')
+
+        assert service_response == response
+    """
+    def __init__(self, client):
+        """
+        :param client: The client to add your stubs to.
+        """
+        self.client = client
+        self._event_id = 'boto_stubber'
+        self._expected_params_event_id = 'boto_stubber_expected_params'
+        self._queue = deque()
+
+    def __enter__(self):
+        self.activate()
+        return self
+
+    def __exit__(self, exception_type, exception_value, traceback):
+        self.deactivate()
+
+    def activate(self):
+        """
+        Activates the stubber on the client
+        """
+        self.client.meta.events.register_first(
+            'before-parameter-build.*.*',
+            self._assert_expected_params,
+            unique_id=self._expected_params_event_id)
+        self.client.meta.events.register(
+            'before-call.*.*',
+            self._get_response_handler,
+            unique_id=self._event_id)
+
+    def deactivate(self):
+        """
+        Deactivates the stubber on the client
+        """
+        self.client.meta.events.unregister(
+            'before-parameter-build.*.*',
+            self._assert_expected_params,
+            unique_id=self._expected_params_event_id)
+        self.client.meta.events.unregister(
+            'before-call.*.*',
+            self._get_response_handler,
+            unique_id=self._event_id)
+
+    def add_response(self, method, service_response, expected_params=None):
+        """
+        Adds a service response to the response queue. This will be validated
+        against the service model to ensure correctness. It should be noted,
+        however, that while missing attributes are often considered correct,
+        your code may not function properly if you leave them out. Therefore
+        you should always fill in every value you see in a typical response for
+        your particular request.
+
+        :param method: The name of the client method to stub.
+        :type method: str
+
+        :param service_response: A dict response stub. Provided parameters will
+            be validated against the service model.
+        :type service_response: dict
+
+        :param expected_params: A dictionary of the expected parameters to
+            be called for the provided service response. The parameters match
+            the names of keyword arguments passed to that client call. If
+            any of the parameters differ a ``StubResponseError`` is thrown.
+            You can use stub.ANY to indicate a particular parameter to ignore
+            in validation. stub.ANY is only valid for top level params.
+        """
+        self._add_response(method, service_response, expected_params)
+
+    def _add_response(self, method, service_response, expected_params):
+        if not hasattr(self.client, method):
+            raise ValueError(
+                "Client %s does not have method: %s"
+                % (self.client.meta.service_model.service_name, method))
+
+        # Create a successful http response
+        http_response = AWSResponse(None, 200, {}, None)
+
+        operation_name = self.client.meta.method_to_api_mapping.get(method)
+        self._validate_response(operation_name, service_response)
+
+        # Add the service_response to the queue for returning responses
+        response = {
+            'operation_name': operation_name,
+            'response': (http_response, service_response),
+            'expected_params': expected_params
+        }
+        self._queue.append(response)
+
+    def add_client_error(self, method, service_error_code='',
+                         service_message='', http_status_code=400,
+                         service_error_meta=None, expected_params=None,
+                         response_meta=None):
+        """
+        Adds a ``ClientError`` to the response queue.
+
+        :param method: The name of the service method to return the error on.
+        :type method: str
+
+        :param service_error_code: The service error code to return,
+                                   e.g. ``NoSuchBucket``
+        :type service_error_code: str
+
+        :param service_message: The service message to return, e.g.
+                        'The specified bucket does not exist.'
+        :type service_message: str
+
+        :param http_status_code: The HTTP status code to return, e.g. 404, etc
+        :type http_status_code: int
+
+        :param service_error_meta: Additional keys to be added to the
+            service Error
+        :type service_error_meta: dict
+
+        :param expected_params: A dictionary of the expected parameters to
+            be called for the provided service response. The parameters match
+            the names of keyword arguments passed to that client call. If
+            any of the parameters differ a ``StubResponseError`` is thrown.
+            You can use stub.ANY to indicate a particular parameter to ignore
+            in validation.
+
+        :param response_meta: Additional keys to be added to the
+            response's ResponseMetadata
+        :type response_meta: dict
+
+        """
+        http_response = AWSResponse(None, http_status_code, {}, None)
+
+        # We don't look to the model to build this because the caller would
+        # need to know the details of what the HTTP body would need to
+        # look like.
+        parsed_response = {
+            'ResponseMetadata': {'HTTPStatusCode': http_status_code},
+            'Error': {
+                'Message': service_message,
+                'Code': service_error_code
+            }
+        }
+
+        if service_error_meta is not None:
+            parsed_response['Error'].update(service_error_meta)
+
+        if response_meta is not None:
+            parsed_response['ResponseMetadata'].update(response_meta)
+
+        operation_name = self.client.meta.method_to_api_mapping.get(method)
+        # Note that we do not allow for expected_params while
+        # adding errors into the queue yet.
+        response = {
+            'operation_name': operation_name,
+            'response': (http_response, parsed_response),
+            'expected_params': expected_params,
+        }
+        self._queue.append(response)
+
+    def assert_no_pending_responses(self):
+        """
+        Asserts that all expected calls were made.
+        """
+        remaining = len(self._queue)
+        if remaining != 0:
+            raise AssertionError(
+                "%d responses remaining in queue." % remaining)
+
+    def _assert_expected_call_order(self, model, params):
+        if not self._queue:
+            raise UnStubbedResponseError(
+                operation_name=model.name,
+                reason=(
+                        'Unexpected API Call: A call was made but no additional calls expected. '
+                        'Either the API Call was not stubbed or it was called multiple times.'
+                        )
+            )
+
+        name = self._queue[0]['operation_name']
+        if name != model.name:
+            raise StubResponseError(
+                operation_name=model.name,
+                reason='Operation mismatch: found response for %s.' % name)
+
+    def _get_response_handler(self, model, params, context, **kwargs):
+        self._assert_expected_call_order(model, params)
+        # Pop off the entire response once everything has been validated
+        return self._queue.popleft()['response']
+
+    def _assert_expected_params(self, model, params, context, **kwargs):
+        if self._should_not_stub(context):
+            return
+        self._assert_expected_call_order(model, params)
+        expected_params = self._queue[0]['expected_params']
+        if expected_params is None:
+            return
+
+        # Validate the parameters are equal
+        for param, value in expected_params.items():
+            if param not in params or expected_params[param] != params[param]:
+                raise StubAssertionError(
+                    operation_name=model.name,
+                    reason='Expected parameters:\n%s,\nbut received:\n%s' % (
+                        pformat(expected_params), pformat(params)))
+
+        # Ensure there are no extra params hanging around
+        if sorted(expected_params.keys()) != sorted(params.keys()):
+            raise StubAssertionError(
+                operation_name=model.name,
+                reason='Expected parameters:\n%s,\nbut received:\n%s' % (
+                    pformat(expected_params), pformat(params)))
+
+    def _should_not_stub(self, context):
+        # Do not include presign requests when processing stubbed client calls
+        # as a presign request will never have an HTTP request sent over the
+        # wire for it and therefore not receive a response back.
+        if context and context.get('is_presign_request'):
+            return True
+
+    def _validate_response(self, operation_name, service_response):
+        service_model = self.client.meta.service_model
+        operation_model = service_model.operation_model(operation_name)
+        output_shape = operation_model.output_shape
+
+        # Remove ResponseMetadata so that the validator doesn't attempt to
+        # perform validation on it.
+        response = service_response
+        if 'ResponseMetadata' in response:
+            response = copy.copy(service_response)
+            del response['ResponseMetadata']
+
+        if output_shape is not None:
+            validate_parameters(response, output_shape)
+        elif response:
+            # If the output shape is None, that means the response should be
+            # empty apart from ResponseMetadata
+            raise ParamValidationError(
+                report=(
+                    "Service response should only contain ResponseMetadata."))

@@ -1,1 +1,1 @@
-ÎGvenv/lib/python3.6/site-packages/zope/interface/tests/test_interface.py 2pyXÕh
+Î5venv/lib/python3.6/site-packages/zope/interface/tests :,ÍÏÐÑÒÓÔÕÖ×ØÙÚòóôõö÷øùÈ

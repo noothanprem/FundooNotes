@@ -1,1 +1,1 @@
-Íb9venv/lib/python3.6/site-packages/docutils/languages/ca.py 2pyX=h
+Íb9venv/lib/python3.6/site-packages/docutils/languages/eo.py 2pyX>h

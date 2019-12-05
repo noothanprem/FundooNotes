@@ -1,1 +1,1 @@
-Ž8venv/lib/python3.6/site-packages/future/moves/_thread.py 2pyX	h
+Ž7venv/lib/python3.6/site-packages/future/moves/winreg.py 2pyX	h

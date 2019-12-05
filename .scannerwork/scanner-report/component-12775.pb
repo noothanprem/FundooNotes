@@ -1,1 +1,1 @@
-çc9venv/lib/python3.6/site-packages/requests/status_codes.py 2pyXyh
+çc)venv/lib/python3.6/site-packages/requests :$åcæcècécêcëcìcícîcïcðcñcòc…d†dˆd‰dŠd

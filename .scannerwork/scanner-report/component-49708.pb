@@ -1,1 +1,1 @@
-¬„@venv/lib64/python3.6/site-packages/social_core/backends/qiita.py 2pyXCh
+¬„@venv/lib64/python3.6/site-packages/social_core/backends/beats.py 2pyXBh

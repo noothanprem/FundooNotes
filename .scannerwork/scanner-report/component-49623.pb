@@ -1,1 +1,1 @@
-׃Hvenv/lib64/python3.6/site-packages/social_core/tests/backends/open_id.py 2pyXhh
+׃Nvenv/lib64/python3.6/site-packages/social_core/tests/backends/test_chatwork.py 2pyX-h

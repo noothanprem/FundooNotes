@@ -1,1 +1,1 @@
-¯Ñ0venv/lib64/python3.6/site-packages/gunicorn/http :®Ñ°Ñ±Ñ²Ñ³Ñ´Ñ¼Ñ¿Ñ
+¯Ñ0venv/lib64/python3.6/site-packages/gunicorn/http :®Ñ°Ñ±Ñ²Ñ³Ñ´Ñ¾Ñ¿Ñ

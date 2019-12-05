@@ -1,1 +1,1 @@
-®@Tvenv/lib/python3.6/site-packages/django/core/management/commands/createcachetable.py 2pyXmh
+®@Rvenv/lib/python3.6/site-packages/django/core/management/commands/showmigrations.py 2pyXŒh

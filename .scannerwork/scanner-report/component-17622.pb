@@ -1,1 +1,1 @@
-։?venv/lib/python3.6/site-packages/elasticsearch/client/ingest.py 2pyXOh
+։Jvenv/lib/python3.6/site-packages/elasticsearch/client/xpack/deprecation.py 2pyXh

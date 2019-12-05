@@ -1,1 +1,1 @@
-׼Pvenv/lib/python3.6/site-packages/django_extensions/management/commands/sqldsn.py 2pyX�h
+׼Tvenv/lib/python3.6/site-packages/django_extensions/management/commands/mail_debug.py 2pyX[h

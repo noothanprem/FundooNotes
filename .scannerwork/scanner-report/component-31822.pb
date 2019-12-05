@@ -1,1 +1,1 @@
-ÎøFvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/base :ÍøÏøĞøÑøÓø
+ÎøFvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/base :ÍøÏøĞøÑøÒø

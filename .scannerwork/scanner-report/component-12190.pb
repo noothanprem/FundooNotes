@@ -1,1 +1,1 @@
-ž_0venv/lib/python3.6/site-packages/PIL/__init__.py 2pyXKh
+ž_;venv/lib/python3.6/site-packages/PIL/FitsStubImagePlugin.py 2pyXLh

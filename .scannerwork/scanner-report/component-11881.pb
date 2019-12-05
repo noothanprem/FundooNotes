@@ -1,1 +1,1 @@
-é\5venv/lib/python3.6/site-packages/boto3/docs/waiter.py 2pyX\h
+é\5venv/lib/python3.6/site-packages/boto3/docs/method.py 2pyXHh

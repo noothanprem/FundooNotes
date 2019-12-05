@@ -1,1 +1,0 @@
-Œ€<venv/lib/python3.6/site-packages/gevent/testing/openfiles.py 2pyX~h

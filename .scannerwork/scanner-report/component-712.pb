@@ -1,1 +1,1 @@
-»8venv/lib/python3.6/site-packages/celery/backends/riak.py 2pyXôh
+»Avenv/lib/python3.6/site-packages/celery/backends/elasticsearch.py 2pyXèh

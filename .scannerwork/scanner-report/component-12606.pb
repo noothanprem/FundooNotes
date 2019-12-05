@@ -1,1 +1,1 @@
-¾b9venv/lib/python3.6/site-packages/docutils/languages/ja.py 2pyX>h
+¾b3venv/lib/python3.6/site-packages/docutils/languages :4½b¿bÀbÁbÂbÃbÄbÅbÆbÇbÈbÉbÊbËbÌbÍbÎbÏbĞbÑbÒbÓbÔbÕbñbòb

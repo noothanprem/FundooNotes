@@ -1,1 +1,1 @@
-¡ÕQvenv/lib64/python3.6/site-packages/colorful/static/colorful/jQuery.colorPicker.js 2jsX·h
+¡Õ5venv/lib64/python3.6/site-packages/colorful/fields.py 2pyX:h

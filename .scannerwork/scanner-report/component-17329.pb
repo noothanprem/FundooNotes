@@ -1,1 +1,1 @@
-±‡8venv/lib/python3.6/site-packages/kombu/utils/__init__.py 2pyXh
+±‡4venv/lib/python3.6/site-packages/kombu/utils/uuid.py 2pyXh

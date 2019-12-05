@@ -1,1 +1,1 @@
-Ä÷Cvenv/lib64/python3.6/site-packages/django/contrib/sessions/backends :Ã÷Å÷Æ÷Ç÷È÷É÷Ó÷
+Ä÷Kvenv/lib64/python3.6/site-packages/django/contrib/sessions/backends/file.py 2pyXËh

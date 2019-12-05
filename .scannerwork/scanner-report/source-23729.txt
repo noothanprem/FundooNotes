@@ -1,28 +1,47 @@
 """
-Globus Auth OpenID Connect backend, docs at:
-    https://docs.globus.org/api/auth
-    http://globus-integration-examples.readthedocs.io
+Trello OAuth1 backend, docs at:
+    https://python-social-auth.readthedocs.io/en/latest/backends/trello.html
 """
+from .oauth import BaseOAuth1
 
-from social_core.backends.open_id_connect import OpenIdConnectAuth
 
+class TrelloOAuth(BaseOAuth1):
 
-class GlobusOpenIdConnect(OpenIdConnectAuth):
-    name = 'globus'
-    OIDC_ENDPOINT = 'https://auth.globus.org'
+    """Trello OAuth authentication backend"""
+    name = 'trello'
+    ID_KEY = 'username'
+    AUTHORIZATION_URL = 'https://trello.com/1/OAuthAuthorizeToken'
+    REQUEST_TOKEN_URL = 'https://trello.com/1/OAuthGetRequestToken'
+    ACCESS_TOKEN_URL = 'https://trello.com/1/OAuthGetAccessToken'
+
     EXTRA_DATA = [
-        ('expires_in', 'expires_in', True),
-        ('refresh_token', 'refresh_token', True),
-        ('id_token', 'id_token', True),
-        ('other_tokens', 'other_tokens', True),
+        ('username', 'username'),
+        ('email', 'email'),
+        ('fullName', 'fullName')
     ]
 
     def get_user_details(self, response):
-        username_key = self.setting('USERNAME_KEY', default=self.USERNAME_KEY)
-        name = response.get('name') or ''
-        fullname, first_name, last_name = self.get_user_names(name)
-        return {'username': response.get(username_key),
+        """Return user details from Trello account"""
+        fullname, first_name, last_name = self.get_user_names(
+            response.get('fullName')
+        )
+        return {'username': response.get('username'),
                 'email': response.get('email'),
                 'fullname': fullname,
                 'first_name': first_name,
                 'last_name': last_name}
+
+    def user_data(self, access_token):
+        """Return user data provided"""
+        url = 'https://trello.com/1/members/me'
+        try:
+            return self.get_json(url, auth=self.oauth_auth(access_token))
+        except ValueError:
+            return None
+
+    def auth_extra_arguments(self):
+        return {
+            'name': self.setting('APP_NAME', ''),
+            # trello default expiration is '30days'
+            'expiration': self.setting('EXPIRATION', 'never')
+        }

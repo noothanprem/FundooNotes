@@ -1,1 +1,1 @@
-ья[venv/lib64/python3.6/site-packages/rest_framework/authtoken/management/commands/__init__.py 2pyXh
+ьяcvenv/lib64/python3.6/site-packages/rest_framework/authtoken/management/commands/drf_create_token.py 2pyX.h

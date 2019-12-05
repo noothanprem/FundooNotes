@@ -1,1 +1,1 @@
-Ÿ™7venv/lib/python3.6/site-packages/social_django/utils.py 2pyX4h
+Ÿ™8venv/lib/python3.6/site-packages/social_django/config.py 2pyXh

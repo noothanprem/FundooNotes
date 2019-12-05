@@ -1,1 +1,1 @@
-Œ²fvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_search_simple_query_string.py 2pyXšh
+Œ²Uvenv/lib/python3.6/site-packages/django_elasticsearch_dsl_drf/tests/test_highlight.py 2pyXih

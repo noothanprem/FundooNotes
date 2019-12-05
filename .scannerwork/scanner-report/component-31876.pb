@@ -1,1 +1,1 @@
-„ùJvenv/lib64/python3.6/site-packages/django/contrib/gis/sitemaps/__init__.py 2pyXh
+„ù>venv/lib64/python3.6/site-packages/django/contrib/gis/sitemaps :	‚ù†ù‹ù

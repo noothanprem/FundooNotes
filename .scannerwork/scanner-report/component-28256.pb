@@ -1,1 +1,1 @@
-рмOvenv/lib64/python3.6/site-packages/reportlab/graphics/samples/stacked_column.py 2pyXUh
+рмLvenv/lib64/python3.6/site-packages/reportlab/graphics/samples/excelcolors.py 2pyX.h

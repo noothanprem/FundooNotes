@@ -1,1 +1,1 @@
-±¡$venv/lib/python3.6/site-packages/xdg :'¯¡²¡³¡´¡µ¡¶¡·¡¸¡Ç¡È¡É¡Ê¡Ë¡
+±¡.venv/lib/python3.6/site-packages/xdg/Locale.py 2pyXPh

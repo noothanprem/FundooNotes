@@ -1,1 +1,1 @@
-í±8venv/lib/python3.6/site-packages/django_nine/versions.py 2pyXRh
+í±4venv/lib/python3.6/site-packages/django_nine/user.py 2pyX4h

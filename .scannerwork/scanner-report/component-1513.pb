@@ -1,1 +1,1 @@
-éDvenv/lib/python3.6/site-packages/nacl/bindings/crypto_generichash.py 2pyXØh
+é=venv/lib/python3.6/site-packages/nacl/bindings/sodium_core.py 2pyX!h

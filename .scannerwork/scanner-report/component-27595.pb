@@ -1,1 +1,1 @@
-кв:venv/lib64/python3.6/site-packages/MySQLdb/constants/CR.py 2pyXhh
+кв@venv/lib64/python3.6/site-packages/MySQLdb/constants/__init__.py 2pyXh

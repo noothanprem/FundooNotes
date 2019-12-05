@@ -1,1 +1,1 @@
-леMvenv/lib64/python3.6/site-packages/django_inlinecss/tests/test_css_loaders.py 2pyX0h
+ле9venv/lib64/python3.6/site-packages/django_inlinecss/tests :	йемеке

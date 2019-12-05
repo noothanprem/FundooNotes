@@ -1,1 +1,1 @@
-‡:venv/lib/python3.6/site-packages/openid/server/__init__.py 2pyXh
+‡;venv/lib/python3.6/site-packages/openid/server/trustroot.py 2pyXÇh

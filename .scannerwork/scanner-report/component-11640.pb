@@ -1,1 +1,0 @@
-øZ>venv/lib/python3.6/site-packages/faker/providers/company/fr_CH :÷Z

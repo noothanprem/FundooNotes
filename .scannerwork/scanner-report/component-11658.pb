@@ -1,1 +1,1 @@
-Š[>venv/lib/python3.6/site-packages/faker/providers/company/fr_FR :‰[
+Š[Jvenv/lib/python3.6/site-packages/faker/providers/company/fr_FR/__init__.py 2pyX…h

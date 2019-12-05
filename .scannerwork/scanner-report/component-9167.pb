@@ -1,1 +1,1 @@
-ÏGGvenv/lib/python3.6/site-packages/provider/oauth2/migrations/__init__.py 2pyXh
+ÏG_venv/lib/python3.6/site-packages/provider/oauth2/migrations/0003_auto__add_field_client_name.py 2pyXgh

@@ -1,1 +1,1 @@
-‰B9venv/lib/python3.6/site-packages/django/conf/locale/de_CH :„BÂB
+‰BEvenv/lib/python3.6/site-packages/django/conf/locale/de_CH/__init__.py 2pyXh

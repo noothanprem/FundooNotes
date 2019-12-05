@@ -1,1 +1,1 @@
-¾ÁRvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/filters :½Á¿ÁÀÁÁÁÂÁÃÁÄÁÅÁ
+¾Á_venv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/filters/sanitizer.py 2pyXh

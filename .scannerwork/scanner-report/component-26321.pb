@@ -1,1 +1,1 @@
-ÑÍ3venv/lib64/python3.6/site-packages/django_short_url :ĞÍÙÍÛÍİÍæÍçÍ
+ÑÍ3venv/lib64/python3.6/site-packages/django_short_url :ĞÍÚÍÛÍŞÍæÍéÍ

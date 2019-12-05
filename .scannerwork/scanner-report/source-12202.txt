@@ -1,94 +1,72 @@
 #
-# The Python Imaging Library.
+# The Python Imaging Library
 # $Id$
 #
-# Binary input/output support routines.
+# HDF5 stub adapter
 #
-# Copyright (c) 1997-2003 by Secret Labs AB
-# Copyright (c) 1995-2003 by Fredrik Lundh
-# Copyright (c) 2012 by Brian Crowell
+# Copyright (c) 2000-2003 by Fredrik Lundh
 #
 # See the README file for information on usage and redistribution.
 #
 
-from struct import unpack_from, pack
-from ._util import py3
+from . import Image, ImageFile
 
-if py3:
-    def i8(c):
-        return c if c.__class__ is int else c[0]
-
-    def o8(i):
-        return bytes((i & 255,))
-else:
-    def i8(c):
-        return ord(c)
-
-    def o8(i):
-        return chr(i & 255)
+_handler = None
 
 
-# Input, le = little endian, be = big endian
-def i16le(c, o=0):
+def register_handler(handler):
     """
-    Converts a 2-bytes (16 bits) string to an unsigned integer.
+    Install application-specific HDF5 image handler.
 
-    c: string containing bytes to convert
-    o: offset of bytes to convert in string
+    :param handler: Handler object.
     """
-    return unpack_from("<H", c, o)[0]
+    global _handler
+    _handler = handler
 
 
-def si16le(c, o=0):
-    """
-    Converts a 2-bytes (16 bits) string to a signed integer.
+# --------------------------------------------------------------------
+# Image adapter
 
-    c: string containing bytes to convert
-    o: offset of bytes to convert in string
-    """
-    return unpack_from("<h", c, o)[0]
+def _accept(prefix):
+    return prefix[:8] == b"\x89HDF\r\n\x1a\n"
 
 
-def i32le(c, o=0):
-    """
-    Converts a 4-bytes (32 bits) string to an unsigned integer.
+class HDF5StubImageFile(ImageFile.StubImageFile):
 
-    c: string containing bytes to convert
-    o: offset of bytes to convert in string
-    """
-    return unpack_from("<I", c, o)[0]
+    format = "HDF5"
+    format_description = "HDF5"
 
+    def _open(self):
 
-def si32le(c, o=0):
-    """
-    Converts a 4-bytes (32 bits) string to a signed integer.
+        offset = self.fp.tell()
 
-    c: string containing bytes to convert
-    o: offset of bytes to convert in string
-    """
-    return unpack_from("<i", c, o)[0]
+        if not _accept(self.fp.read(8)):
+            raise SyntaxError("Not an HDF file")
 
+        self.fp.seek(offset)
 
-def i16be(c, o=0):
-    return unpack_from(">H", c, o)[0]
+        # make something up
+        self.mode = "F"
+        self.size = 1, 1
 
+        loader = self._load()
+        if loader:
+            loader.open(self)
 
-def i32be(c, o=0):
-    return unpack_from(">I", c, o)[0]
+    def _load(self):
+        return _handler
 
 
-# Output, le = little endian, be = big endian
-def o16le(i):
-    return pack("<H", i)
+def _save(im, fp, filename):
+    if _handler is None or not hasattr("_handler", "save"):
+        raise IOError("HDF5 save handler not installed")
+    _handler.save(im, fp, filename)
 
 
-def o32le(i):
-    return pack("<I", i)
+# --------------------------------------------------------------------
+# Registry
 
+Image.register_open(HDF5StubImageFile.format, HDF5StubImageFile, _accept)
+Image.register_save(HDF5StubImageFile.format, _save)
 
-def o16be(i):
-    return pack(">H", i)
-
-
-def o32be(i):
-    return pack(">I", i)
+Image.register_extensions(HDF5StubImageFile.format, [".h5", ".hdf"])

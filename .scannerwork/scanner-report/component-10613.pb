@@ -1,1 +1,1 @@
-õR4venv/lib/python3.6/site-packages/faker/utils/text.py 2pyX]h
+õR7venv/lib/python3.6/site-packages/faker/utils/loading.py 2pyX0h

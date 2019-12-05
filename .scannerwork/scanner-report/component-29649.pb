@@ -1,1 +1,1 @@
-Ñç7venv/lib64/python3.6/site-packages/django/utils/ipv6.py 2pyX/h
+Ñç=venv/lib64/python3.6/site-packages/django/utils/autoreload.py 2pyXÜh

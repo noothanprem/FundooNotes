@@ -1,10 +1,15 @@
-from __future__ import absolute_import
+from json import loads, dumps
 
-from .facebook import facebook_compliance_fix
-from .fitbit import fitbit_compliance_fix
-from .linkedin import linkedin_compliance_fix
-from .slack import slack_compliance_fix
-from .instagram import instagram_compliance_fix
-from .mailchimp import mailchimp_compliance_fix
-from .weibo import weibo_compliance_fix
-from .plentymarkets import plentymarkets_compliance_fix
+from oauthlib.common import to_unicode
+
+
+def weibo_compliance_fix(session):
+    def _missing_token_type(r):
+        token = loads(r.text)
+        token["token_type"] = "Bearer"
+        r._content = to_unicode(dumps(token)).encode("UTF-8")
+        return r
+
+    session._client.default_token_placement = "query"
+    session.register_compliance_hook("access_token_response", _missing_token_type)
+    return session

@@ -1,39 +1,28 @@
-# See issue #466
-import unittest
-import ctypes
+from gevent.monkey import patch_all
+patch_all(thread=False)
+from threading import Thread
+import time
+
+# The first time we init the hub is in the native
+# thread with time.sleep(), needing multiple
+# threads at the same time. Note: this is very timing
+# dependent.
+# See #687
 
 
-class AnStructure(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_int)]
+def func():
+    time.sleep()
 
 
-def _send(socket):
-    for meth in ('sendall', 'send'):
-        anStructure = AnStructure()
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.connect(('127.0.0.1', 12345))
-        getattr(sock, meth)(anStructure)
-        sock.close()
-
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.connect(('127.0.0.1', 12345))
-        sock.settimeout(1.0)
-        getattr(sock, meth)(anStructure)
-        sock.close()
-
-class TestSendBuiltinSocket(unittest.TestCase):
-
-    def test_send(self):
-        import socket
-        _send(socket)
-
-
-class TestSendGeventSocket(unittest.TestCase):
-
-    def test_send(self):
-        import gevent.socket
-        _send(gevent.socket)
+def main():
+    threads = []
+    for _ in range(3):
+        th = Thread(target=func)
+        th.start()
+        threads.append(th)
+    for th in threads:
+        th.join()
 
 
 if __name__ == '__main__':
-    unittest.main()
+    main()

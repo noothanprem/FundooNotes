@@ -1,1 +1,0 @@
-Պ9venv/lib/python3.6/site-packages/importlib_metadata/tests :Ԋ܊݊ފ�

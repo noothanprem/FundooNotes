@@ -1,41 +1,52 @@
-g
-pythonS107KMethod "__init__" has 8 parameters, which is greater than the 7 authorized. 2:< <l
-pythonS100PRename method "logPrefix" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2aa n
-pythonS100RRename method "channelOpen" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2jj m
-pythonS100QRename method "openFailed" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2tt q
-pythonS100URename method "addWindowBytes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2~~ t
-pythonS100VRename method "requestReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-”” q
+p
+pythonS100TRename method "buildProtocol" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 n
+pythonS100RRename method "channelOpen" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2'' m
+pythonS100QRename method "openFailed" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2.. o
+pythonS100SRename method "dataReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 211 n
+pythonS100RRename method "eofReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 244 n
+pythonS100RRename method "channelOpen" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2gg m
+pythonS100QRename method "_setClient" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2rr q
 pythonS100SRename method "dataReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-§§ p
-pythonS100RRename method "extReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-°° p
-pythonS100RRename method "eofReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ºº r
-pythonS100TRename method "closeReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÁÁ r
-pythonS100TRename method "writeExtended" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-íí r
-pythonS100TRename method "writeSequence" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
- s
-pythonS100URename method "loseConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-—— l
-pythonS100NRename method "getPeer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¡¡ l
-pythonS100NRename method "getHost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-«« p
-pythonS100RRename method "stopWriting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-µµ q
-pythonS100SRename method "startWriting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¼¼ s
-pythonS117WRename this parameter "localWindow" to match the regular expression ^[_a-z][a-z0-9_]*$. 2:: "v
-pythonS117ZRename this parameter "localMaxPacket" to match the regular expression ^[_a-z][a-z0-9_]*$. 2::( 6t
-pythonS117XRename this parameter "remoteWindow" to match the regular expression ^[_a-z][a-z0-9_]*$. 2;; #w
-pythonS117[Rename this parameter "remoteMaxPacket" to match the regular expression ^[_a-z][a-z0-9_]*$. 2;;) 8t
-pythonS117XRename this parameter "specificData" to match the regular expression ^[_a-z][a-z0-9_]*$. 2jj &u
-pythonS117WRename this parameter "requestType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-”” )r
-pythonS117TRename this parameter "dataType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-°° "r
-pythonS117TRename this parameter "dataType" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-íí $
+ q
+pythonS100SRename method "dataReceived" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+³³ s
+pythonS100URename method "connectionLost" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¹¹ v
+pythonS117ZRename this local variable "addrTuple" to match the regular expression ^[_a-z][a-z0-9_]*$. 2   |
+pythonS117`Rename this local variable "channelOpenData" to match the regular expression ^[_a-z][a-z0-9_]*$. 2!! t
+pythonS117XRename this parameter "specificData" to match the regular expression ^[_a-z][a-z0-9_]*$. 2'' &t
+pythonS117XRename this parameter "specificData" to match the regular expression ^[_a-z][a-z0-9_]*$. 2gg &v
+pythonS117XRename this parameter "remoteWindow" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¦¦  ,y
+pythonS117[Rename this parameter "remoteMaxPacket" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+¦¦. =w
+pythonS117YRename this local variable "remoteHP" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+§§ u
+pythonS117WRename this local variable "origHP" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+§§ w
+pythonS117YRename this local variable "connHost" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÉÉ w
+pythonS117YRename this local variable "connPort" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÉÉ w
+pythonS117YRename this local variable "origHost" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÊÊ w
+pythonS117YRename this local variable "origPort" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÊÊ w
+pythonS117YRename this local variable "connHost" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ØØ w
+pythonS117YRename this local variable "connPort" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÛÛ w
+pythonS117YRename this local variable "origHost" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÜÜ w
+pythonS117YRename this local variable "origPort" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ßß ƒ
+pythonS1542dRename function "openConnectForwardingClient" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¦¦ }
+pythonS1542^Rename function "packOpen_direct_tcpip" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¿¿ 
+pythonS1542`Rename function "unpackOpen_direct_tcpip" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÕÕ €
+pythonS1542aRename function "packGlobal_tcpip_forward" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ææ ‚
+pythonS1542cRename function "unpackGlobal_tcpip_forward" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+òò 

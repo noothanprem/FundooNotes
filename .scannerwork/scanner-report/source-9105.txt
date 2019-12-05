@@ -1,62 +1,45 @@
-import functools
-from importlib import import_module
+# SecretStorage module for Python
+# Access passwords using the SecretService DBus API
+# Author: Dmitry Shachnev, 2012-2018
+# License: 3-clause BSD, see LICENSE file
 
-from django.core.exceptions import ViewDoesNotExist
-from django.utils.module_loading import module_has_submodule
+"""All secretstorage functions may raise various exceptions when
+something goes wrong. All exceptions derive from base
+:exc:`SecretStorageException` class."""
 
+class SecretStorageException(Exception):
+	"""All exceptions derive from this class."""
 
-@functools.lru_cache(maxsize=None)
-def get_callable(lookup_view):
-    """
-    Return a callable corresponding to lookup_view.
-    * If lookup_view is already a callable, return it.
-    * If lookup_view is a string import path that can be resolved to a callable,
-      import that callable and return it, otherwise raise an exception
-      (ImportError or ViewDoesNotExist).
-    """
-    if callable(lookup_view):
-        return lookup_view
+class SecretServiceNotAvailableException(SecretStorageException):
+	"""Raised by :class:`~secretstorage.item.Item` or
+	:class:`~secretstorage.collection.Collection` constructors, or by
+	other functions in the :mod:`secretstorage.collection` module, when
+	the Secret Service API is not available."""
 
-    if not isinstance(lookup_view, str):
-        raise ViewDoesNotExist("'%s' is not a callable or a dot-notation path" % lookup_view)
+class LockedException(SecretStorageException):
+	"""Raised when an action cannot be performed because the collection
+	is locked. Use :meth:`~secretstorage.collection.Collection.is_locked`
+	to check if the collection is locked, and
+	:meth:`~secretstorage.collection.Collection.unlock` to unlock it.
+	"""
 
-    mod_name, func_name = get_mod_func(lookup_view)
-    if not func_name:  # No '.' in lookup_view
-        raise ImportError("Could not import '%s'. The path must be fully qualified." % lookup_view)
+class ItemNotFoundException(SecretStorageException):
+	"""Raised when an item does not exist or has been deleted. Example of
+	handling:
 
-    try:
-        mod = import_module(mod_name)
-    except ImportError:
-        parentmod, submod = get_mod_func(mod_name)
-        if submod and not module_has_submodule(import_module(parentmod), submod):
-            raise ViewDoesNotExist(
-                "Could not import '%s'. Parent module %s does not exist." %
-                (lookup_view, mod_name)
-            )
-        else:
-            raise
-    else:
-        try:
-            view_func = getattr(mod, func_name)
-        except AttributeError:
-            raise ViewDoesNotExist(
-                "Could not import '%s'. View does not exist in module %s." %
-                (lookup_view, mod_name)
-            )
-        else:
-            if not callable(view_func):
-                raise ViewDoesNotExist(
-                    "Could not import '%s.%s'. View is not callable." %
-                    (mod_name, func_name)
-                )
-            return view_func
+	>>> import secretstorage
+	>>> connection = secretstorage.dbus_init()
+	>>> item_path = '/not/existing/path'
+	>>> try:
+	...     item = secretstorage.Item(connection, item_path)
+	... except secretstorage.ItemNotFoundException:
+	...     print('Item not found!')
+	... 
+	Item not found!
+	"""
 
+class PromptDismissedException(ItemNotFoundException):
+	"""Raised when a prompt was dismissed by the user.
 
-def get_mod_func(callback):
-    # Convert 'django.views.news.stories.story_detail' to
-    # ['django.views.news.stories', 'story_detail']
-    try:
-        dot = callback.rindex('.')
-    except ValueError:
-        return callback, ''
-    return callback[:dot], callback[dot + 1:]
+	.. versionadded:: 3.1
+	"""

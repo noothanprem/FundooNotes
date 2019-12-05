@@ -25,64 +25,58 @@
 # 02110-1301  USA
 ######################### END LICENSE BLOCK #########################
 
-import logging
+from .charsetprober import CharSetProber
+from .enums import ProbingState, MachineState
+from .codingstatemachine import CodingStateMachine
+from .mbcssm import UTF8_SM_MODEL
 
-from .enums import MachineState
 
 
-class CodingStateMachine(object):
-    """
-    A state machine to verify a byte sequence for a particular encoding. For
-    each byte the detector receives, it will feed that byte to every active
-    state machine available, one byte at a time. The state machine changes its
-    state based on its previous state and the byte it receives. There are 3
-    states in a state machine that are of interest to an auto-detector:
+class UTF8Prober(CharSetProber):
+    ONE_CHAR_PROB = 0.5
 
-    START state: This is the state to start with, or a legal byte sequence
-                 (i.e. a valid code point) for character has been identified.
-
-    ME state:  This indicates that the state machine identified a byte sequence
-               that is specific to the charset it is designed for and that
-               there is no other possible encoding which can contain this byte
-               sequence. This will to lead to an immediate positive answer for
-               the detector.
-
-    ERROR state: This indicates the state machine identified an illegal byte
-                 sequence for that encoding. This will lead to an immediate
-                 negative answer for this encoding. Detector will exclude this
-                 encoding from consideration from here on.
-    """
-    def __init__(self, sm):
-        self._model = sm
-        self._curr_byte_pos = 0
-        self._curr_char_len = 0
-        self._curr_state = None
-        self.logger = logging.getLogger(__name__)
+    def __init__(self):
+        super(UTF8Prober, self).__init__()
+        self.coding_sm = CodingStateMachine(UTF8_SM_MODEL)
+        self._num_mb_chars = None
         self.reset()
 
     def reset(self):
-        self._curr_state = MachineState.START
+        super(UTF8Prober, self).reset()
+        self.coding_sm.reset()
+        self._num_mb_chars = 0
 
-    def next_state(self, c):
-        # for each byte we get its class
-        # if it is first byte, we also get byte length
-        byte_class = self._model['class_table'][c]
-        if self._curr_state == MachineState.START:
-            self._curr_byte_pos = 0
-            self._curr_char_len = self._model['char_len_table'][byte_class]
-        # from byte's class and state_table, we get its next state
-        curr_state = (self._curr_state * self._model['class_factor']
-                      + byte_class)
-        self._curr_state = self._model['state_table'][curr_state]
-        self._curr_byte_pos += 1
-        return self._curr_state
-
-    def get_current_charlen(self):
-        return self._curr_char_len
-
-    def get_coding_state_machine(self):
-        return self._model['name']
+    @property
+    def charset_name(self):
+        return "utf-8"
 
     @property
     def language(self):
-        return self._model['language']
+        return ""
+
+    def feed(self, byte_str):
+        for c in byte_str:
+            coding_state = self.coding_sm.next_state(c)
+            if coding_state == MachineState.ERROR:
+                self._state = ProbingState.NOT_ME
+                break
+            elif coding_state == MachineState.ITS_ME:
+                self._state = ProbingState.FOUND_IT
+                break
+            elif coding_state == MachineState.START:
+                if self.coding_sm.get_current_charlen() >= 2:
+                    self._num_mb_chars += 1
+
+        if self.state == ProbingState.DETECTING:
+            if self.get_confidence() > self.SHORTCUT_THRESHOLD:
+                self._state = ProbingState.FOUND_IT
+
+        return self.state
+
+    def get_confidence(self):
+        unlike = 0.99
+        if self._num_mb_chars < 6:
+            unlike *= self.ONE_CHAR_PROB ** self._num_mb_chars
+            return 1.0 - unlike
+        else:
+            return unlike

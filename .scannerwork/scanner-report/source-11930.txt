@@ -11,100 +11,99 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 
-import logging
-
-from boto3.session import Session
-
-
-__author__ = 'Amazon Web Services'
-__version__ = '1.9.188'
+# All exceptions in this class should subclass from Boto3Error.
+import botocore.exceptions
 
 
-# The default Boto3 session; autoloaded when needed.
-DEFAULT_SESSION = None
+# All exceptions should subclass from Boto3Error in this module.
+class Boto3Error(Exception):
+    """Base class for all Boto3 errors."""
 
 
-def setup_default_session(**kwargs):
-    """
-    Set up a default session, passing through any parameters to the session
-    constructor. There is no need to call this unless you wish to pass custom
-    parameters, because a default session will be created for you.
-    """
-    global DEFAULT_SESSION
-    DEFAULT_SESSION = Session(**kwargs)
+class ResourceLoadException(Boto3Error):
+    pass
 
 
-def set_stream_logger(name='boto3', level=logging.DEBUG, format_string=None):
-    """
-    Add a stream handler for the given name and level to the logging module.
-    By default, this logs all boto3 messages to ``stdout``.
-
-        >>> import boto3
-        >>> boto3.set_stream_logger('boto3.resources', logging.INFO)
-
-    For debugging purposes a good choice is to set the stream logger to ``''``
-    which is equivalent to saying "log everything".
-
-    .. WARNING::
-       Be aware that when logging anything from ``'botocore'`` the full wire
-       trace will appear in your logs. If your payloads contain sensitive data
-       this should not be used in production.
-
-    :type name: string
-    :param name: Log name
-    :type level: int
-    :param level: Logging level, e.g. ``logging.INFO``
-    :type format_string: str
-    :param format_string: Log message format
-    """
-    if format_string is None:
-        format_string = "%(asctime)s %(name)s [%(levelname)s] %(message)s"
-
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    handler = logging.StreamHandler()
-    handler.setLevel(level)
-    formatter = logging.Formatter(format_string)
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+# NOTE: This doesn't appear to be used anywhere.
+# It's probably safe to remove this.
+class NoVersionFound(Boto3Error):
+    pass
 
 
-def _get_default_session():
-    """
-    Get the default session, creating one if needed.
-
-    :rtype: :py:class:`~boto3.session.Session`
-    :return: The default session
-    """
-    if DEFAULT_SESSION is None:
-        setup_default_session()
-
-    return DEFAULT_SESSION
-
-
-def client(*args, **kwargs):
-    """
-    Create a low-level service client by name using the default session.
-
-    See :py:meth:`boto3.session.Session.client`.
-    """
-    return _get_default_session().client(*args, **kwargs)
+# We're subclassing from botocore.exceptions.DataNotFoundError
+# to keep backwards compatibility with anyone that was catching
+# this low level Botocore error before this exception was
+# introduced in boto3.
+# Same thing for ResourceNotExistsError below.
+class UnknownAPIVersionError(Boto3Error,
+                             botocore.exceptions.DataNotFoundError):
+    def __init__(self, service_name, bad_api_version,
+                 available_api_versions):
+        msg = (
+            "The '%s' resource does not an API version of: %s\n"
+            "Valid API versions are: %s"
+            % (service_name, bad_api_version, available_api_versions)
+        )
+        # Not using super because we don't want the DataNotFoundError
+        # to be called, it has a different __init__ signature.
+        Boto3Error.__init__(self, msg)
 
 
-def resource(*args, **kwargs):
-    """
-    Create a resource service client by name using the default session.
+class ResourceNotExistsError(Boto3Error,
+                             botocore.exceptions.DataNotFoundError):
+    """Raised when you attempt to create a resource that does not exist."""
+    def __init__(self, service_name, available_services, has_low_level_client):
+        msg = (
+            "The '%s' resource does not exist.\n"
+            "The available resources are:\n"
+            "   - %s\n" % (service_name, '\n   - '.join(available_services))
+        )
+        if has_low_level_client:
+            msg += (
+                "\nConsider using a boto3.client('%s') instead "
+                "of a resource for '%s'" % (service_name, service_name))
+        # Not using super because we don't want the DataNotFoundError
+        # to be called, it has a different __init__ signature.
+        Boto3Error.__init__(self, msg)
 
-    See :py:meth:`boto3.session.Session.resource`.
-    """
-    return _get_default_session().resource(*args, **kwargs)
+
+class RetriesExceededError(Boto3Error):
+    def __init__(self, last_exception, msg='Max Retries Exceeded'):
+        super(RetriesExceededError, self).__init__(msg)
+        self.last_exception = last_exception
 
 
-# Set up logging to ``/dev/null`` like a library is supposed to.
-# http://docs.python.org/3.3/howto/logging.html#configuring-logging-for-a-library
-class NullHandler(logging.Handler):
-    def emit(self, record):
-        pass
+class S3TransferFailedError(Boto3Error):
+    pass
 
 
-logging.getLogger('boto3').addHandler(NullHandler())
+class S3UploadFailedError(Boto3Error):
+    pass
+
+
+class DynamoDBOperationNotSupportedError(Boto3Error):
+    """Raised for operantions that are not supported for an operand"""
+    def __init__(self, operation, value):
+        msg = (
+            '%s operation cannot be applied to value %s of type %s directly. '
+            'Must use AttributeBase object methods (i.e. Attr().eq()). to '
+            'generate ConditionBase instances first.' %
+            (operation, value, type(value)))
+        Exception.__init__(self, msg)
+
+# FIXME: Backward compatibility
+DynanmoDBOperationNotSupportedError = DynamoDBOperationNotSupportedError
+
+
+class DynamoDBNeedsConditionError(Boto3Error):
+    """Raised when input is not a condition"""
+    def __init__(self, value):
+        msg = (
+            'Expecting a ConditionBase object. Got %s of type %s. '
+            'Use AttributeBase object methods (i.e. Attr().eq()). to '
+            'generate ConditionBase instances.' % (value, type(value)))
+        Exception.__init__(self, msg)
+
+
+class DynamoDBNeedsKeyConditionError(Boto3Error):
+    pass

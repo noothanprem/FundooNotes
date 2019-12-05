@@ -1,1 +1,1 @@
- @Lvenv/lib/python3.6/site-packages/django/core/management/commands/startapp.py 2pyXh
+ @@venv/lib/python3.6/site-packages/django/core/management/commands :0Ÿ@¢@£@¤@¥@¦@§@¨@©@ª@«@¬@­@®@¯@°@Ê@Ë@Ì@Í@Î@Ï@Ð@Ñ@

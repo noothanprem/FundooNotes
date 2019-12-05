@@ -1,1 +1,1 @@
-ÙD6venv/lib/python3.6/site-packages/django/conf/locale/fa :ÛDıD
+ÙDBvenv/lib/python3.6/site-packages/django/conf/locale/fa/__init__.py 2pyXh

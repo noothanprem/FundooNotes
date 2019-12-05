@@ -1,754 +1,868 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
-#
 
-"""
-Tests for L{twisted.trial.util}
-"""
+from __future__ import absolute_import, division
 
-from __future__ import division, absolute_import
+import gc
+import re
+import sys
+import textwrap
+import types
 
-import os, sys
-
-from zope.interface import implementer
-
+from twisted.python import util
 from twisted.python.compat import NativeStringIO
-from twisted.python import filepath
-from twisted.internet.interfaces import IProcessTransport
-from twisted.internet import defer
-from twisted.internet.base import DelayedCall
-from twisted.python.failure import Failure
+from twisted.python.filepath import FilePath
+from twisted.python.usage import UsageError
+from twisted.scripts import trial
+from twisted.trial import unittest
+from twisted.trial._dist.disttrial import DistTrialRunner
+from twisted.trial.runner import TestLoader
+from twisted.trial.runner import TrialRunner, TestSuite, DestructiveTestSuite
+from twisted.trial.test.test_loader import testNames
 
-from twisted.trial.unittest import SynchronousTestCase
-from twisted.trial import util
-from twisted.trial.util import (
-    DirtyReactorAggregateError, _Janitor, excInfoOrFailureToExcInfo,
-    acquireAttribute)
-
+pyunit = __import__('unittest')
 
 
-class MktempTests(SynchronousTestCase):
+def sibpath(filename):
     """
-    Tests for L{TestCase.mktemp}, a helper function for creating temporary file
-    or directory names.
+    For finding files in twisted/trial/test
     """
-    def test_name(self):
-        """
-        The path name returned by C{mktemp} is directly beneath a directory
-        which identifies the test method which created the name.
-        """
-        name = self.mktemp()
-        dirs = os.path.dirname(name).split(os.sep)[:-1]
-        self.assertEqual(
-            dirs, ['twisted.trial.test.test_util', 'MktempTests', 'test_name'])
-
-
-    def test_unique(self):
-        """
-        Repeated calls to C{mktemp} return different values.
-        """
-        name = self.mktemp()
-        self.assertNotEqual(name, self.mktemp())
-
-
-    def test_created(self):
-        """
-        The directory part of the path name returned by C{mktemp} exists.
-        """
-        name = self.mktemp()
-        dirname = os.path.dirname(name)
-        self.assertTrue(os.path.exists(dirname))
-        self.assertFalse(os.path.exists(name))
-
-
-    def test_location(self):
-        """
-        The path returned by C{mktemp} is beneath the current working directory.
-        """
-        path = os.path.abspath(self.mktemp())
-        self.assertTrue(path.startswith(os.getcwd()))
+    return util.sibpath(__file__, filename)
 
 
 
-class RunSequentiallyTests(SynchronousTestCase):
+class ForceGarbageCollectionTests(unittest.SynchronousTestCase):
     """
-    Sometimes it is useful to be able to run an arbitrary list of callables,
-    one after the other.
-
-    When some of those callables can return Deferreds, things become complex.
+    Tests for the --force-gc option.
     """
 
-    def assertDeferredResult(self, deferred, assertFunction, *args, **kwargs):
+    def setUp(self):
+        self.config = trial.Options()
+        self.log = []
+        self.patch(gc, 'collect', self.collect)
+        test = pyunit.FunctionTestCase(self.simpleTest)
+        self.test = TestSuite([test, test])
+
+
+    def simpleTest(self):
         """
-        Call the given assertion function against the current result of a
-        Deferred.
+        A simple test method that records that it was run.
         """
-        result = []
-        deferred.addCallback(result.append)
-        assertFunction(result[0], *args, **kwargs)
+        self.log.append('test')
 
-    def test_emptyList(self):
+
+    def collect(self):
         """
-        When asked to run an empty list of callables, runSequentially returns a
-        successful Deferred that fires an empty list.
+        A replacement for gc.collect that logs calls to itself.
         """
-        d = util._runSequentially([])
-        self.assertDeferredResult(d, self.assertEqual, [])
+        self.log.append('collect')
 
 
-    def test_singleSynchronousSuccess(self):
+    def makeRunner(self):
         """
-        When given a callable that succeeds without returning a Deferred,
-        include the return value in the results list, tagged with a SUCCESS
-        flag.
+        Return a L{TrialRunner} object that is safe to use in tests.
         """
-        d = util._runSequentially([lambda: None])
-        self.assertDeferredResult(d, self.assertEqual, [(defer.SUCCESS, None)])
+        runner = trial._makeRunner(self.config)
+        runner.stream = NativeStringIO()
+        return runner
 
 
-    def test_singleSynchronousFailure(self):
+    def test_forceGc(self):
         """
-        When given a callable that raises an exception, include a Failure for
-        that exception in the results list, tagged with a FAILURE flag.
+        Passing the --force-gc option to the trial script forces the garbage
+        collector to run before and after each test.
         """
-        d = util._runSequentially([lambda: self.fail('foo')])
-        def check(results):
-            [(flag, fail)] = results
-            fail.trap(self.failureException)
-            self.assertEqual(fail.getErrorMessage(), 'foo')
-            self.assertEqual(flag, defer.FAILURE)
-        self.assertDeferredResult(d, check)
+        self.config['force-gc'] = True
+        self.config.postOptions()
+        runner = self.makeRunner()
+        runner.run(self.test)
+        self.assertEqual(self.log, ['collect', 'test', 'collect',
+                                    'collect', 'test', 'collect'])
 
 
-    def test_singleAsynchronousSuccess(self):
+    def test_unforceGc(self):
         """
-        When given a callable that returns a successful Deferred, include the
-        result of the Deferred in the results list, tagged with a SUCCESS flag.
+        By default, no garbage collection is forced.
         """
-        d = util._runSequentially([lambda: defer.succeed(None)])
-        self.assertDeferredResult(d, self.assertEqual, [(defer.SUCCESS, None)])
-
-
-    def test_singleAsynchronousFailure(self):
-        """
-        When given a callable that returns a failing Deferred, include the
-        failure the results list, tagged with a FAILURE flag.
-        """
-        d = util._runSequentially([lambda: defer.fail(ValueError('foo'))])
-        def check(results):
-            [(flag, fail)] = results
-            fail.trap(ValueError)
-            self.assertEqual(fail.getErrorMessage(), 'foo')
-            self.assertEqual(flag, defer.FAILURE)
-        self.assertDeferredResult(d, check)
-
-
-    def test_callablesCalledInOrder(self):
-        """
-        Check that the callables are called in the given order, one after the
-        other.
-        """
-        log = []
-        deferreds = []
-
-        def append(value):
-            d = defer.Deferred()
-            log.append(value)
-            deferreds.append(d)
-            return d
-
-        util._runSequentially([lambda: append('foo'),
-                               lambda: append('bar')])
-
-        # runSequentially should wait until the Deferred has fired before
-        # running the second callable.
-        self.assertEqual(log, ['foo'])
-        deferreds[-1].callback(None)
-        self.assertEqual(log, ['foo', 'bar'])
-
-
-    def test_continuesAfterError(self):
-        """
-        If one of the callables raises an error, then runSequentially continues
-        to run the remaining callables.
-        """
-        d = util._runSequentially([lambda: self.fail('foo'), lambda: 'bar'])
-        def check(results):
-            [(flag1, fail), (flag2, result)] = results
-            fail.trap(self.failureException)
-            self.assertEqual(flag1, defer.FAILURE)
-            self.assertEqual(fail.getErrorMessage(), 'foo')
-            self.assertEqual(flag2, defer.SUCCESS)
-            self.assertEqual(result, 'bar')
-        self.assertDeferredResult(d, check)
-
-
-    def test_stopOnFirstError(self):
-        """
-        If the C{stopOnFirstError} option is passed to C{runSequentially}, then
-        no further callables are called after the first exception is raised.
-        """
-        d = util._runSequentially([lambda: self.fail('foo'), lambda: 'bar'],
-                                  stopOnFirstError=True)
-        def check(results):
-            [(flag1, fail)] = results
-            fail.trap(self.failureException)
-            self.assertEqual(flag1, defer.FAILURE)
-            self.assertEqual(fail.getErrorMessage(), 'foo')
-        self.assertDeferredResult(d, check)
+        self.config.postOptions()
+        runner = self.makeRunner()
+        runner.run(self.test)
+        self.assertEqual(self.log, ['test', 'test'])
 
 
 
-class DirtyReactorAggregateErrorTests(SynchronousTestCase):
+class SuiteUsedTests(unittest.SynchronousTestCase):
     """
-    Tests for the L{DirtyReactorAggregateError}.
+    Check the category of tests suite used by the loader.
     """
 
-    def test_formatDelayedCall(self):
+    def setUp(self):
         """
-        Delayed calls are formatted nicely.
+        Create a trial configuration object.
         """
-        error = DirtyReactorAggregateError(["Foo", "bar"])
-        self.assertEqual(str(error),
-                          """\
-Reactor was unclean.
-DelayedCalls: (set twisted.internet.base.DelayedCall.debug = True to debug)
-Foo
-bar""")
+        self.config = trial.Options()
 
 
-    def test_formatSelectables(self):
+    def test_defaultSuite(self):
         """
-        Selectables are formatted nicely.
+        By default, the loader should use L{DestructiveTestSuite}
         """
-        error = DirtyReactorAggregateError([], ["selectable 1", "selectable 2"])
-        self.assertEqual(str(error),
-                          """\
-Reactor was unclean.
-Selectables:
-selectable 1
-selectable 2""")
+        loader = trial._getLoader(self.config)
+        self.assertEqual(loader.suiteFactory, DestructiveTestSuite)
 
 
-    def test_formatDelayedCallsAndSelectables(self):
+    def test_untilFailureSuite(self):
         """
-        Both delayed calls and selectables can appear in the same error.
+        The C{until-failure} configuration uses the L{TestSuite} to keep
+        instances alive across runs.
         """
-        error = DirtyReactorAggregateError(["bleck", "Boozo"],
-                                           ["Sel1", "Sel2"])
-        self.assertEqual(str(error),
-                          """\
-Reactor was unclean.
-DelayedCalls: (set twisted.internet.base.DelayedCall.debug = True to debug)
-bleck
-Boozo
-Selectables:
-Sel1
-Sel2""")
+        self.config['until-failure'] = True
+        loader = trial._getLoader(self.config)
+        self.assertEqual(loader.suiteFactory, TestSuite)
 
 
 
-class StubReactor(object):
-    """
-    A reactor stub which contains enough functionality to be used with the
-    L{_Janitor}.
+class TestModuleTests(unittest.SynchronousTestCase):
+    def setUp(self):
+        self.config = trial.Options()
 
-    @ivar iterations: A list of the arguments passed to L{iterate}.
-    @ivar removeAllCalled: Number of times that L{removeAll} was called.
-    @ivar selectables: The value that will be returned from L{removeAll}.
-    @ivar delayedCalls: The value to return from L{getDelayedCalls}.
-    """
+    def tearDown(self):
+        self.config = None
 
-    def __init__(self, delayedCalls, selectables=None):
+    def test_testNames(self):
         """
-        @param delayedCalls: See L{StubReactor.delayedCalls}.
-        @param selectables: See L{StubReactor.selectables}.
+        Check that the testNames helper method accurately collects the
+        names of tests in suite.
         """
-        self.delayedCalls = delayedCalls
-        self.iterations = []
-        self.removeAllCalled = 0
-        if not selectables:
-            selectables = []
-        self.selectables = selectables
+        self.assertEqual(testNames(self), [self.id()])
 
+    def assertSuitesEqual(self, test1, names):
+        loader = TestLoader()
+        names1 = testNames(test1)
+        names2 = testNames(TestSuite(map(loader.loadByName, names)))
+        names1.sort()
+        names2.sort()
+        self.assertEqual(names1, names2)
 
-    def iterate(self, timeout=None):
+    def test_baseState(self):
+        self.assertEqual(0, len(self.config['tests']))
+
+    def test_testmoduleOnModule(self):
         """
-        Increment C{self.iterations}.
+        Check that --testmodule loads a suite which contains the tests
+        referred to in test-case-name inside its parameter.
         """
-        self.iterations.append(timeout)
+        self.config.opt_testmodule(sibpath('moduletest.py'))
+        self.assertSuitesEqual(trial._getSuite(self.config),
+                               ['twisted.trial.test.test_log'])
 
-
-    def getDelayedCalls(self):
+    def test_testmoduleTwice(self):
         """
-        Return C{self.delayedCalls}.
+        When the same module is specified with two --testmodule flags, it
+        should only appear once in the suite.
         """
-        return self.delayedCalls
+        self.config.opt_testmodule(sibpath('moduletest.py'))
+        self.config.opt_testmodule(sibpath('moduletest.py'))
+        self.assertSuitesEqual(trial._getSuite(self.config),
+                               ['twisted.trial.test.test_log'])
 
-
-    def removeAll(self):
+    def test_testmoduleOnSourceAndTarget(self):
         """
-        Increment C{self.removeAllCalled} and return C{self.selectables}.
+        If --testmodule is specified twice, once for module A and once for
+        a module which refers to module A, then make sure module A is only
+        added once.
         """
-        self.removeAllCalled += 1
-        return self.selectables
+        self.config.opt_testmodule(sibpath('moduletest.py'))
+        self.config.opt_testmodule(sibpath('test_log.py'))
+        self.assertSuitesEqual(trial._getSuite(self.config),
+                               ['twisted.trial.test.test_log'])
 
-
-
-class StubErrorReporter(object):
-    """
-    A subset of L{twisted.trial.itrial.IReporter} which records L{addError}
-    calls.
-
-    @ivar errors: List of two-tuples of (test, error) which were passed to
-        L{addError}.
-    """
-
-    def __init__(self):
-        self.errors = []
-
-
-    def addError(self, test, error):
+    def test_testmoduleOnSelfModule(self):
         """
-        Record parameters in C{self.errors}.
+        When given a module that refers to *itself* in the test-case-name
+        variable, check that --testmodule only adds the tests once.
         """
-        self.errors.append((test, error))
+        self.config.opt_testmodule(sibpath('moduleself.py'))
+        self.assertSuitesEqual(trial._getSuite(self.config),
+                               ['twisted.trial.test.moduleself'])
 
-
-
-class JanitorTests(SynchronousTestCase):
-    """
-    Tests for L{_Janitor}!
-    """
-
-    def test_cleanPendingSpinsReactor(self):
+    def test_testmoduleOnScript(self):
         """
-        During pending-call cleanup, the reactor will be spun twice with an
-        instant timeout. This is not a requirement, it is only a test for
-        current behavior. Hopefully Trial will eventually not do this kind of
-        reactor stuff.
+        Check that --testmodule loads tests referred to in test-case-name
+        buffer variables.
         """
-        reactor = StubReactor([])
-        jan = _Janitor(None, None, reactor=reactor)
-        jan._cleanPending()
-        self.assertEqual(reactor.iterations, [0, 0])
+        self.config.opt_testmodule(sibpath('scripttest.py'))
+        self.assertSuitesEqual(trial._getSuite(self.config),
+                               ['twisted.trial.test.test_log',
+                                'twisted.trial.test.test_runner'])
 
-
-    def test_cleanPendingCancelsCalls(self):
+    def test_testmoduleOnNonexistentFile(self):
         """
-        During pending-call cleanup, the janitor cancels pending timed calls.
+        Check that --testmodule displays a meaningful error message when
+        passed a non-existent filename.
         """
-        def func():
-            return "Lulz"
-        cancelled = []
-        delayedCall = DelayedCall(300, func, (), {},
-                                  cancelled.append, lambda x: None)
-        reactor = StubReactor([delayedCall])
-        jan = _Janitor(None, None, reactor=reactor)
-        jan._cleanPending()
-        self.assertEqual(cancelled, [delayedCall])
-
-
-    def test_cleanPendingReturnsDelayedCallStrings(self):
-        """
-        The Janitor produces string representations of delayed calls from the
-        delayed call cleanup method. It gets the string representations
-        *before* cancelling the calls; this is important because cancelling the
-        call removes critical debugging information from the string
-        representation.
-        """
-        delayedCall = DelayedCall(300, lambda: None, (), {},
-                                  lambda x: None, lambda x: None,
-                                  seconds=lambda: 0)
-        delayedCallString = str(delayedCall)
-        reactor = StubReactor([delayedCall])
-        jan = _Janitor(None, None, reactor=reactor)
-        strings = jan._cleanPending()
-        self.assertEqual(strings, [delayedCallString])
-
-
-    def test_cleanReactorRemovesSelectables(self):
-        """
-        The Janitor will remove selectables during reactor cleanup.
-        """
-        reactor = StubReactor([])
-        jan = _Janitor(None, None, reactor=reactor)
-        jan._cleanReactor()
-        self.assertEqual(reactor.removeAllCalled, 1)
-
-
-    def test_cleanReactorKillsProcesses(self):
-        """
-        The Janitor will kill processes during reactor cleanup.
-        """
-        @implementer(IProcessTransport)
-        class StubProcessTransport(object):
-            """
-            A stub L{IProcessTransport} provider which records signals.
-            @ivar signals: The signals passed to L{signalProcess}.
-            """
-
-            def __init__(self):
-                self.signals = []
-
-            def signalProcess(self, signal):
-                """
-                Append C{signal} to C{self.signals}.
-                """
-                self.signals.append(signal)
-
-        pt = StubProcessTransport()
-        reactor = StubReactor([], [pt])
-        jan = _Janitor(None, None, reactor=reactor)
-        jan._cleanReactor()
-        self.assertEqual(pt.signals, ["KILL"])
-
-
-    def test_cleanReactorReturnsSelectableStrings(self):
-        """
-        The Janitor returns string representations of the selectables that it
-        cleaned up from the reactor cleanup method.
-        """
-        class Selectable(object):
-            """
-            A stub Selectable which only has an interesting string
-            representation.
-            """
-            def __repr__(self):
-                return "(SELECTABLE!)"
-
-        reactor = StubReactor([], [Selectable()])
-        jan = _Janitor(None, None, reactor=reactor)
-        self.assertEqual(jan._cleanReactor(), ["(SELECTABLE!)"])
-
-
-    def test_postCaseCleanupNoErrors(self):
-        """
-        The post-case cleanup method will return True and not call C{addError}
-        on the result if there are no pending calls.
-        """
-        reactor = StubReactor([])
-        test = object()
-        reporter = StubErrorReporter()
-        jan = _Janitor(test, reporter, reactor=reactor)
-        self.assertTrue(jan.postCaseCleanup())
-        self.assertEqual(reporter.errors, [])
-
-
-    def test_postCaseCleanupWithErrors(self):
-        """
-        The post-case cleanup method will return False and call C{addError} on
-        the result with a L{DirtyReactorAggregateError} Failure if there are
-        pending calls.
-        """
-        delayedCall = DelayedCall(300, lambda: None, (), {},
-                                  lambda x: None, lambda x: None,
-                                  seconds=lambda: 0)
-        delayedCallString = str(delayedCall)
-        reactor = StubReactor([delayedCall], [])
-        test = object()
-        reporter = StubErrorReporter()
-        jan = _Janitor(test, reporter, reactor=reactor)
-        self.assertFalse(jan.postCaseCleanup())
-        self.assertEqual(len(reporter.errors), 1)
-        self.assertEqual(reporter.errors[0][1].value.delayedCalls,
-                          [delayedCallString])
-
-
-    def test_postClassCleanupNoErrors(self):
-        """
-        The post-class cleanup method will not call C{addError} on the result
-        if there are no pending calls or selectables.
-        """
-        reactor = StubReactor([])
-        test = object()
-        reporter = StubErrorReporter()
-        jan = _Janitor(test, reporter, reactor=reactor)
-        jan.postClassCleanup()
-        self.assertEqual(reporter.errors, [])
-
-
-    def test_postClassCleanupWithPendingCallErrors(self):
-        """
-        The post-class cleanup method call C{addError} on the result with a
-        L{DirtyReactorAggregateError} Failure if there are pending calls.
-        """
-        delayedCall = DelayedCall(300, lambda: None, (), {},
-                                  lambda x: None, lambda x: None,
-                                  seconds=lambda: 0)
-        delayedCallString = str(delayedCall)
-        reactor = StubReactor([delayedCall], [])
-        test = object()
-        reporter = StubErrorReporter()
-        jan = _Janitor(test, reporter, reactor=reactor)
-        jan.postClassCleanup()
-        self.assertEqual(len(reporter.errors), 1)
-        self.assertEqual(reporter.errors[0][1].value.delayedCalls,
-                          [delayedCallString])
-
-
-    def test_postClassCleanupWithSelectableErrors(self):
-        """
-        The post-class cleanup method call C{addError} on the result with a
-        L{DirtyReactorAggregateError} Failure if there are selectables.
-        """
-        selectable = "SELECTABLE HERE"
-        reactor = StubReactor([], [selectable])
-        test = object()
-        reporter = StubErrorReporter()
-        jan = _Janitor(test, reporter, reactor=reactor)
-        jan.postClassCleanup()
-        self.assertEqual(len(reporter.errors), 1)
-        self.assertEqual(reporter.errors[0][1].value.selectables,
-                          [repr(selectable)])
-
-
-
-class RemoveSafelyTests(SynchronousTestCase):
-    """
-    Tests for L{util._removeSafely}.
-    """
-    def test_removeSafelyNoTrialMarker(self):
-        """
-        If a path doesn't contain a node named C{"_trial_marker"}, that path is
-        not removed by L{util._removeSafely} and a L{util._NoTrialMarker}
-        exception is raised instead.
-        """
-        directory = self.mktemp().encode("utf-8")
-        os.mkdir(directory)
-        dirPath = filepath.FilePath(directory)
-        self.assertRaises(util._NoTrialMarker, util._removeSafely, dirPath)
-
-
-    def test_removeSafelyRemoveFailsMoveSucceeds(self):
-        """
-        If an L{OSError} is raised while removing a path in
-        L{util._removeSafely}, an attempt is made to move the path to a new
-        name.
-        """
-        def dummyRemove():
-            """
-            Raise an C{OSError} to emulate the branch of L{util._removeSafely}
-            in which path removal fails.
-            """
-            raise OSError()
-
-        # Patch stdout so we can check the print statements in _removeSafely
-        out = NativeStringIO()
-        self.patch(sys, 'stdout', out)
-
-        # Set up a trial directory with a _trial_marker
-        directory = self.mktemp().encode("utf-8")
-        os.mkdir(directory)
-        dirPath = filepath.FilePath(directory)
-        dirPath.child(b'_trial_marker').touch()
-        # Ensure that path.remove() raises an OSError
-        dirPath.remove = dummyRemove
-
-        util._removeSafely(dirPath)
-        self.assertIn("could not remove FilePath", out.getvalue())
-
-
-    def test_removeSafelyRemoveFailsMoveFails(self):
-        """
-        If an L{OSError} is raised while removing a path in
-        L{util._removeSafely}, an attempt is made to move the path to a new
-        name. If that attempt fails, the L{OSError} is re-raised.
-        """
-        def dummyRemove():
-            """
-            Raise an C{OSError} to emulate the branch of L{util._removeSafely}
-            in which path removal fails.
-            """
-            raise OSError("path removal failed")
-
-        def dummyMoveTo(path):
-            """
-            Raise an C{OSError} to emulate the branch of L{util._removeSafely}
-            in which path movement fails.
-            """
-            raise OSError("path movement failed")
-
-        # Patch stdout so we can check the print statements in _removeSafely
-        out = NativeStringIO()
-        self.patch(sys, 'stdout', out)
-
-        # Set up a trial directory with a _trial_marker
-        directory = self.mktemp().encode("utf-8")
-        os.mkdir(directory)
-        dirPath = filepath.FilePath(directory)
-        dirPath.child(b'_trial_marker').touch()
-
-        # Ensure that path.remove() and path.moveTo() both raise OSErrors
-        dirPath.remove = dummyRemove
-        dirPath.moveTo = dummyMoveTo
-
-        error = self.assertRaises(OSError, util._removeSafely, dirPath)
-        self.assertEqual(str(error), "path movement failed")
-        self.assertIn("could not remove FilePath", out.getvalue())
-
-
-
-class ExcInfoTests(SynchronousTestCase):
-    """
-    Tests for L{excInfoOrFailureToExcInfo}.
-    """
-    def test_excInfo(self):
-        """
-        L{excInfoOrFailureToExcInfo} returns exactly what it is passed, if it is
-        passed a tuple like the one returned by L{sys.exc_info}.
-        """
-        info = (ValueError, ValueError("foo"), None)
-        self.assertTrue(info is excInfoOrFailureToExcInfo(info))
-
-
-    def test_failure(self):
-        """
-        When called with a L{Failure} instance, L{excInfoOrFailureToExcInfo}
-        returns a tuple like the one returned by L{sys.exc_info}, with the
-        elements taken from the type, value, and traceback of the failure.
-        """
+        buffy = NativeStringIO()
+        stderr, sys.stderr = sys.stderr, buffy
+        filename = 'test_thisbetternoteverexist.py'
         try:
-            1 / 0
-        except:
-            f = Failure()
-        self.assertEqual((f.type, f.value, f.tb), excInfoOrFailureToExcInfo(f))
+            self.config.opt_testmodule(filename)
+            self.assertEqual(0, len(self.config['tests']))
+            self.assertEqual("File %r doesn't exist\n" % (filename,),
+                                 buffy.getvalue())
+        finally:
+            sys.stderr = stderr
+
+    def test_testmoduleOnEmptyVars(self):
+        """
+        Check that --testmodule adds no tests to the suite for modules
+        which lack test-case-name buffer variables.
+        """
+        self.config.opt_testmodule(sibpath('novars.py'))
+        self.assertEqual(0, len(self.config['tests']))
+
+    def test_testmoduleOnModuleName(self):
+        """
+        Check that --testmodule does *not* support module names as arguments
+        and that it displays a meaningful error message.
+        """
+        buffy = NativeStringIO()
+        stderr, sys.stderr = sys.stderr, buffy
+        moduleName = 'twisted.trial.test.test_script'
+        try:
+            self.config.opt_testmodule(moduleName)
+            self.assertEqual(0, len(self.config['tests']))
+            self.assertEqual("File %r doesn't exist\n" % (moduleName,),
+                                 buffy.getvalue())
+        finally:
+            sys.stderr = stderr
+
+    def test_parseLocalVariable(self):
+        declaration = '-*- test-case-name: twisted.trial.test.test_tests -*-'
+        localVars = trial._parseLocalVariables(declaration)
+        self.assertEqual({'test-case-name':
+                              'twisted.trial.test.test_tests'},
+                             localVars)
+
+    def test_trailingSemicolon(self):
+        declaration = '-*- test-case-name: twisted.trial.test.test_tests; -*-'
+        localVars = trial._parseLocalVariables(declaration)
+        self.assertEqual({'test-case-name':
+                              'twisted.trial.test.test_tests'},
+                             localVars)
+
+    def test_parseLocalVariables(self):
+        declaration = ('-*- test-case-name: twisted.trial.test.test_tests; '
+                       'foo: bar -*-')
+        localVars = trial._parseLocalVariables(declaration)
+        self.assertEqual({'test-case-name':
+                              'twisted.trial.test.test_tests',
+                              'foo': 'bar'},
+                             localVars)
+
+    def test_surroundingGuff(self):
+        declaration = ('## -*- test-case-name: '
+                       'twisted.trial.test.test_tests -*- #')
+        localVars = trial._parseLocalVariables(declaration)
+        self.assertEqual({'test-case-name':
+                              'twisted.trial.test.test_tests'},
+                             localVars)
+
+    def test_invalidLine(self):
+        self.assertRaises(ValueError, trial._parseLocalVariables,
+                              'foo')
+
+    def test_invalidDeclaration(self):
+        self.assertRaises(ValueError, trial._parseLocalVariables,
+                              '-*- foo -*-')
+        self.assertRaises(ValueError, trial._parseLocalVariables,
+                              '-*- foo: bar; qux -*-')
+        self.assertRaises(ValueError, trial._parseLocalVariables,
+                              '-*- foo: bar: baz; qux: qax -*-')
+
+    def test_variablesFromFile(self):
+        localVars = trial.loadLocalVariables(sibpath('moduletest.py'))
+        self.assertEqual({'test-case-name':
+                              'twisted.trial.test.test_log'},
+                             localVars)
+
+    def test_noVariablesInFile(self):
+        localVars = trial.loadLocalVariables(sibpath('novars.py'))
+        self.assertEqual({}, localVars)
+
+    def test_variablesFromScript(self):
+        localVars = trial.loadLocalVariables(sibpath('scripttest.py'))
+        self.assertEqual(
+            {'test-case-name': ('twisted.trial.test.test_log,'
+                                'twisted.trial.test.test_runner')},
+            localVars)
+
+    def test_getTestModules(self):
+        modules = trial.getTestModules(sibpath('moduletest.py'))
+        self.assertEqual(modules, ['twisted.trial.test.test_log'])
+
+    def test_getTestModules_noVars(self):
+        modules = trial.getTestModules(sibpath('novars.py'))
+        self.assertEqual(len(modules), 0)
+
+    def test_getTestModules_multiple(self):
+        modules = trial.getTestModules(sibpath('scripttest.py'))
+        self.assertEqual(set(modules),
+                             set(['twisted.trial.test.test_log',
+                                  'twisted.trial.test.test_runner']))
+
+    def test_looksLikeTestModule(self):
+        for filename in ['test_script.py', 'twisted/trial/test/test_script.py']:
+            self.assertTrue(trial.isTestFile(filename),
+                            "%r should be a test file" % (filename,))
+        for filename in ['twisted/trial/test/moduletest.py',
+                         sibpath('scripttest.py'), sibpath('test_foo.bat')]:
+            self.assertFalse(trial.isTestFile(filename),
+                        "%r should *not* be a test file" % (filename,))
 
 
-
-class AcquireAttributeTests(SynchronousTestCase):
+class WithoutModuleTests(unittest.SynchronousTestCase):
     """
-    Tests for L{acquireAttribute}.
-    """
-    def test_foundOnEarlierObject(self):
-        """
-        The value returned by L{acquireAttribute} is the value of the requested
-        attribute on the first object in the list passed in which has that
-        attribute.
-        """
-        self.value = value = object()
-        self.assertTrue(value is acquireAttribute([self, object()], "value"))
-
-
-    def test_foundOnLaterObject(self):
-        """
-        The same as L{test_foundOnEarlierObject}, but for the case where the 2nd
-        element in the object list has the attribute and the first does not.
-        """
-        self.value = value = object()
-        self.assertTrue(value is acquireAttribute([object(), self], "value"))
-
-
-    def test_notFoundException(self):
-        """
-        If none of the objects passed in the list to L{acquireAttribute} have
-        the requested attribute, L{AttributeError} is raised.
-        """
-        self.assertRaises(AttributeError, acquireAttribute, [object()], "foo")
-
-
-    def test_notFoundDefault(self):
-        """
-        If none of the objects passed in the list to L{acquireAttribute} have
-        the requested attribute and a default value is given, the default value
-        is returned.
-        """
-        default = object()
-        self.assertTrue(default is acquireAttribute([object()], "foo", default))
-
-
-
-class ListToPhraseTests(SynchronousTestCase):
-    """
-    Input is transformed into a string representation of the list,
-    with each item separated by delimiter (defaulting to a comma) and the final
-    two being separated by a final delimiter.
+    Test the C{without-module} flag.
     """
 
-    def test_empty(self):
+    def setUp(self):
         """
-        If things is empty, an empty string is returned.
+        Create a L{trial.Options} object to be used in the tests, and save
+        C{sys.modules}.
         """
-        sample = []
-        expected = ''
-        result = util._listToPhrase(sample, 'and')
-        self.assertEqual(expected, result)
+        self.config = trial.Options()
+        self.savedModules = dict(sys.modules)
 
 
-    def test_oneWord(self):
+    def tearDown(self):
         """
-        With a single item, the item is returned.
+        Restore C{sys.modules}.
         """
-        sample = ['One']
-        expected = 'One'
-        result = util._listToPhrase(sample, 'and')
-        self.assertEqual(expected, result)
+        for module in ('imaplib', 'smtplib'):
+            if module in self.savedModules:
+                sys.modules[module] = self.savedModules[module]
+            else:
+                sys.modules.pop(module, None)
 
 
-    def test_twoWords(self):
+    def _checkSMTP(self):
         """
-        Two words are separated by the final delimiter.
+        Try to import the C{smtplib} module, and return it.
         """
-        sample = ['One', 'Two']
-        expected = 'One and Two'
-        result = util._listToPhrase(sample, 'and')
-        self.assertEqual(expected, result)
+        import smtplib
+        return smtplib
 
 
-    def test_threeWords(self):
+    def _checkIMAP(self):
         """
-        With more than two words, the first two are separated by the delimiter.
+        Try to import the C{imaplib} module, and return it.
         """
-        sample = ['One', 'Two', 'Three']
-        expected = 'One, Two, and Three'
-        result = util._listToPhrase(sample, 'and')
-        self.assertEqual(expected, result)
+        import imaplib
+        return imaplib
 
 
-    def test_fourWords(self):
+    def test_disableOneModule(self):
         """
-        If a delimiter is specified, it is used instead of the default comma.
+        Check that after disabling a module, it can't be imported anymore.
         """
-        sample = ['One', 'Two', 'Three', 'Four']
-        expected = 'One; Two; Three; or Four'
-        result = util._listToPhrase(sample, 'or', delimiter='; ')
-        self.assertEqual(expected, result)
+        self.config.parseOptions(["--without-module", "smtplib"])
+        self.assertRaises(ImportError, self._checkSMTP)
+        # Restore sys.modules
+        del sys.modules["smtplib"]
+        # Then the function should succeed
+        self.assertIsInstance(self._checkSMTP(), types.ModuleType)
 
 
-    def test_notString(self):
+    def test_disableMultipleModules(self):
         """
-        If something in things is not a string, it is converted into one.
+        Check that several modules can be disabled at once.
         """
-        sample = [1, 2, 'three']
-        expected = '1, 2, and three'
-        result = util._listToPhrase(sample, 'and')
-        self.assertEqual(expected, result)
+        self.config.parseOptions(["--without-module", "smtplib,imaplib"])
+        self.assertRaises(ImportError, self._checkSMTP)
+        self.assertRaises(ImportError, self._checkIMAP)
+        # Restore sys.modules
+        del sys.modules["smtplib"]
+        del sys.modules["imaplib"]
+        # Then the functions should succeed
+        self.assertIsInstance(self._checkSMTP(), types.ModuleType)
+        self.assertIsInstance(self._checkIMAP(), types.ModuleType)
 
 
-    def test_stringTypeError(self):
+    def test_disableAlreadyImportedModule(self):
         """
-        If things is a string, a TypeError is raised.
+        Disabling an already imported module should produce a warning.
         """
-        sample = "One, two, three"
-        error = self.assertRaises(TypeError, util._listToPhrase, sample, 'and')
-        self.assertEqual(str(error), "Things must be a list or a tuple")
+        self.assertIsInstance(self._checkSMTP(), types.ModuleType)
+        self.assertWarns(RuntimeWarning,
+                "Module 'smtplib' already imported, disabling anyway.",
+                trial.__file__,
+                self.config.parseOptions, ["--without-module", "smtplib"])
+        self.assertRaises(ImportError, self._checkSMTP)
 
 
-    def test_iteratorTypeError(self):
+
+class CoverageTests(unittest.SynchronousTestCase):
+    """
+    Tests for the I{coverage} option.
+    """
+    if getattr(sys, 'gettrace', None) is None:
+        skip = (
+            "Cannot test trace hook installation without inspection API.")
+
+    def setUp(self):
         """
-        If things is an iterator, a TypeError is raised.
+        Arrange for the current trace hook to be restored when the
+        test is complete.
         """
-        sample = iter([1, 2, 3])
-        error = self.assertRaises(TypeError, util._listToPhrase, sample, 'and')
-        self.assertEqual(str(error), "Things must be a list or a tuple")
+        self.addCleanup(sys.settrace, sys.gettrace())
 
 
-    def test_generatorTypeError(self):
+    def test_tracerInstalled(self):
         """
-        If things is a generator, a TypeError is raised.
+        L{trial.Options} handles C{"--coverage"} by installing a trace
+        hook to record coverage information.
         """
-        def sample():
-            for i in range(2):
-                yield i
-        error = self.assertRaises(TypeError, util._listToPhrase, sample, 'and')
-        self.assertEqual(str(error), "Things must be a list or a tuple")
+        options = trial.Options()
+        options.parseOptions(["--coverage"])
+        self.assertEqual(sys.gettrace(), options.tracer.globaltrace)
+
+
+    def test_coverdirDefault(self):
+        """
+        L{trial.Options.coverdir} returns a L{FilePath} based on the default
+        for the I{temp-directory} option if that option is not specified.
+        """
+        options = trial.Options()
+        self.assertEqual(
+            options.coverdir(),
+            FilePath(".").descendant([options["temp-directory"], "coverage"]))
+
+
+    def test_coverdirOverridden(self):
+        """
+        If a value is specified for the I{temp-directory} option,
+        L{trial.Options.coverdir} returns a child of that path.
+        """
+        path = self.mktemp()
+        options = trial.Options()
+        options.parseOptions(["--temp-directory", path])
+        self.assertEqual(
+            options.coverdir(), FilePath(path).child("coverage"))
+
+
+
+class OptionsTests(unittest.TestCase):
+    """
+    Tests for L{trial.Options}.
+    """
+
+    def setUp(self):
+        """
+        Build an L{Options} object to be used in the tests.
+        """
+        self.options = trial.Options()
+
+
+    def test_getWorkerArguments(self):
+        """
+        C{_getWorkerArguments} discards options like C{random} as they only
+        matter in the manager, and forwards options like C{recursionlimit} or
+        C{disablegc}.
+        """
+        self.addCleanup(sys.setrecursionlimit, sys.getrecursionlimit())
+        if gc.isenabled():
+            self.addCleanup(gc.enable)
+
+        self.options.parseOptions(["--recursionlimit", "2000", "--random",
+                                   "4", "--disablegc"])
+        args = self.options._getWorkerArguments()
+        self.assertIn("--disablegc", args)
+        args.remove("--disablegc")
+        self.assertEqual(["--recursionlimit", "2000"], args)
+
+
+    def test_jobsConflictWithDebug(self):
+        """
+        C{parseOptions} raises a C{UsageError} when C{--debug} is passed along
+        C{--jobs} as it's not supported yet.
+
+        @see: U{http://twistedmatrix.com/trac/ticket/5825}
+        """
+        error = self.assertRaises(
+            UsageError, self.options.parseOptions, ["--jobs", "4", "--debug"])
+        self.assertEqual("You can't specify --debug when using --jobs",
+                         str(error))
+
+
+    def test_jobsConflictWithProfile(self):
+        """
+        C{parseOptions} raises a C{UsageError} when C{--profile} is passed
+        along C{--jobs} as it's not supported yet.
+
+        @see: U{http://twistedmatrix.com/trac/ticket/5827}
+        """
+        error = self.assertRaises(
+            UsageError, self.options.parseOptions,
+            ["--jobs", "4", "--profile"])
+        self.assertEqual("You can't specify --profile when using --jobs",
+                         str(error))
+
+
+    def test_jobsConflictWithDebugStackTraces(self):
+        """
+        C{parseOptions} raises a C{UsageError} when C{--debug-stacktraces} is
+        passed along C{--jobs} as it's not supported yet.
+
+        @see: U{http://twistedmatrix.com/trac/ticket/5826}
+        """
+        error = self.assertRaises(
+            UsageError, self.options.parseOptions,
+            ["--jobs", "4", "--debug-stacktraces"])
+        self.assertEqual(
+            "You can't specify --debug-stacktraces when using --jobs",
+            str(error))
+
+
+    def test_jobsConflictWithExitFirst(self):
+        """
+        C{parseOptions} raises a C{UsageError} when C{--exitfirst} is passed
+        along C{--jobs} as it's not supported yet.
+
+        @see: U{http://twistedmatrix.com/trac/ticket/6436}
+        """
+        error = self.assertRaises(
+            UsageError, self.options.parseOptions,
+            ["--jobs", "4", "--exitfirst"])
+        self.assertEqual(
+            "You can't specify --exitfirst when using --jobs",
+            str(error))
+
+
+    def test_orderConflictWithRandom(self):
+        """
+        C{parseOptions} raises a C{UsageError} when C{--order} is passed along
+        with C{--random}.
+        """
+        error = self.assertRaises(
+            UsageError,
+            self.options.parseOptions,
+            ["--order", "alphabetical", "--random", "1234"])
+        self.assertEqual("You can't specify --random when using --order",
+                         str(error))
+
+
+
+class MakeRunnerTests(unittest.TestCase):
+    """
+    Tests for the L{_makeRunner} helper.
+    """
+
+    def setUp(self):
+        self.options = trial.Options()
+
+    def test_jobs(self):
+        """
+        L{_makeRunner} returns a L{DistTrialRunner} instance when the C{--jobs}
+        option is passed, and passes the C{workerNumber} and C{workerArguments}
+        parameters to it.
+        """
+        self.options.parseOptions(["--jobs", "4", "--force-gc"])
+        runner = trial._makeRunner(self.options)
+        self.assertIsInstance(runner, DistTrialRunner)
+        self.assertEqual(4, runner._workerNumber)
+        self.assertEqual(["--force-gc"], runner._workerArguments)
+
+
+    def test_dryRunWithJobs(self):
+        """
+        L{_makeRunner} returns a L{TrialRunner} instance in C{DRY_RUN} mode
+        when the C{--dry-run} option is passed, even if C{--jobs} is set.
+        """
+        self.options.parseOptions(["--jobs", "4", "--dry-run"])
+        runner = trial._makeRunner(self.options)
+        self.assertIsInstance(runner, TrialRunner)
+        self.assertEqual(TrialRunner.DRY_RUN, runner.mode)
+
+
+    def test_DebuggerNotFound(self):
+        namedAny = trial.reflect.namedAny
+
+        def namedAnyExceptdoNotFind(fqn):
+            if fqn == "doNotFind":
+                raise trial.reflect.ModuleNotFound(fqn)
+            return namedAny(fqn)
+
+        self.patch(trial.reflect, "namedAny", namedAnyExceptdoNotFind)
+
+        options = trial.Options()
+        options.parseOptions(["--debug", "--debugger", "doNotFind"])
+
+        self.assertRaises(trial._DebuggerNotFound, trial._makeRunner, options)
+
+
+    def test_exitfirst(self):
+        """
+        Passing C{--exitfirst} wraps the reporter with a
+        L{reporter._ExitWrapper} that stops on any non-success.
+        """
+        self.options.parseOptions(["--exitfirst"])
+        runner = trial._makeRunner(self.options)
+        self.assertTrue(runner._exitFirst)
+
+
+class RunTests(unittest.TestCase):
+    """
+    Tests for the L{run} function.
+    """
+
+    def setUp(self):
+        # don't re-parse cmdline options, because if --reactor was passed to
+        # the test run trial will try to restart the (already running) reactor
+        self.patch(trial.Options, "parseOptions", lambda self: None)
+
+
+    def test_debuggerNotFound(self):
+        """
+        When a debugger is not found, an error message is printed to the user.
+
+        """
+
+        def _makeRunner(*args, **kwargs):
+            raise trial._DebuggerNotFound('foo')
+        self.patch(trial, "_makeRunner", _makeRunner)
+
+        try:
+            trial.run()
+        except SystemExit as e:
+            self.assertIn("foo", str(e))
+        else:
+            self.fail("Should have exited due to non-existent debugger!")
+
+
+
+class TestArgumentOrderTests(unittest.TestCase):
+    """
+    Tests for the order-preserving behavior on provided command-line tests.
+    """
+
+    def setUp(self):
+        self.config = trial.Options()
+        self.loader = TestLoader()
+
+
+    def test_preserveArgumentOrder(self):
+        """
+        Multiple tests passed on the command line are not reordered.
+        """
+        tests = [
+            "twisted.trial.test.test_tests",
+            "twisted.trial.test.test_assertions",
+            "twisted.trial.test.test_deferred",
+            ]
+        self.config.parseOptions(tests)
+
+        suite = trial._getSuite(self.config)
+        names = testNames(suite)
+
+        expectedSuite = TestSuite(map(self.loader.loadByName, tests))
+        expectedNames = testNames(expectedSuite)
+
+        self.assertEqual(names, expectedNames)
+
+
+
+class OrderTests(unittest.TestCase):
+    """
+    Tests for the --order option.
+    """
+    def setUp(self):
+        self.config = trial.Options()
+
+
+    def test_alphabetical(self):
+        """
+        --order=alphabetical causes trial to run tests alphabetically within
+        each test case.
+        """
+        self.config.parseOptions([
+            "--order", "alphabetical",
+            "twisted.trial.test.ordertests.FooTest"])
+
+        loader = trial._getLoader(self.config)
+        suite = loader.loadByNames(self.config['tests'])
+
+        self.assertEqual(
+            testNames(suite), [
+            'twisted.trial.test.ordertests.FooTest.test_first',
+            'twisted.trial.test.ordertests.FooTest.test_fourth',
+            'twisted.trial.test.ordertests.FooTest.test_second',
+            'twisted.trial.test.ordertests.FooTest.test_third'])
+
+
+    def test_alphabeticalModule(self):
+        """
+        --order=alphabetical causes trial to run test classes within a given
+        module alphabetically.
+        """
+        self.config.parseOptions([
+            "--order", "alphabetical", "twisted.trial.test.ordertests"])
+        loader = trial._getLoader(self.config)
+        suite = loader.loadByNames(self.config['tests'])
+
+        self.assertEqual(
+            testNames(suite), [
+            'twisted.trial.test.ordertests.BarTest.test_bar',
+            'twisted.trial.test.ordertests.BazTest.test_baz',
+            'twisted.trial.test.ordertests.FooTest.test_first',
+            'twisted.trial.test.ordertests.FooTest.test_fourth',
+            'twisted.trial.test.ordertests.FooTest.test_second',
+            'twisted.trial.test.ordertests.FooTest.test_third'])
+
+
+    def test_alphabeticalPackage(self):
+        """
+        --order=alphabetical causes trial to run test modules within a given
+        package alphabetically, with tests within each module alphabetized.
+        """
+        self.config.parseOptions([
+            "--order", "alphabetical", "twisted.trial.test"])
+        loader = trial._getLoader(self.config)
+        suite = loader.loadByNames(self.config['tests'])
+
+        names = testNames(suite)
+        self.assertTrue(names, msg="Failed to load any tests!")
+        self.assertEqual(names, sorted(names))
+
+
+    def test_toptobottom(self):
+        """
+        --order=toptobottom causes trial to run test methods within a given
+        test case from top to bottom as they are defined in the body of the
+        class.
+        """
+        self.config.parseOptions([
+            "--order", "toptobottom",
+            "twisted.trial.test.ordertests.FooTest"])
+
+        loader = trial._getLoader(self.config)
+        suite = loader.loadByNames(self.config['tests'])
+
+        self.assertEqual(
+            testNames(suite), [
+            'twisted.trial.test.ordertests.FooTest.test_first',
+            'twisted.trial.test.ordertests.FooTest.test_second',
+            'twisted.trial.test.ordertests.FooTest.test_third',
+            'twisted.trial.test.ordertests.FooTest.test_fourth'])
+
+
+    def test_toptobottomModule(self):
+        """
+        --order=toptobottom causes trial to run test classes within a given
+        module from top to bottom as they are defined in the module's source.
+        """
+        self.config.parseOptions([
+            "--order", "toptobottom", "twisted.trial.test.ordertests"])
+        loader = trial._getLoader(self.config)
+        suite = loader.loadByNames(self.config['tests'])
+
+        self.assertEqual(
+            testNames(suite), [
+            'twisted.trial.test.ordertests.FooTest.test_first',
+            'twisted.trial.test.ordertests.FooTest.test_second',
+            'twisted.trial.test.ordertests.FooTest.test_third',
+            'twisted.trial.test.ordertests.FooTest.test_fourth',
+            'twisted.trial.test.ordertests.BazTest.test_baz',
+            'twisted.trial.test.ordertests.BarTest.test_bar'])
+
+
+    def test_toptobottomPackage(self):
+        """
+        --order=toptobottom causes trial to run test modules within a given
+        package alphabetically, with tests within each module run top to
+        bottom.
+        """
+        self.config.parseOptions([
+            "--order", "toptobottom", "twisted.trial.test"])
+        loader = trial._getLoader(self.config)
+        suite = loader.loadByNames(self.config['tests'])
+
+        names = testNames(suite)
+        # twisted.trial.test.test_module, so split and key on the first 4 to
+        # get stable alphabetical sort on those
+        self.assertEqual(
+            names, sorted(names, key=lambda name : name.split(".")[:4]),
+        )
+
+
+    def test_toptobottomMissingSource(self):
+        """
+        --order=toptobottom detects the source line of methods from modules
+        whose source file is missing.
+        """
+        tempdir = self.mktemp()
+        package = FilePath(tempdir).child('twisted_toptobottom_temp')
+        package.makedirs()
+        package.child('__init__.py').setContent(b'')
+        package.child('test_missing.py').setContent(textwrap.dedent('''
+        from twisted.trial.unittest import TestCase
+        class TestMissing(TestCase):
+            def test_second(self): pass
+            def test_third(self): pass
+            def test_fourth(self): pass
+            def test_first(self): pass
+        ''').encode('utf8'))
+        pathEntry = package.parent().path
+        sys.path.insert(0, pathEntry)
+        self.addCleanup(sys.path.remove, pathEntry)
+        from twisted_toptobottom_temp import test_missing
+        self.addCleanup(sys.modules.pop, 'twisted_toptobottom_temp')
+        self.addCleanup(sys.modules.pop, test_missing.__name__)
+        package.child('test_missing.py').remove()
+
+        self.config.parseOptions([
+            "--order", "toptobottom", "twisted.trial.test.ordertests"])
+        loader = trial._getLoader(self.config)
+        suite = loader.loadModule(test_missing)
+
+        self.assertEqual(
+            testNames(suite), [
+            'twisted_toptobottom_temp.test_missing.TestMissing.test_second',
+            'twisted_toptobottom_temp.test_missing.TestMissing.test_third',
+            'twisted_toptobottom_temp.test_missing.TestMissing.test_fourth',
+            'twisted_toptobottom_temp.test_missing.TestMissing.test_first'])
+
+
+    def test_unknownOrder(self):
+        """
+        An unknown order passed to --order raises a L{UsageError}.
+        """
+
+        self.assertRaises(
+            UsageError, self.config.parseOptions, ["--order", "I don't exist"])
+
+
+
+class HelpOrderTests(unittest.TestCase):
+    """
+    Tests for the --help-orders flag.
+    """
+    def test_help_ordersPrintsSynopsisAndQuits(self):
+        """
+        --help-orders prints each of the available orders and then exits.
+        """
+        self.patch(sys, "stdout", NativeStringIO())
+
+        exc = self.assertRaises(
+            SystemExit, trial.Options().parseOptions, ["--help-orders"])
+        self.assertEqual(exc.code, 0)
+
+        output = sys.stdout.getvalue()
+
+        msg = "%r with its description not properly described in %r"
+        for orderName, (orderDesc, _) in trial._runOrders.items():
+            match = re.search(
+                "%s.*%s" % (re.escape(orderName), re.escape(orderDesc)),
+                output,
+            )
+
+            self.assertTrue(match, msg=msg % (orderName, output))

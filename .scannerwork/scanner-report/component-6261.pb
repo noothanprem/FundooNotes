@@ -1,1 +1,0 @@
-õ0Bvenv/lib/python3.6/site-packages/django/contrib/sitemaps/templates :ô0ö0

@@ -1,47 +1,39 @@
 """
-Steam OpenId backend, docs at:
-    https://python-social-auth.readthedocs.io/en/latest/backends/steam.html
+Vend  OAuth2 backend:
 """
-from .open_id import OpenIdAuth
-from ..exceptions import AuthFailed
+from .oauth import BaseOAuth2
 
 
-USER_INFO = 'http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?'
+class VendOAuth2(BaseOAuth2):
+    name = 'vend'
+    AUTHORIZATION_URL = 'https://secure.vendhq.com/connect'
+    ACCESS_TOKEN_URL = 'https://{0}.vendhq.com/api/1.0/token'
+    ACCESS_TOKEN_METHOD = 'POST'
+    REDIRECT_STATE = False
+    EXTRA_DATA = [
+        ('refresh_token', 'refresh_token'),
+        ('domain_prefix', 'domain_prefix')
+    ]
 
-
-class SteamOpenId(OpenIdAuth):
-    name = 'steam'
-    URL = 'https://steamcommunity.com/openid'
-
-    def get_user_id(self, details, response):
-        """Return user unique id provided by service"""
-        return self._user_id(response)
+    def access_token_url(self):
+        return self.ACCESS_TOKEN_URL.format(self.data['domain_prefix'])
 
     def get_user_details(self, response):
-        player = self.get_json(USER_INFO, params={
-            'key': self.setting('API_KEY'),
-            'steamids': self._user_id(response)
+        email = response['email']
+        username = response.get('username') or email.split('@', 1)[0]
+        return {
+            'username': username,
+            'email': email,
+            'fullname': '',
+            'first_name': '',
+            'last_name': ''
+        }
+
+    def user_data(self, access_token, *args, **kwargs):
+        """Loads user data from service"""
+        prefix = kwargs['response']['domain_prefix']
+        url = 'https://{0}.vendhq.com/api/users'.format(prefix)
+        data = self.get_json(url, headers={
+            'Authorization': 'Bearer {0}'.format(access_token)
         })
-        if len(player['response']['players']) > 0:
-            player = player['response']['players'][0]
-            details = {'username': player.get('personaname'),
-                       'email': '',
-                       'fullname': '',
-                       'first_name': '',
-                       'last_name': '',
-                       'player': player}
-        else:
-            details = {}
-        return details
-
-    def consumer(self):
-        # Steam seems to support stateless mode only, ignore store
-        if not hasattr(self, '_consumer'):
-            self._consumer = self.create_consumer()
-        return self._consumer
-
-    def _user_id(self, response):
-        user_id = response.identity_url.rsplit('/', 1)[-1]
-        if not user_id.isdigit():
-            raise AuthFailed(self, 'Missing Steam Id')
-        return user_id
+        return data['users'][0] if data.get('users') else {}

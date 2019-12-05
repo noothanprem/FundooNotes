@@ -1,1 +1,1 @@
-×Í4venv/lib64/python3.6/site-packages/keyring/errors.py 2pyXBh
+×Í*venv/lib64/python3.6/site-packages/keyring :ÖÍØÍÙÍóÍôÍõÍöÍùÍÎ

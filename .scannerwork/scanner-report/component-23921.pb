@@ -1,1 +1,1 @@
-ñº@venv/lib/python3.6/site-packages/social_core/backends/open_id.py 2pyXˆh
+ñºDvenv/lib/python3.6/site-packages/social_core/backends/dailymotion.py 2pyXh

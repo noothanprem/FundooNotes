@@ -1,122 +1,65 @@
-from jmespath.compat import with_str_method
+import sys
+import inspect
+
+PY2 = sys.version_info[0] == 2
 
 
-class JMESPathError(ValueError):
-    pass
+def with_metaclass(meta, *bases):
+    # Taken from flask/six.
+    class metaclass(meta):
+        def __new__(cls, name, this_bases, d):
+            return meta(name, bases, d)
+    return type.__new__(metaclass, 'temporary_class', (), {})
 
 
-@with_str_method
-class ParseError(JMESPathError):
-    _ERROR_MESSAGE = 'Invalid jmespath expression'
-    def __init__(self, lex_position, token_value, token_type,
-                 msg=_ERROR_MESSAGE):
-        super(ParseError, self).__init__(lex_position, token_value, token_type)
-        self.lex_position = lex_position
-        self.token_value = token_value
-        self.token_type = token_type.upper()
-        self.msg = msg
-        # Whatever catches the ParseError can fill in the full expression
-        self.expression = None
+if PY2:
+    text_type = unicode
+    string_type = basestring
+    from itertools import izip_longest as zip_longest
 
-    def __str__(self):
-        # self.lex_position +1 to account for the starting double quote char.
-        underline = ' ' * (self.lex_position + 1) + '^'
-        return (
-            '%s: Parse error at column %s, '
-            'token "%s" (%s), for expression:\n"%s"\n%s' % (
-                self.msg, self.lex_position, self.token_value, self.token_type,
-                self.expression, underline))
+    def with_str_method(cls):
+        """Class decorator that handles __str__ compat between py2 and py3."""
+        # In python2, the __str__ should be __unicode__
+        # and __str__ should return bytes.
+        cls.__unicode__ = cls.__str__
+        def __str__(self):
+            return self.__unicode__().encode('utf-8')
+        cls.__str__ = __str__
+        return cls
 
+    def with_repr_method(cls):
+        """Class decorator that handle __repr__ with py2 and py3."""
+        # This is almost the same thing as with_str_method *except*
+        # it uses the unicode_escape encoding.  This also means we need to be
+        # careful encoding the input multiple times, so we only encode
+        # if we get a unicode type.
+        original_repr_method = cls.__repr__
+        def __repr__(self):
+            original_repr = original_repr_method(self)
+            if isinstance(original_repr, text_type):
+                original_repr = original_repr.encode('unicode_escape')
+            return original_repr
+        cls.__repr__ = __repr__
+        return cls
 
-@with_str_method
-class IncompleteExpressionError(ParseError):
-    def set_expression(self, expression):
-        self.expression = expression
-        self.lex_position = len(expression)
-        self.token_type = None
-        self.token_value = None
+    def get_methods(cls):
+        for name, method in inspect.getmembers(cls,
+                                               predicate=inspect.ismethod):
+            yield name, method
 
-    def __str__(self):
-        # self.lex_position +1 to account for the starting double quote char.
-        underline = ' ' * (self.lex_position + 1) + '^'
-        return (
-            'Invalid jmespath expression: Incomplete expression:\n'
-            '"%s"\n%s' % (self.expression, underline))
+else:
+    text_type = str
+    string_type = str
+    from itertools import zip_longest
 
+    def with_str_method(cls):
+        # In python3, we don't need to do anything, we return a str type.
+        return cls
 
-@with_str_method
-class LexerError(ParseError):
-    def __init__(self, lexer_position, lexer_value, message, expression=None):
-        self.lexer_position = lexer_position
-        self.lexer_value = lexer_value
-        self.message = message
-        super(LexerError, self).__init__(lexer_position,
-                                         lexer_value,
-                                         message)
-        # Whatever catches LexerError can set this.
-        self.expression = expression
+    def with_repr_method(cls):
+        return cls
 
-    def __str__(self):
-        underline = ' ' * self.lexer_position + '^'
-        return 'Bad jmespath expression: %s:\n%s\n%s' % (
-            self.message, self.expression, underline)
-
-
-@with_str_method
-class ArityError(ParseError):
-    def __init__(self, expected, actual, name):
-        self.expected_arity = expected
-        self.actual_arity = actual
-        self.function_name = name
-        self.expression = None
-
-    def __str__(self):
-        return ("Expected %s %s for function %s(), "
-                "received %s" % (
-                    self.expected_arity,
-                    self._pluralize('argument', self.expected_arity),
-                    self.function_name,
-                    self.actual_arity))
-
-    def _pluralize(self, word, count):
-        if count == 1:
-            return word
-        else:
-            return word + 's'
-
-
-@with_str_method
-class VariadictArityError(ArityError):
-    def __str__(self):
-        return ("Expected at least %s %s for function %s(), "
-                "received %s" % (
-                    self.expected_arity,
-                    self._pluralize('argument', self.expected_arity),
-                    self.function_name,
-                    self.actual_arity))
-
-
-@with_str_method
-class JMESPathTypeError(JMESPathError):
-    def __init__(self, function_name, current_value, actual_type,
-                 expected_types):
-        self.function_name = function_name
-        self.current_value = current_value
-        self.actual_type = actual_type
-        self.expected_types = expected_types
-
-    def __str__(self):
-        return ('In function %s(), invalid type for value: %s, '
-                'expected one of: %s, received: "%s"' % (
-                    self.function_name, self.current_value,
-                    self.expected_types, self.actual_type))
-
-
-class EmptyExpressionError(JMESPathError):
-    def __init__(self):
-        super(EmptyExpressionError, self).__init__(
-            "Invalid JMESPath expression: cannot be empty.")
-
-
-class UnknownFunctionError(JMESPathError):
-    pass
+    def get_methods(cls):
+        for name, method in inspect.getmembers(cls,
+                                               predicate=inspect.isfunction):
+            yield name, method

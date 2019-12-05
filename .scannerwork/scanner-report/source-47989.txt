@@ -1,398 +1,262 @@
-# -*- Python -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
+
 """
-Pan-protocol chat client.
+L{twisted.words} support for Instance Messenger.
 """
 
-from zope.interface import Interface, Attribute
+from __future__ import print_function
 
-# (Random musings, may not reflect on current state of code:)
-#
-# Accounts have Protocol components (clients)
-# Persons have Conversation components
-# Groups have GroupConversation components
-# Persons and Groups are associated with specific Accounts
-# At run-time, Clients/Accounts are slaved to a User Interface
-#   (Note: User may be a bot, so don't assume all UIs are built on gui toolkits)
+from twisted.internet import defer
+from twisted.internet import error
+from twisted.python import log
+from twisted.python.failure import Failure
+from twisted.spread import pb
+
+from twisted.words.im.locals import ONLINE, OFFLINE, AWAY
+
+from twisted.words.im import basesupport, interfaces
+from zope.interface import implementer
 
 
-class IAccount(Interface):
+class TwistedWordsPerson(basesupport.AbstractPerson):
+    """I a facade for a person you can talk to through a twisted.words service.
     """
-    I represent a user's account with a chat service.
-    """
+    def __init__(self, name, wordsAccount):
+        basesupport.AbstractPerson.__init__(self, name, wordsAccount)
+        self.status = OFFLINE
 
-    client = Attribute('The L{IClient} currently connecting to this account, if any.')
-    gatewayType = Attribute('A C{str} that identifies the protocol used by this account.')
+    def isOnline(self):
+        return ((self.status == ONLINE) or
+                (self.status == AWAY))
 
-    def __init__(accountName, autoLogin, username, password, host, port):
+    def getStatus(self):
+        return self.status
+
+    def sendMessage(self, text, metadata):
+        """Return a deferred...
         """
-        @type accountName: string
-        @param accountName: A name to refer to the account by locally.
-        @type autoLogin: boolean
+        if metadata:
+            d=self.account.client.perspective.directMessage(self.name,
+                                                            text, metadata)
+            d.addErrback(self.metadataFailed, "* "+text)
+            return d
+        else:
+            return self.account.client.perspective.callRemote('directMessage',self.name, text)
+
+    def metadataFailed(self, result, text):
+        print("result:",result,"text:",text)
+        return self.account.client.perspective.directMessage(self.name, text)
+
+    def setStatus(self, status):
+        self.status = status
+        self.chat.getContactsList().setContactStatus(self)
+
+@implementer(interfaces.IGroup)
+class TwistedWordsGroup(basesupport.AbstractGroup):
+    def __init__(self, name, wordsClient):
+        basesupport.AbstractGroup.__init__(self, name, wordsClient)
+        self.joined = 0
+
+    def sendGroupMessage(self, text, metadata=None):
+        """Return a deferred.
+        """
+        #for backwards compatibility with older twisted.words servers.
+        if metadata:
+            d=self.account.client.perspective.callRemote(
+                'groupMessage', self.name, text, metadata)
+            d.addErrback(self.metadataFailed, "* "+text)
+            return d
+        else:
+            return self.account.client.perspective.callRemote('groupMessage',
+                                                              self.name, text)
+
+    def setTopic(self, text):
+        self.account.client.perspective.callRemote(
+            'setGroupMetadata',
+            {'topic': text, 'topic_author': self.client.name},
+            self.name)
+
+    def metadataFailed(self, result, text):
+        print("result:",result,"text:",text)
+        return self.account.client.perspective.callRemote('groupMessage',
+                                                          self.name, text)
+
+    def joining(self):
+        self.joined = 1
+
+    def leaving(self):
+        self.joined = 0
+
+    def leave(self):
+        return self.account.client.perspective.callRemote('leaveGroup',
+                                                          self.name)
+
+
+
+class TwistedWordsClient(pb.Referenceable, basesupport.AbstractClientMixin):
+    """In some cases, this acts as an Account, since it a source of text
+    messages (multiple Words instances may be on a single PB connection)
+    """
+    def __init__(self, acct, serviceName, perspectiveName, chatui,
+                 _logonDeferred=None):
+        self.accountName = "%s (%s:%s)" % (acct.accountName, serviceName, perspectiveName)
+        self.name = perspectiveName
+        print("HELLO I AM A PB SERVICE", serviceName, perspectiveName)
+        self.chat = chatui
+        self.account = acct
+        self._logonDeferred = _logonDeferred
+
+    def getPerson(self, name):
+        return self.chat.getPerson(name, self)
+
+    def getGroup(self, name):
+        return self.chat.getGroup(name, self)
+
+    def getGroupConversation(self, name):
+        return self.chat.getGroupConversation(self.getGroup(name))
+
+    def addContact(self, name):
+        self.perspective.callRemote('addContact', name)
+
+    def remote_receiveGroupMembers(self, names, group):
+        print('received group members:', names, group)
+        self.getGroupConversation(group).setGroupMembers(names)
+
+    def remote_receiveGroupMessage(self, sender, group, message, metadata=None):
+        print('received a group message', sender, group, message, metadata)
+        self.getGroupConversation(group).showGroupMessage(sender, message, metadata)
+
+    def remote_memberJoined(self, member, group):
+        print('member joined', member, group)
+        self.getGroupConversation(group).memberJoined(member)
+
+    def remote_memberLeft(self, member, group):
+        print('member left')
+        self.getGroupConversation(group).memberLeft(member)
+
+    def remote_notifyStatusChanged(self, name, status):
+        self.chat.getPerson(name, self).setStatus(status)
+
+    def remote_receiveDirectMessage(self, name, message, metadata=None):
+        self.chat.getConversation(self.chat.getPerson(name, self)).showMessage(message, metadata)
+
+    def remote_receiveContactList(self, clist):
+        for name, status in clist:
+            self.chat.getPerson(name, self).setStatus(status)
+
+    def remote_setGroupMetadata(self, dict_, groupName):
+        if "topic" in dict_:
+            self.getGroupConversation(groupName).setTopic(dict_["topic"], dict_.get("topic_author", None))
+
+    def joinGroup(self, name):
+        self.getGroup(name).joining()
+        return self.perspective.callRemote('joinGroup', name).addCallback(self._cbGroupJoined, name)
+
+    def leaveGroup(self, name):
+        self.getGroup(name).leaving()
+        return self.perspective.callRemote('leaveGroup', name).addCallback(self._cbGroupLeft, name)
+
+    def _cbGroupJoined(self, result, name):
+        groupConv = self.chat.getGroupConversation(self.getGroup(name))
+        groupConv.showGroupMessage("sys", "you joined")
+        self.perspective.callRemote('getGroupMembers', name)
+
+    def _cbGroupLeft(self, result, name):
+        print('left',name)
+        groupConv = self.chat.getGroupConversation(self.getGroup(name), 1)
+        groupConv.showGroupMessage("sys", "you left")
+
+    def connected(self, perspective):
+        print('Connected Words Client!', perspective)
+        if self._logonDeferred is not None:
+            self._logonDeferred.callback(self)
+        self.perspective = perspective
+        self.chat.getContactsList()
+
+
+pbFrontEnds = {
+    "twisted.words": TwistedWordsClient,
+    "twisted.reality": None
+    }
+
+
+@implementer(interfaces.IAccount)
+class PBAccount(basesupport.AbstractAccount):
+    gatewayType = "PB"
+    _groupFactory = TwistedWordsGroup
+    _personFactory = TwistedWordsPerson
+
+    def __init__(self, accountName, autoLogin, username, password, host, port,
+                 services=None):
+        """
+        @param username: The name of your PB Identity.
         @type username: string
-        @type password: string
-        @type host: string
-        @type port: integer
         """
+        basesupport.AbstractAccount.__init__(self, accountName, autoLogin,
+                                             username, password, host, port)
+        self.services = []
+        if not services:
+            services = [('twisted.words', 'twisted.words', username)]
+        for serviceType, serviceName, perspectiveName in services:
+            self.services.append([pbFrontEnds[serviceType], serviceName,
+                                  perspectiveName])
+
+    def logOn(self, chatui):
+        """
+        @returns: this breaks with L{interfaces.IAccount}
+        @returntype: DeferredList of L{interfaces.IClient}s
+        """
+        # Overriding basesupport's implementation on account of the
+        # fact that _startLogOn tends to return a deferredList rather
+        # than a simple Deferred, and we need to do registerAccountClient.
+        if (not self._isConnecting) and (not self._isOnline):
+            self._isConnecting = 1
+            d = self._startLogOn(chatui)
+            d.addErrback(self._loginFailed)
+            def registerMany(results):
+                for success, result in results:
+                    if success:
+                        chatui.registerAccountClient(result)
+                        self._cb_logOn(result)
+                    else:
+                        log.err(result)
+            d.addCallback(registerMany)
+            return d
+        else:
+            raise error.ConnectionError("Connection in progress")
+
+
+    def _startLogOn(self, chatui):
+        print('Connecting...', end=' ')
+        d = pb.getObjectAt(self.host, self.port)
+        d.addCallbacks(self._cbConnected, self._ebConnected,
+                       callbackArgs=(chatui,))
+        return d
+
+    def _cbConnected(self, root, chatui):
+        print('Connected!')
+        print('Identifying...', end=' ')
+        d = pb.authIdentity(root, self.username, self.password)
+        d.addCallbacks(self._cbIdent, self._ebConnected,
+                       callbackArgs=(chatui,))
+        return d
+
+    def _cbIdent(self, ident, chatui):
+        if not ident:
+            print('falsely identified.')
+            return self._ebConnected(Failure(Exception("username or password incorrect")))
+        print('Identified!')
+        dl = []
+        for handlerClass, sname, pname in self.services:
+            d = defer.Deferred()
+            dl.append(d)
+            handler = handlerClass(self, sname, pname, chatui, d)
+            ident.callRemote('attach', sname, pname, handler).addCallback(handler.connected)
+        return defer.DeferredList(dl)
+
+    def _ebConnected(self, error):
+        print('Not connected.')
+        return error
 
-    def isOnline():
-        """
-        Am I online?
-
-        @rtype: boolean
-        """
-
-    def logOn(chatui):
-        """
-        Go on-line.
-
-        @type chatui: Implementor of C{IChatUI}
-
-        @rtype: L{Deferred} with an eventual L{IClient} result.
-        """
-
-    def logOff():
-        """
-        Sign off.
-        """
-
-    def getGroup(groupName):
-        """
-        @rtype: L{Group<IGroup>}
-        """
-
-    def getPerson(personName):
-        """
-        @rtype: L{Person<IPerson>}
-        """
-
-
-
-class IClient(Interface):
-
-    account = Attribute('The L{IAccount} I am a Client for')
-
-    def __init__(account, chatui, logonDeferred):
-        """
-        @type account: L{IAccount}
-        @type chatui: L{IChatUI}
-        @param logonDeferred: Will be called back once I am logged on.
-        @type logonDeferred: L{Deferred<twisted.internet.defer.Deferred>}
-        """
-
-    def joinGroup(groupName):
-        """
-        @param groupName: The name of the group to join.
-        @type groupName: string
-        """
-
-    def leaveGroup(groupName):
-        """
-        @param groupName: The name of the group to leave.
-        @type groupName: string
-        """
-
-    def getGroupConversation(name, hide=0):
-        pass
-
-
-    def getPerson(name):
-        pass
-
-
-
-class IPerson(Interface):
-
-    def __init__(name, account):
-        """
-        Initialize me.
-
-        @param name: My name, as the server knows me.
-        @type name: string
-        @param account: The account I am accessed through.
-        @type account: I{Account}
-        """
-
-
-    def isOnline():
-        """
-        Am I online right now?
-
-        @rtype: boolean
-        """
-
-
-    def getStatus():
-        """
-        What is my on-line status?
-
-        @return: L{locals.StatusEnum}
-        """
-
-
-    def getIdleTime():
-        """
-        @rtype: string (XXX: How about a scalar?)
-        """
-
-
-    def sendMessage(text, metadata=None):
-        """
-        Send a message to this person.
-
-        @type text: string
-        @type metadata: dict
-        """
-
-
-
-class IGroup(Interface):
-    """
-    A group which you may have a conversation with.
-
-    Groups generally have a loosely-defined set of members, who may
-    leave and join at any time.
-    """
-
-    name = Attribute('My C{str} name, as the server knows me.')
-    account = Attribute('The L{Account<IAccount>} I am accessed through.')
-
-    def __init__(name, account):
-        """
-        Initialize me.
-
-        @param name: My name, as the server knows me.
-        @type name: str
-        @param account: The account I am accessed through.
-        @type account: L{Account<IAccount>}
-        """
-
-
-    def setTopic(text):
-        """
-        Set this Groups topic on the server.
-
-        @type text: string
-        """
-
-
-    def sendGroupMessage(text, metadata=None):
-        """
-        Send a message to this group.
-
-        @type text: str
-
-        @type metadata: dict
-        @param metadata: Valid keys for this dictionary include:
-
-            - C{'style'}: associated with one of:
-                - C{'emote'}: indicates this is an action
-        """
-
-
-    def join():
-        """
-        Join this group.
-        """
-
-
-    def leave():
-        """
-        Depart this group.
-        """
-
-
-
-class IConversation(Interface):
-    """
-    A conversation with a specific person.
-    """
-
-    def __init__(person, chatui):
-        """
-        @type person: L{IPerson}
-        """
-
-
-    def show():
-        """
-        doesn't seem like it belongs in this interface.
-        """
-
-
-    def hide():
-        """
-        nor this neither.
-        """
-
-
-    def sendText(text, metadata):
-        pass
-
-
-    def showMessage(text, metadata):
-        pass
-
-
-    def changedNick(person, newnick):
-        """
-        @param person: XXX Shouldn't this always be Conversation.person?
-        """
-
-
-
-class IGroupConversation(Interface):
-
-    def show():
-        """
-        doesn't seem like it belongs in this interface.
-        """
-
-
-    def hide():
-        """
-        nor this neither.
-        """
-
-
-    def sendText(text, metadata):
-        pass
-
-
-    def showGroupMessage(sender, text, metadata):
-        pass
-
-
-    def setGroupMembers(members):
-        """
-        Sets the list of members in the group and displays it to the user.
-        """
-
-
-    def setTopic(topic, author):
-        """
-        Displays the topic (from the server) for the group conversation window.
-
-        @type topic: string
-        @type author: string (XXX: Not Person?)
-        """
-
-
-    def memberJoined(member):
-        """
-        Adds the given member to the list of members in the group conversation
-        and displays this to the user,
-
-        @type member: string (XXX: Not Person?)
-        """
-
-
-    def memberChangedNick(oldnick, newnick):
-        """
-        Changes the oldnick in the list of members to C{newnick} and displays this
-        change to the user,
-
-        @type oldnick: string (XXX: Not Person?)
-        @type newnick: string
-        """
-
-
-    def memberLeft(member):
-        """
-        Deletes the given member from the list of members in the group
-        conversation and displays the change to the user.
-
-        @type member: string (XXX: Not Person?)
-        """
-
-
-
-class IChatUI(Interface):
-
-    def registerAccountClient(client):
-        """
-        Notifies user that an account has been signed on to.
-
-        @type client: L{Client<IClient>}
-        """
-
-
-    def unregisterAccountClient(client):
-        """
-        Notifies user that an account has been signed off or disconnected.
-
-        @type client: L{Client<IClient>}
-        """
-
-
-    def getContactsList():
-        """
-        @rtype: L{ContactsList}
-        """
-
-    # WARNING: You'll want to be polymorphed into something with
-    # intrinsic stoning resistance before continuing.
-
-    def getConversation(person, Class, stayHidden=0):
-        """
-        For the given person object, returns the conversation window
-        or creates and returns a new conversation window if one does not exist.
-
-        @type person: L{Person<IPerson>}
-        @type Class: L{Conversation<IConversation>} class
-        @type stayHidden: boolean
-
-        @rtype: L{Conversation<IConversation>}
-        """
-
-
-    def getGroupConversation(group, Class, stayHidden=0):
-        """
-        For the given group object, returns the group conversation window or
-        creates and returns a new group conversation window if it doesn't exist.
-
-        @type group: L{Group<interfaces.IGroup>}
-        @type Class: L{Conversation<interfaces.IConversation>} class
-        @type stayHidden: boolean
-
-        @rtype: L{GroupConversation<interfaces.IGroupConversation>}
-        """
-
-
-    def getPerson(name, client):
-        """
-        Get a Person for a client.
-
-        Duplicates L{IAccount.getPerson}.
-
-        @type name: string
-        @type client: L{Client<IClient>}
-
-        @rtype: L{Person<IPerson>}
-        """
-
-
-    def getGroup(name, client):
-        """
-        Get a Group for a client.
-
-        Duplicates L{IAccount.getGroup}.
-
-        @type name: string
-        @type client: L{Client<IClient>}
-
-        @rtype: L{Group<IGroup>}
-        """
-
-
-    def contactChangedNick(oldnick, newnick):
-        """
-        For the given person, changes the person's name to newnick, and
-        tells the contact list and any conversation windows with that person
-        to change as well.
-
-        @type oldnick: string
-        @type newnick: string
-        """

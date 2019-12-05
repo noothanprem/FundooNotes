@@ -1,1 +1,1 @@
-´W;venv/lib/python3.6/site-packages/faker/providers/bank/nl_NL :³W
+´W;venv/lib/python3.6/site-packages/faker/providers/bank/it_IT :³W

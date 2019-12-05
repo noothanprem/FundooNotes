@@ -1,1 +1,1 @@
-ú˜.venv/lib/python3.6/site-packages/social_django :*ù˜û˜ü˜ı˜ÿ˜Š™‹™Œ™œ™™™Ÿ™ ™•›
+ú˜6venv/lib/python3.6/site-packages/social_django/urls.py 2pyXh

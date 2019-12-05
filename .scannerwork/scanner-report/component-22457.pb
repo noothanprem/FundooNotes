@@ -1,1 +1,0 @@
-¹¯9venv/lib/python3.6/site-packages/twisted/scripts/trial.py 2pyXôh

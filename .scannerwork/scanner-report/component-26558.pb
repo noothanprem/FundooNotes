@@ -1,1 +1,1 @@
-╬о-venv/lib64/python3.6/site-packages/celery/app :-╫о©оюоаобоцодоеофовоьоыозошоэо
+╬о<venv/lib64/python3.6/site-packages/celery/app/annotations.py 2pyX9h

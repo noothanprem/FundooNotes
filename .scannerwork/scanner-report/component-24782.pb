@@ -1,1 +1,1 @@
-Œ¡_venv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/treewalkers/etree.py 2pyXÉh
+Œ¡Wvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/html5lib/_ihatexml.py 2pyX°h

@@ -1,1 +1,0 @@
-—VIvenv/lib/python3.6/site-packages/faker/providers/person/lt_LT/__init__.py 2pyX8h

@@ -1,1 +1,0 @@
-ú;venv/lib/python3.6/site-packages/pygtkcompat/pygtkcompat.py 2pyXh

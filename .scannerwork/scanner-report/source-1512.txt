@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 from __future__ import absolute_import, division, print_function
 
 from nacl import exceptions as exc
@@ -18,15 +19,42 @@ from nacl._sodium import ffi, lib
 from nacl.exceptions import ensure
 
 
-def _sodium_init():
-    ensure(lib.sodium_init() != -1,
-           "Could not initialize sodium",
+crypto_scalarmult_BYTES = lib.crypto_scalarmult_bytes()
+crypto_scalarmult_SCALARBYTES = lib.crypto_scalarmult_scalarbytes()
+
+
+def crypto_scalarmult_base(n):
+    """
+    Computes and returns the scalar product of a standard group element and an
+    integer ``n``.
+
+    :param n: bytes
+    :rtype: bytes
+    """
+    q = ffi.new("unsigned char[]", crypto_scalarmult_BYTES)
+
+    rc = lib.crypto_scalarmult_base(q, n)
+    ensure(rc == 0,
+           'Unexpected library error',
            raising=exc.RuntimeError)
 
+    return ffi.buffer(q, crypto_scalarmult_SCALARBYTES)[:]
 
-def sodium_init():
+
+def crypto_scalarmult(n, p):
     """
-    Initializes sodium, picking the best implementations available for this
-    machine.
+    Computes and returns the scalar product of the given group element and an
+    integer ``n``.
+
+    :param p: bytes
+    :param n: bytes
+    :rtype: bytes
     """
-    ffi.init_once(_sodium_init, "libsodium")
+    q = ffi.new("unsigned char[]", crypto_scalarmult_BYTES)
+
+    rc = lib.crypto_scalarmult(q, n, p)
+    ensure(rc == 0,
+           'Unexpected library error',
+           raising=exc.RuntimeError)
+
+    return ffi.buffer(q, crypto_scalarmult_SCALARBYTES)[:]

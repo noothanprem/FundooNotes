@@ -1,1 +1,1 @@
-ци:venv/lib64/python3.6/site-packages/django/template/loaders :хичишищиЃй„й
+ци:venv/lib64/python3.6/site-packages/django/template/loaders :хичишищиЃй‚й

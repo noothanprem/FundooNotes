@@ -1,1 +1,1 @@
-ŠU@venv/lib/python3.6/site-packages/faker/providers/date_time/hr_HR :‰U
+ŠU:venv/lib/python3.6/site-packages/faker/providers/date_time :‰U

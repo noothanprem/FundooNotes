@@ -1,1 +1,1 @@
-Ý,Hvenv/lib/python3.6/site-packages/django/contrib/gis/db/models/lookups.py 2pyXÛh
+Ý,Fvenv/lib/python3.6/site-packages/django/contrib/gis/db/models/proxy.py 2pyXQh

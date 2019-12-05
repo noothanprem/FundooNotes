@@ -1,1 +1,1 @@
-ƒ0Qvenv/lib/python3.6/site-packages/django/contrib/gis/geos/prototypes/predicates.py 2pyX,h
+ƒ0Ovenv/lib/python3.6/site-packages/django/contrib/gis/geos/prototypes/coordseq.py 2pyX\h

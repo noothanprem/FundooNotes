@@ -1,1 +1,1 @@
-†ZJvenv/lib/python3.6/site-packages/faker/providers/address/ru_RU/__init__.py 2pyXŠh
+†Z>venv/lib/python3.6/site-packages/faker/providers/address/ru_RU :…Z

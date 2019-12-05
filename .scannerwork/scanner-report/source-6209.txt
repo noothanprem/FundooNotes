@@ -1,80 +1,81 @@
-from ctypes import POINTER, c_char_p, c_int, c_void_p
+"""
+ This module houses the ctypes function prototypes for OGR DataSource
+ related data structures. OGR_Dr_*, OGR_DS_*, OGR_L_*, OGR_F_*,
+ OGR_Fld_* routines are relevant here.
+"""
+from ctypes import POINTER, c_char_p, c_double, c_int, c_long, c_void_p
 
-from django.contrib.gis.gdal.libgdal import lgdal, std_call
+from django.contrib.gis.gdal.envelope import OGREnvelope
+from django.contrib.gis.gdal.libgdal import GDAL_VERSION, lgdal
 from django.contrib.gis.gdal.prototypes.generation import (
-    const_string_output, double_output, int_output, srs_output, string_output,
-    void_output,
+    const_string_output, double_output, geom_output, int64_output, int_output,
+    srs_output, void_output, voidptr_output,
 )
 
+c_int_p = POINTER(c_int)  # shortcut type
 
-# Shortcut generation for routines with known parameters.
-def srs_double(f):
-    """
-    Create a function prototype for the OSR routines that take
-    the OSRSpatialReference object and return a double value.
-    """
-    return double_output(f, [c_void_p, POINTER(c_int)], errcheck=True)
+# Driver Routines
+register_all = void_output(lgdal.OGRRegisterAll, [], errcheck=False)
+cleanup_all = void_output(lgdal.OGRCleanupAll, [], errcheck=False)
+get_driver = voidptr_output(lgdal.OGRGetDriver, [c_int])
+get_driver_by_name = voidptr_output(lgdal.OGRGetDriverByName, [c_char_p], errcheck=False)
+get_driver_count = int_output(lgdal.OGRGetDriverCount, [])
+get_driver_name = const_string_output(lgdal.OGR_Dr_GetName, [c_void_p], decoding='ascii')
 
+# DataSource
+open_ds = voidptr_output(lgdal.OGROpen, [c_char_p, c_int, POINTER(c_void_p)])
+destroy_ds = void_output(lgdal.OGR_DS_Destroy, [c_void_p], errcheck=False)
+release_ds = void_output(lgdal.OGRReleaseDataSource, [c_void_p])
+get_ds_name = const_string_output(lgdal.OGR_DS_GetName, [c_void_p])
+get_layer = voidptr_output(lgdal.OGR_DS_GetLayer, [c_void_p, c_int])
+get_layer_by_name = voidptr_output(lgdal.OGR_DS_GetLayerByName, [c_void_p, c_char_p])
+get_layer_count = int_output(lgdal.OGR_DS_GetLayerCount, [c_void_p])
 
-def units_func(f):
-    """
-    Create a ctypes function prototype for OSR units functions, e.g.,
-    OSRGetAngularUnits, OSRGetLinearUnits.
-    """
-    return double_output(f, [c_void_p, POINTER(c_char_p)], strarg=True)
-
-
-# Creation & destruction.
-clone_srs = srs_output(std_call('OSRClone'), [c_void_p])
-new_srs = srs_output(std_call('OSRNewSpatialReference'), [c_char_p])
-release_srs = void_output(lgdal.OSRRelease, [c_void_p], errcheck=False)
-destroy_srs = void_output(std_call('OSRDestroySpatialReference'), [c_void_p], errcheck=False)
-srs_validate = void_output(lgdal.OSRValidate, [c_void_p])
-
-# Getting the semi_major, semi_minor, and flattening functions.
-semi_major = srs_double(lgdal.OSRGetSemiMajor)
-semi_minor = srs_double(lgdal.OSRGetSemiMinor)
-invflattening = srs_double(lgdal.OSRGetInvFlattening)
-
-# WKT, PROJ, EPSG, XML importation routines.
-from_wkt = void_output(lgdal.OSRImportFromWkt, [c_void_p, POINTER(c_char_p)])
-from_proj = void_output(lgdal.OSRImportFromProj4, [c_void_p, c_char_p])
-from_epsg = void_output(std_call('OSRImportFromEPSG'), [c_void_p, c_int])
-from_xml = void_output(lgdal.OSRImportFromXML, [c_void_p, c_char_p])
-from_user_input = void_output(std_call('OSRSetFromUserInput'), [c_void_p, c_char_p])
-
-# Morphing to/from ESRI WKT.
-morph_to_esri = void_output(lgdal.OSRMorphToESRI, [c_void_p])
-morph_from_esri = void_output(lgdal.OSRMorphFromESRI, [c_void_p])
-
-# Identifying the EPSG
-identify_epsg = void_output(lgdal.OSRAutoIdentifyEPSG, [c_void_p])
-
-# Getting the angular_units, linear_units functions
-linear_units = units_func(lgdal.OSRGetLinearUnits)
-angular_units = units_func(lgdal.OSRGetAngularUnits)
-
-# For exporting to WKT, PROJ.4, "Pretty" WKT, and XML.
-to_wkt = string_output(std_call('OSRExportToWkt'), [c_void_p, POINTER(c_char_p)], decoding='utf-8')
-to_proj = string_output(std_call('OSRExportToProj4'), [c_void_p, POINTER(c_char_p)], decoding='ascii')
-to_pretty_wkt = string_output(
-    std_call('OSRExportToPrettyWkt'),
-    [c_void_p, POINTER(c_char_p), c_int], offset=-2, decoding='utf-8'
+# Layer Routines
+get_extent = void_output(lgdal.OGR_L_GetExtent, [c_void_p, POINTER(OGREnvelope), c_int])
+get_feature = voidptr_output(lgdal.OGR_L_GetFeature, [c_void_p, c_long])
+get_feature_count = int_output(lgdal.OGR_L_GetFeatureCount, [c_void_p, c_int])
+get_layer_defn = voidptr_output(lgdal.OGR_L_GetLayerDefn, [c_void_p])
+get_layer_srs = srs_output(lgdal.OGR_L_GetSpatialRef, [c_void_p])
+get_next_feature = voidptr_output(lgdal.OGR_L_GetNextFeature, [c_void_p])
+reset_reading = void_output(lgdal.OGR_L_ResetReading, [c_void_p], errcheck=False)
+test_capability = int_output(lgdal.OGR_L_TestCapability, [c_void_p, c_char_p])
+get_spatial_filter = geom_output(lgdal.OGR_L_GetSpatialFilter, [c_void_p])
+set_spatial_filter = void_output(lgdal.OGR_L_SetSpatialFilter, [c_void_p, c_void_p], errcheck=False)
+set_spatial_filter_rect = void_output(
+    lgdal.OGR_L_SetSpatialFilterRect,
+    [c_void_p, c_double, c_double, c_double, c_double], errcheck=False
 )
 
-# Memory leak fixed in GDAL 1.5; still exists in 1.4.
-to_xml = string_output(lgdal.OSRExportToXML, [c_void_p, POINTER(c_char_p), c_char_p], offset=-2, decoding='utf-8')
+# Feature Definition Routines
+get_fd_geom_type = int_output(lgdal.OGR_FD_GetGeomType, [c_void_p])
+get_fd_name = const_string_output(lgdal.OGR_FD_GetName, [c_void_p])
+get_feat_name = const_string_output(lgdal.OGR_FD_GetName, [c_void_p])
+get_field_count = int_output(lgdal.OGR_FD_GetFieldCount, [c_void_p])
+get_field_defn = voidptr_output(lgdal.OGR_FD_GetFieldDefn, [c_void_p, c_int])
 
-# String attribute retrival routines.
-get_attr_value = const_string_output(std_call('OSRGetAttrValue'), [c_void_p, c_char_p, c_int], decoding='utf-8')
-get_auth_name = const_string_output(lgdal.OSRGetAuthorityName, [c_void_p, c_char_p], decoding='ascii')
-get_auth_code = const_string_output(lgdal.OSRGetAuthorityCode, [c_void_p, c_char_p], decoding='ascii')
+# Feature Routines
+clone_feature = voidptr_output(lgdal.OGR_F_Clone, [c_void_p])
+destroy_feature = void_output(lgdal.OGR_F_Destroy, [c_void_p], errcheck=False)
+feature_equal = int_output(lgdal.OGR_F_Equal, [c_void_p, c_void_p])
+get_feat_geom_ref = geom_output(lgdal.OGR_F_GetGeometryRef, [c_void_p])
+get_feat_field_count = int_output(lgdal.OGR_F_GetFieldCount, [c_void_p])
+get_feat_field_defn = voidptr_output(lgdal.OGR_F_GetFieldDefnRef, [c_void_p, c_int])
+get_fid = int_output(lgdal.OGR_F_GetFID, [c_void_p])
+get_field_as_datetime = int_output(
+    lgdal.OGR_F_GetFieldAsDateTime,
+    [c_void_p, c_int, c_int_p, c_int_p, c_int_p, c_int_p, c_int_p, c_int_p]
+)
+get_field_as_double = double_output(lgdal.OGR_F_GetFieldAsDouble, [c_void_p, c_int])
+get_field_as_integer = int_output(lgdal.OGR_F_GetFieldAsInteger, [c_void_p, c_int])
+if GDAL_VERSION >= (2, 0):
+    get_field_as_integer64 = int64_output(lgdal.OGR_F_GetFieldAsInteger64, [c_void_p, c_int])
+get_field_as_string = const_string_output(lgdal.OGR_F_GetFieldAsString, [c_void_p, c_int])
+get_field_index = int_output(lgdal.OGR_F_GetFieldIndex, [c_void_p, c_char_p])
 
-# SRS Properties
-isgeographic = int_output(lgdal.OSRIsGeographic, [c_void_p])
-islocal = int_output(lgdal.OSRIsLocal, [c_void_p])
-isprojected = int_output(lgdal.OSRIsProjected, [c_void_p])
-
-# Coordinate transformation
-new_ct = srs_output(std_call('OCTNewCoordinateTransformation'), [c_void_p, c_void_p])
-destroy_ct = void_output(std_call('OCTDestroyCoordinateTransformation'), [c_void_p], errcheck=False)
+# Field Routines
+get_field_name = const_string_output(lgdal.OGR_Fld_GetNameRef, [c_void_p])
+get_field_precision = int_output(lgdal.OGR_Fld_GetPrecision, [c_void_p])
+get_field_type = int_output(lgdal.OGR_Fld_GetType, [c_void_p])
+get_field_type_name = const_string_output(lgdal.OGR_GetFieldTypeName, [c_int])
+get_field_width = int_output(lgdal.OGR_Fld_GetWidth, [c_void_p])

@@ -2,886 +2,715 @@
 # See LICENSE for details.
 
 """
-Tests for twisted.enterprise.adbapi.
+Tests for twisted SSL support.
 """
+from __future__ import division, absolute_import
 
+from twisted.python.filepath import FilePath
 from twisted.trial import unittest
+from twisted.internet import protocol, reactor, interfaces, defer
+from twisted.internet.error import ConnectionDone
+from twisted.protocols import basic
+from twisted.python.runtime import platform
+from twisted.test.test_tcp import ProperlyCloseFilesMixin
+from twisted.test.proto_helpers import waitUntilAllDisconnected
 
 import os
-import stat
+import hamcrest
 
-from twisted.enterprise.adbapi import ConnectionPool, ConnectionLost
-from twisted.enterprise.adbapi import Connection, Transaction
-from twisted.internet import reactor, defer, interfaces
-from twisted.python.failure import Failure
-from twisted.python.reflect import requireModule
+try:
+    from OpenSSL import SSL, crypto
+    from twisted.internet import ssl
+    from twisted.test.ssl_helpers import ClientTLSContext, certPath
+except ImportError:
+    def _noSSL():
+        # ugh, make pyflakes happy.
+        global SSL
+        global ssl
+        SSL = ssl = None
+    _noSSL()
 
-simple_table_schema = """
-CREATE TABLE simple (
-  x integer
-)
-"""
+from zope.interface import implementer
 
 
 
-class ADBAPITestBase(object):
+class UnintelligentProtocol(basic.LineReceiver):
     """
-    Test the asynchronous DB-API code.
+    @ivar deferred: a deferred that will fire at connection lost.
+    @type deferred: L{defer.Deferred}
+
+    @cvar pretext: text sent before TLS is set up.
+    @type pretext: C{bytes}
+
+    @cvar posttext: text sent after TLS is set up.
+    @type posttext: C{bytes}
     """
-    openfun_called = {}
-
-    if interfaces.IReactorThreads(reactor, None) is None:
-        skip = "ADB-API requires threads, no way to test without them"
-
-
-    def extraSetUp(self):
-        """
-        Set up the database and create a connection pool pointing at it.
-        """
-        self.startDB()
-        self.dbpool = self.makePool(cp_openfun=self.openfun)
-        self.dbpool.start()
-
-
-    def tearDown(self):
-        d =  self.dbpool.runOperation('DROP TABLE simple')
-        d.addCallback(lambda res: self.dbpool.close())
-        d.addCallback(lambda res: self.stopDB())
-        return d
-
-
-    def openfun(self, conn):
-        self.openfun_called[conn] = True
-
-
-    def checkOpenfunCalled(self, conn=None):
-        if not conn:
-            self.assertTrue(self.openfun_called)
-        else:
-            self.assertIn(conn, self.openfun_called)
-
-
-    def test_pool(self):
-        d = self.dbpool.runOperation(simple_table_schema)
-        if self.test_failures:
-            d.addCallback(self._testPool_1_1)
-            d.addCallback(self._testPool_1_2)
-            d.addCallback(self._testPool_1_3)
-            d.addCallback(self._testPool_1_4)
-            d.addCallback(lambda res: self.flushLoggedErrors())
-        d.addCallback(self._testPool_2)
-        d.addCallback(self._testPool_3)
-        d.addCallback(self._testPool_4)
-        d.addCallback(self._testPool_5)
-        d.addCallback(self._testPool_6)
-        d.addCallback(self._testPool_7)
-        d.addCallback(self._testPool_8)
-        d.addCallback(self._testPool_9)
-        return d
-
-
-    def _testPool_1_1(self, res):
-        d = defer.maybeDeferred(self.dbpool.runQuery, "select * from NOTABLE")
-        d.addCallbacks(lambda res: self.fail('no exception'),
-                       lambda f: None)
-        return d
-
-
-    def _testPool_1_2(self, res):
-        d = defer.maybeDeferred(self.dbpool.runOperation,
-                                "deletexxx from NOTABLE")
-        d.addCallbacks(lambda res: self.fail('no exception'),
-                       lambda f: None)
-        return d
-
-
-    def _testPool_1_3(self, res):
-        d = defer.maybeDeferred(self.dbpool.runInteraction,
-                                self.bad_interaction)
-        d.addCallbacks(lambda res: self.fail('no exception'),
-                       lambda f: None)
-        return d
-
-
-    def _testPool_1_4(self, res):
-        d = defer.maybeDeferred(self.dbpool.runWithConnection,
-                                self.bad_withConnection)
-        d.addCallbacks(lambda res: self.fail('no exception'),
-                       lambda f: None)
-        return d
-
-
-    def _testPool_2(self, res):
-        # verify simple table is empty
-        sql = "select count(1) from simple"
-        d = self.dbpool.runQuery(sql)
-        def _check(row):
-            self.assertTrue(int(row[0][0]) == 0, "Interaction not rolled back")
-            self.checkOpenfunCalled()
-        d.addCallback(_check)
-        return d
-
-
-    def _testPool_3(self, res):
-        sql = "select count(1) from simple"
-        inserts = []
-        # add some rows to simple table (runOperation)
-        for i in range(self.num_iterations):
-            sql = "insert into simple(x) values(%d)" % i
-            inserts.append(self.dbpool.runOperation(sql))
-        d = defer.gatherResults(inserts)
-
-        def _select(res):
-            # make sure they were added (runQuery)
-            sql = "select x from simple order by x";
-            d = self.dbpool.runQuery(sql)
-            return d
-        d.addCallback(_select)
-
-        def _check(rows):
-            self.assertTrue(len(rows) == self.num_iterations,
-                            "Wrong number of rows")
-            for i in range(self.num_iterations):
-                self.assertTrue(len(rows[i]) == 1, "Wrong size row")
-                self.assertTrue(rows[i][0] == i, "Values not returned.")
-        d.addCallback(_check)
-
-        return d
-
-
-    def _testPool_4(self, res):
-        # runInteraction
-        d = self.dbpool.runInteraction(self.interaction)
-        d.addCallback(lambda res: self.assertEqual(res, "done"))
-        return d
-
-
-    def _testPool_5(self, res):
-        # withConnection
-        d = self.dbpool.runWithConnection(self.withConnection)
-        d.addCallback(lambda res: self.assertEqual(res, "done"))
-        return d
-
-
-    def _testPool_6(self, res):
-        # Test a withConnection cannot be closed
-        d = self.dbpool.runWithConnection(self.close_withConnection)
-        return d
-
-
-    def _testPool_7(self, res):
-        # give the pool a workout
-        ds = []
-        for i in range(self.num_iterations):
-            sql = "select x from simple where x = %d" % i
-            ds.append(self.dbpool.runQuery(sql))
-        dlist = defer.DeferredList(ds, fireOnOneErrback=True)
-        def _check(result):
-            for i in range(self.num_iterations):
-                self.assertTrue(result[i][1][0][0] == i, "Value not returned")
-        dlist.addCallback(_check)
-        return dlist
-
-
-    def _testPool_8(self, res):
-        # now delete everything
-        ds = []
-        for i in range(self.num_iterations):
-            sql = "delete from simple where x = %d" % i
-            ds.append(self.dbpool.runOperation(sql))
-        dlist = defer.DeferredList(ds, fireOnOneErrback=True)
-        return dlist
-
-
-    def _testPool_9(self, res):
-        # verify simple table is empty
-        sql = "select count(1) from simple"
-        d = self.dbpool.runQuery(sql)
-        def _check(row):
-            self.assertTrue(int(row[0][0]) == 0,
-                            "Didn't successfully delete table contents")
-            self.checkConnect()
-        d.addCallback(_check)
-        return d
-
-
-    def checkConnect(self):
-        """Check the connect/disconnect synchronous calls."""
-        conn = self.dbpool.connect()
-        self.checkOpenfunCalled(conn)
-        curs = conn.cursor()
-        curs.execute("insert into simple(x) values(1)")
-        curs.execute("select x from simple")
-        res = curs.fetchall()
-        self.assertEqual(len(res), 1)
-        self.assertEqual(len(res[0]), 1)
-        self.assertEqual(res[0][0], 1)
-        curs.execute("delete from simple")
-        curs.execute("select x from simple")
-        self.assertEqual(len(curs.fetchall()), 0)
-        curs.close()
-        self.dbpool.disconnect(conn)
-
-
-    def interaction(self, transaction):
-        transaction.execute("select x from simple order by x")
-        for i in range(self.num_iterations):
-            row = transaction.fetchone()
-            self.assertTrue(len(row) == 1, "Wrong size row")
-            self.assertTrue(row[0] == i, "Value not returned.")
-        self.assertIsNone(transaction.fetchone(), "Too many rows")
-        return "done"
-
-
-    def bad_interaction(self, transaction):
-        if self.can_rollback:
-            transaction.execute("insert into simple(x) values(0)")
-
-        transaction.execute("select * from NOTABLE")
-
-
-    def withConnection(self, conn):
-        curs = conn.cursor()
-        try:
-            curs.execute("select x from simple order by x")
-            for i in range(self.num_iterations):
-                row = curs.fetchone()
-                self.assertTrue(len(row) == 1, "Wrong size row")
-                self.assertTrue(row[0] == i, "Value not returned.")
-        finally:
-            curs.close()
-        return "done"
-
-
-    def close_withConnection(self, conn):
-        conn.close()
-
-
-    def bad_withConnection(self, conn):
-        curs = conn.cursor()
-        try:
-            curs.execute("select * from NOTABLE")
-        finally:
-            curs.close()
-
-
-
-class ReconnectTestBase(object):
-    """
-    Test the asynchronous DB-API code with reconnect.
-    """
-
-    if interfaces.IReactorThreads(reactor, None) is None:
-        skip = "ADB-API requires threads, no way to test without them"
-
-
-    def extraSetUp(self):
-        """
-        Skip the test if C{good_sql} is unavailable.  Otherwise, set up the
-        database, create a connection pool pointed at it, and set up a simple
-        schema in it.
-        """
-        if self.good_sql is None:
-            raise unittest.SkipTest('no good sql for reconnect test')
-        self.startDB()
-        self.dbpool = self.makePool(cp_max=1, cp_reconnect=True,
-                                    cp_good_sql=self.good_sql)
-        self.dbpool.start()
-        return self.dbpool.runOperation(simple_table_schema)
-
-
-    def tearDown(self):
-        d = self.dbpool.runOperation('DROP TABLE simple')
-        d.addCallback(lambda res: self.dbpool.close())
-        d.addCallback(lambda res: self.stopDB())
-        return d
-
-
-    def test_pool(self):
-        d = defer.succeed(None)
-        d.addCallback(self._testPool_1)
-        d.addCallback(self._testPool_2)
-        if not self.early_reconnect:
-            d.addCallback(self._testPool_3)
-        d.addCallback(self._testPool_4)
-        d.addCallback(self._testPool_5)
-        return d
-
-
-    def _testPool_1(self, res):
-        sql = "select count(1) from simple"
-        d = self.dbpool.runQuery(sql)
-        def _check(row):
-            self.assertTrue(int(row[0][0]) == 0, "Table not empty")
-        d.addCallback(_check)
-        return d
-
-
-    def _testPool_2(self, res):
-        # reach in and close the connection manually
-        list(self.dbpool.connections.values())[0].close()
-
-
-    def _testPool_3(self, res):
-        sql = "select count(1) from simple"
-        d = defer.maybeDeferred(self.dbpool.runQuery, sql)
-        d.addCallbacks(lambda res: self.fail('no exception'),
-                       lambda f: None)
-        return d
-
-
-    def _testPool_4(self, res):
-        sql = "select count(1) from simple"
-        d = self.dbpool.runQuery(sql)
-        def _check(row):
-            self.assertTrue(int(row[0][0]) == 0, "Table not empty")
-        d.addCallback(_check)
-        return d
-
-
-    def _testPool_5(self, res):
-        self.flushLoggedErrors()
-        sql = "select * from NOTABLE" # bad sql
-        d = defer.maybeDeferred(self.dbpool.runQuery, sql)
-        d.addCallbacks(lambda res: self.fail('no exception'),
-                       lambda f: self.assertFalse(f.check(ConnectionLost)))
-        return d
-
-
-
-class DBTestConnector(object):
-    """
-    A class which knows how to test for the presence of
-    and establish a connection to a relational database.
-
-    To enable test cases  which use a central, system database,
-    you must create a database named DB_NAME with a user DB_USER
-    and password DB_PASS with full access rights to database DB_NAME.
-    """
-    TEST_PREFIX = None # used for creating new test cases
-
-    DB_NAME = "twisted_test"
-    DB_USER = 'twisted_test'
-    DB_PASS = 'twisted_test'
-
-    DB_DIR = None # directory for database storage
-
-    nulls_ok = True # nulls supported
-    trailing_spaces_ok = True # trailing spaces in strings preserved
-    can_rollback = True # rollback supported
-    test_failures = True # test bad sql?
-    escape_slashes = True # escape \ in sql?
-    good_sql = ConnectionPool.good_sql
-    early_reconnect = True # cursor() will fail on closed connection
-    can_clear = True # can try to clear out tables when starting
-
-    num_iterations = 50 # number of iterations for test loops
-                        # (lower this for slow db's)
-
-    def setUp(self):
-        self.DB_DIR = self.mktemp()
-        os.mkdir(self.DB_DIR)
-        if not self.can_connect():
-            raise unittest.SkipTest('%s: Cannot access db' % self.TEST_PREFIX)
-        return self.extraSetUp()
-
-
-    def can_connect(self):
-        """Return true if this database is present on the system
-        and can be used in a test."""
-        raise NotImplementedError()
-
-
-    def startDB(self):
-        """Take any steps needed to bring database up."""
-        pass
-
-
-    def stopDB(self):
-        """Bring database down, if needed."""
-        pass
-
-
-    def makePool(self, **newkw):
-        """Create a connection pool with additional keyword arguments."""
-        args, kw = self.getPoolArgs()
-        kw = kw.copy()
-        kw.update(newkw)
-        return ConnectionPool(*args, **kw)
-
-
-    def getPoolArgs(self):
-        """Return a tuple (args, kw) of list and keyword arguments
-        that need to be passed to ConnectionPool to create a connection
-        to this database."""
-        raise NotImplementedError()
-
-
-
-class SQLite3Connector(DBTestConnector):
-    """
-    Connector that uses the stdlib SQLite3 database support.
-    """
-    TEST_PREFIX = 'SQLite3'
-    escape_slashes = False
-    num_iterations = 1 # slow
-
-    def can_connect(self):
-        if requireModule('sqlite3') is None:
-            return False
-        else:
-            return True
-
-
-    def startDB(self):
-        self.database = os.path.join(self.DB_DIR, self.DB_NAME)
-        if os.path.exists(self.database):
-            os.unlink(self.database)
-
-
-    def getPoolArgs(self):
-        args = ('sqlite3',)
-        kw = {'database': self.database,
-              'cp_max': 1,
-              'check_same_thread': False}
-        return args, kw
-
-
-
-class PySQLite2Connector(DBTestConnector):
-    """
-    Connector that uses pysqlite's SQLite database support.
-    """
-    TEST_PREFIX = 'pysqlite2'
-    escape_slashes = False
-    num_iterations = 1 # slow
-
-    def can_connect(self):
-        if requireModule('pysqlite2.dbapi2') is None:
-            return False
-        else:
-            return True
-
-
-    def startDB(self):
-        self.database = os.path.join(self.DB_DIR, self.DB_NAME)
-        if os.path.exists(self.database):
-            os.unlink(self.database)
-
-
-    def getPoolArgs(self):
-        args = ('pysqlite2.dbapi2',)
-        kw = {'database': self.database,
-              'cp_max': 1,
-              'check_same_thread': False}
-        return args, kw
-
-
-
-class PyPgSQLConnector(DBTestConnector):
-    TEST_PREFIX = "PyPgSQL"
-
-    def can_connect(self):
-        try: from pyPgSQL import PgSQL
-        except: return False
-        try:
-            conn = PgSQL.connect(database=self.DB_NAME, user=self.DB_USER,
-                                 password=self.DB_PASS)
-            conn.close()
-            return True
-        except:
-            return False
-
-
-    def getPoolArgs(self):
-        args = ('pyPgSQL.PgSQL',)
-        kw = {'database': self.DB_NAME, 'user': self.DB_USER,
-              'password': self.DB_PASS, 'cp_min': 0}
-        return args, kw
-
-
-
-class PsycopgConnector(DBTestConnector):
-    TEST_PREFIX = 'Psycopg'
-
-    def can_connect(self):
-        try: import psycopg
-        except: return False
-        try:
-            conn = psycopg.connect(database=self.DB_NAME, user=self.DB_USER,
-                                   password=self.DB_PASS)
-            conn.close()
-            return True
-        except:
-            return False
-
-
-    def getPoolArgs(self):
-        args = ('psycopg',)
-        kw = {'database': self.DB_NAME, 'user': self.DB_USER,
-              'password': self.DB_PASS, 'cp_min': 0}
-        return args, kw
-
-
-
-class MySQLConnector(DBTestConnector):
-    TEST_PREFIX = 'MySQL'
-
-    trailing_spaces_ok = False
-    can_rollback = False
-    early_reconnect = False
-
-    def can_connect(self):
-        try: import MySQLdb
-        except: return False
-        try:
-            conn = MySQLdb.connect(db=self.DB_NAME, user=self.DB_USER,
-                                   passwd=self.DB_PASS)
-            conn.close()
-            return True
-        except:
-            return False
-
-
-    def getPoolArgs(self):
-        args = ('MySQLdb',)
-        kw = {'db': self.DB_NAME, 'user': self.DB_USER, 'passwd': self.DB_PASS}
-        return args, kw
-
-
-
-class FirebirdConnector(DBTestConnector):
-    TEST_PREFIX = 'Firebird'
-
-    test_failures = False # failure testing causes problems
-    escape_slashes = False
-    good_sql = None # firebird doesn't handle failed sql well
-    can_clear = False # firebird is not so good
-
-    num_iterations = 5 # slow
-
-
-    def can_connect(self):
-        if requireModule('kinterbasdb') is None:
-            return False
-        try:
-            self.startDB()
-            self.stopDB()
-            return True
-        except:
-            return False
-
-
-    def startDB(self):
-        import kinterbasdb
-        self.DB_NAME = os.path.join(self.DB_DIR, DBTestConnector.DB_NAME)
-        os.chmod(self.DB_DIR, stat.S_IRWXU + stat.S_IRWXG + stat.S_IRWXO)
-        sql = 'create database "%s" user "%s" password "%s"'
-        sql %= (self.DB_NAME, self.DB_USER, self.DB_PASS);
-        conn = kinterbasdb.create_database(sql)
-        conn.close()
-
-
-    def getPoolArgs(self):
-        args = ('kinterbasdb',)
-        kw = {'database': self.DB_NAME, 'host': '127.0.0.1',
-              'user': self.DB_USER, 'password': self.DB_PASS}
-        return args, kw
-
-
-    def stopDB(self):
-        import kinterbasdb
-        conn = kinterbasdb.connect(database=self.DB_NAME,
-                                   host='127.0.0.1', user=self.DB_USER,
-                                   password=self.DB_PASS)
-        conn.drop_database()
-
-
-
-def makeSQLTests(base, suffix, globals):
-    """
-    Make a test case for every db connector which can connect.
-
-    @param base: Base class for test case. Additional base classes
-                 will be a DBConnector subclass and unittest.TestCase
-    @param suffix: A suffix used to create test case names. Prefixes
-                   are defined in the DBConnector subclasses.
-    """
-    connectors = [PySQLite2Connector, SQLite3Connector, PyPgSQLConnector,
-                  PsycopgConnector, MySQLConnector, FirebirdConnector]
-    tests = {}
-    for connclass in connectors:
-        name = connclass.TEST_PREFIX + suffix
-
-        class testcase(connclass, base, unittest.TestCase):
-            __module__ = connclass.__module__
-
-        testcase.__name__ = name
-        if hasattr(connclass, "__qualname__"):
-            testcase.__qualname__ = ".".join(
-                connclass.__qualname__.split()[0:-1] + [name])
-        tests[name] = testcase
-
-    globals.update(tests)
-
-
-
-# PySQLite2Connector SQLite3ADBAPITests PyPgSQLADBAPITests
-# PsycopgADBAPITests MySQLADBAPITests FirebirdADBAPITests
-makeSQLTests(ADBAPITestBase, 'ADBAPITests', globals())
-
-# PySQLite2Connector SQLite3ReconnectTests PyPgSQLReconnectTests
-# PsycopgReconnectTests MySQLReconnectTests FirebirdReconnectTests
-makeSQLTests(ReconnectTestBase, 'ReconnectTests', globals())
-
-
-
-class FakePool(object):
-    """
-    A fake L{ConnectionPool} for tests.
-
-    @ivar connectionFactory: factory for making connections returned by the
-        C{connect} method.
-    @type connectionFactory: any callable
-    """
-    reconnect = True
-    noisy = True
-
-    def __init__(self, connectionFactory):
-        self.connectionFactory = connectionFactory
-
-
-    def connect(self):
-        """
-        Return an instance of C{self.connectionFactory}.
-        """
-        return self.connectionFactory()
-
-
-    def disconnect(self, connection):
-        """
-        Do nothing.
-        """
-
-
-
-class ConnectionTests(unittest.TestCase):
-    """
-    Tests for the L{Connection} class.
-    """
-
-    def test_rollbackErrorLogged(self):
-        """
-        If an error happens during rollback, L{ConnectionLost} is raised but
-        the original error is logged.
-        """
-        class ConnectionRollbackRaise(object):
-            def rollback(self):
-                raise RuntimeError("problem!")
-
-        pool = FakePool(ConnectionRollbackRaise)
-        connection = Connection(pool)
-        self.assertRaises(ConnectionLost, connection.rollback)
-        errors = self.flushLoggedErrors(RuntimeError)
-        self.assertEqual(len(errors), 1)
-        self.assertEqual(errors[0].value.args[0], "problem!")
-
-
-
-class TransactionTests(unittest.TestCase):
-    """
-    Tests for the L{Transaction} class.
-    """
-
-    def test_reopenLogErrorIfReconnect(self):
-        """
-        If the cursor creation raises an error in L{Transaction.reopen}, it
-        reconnects but log the error occurred.
-        """
-        class ConnectionCursorRaise(object):
-            count = 0
-
-            def reconnect(self):
-                pass
-
-            def cursor(self):
-                if self.count == 0:
-                    self.count += 1
-                    raise RuntimeError("problem!")
-
-        pool = FakePool(None)
-        transaction = Transaction(pool, ConnectionCursorRaise())
-        transaction.reopen()
-        errors = self.flushLoggedErrors(RuntimeError)
-        self.assertEqual(len(errors), 1)
-        self.assertEqual(errors[0].value.args[0], "problem!")
-
-
-
-class NonThreadPool(object):
-    def callInThreadWithCallback(self, onResult, f, *a, **kw):
-        success = True
-        try:
-            result = f(*a, **kw)
-        except Exception:
-            success = False
-            result = Failure()
-        onResult(success, result)
-
-
-
-class DummyConnectionPool(ConnectionPool):
-    """
-    A testable L{ConnectionPool};
-    """
-    threadpool = NonThreadPool()
+    pretext = [
+        b"first line",
+        b"last thing before tls starts",
+        b"STARTTLS"]
+
+    posttext = [
+        b"first thing after tls started",
+        b"last thing ever"]
 
     def __init__(self):
-        """
-        Don't forward init call.
-        """
-        self._reactor = reactor
+        self.deferred = defer.Deferred()
+
+
+    def connectionMade(self):
+        for l in self.pretext:
+            self.sendLine(l)
+
+
+    def lineReceived(self, line):
+        if line == b"READY":
+            self.transport.startTLS(ClientTLSContext(), self.factory.client)
+            for l in self.posttext:
+                self.sendLine(l)
+            self.transport.loseConnection()
+
+
+    def connectionLost(self, reason):
+        self.deferred.callback(None)
 
 
 
-class EventReactor(object):
+class LineCollector(basic.LineReceiver):
     """
-    Partial L{IReactorCore} implementation with simple event-related
-    methods.
+    @ivar deferred: a deferred that will fire at connection lost.
+    @type deferred: L{defer.Deferred}
 
-    @ivar _running: A C{bool} indicating whether the reactor is pretending
-        to have been started already or not.
+    @ivar doTLS: whether the protocol is initiate TLS or not.
+    @type doTLS: C{bool}
 
-    @ivar triggers: A C{list} of pending system event triggers.
+    @ivar fillBuffer: if set to True, it will send lots of data once
+        C{STARTTLS} is received.
+    @type fillBuffer: C{bool}
     """
-    def __init__(self, running):
-        self._running = running
-        self.triggers = []
+
+    def __init__(self, doTLS, fillBuffer=False):
+        self.doTLS = doTLS
+        self.fillBuffer = fillBuffer
+        self.deferred = defer.Deferred()
 
 
-    def callWhenRunning(self, function):
-        if self._running:
-            function()
+    def connectionMade(self):
+        self.factory.rawdata = b''
+        self.factory.lines = []
+
+
+    def lineReceived(self, line):
+        self.factory.lines.append(line)
+        if line == b'STARTTLS':
+            if self.fillBuffer:
+                for x in range(500):
+                    self.sendLine(b'X' * 1000)
+            self.sendLine(b'READY')
+            if self.doTLS:
+                ctx = ServerTLSContext(
+                    privateKeyFileName=certPath,
+                    certificateFileName=certPath,
+                )
+                self.transport.startTLS(ctx, self.factory.server)
+            else:
+                self.setRawMode()
+
+
+    def rawDataReceived(self, data):
+        self.factory.rawdata += data
+        self.transport.loseConnection()
+
+
+    def connectionLost(self, reason):
+        self.deferred.callback(None)
+
+
+
+class SingleLineServerProtocol(protocol.Protocol):
+    """
+    A protocol that sends a single line of data at C{connectionMade}.
+    """
+
+    def connectionMade(self):
+        self.transport.write(b"+OK <some crap>\r\n")
+        self.transport.getPeerCertificate()
+
+
+
+class RecordingClientProtocol(protocol.Protocol):
+    """
+    @ivar deferred: a deferred that will fire with first received content.
+    @type deferred: L{defer.Deferred}
+    """
+
+    def __init__(self):
+        self.deferred = defer.Deferred()
+
+
+    def connectionMade(self):
+        self.transport.getPeerCertificate()
+
+
+    def dataReceived(self, data):
+        self.deferred.callback(data)
+
+
+
+@implementer(interfaces.IHandshakeListener)
+class ImmediatelyDisconnectingProtocol(protocol.Protocol):
+    """
+    A protocol that disconnect immediately on connection. It fires the
+    C{connectionDisconnected} deferred of its factory on connetion lost.
+    """
+
+    def handshakeCompleted(self):
+        self.transport.loseConnection()
+
+
+    def connectionLost(self, reason):
+        self.factory.connectionDisconnected.callback(None)
+
+
+
+def generateCertificateObjects(organization, organizationalUnit):
+    """
+    Create a certificate for given C{organization} and C{organizationalUnit}.
+
+    @return: a tuple of (key, request, certificate) objects.
+    """
+    pkey = crypto.PKey()
+    pkey.generate_key(crypto.TYPE_RSA, 1024)
+    req = crypto.X509Req()
+    subject = req.get_subject()
+    subject.O = organization
+    subject.OU = organizationalUnit
+    req.set_pubkey(pkey)
+    req.sign(pkey, "md5")
+
+    # Here comes the actual certificate
+    cert = crypto.X509()
+    cert.set_serial_number(1)
+    cert.gmtime_adj_notBefore(0)
+    cert.gmtime_adj_notAfter(60) # Testing certificates need not be long lived
+    cert.set_issuer(req.get_subject())
+    cert.set_subject(req.get_subject())
+    cert.set_pubkey(req.get_pubkey())
+    cert.sign(pkey, "md5")
+
+    return pkey, req, cert
+
+
+
+def generateCertificateFiles(basename, organization, organizationalUnit):
+    """
+    Create certificate files key, req and cert prefixed by C{basename} for
+    given C{organization} and C{organizationalUnit}.
+    """
+    pkey, req, cert = generateCertificateObjects(organization, organizationalUnit)
+
+    for ext, obj, dumpFunc in [
+        ('key', pkey, crypto.dump_privatekey),
+        ('req', req, crypto.dump_certificate_request),
+        ('cert', cert, crypto.dump_certificate)]:
+        fName = os.extsep.join((basename, ext)).encode("utf-8")
+        FilePath(fName).setContent(dumpFunc(crypto.FILETYPE_PEM, obj))
+
+
+
+class ContextGeneratingMixin:
+    """
+    Offer methods to create L{ssl.DefaultOpenSSLContextFactory} for both client
+    and server.
+
+    @ivar clientBase: prefix of client certificate files.
+    @type clientBase: C{str}
+
+    @ivar serverBase: prefix of server certificate files.
+    @type serverBase: C{str}
+
+    @ivar clientCtxFactory: a generated context factory to be used in
+        L{IReactorSSL.connectSSL}.
+    @type clientCtxFactory: L{ssl.DefaultOpenSSLContextFactory}
+
+    @ivar serverCtxFactory: a generated context factory to be used in
+        L{IReactorSSL.listenSSL}.
+    @type serverCtxFactory: L{ssl.DefaultOpenSSLContextFactory}
+    """
+
+    def makeContextFactory(self, org, orgUnit, *args, **kwArgs):
+        base = self.mktemp()
+        generateCertificateFiles(base, org, orgUnit)
+        serverCtxFactory = ssl.DefaultOpenSSLContextFactory(
+            os.extsep.join((base, 'key')),
+            os.extsep.join((base, 'cert')),
+            *args, **kwArgs)
+
+        return base, serverCtxFactory
+
+
+    def setupServerAndClient(self, clientArgs, clientKwArgs, serverArgs,
+                             serverKwArgs):
+        self.clientBase, self.clientCtxFactory = self.makeContextFactory(
+            *clientArgs, **clientKwArgs)
+        self.serverBase, self.serverCtxFactory = self.makeContextFactory(
+            *serverArgs, **serverKwArgs)
+
+
+
+if SSL is not None:
+    class ServerTLSContext(ssl.DefaultOpenSSLContextFactory):
+        """
+        A context factory with a default method set to
+        L{OpenSSL.SSL.TLSv1_METHOD}.
+        """
+        isClient = False
+
+        def __init__(self, *args, **kw):
+            kw['sslmethod'] = SSL.TLSv1_METHOD
+            ssl.DefaultOpenSSLContextFactory.__init__(self, *args, **kw)
+
+
+
+class StolenTCPTests(ProperlyCloseFilesMixin, unittest.TestCase):
+    """
+    For SSL transports, test many of the same things which are tested for
+    TCP transports.
+    """
+
+    def createServer(self, address, portNumber, factory):
+        """
+        Create an SSL server with a certificate using L{IReactorSSL.listenSSL}.
+        """
+        cert = ssl.PrivateCertificate.loadPEM(FilePath(certPath).getContent())
+        contextFactory = cert.options()
+        return reactor.listenSSL(
+            portNumber, factory, contextFactory, interface=address)
+
+
+    def connectClient(self, address, portNumber, clientCreator):
+        """
+        Create an SSL client using L{IReactorSSL.connectSSL}.
+        """
+        contextFactory = ssl.CertificateOptions()
+        return clientCreator.connectSSL(address, portNumber, contextFactory)
+
+
+    def getHandleExceptionType(self):
+        """
+        Return L{OpenSSL.SSL.Error} as the expected error type which will be
+        raised by a write to the L{OpenSSL.SSL.Connection} object after it has
+        been closed.
+        """
+        return SSL.Error
+
+
+    def getHandleErrorCodeMatcher(self):
+        """
+        Return a L{hamcrest.core.matcher.Matcher} for the argument
+        L{OpenSSL.SSL.Error} will be constructed with for this case.
+        This is basically just a random OpenSSL implementation detail.
+        It would be better if this test worked in a way which did not
+        require this.
+        """
+        # We expect an error about how we tried to write to a shutdown
+        # connection.  This is terribly implementation-specific.
+        return hamcrest.contains(
+            hamcrest.contains(
+                hamcrest.equal_to('SSL routines'),
+                hamcrest.any_of(
+                    hamcrest.equal_to('SSL_write'),
+                    hamcrest.equal_to('ssl_write_internal'),
+                ),
+                hamcrest.equal_to('protocol is shutdown'),
+            ),
+        )
+
+
+
+class TLSTests(unittest.TestCase):
+    """
+    Tests for startTLS support.
+
+    @ivar fillBuffer: forwarded to L{LineCollector.fillBuffer}
+    @type fillBuffer: C{bool}
+    """
+    fillBuffer = False
+
+    clientProto = None
+    serverProto = None
+
+
+    def tearDown(self):
+        if self.clientProto.transport is not None:
+            self.clientProto.transport.loseConnection()
+        if self.serverProto.transport is not None:
+            self.serverProto.transport.loseConnection()
+
+
+    def _runTest(self, clientProto, serverProto, clientIsServer=False):
+        """
+        Helper method to run TLS tests.
+
+        @param clientProto: protocol instance attached to the client
+            connection.
+        @param serverProto: protocol instance attached to the server
+            connection.
+        @param clientIsServer: flag indicated if client should initiate
+            startTLS instead of server.
+
+        @return: a L{defer.Deferred} that will fire when both connections are
+            lost.
+        """
+        self.clientProto = clientProto
+        cf = self.clientFactory = protocol.ClientFactory()
+        cf.protocol = lambda: clientProto
+        if clientIsServer:
+            cf.server = False
         else:
-            return self.addSystemEventTrigger('after', 'startup', function)
+            cf.client = True
+
+        self.serverProto = serverProto
+        sf = self.serverFactory = protocol.ServerFactory()
+        sf.protocol = lambda: serverProto
+        if clientIsServer:
+            sf.client = False
+        else:
+            sf.server = True
+
+        port = reactor.listenTCP(0, sf, interface="127.0.0.1")
+        self.addCleanup(port.stopListening)
+
+        reactor.connectTCP('127.0.0.1', port.getHost().port, cf)
+
+        return defer.gatherResults([clientProto.deferred, serverProto.deferred])
 
 
-    def addSystemEventTrigger(self, phase, event, trigger):
-        handle = (phase, event, trigger)
-        self.triggers.append(handle)
-        return handle
+    def test_TLS(self):
+        """
+        Test for server and client startTLS: client should received data both
+        before and after the startTLS.
+        """
+        def check(ignore):
+            self.assertEqual(
+                self.serverFactory.lines,
+                UnintelligentProtocol.pretext + UnintelligentProtocol.posttext
+            )
+        d = self._runTest(UnintelligentProtocol(),
+                          LineCollector(True, self.fillBuffer))
+        return d.addCallback(check)
 
 
-    def removeSystemEventTrigger(self, handle):
-        self.triggers.remove(handle)
+    def test_unTLS(self):
+        """
+        Test for server startTLS not followed by a startTLS in client: the data
+        received after server startTLS should be received as raw.
+        """
+        def check(ignored):
+            self.assertEqual(
+                self.serverFactory.lines,
+                UnintelligentProtocol.pretext
+            )
+            self.assertTrue(self.serverFactory.rawdata,
+                            "No encrypted bytes received")
+        d = self._runTest(UnintelligentProtocol(),
+                          LineCollector(False, self.fillBuffer))
+        return d.addCallback(check)
+
+
+    def test_backwardsTLS(self):
+        """
+        Test startTLS first initiated by client.
+        """
+        def check(ignored):
+            self.assertEqual(
+                self.clientFactory.lines,
+                UnintelligentProtocol.pretext + UnintelligentProtocol.posttext
+            )
+        d = self._runTest(LineCollector(True, self.fillBuffer),
+                          UnintelligentProtocol(), True)
+        return d.addCallback(check)
 
 
 
-class ConnectionPoolTests(unittest.TestCase):
+class SpammyTLSTests(TLSTests):
     """
-    Unit tests for L{ConnectionPool}.
+    Test TLS features with bytes sitting in the out buffer.
+    """
+    fillBuffer = True
+
+
+
+class BufferingTests(unittest.TestCase):
+    serverProto = None
+    clientProto = None
+
+
+    def tearDown(self):
+        if self.serverProto.transport is not None:
+            self.serverProto.transport.loseConnection()
+        if self.clientProto.transport is not None:
+            self.clientProto.transport.loseConnection()
+
+        return waitUntilAllDisconnected(
+            reactor, [self.serverProto, self.clientProto])
+
+
+    def test_openSSLBuffering(self):
+        serverProto = self.serverProto = SingleLineServerProtocol()
+        clientProto = self.clientProto = RecordingClientProtocol()
+
+        server = protocol.ServerFactory()
+        client = self.client = protocol.ClientFactory()
+
+        server.protocol = lambda: serverProto
+        client.protocol = lambda: clientProto
+
+        sCTX = ssl.DefaultOpenSSLContextFactory(certPath, certPath)
+        cCTX = ssl.ClientContextFactory()
+
+        port = reactor.listenSSL(0, server, sCTX, interface='127.0.0.1')
+        self.addCleanup(port.stopListening)
+
+        clientConnector = reactor.connectSSL('127.0.0.1', port.getHost().port,
+                                             client, cCTX)
+        self.addCleanup(clientConnector.disconnect)
+
+        return clientProto.deferred.addCallback(
+            self.assertEqual, b"+OK <some crap>\r\n")
+
+
+
+class ConnectionLostTests(unittest.TestCase, ContextGeneratingMixin):
+    """
+    SSL connection closing tests.
     """
 
-    def test_runWithConnectionRaiseOriginalError(self):
+    def testImmediateDisconnect(self):
+        org = "twisted.test.test_ssl"
+        self.setupServerAndClient(
+            (org, org + ", client"), {},
+            (org, org + ", server"), {})
+
+        # Set up a server, connect to it with a client, which should work since our verifiers
+        # allow anything, then disconnect.
+        serverProtocolFactory = protocol.ServerFactory()
+        serverProtocolFactory.protocol = protocol.Protocol
+        self.serverPort = serverPort = reactor.listenSSL(0,
+            serverProtocolFactory, self.serverCtxFactory)
+
+        clientProtocolFactory = protocol.ClientFactory()
+        clientProtocolFactory.protocol = ImmediatelyDisconnectingProtocol
+        clientProtocolFactory.connectionDisconnected = defer.Deferred()
+        reactor.connectSSL('127.0.0.1',
+            serverPort.getHost().port, clientProtocolFactory, self.clientCtxFactory)
+
+        return clientProtocolFactory.connectionDisconnected.addCallback(
+            lambda ignoredResult: self.serverPort.stopListening())
+
+
+    def test_bothSidesLoseConnection(self):
         """
-        If rollback fails, L{ConnectionPool.runWithConnection} raises the
-        original exception and log the error of the rollback.
+        Both sides of SSL connection close connection; the connections should
+        close cleanly, and only after the underlying TCP connection has
+        disconnected.
         """
-        class ConnectionRollbackRaise(object):
-            def __init__(self, pool):
-                pass
+        @implementer(interfaces.IHandshakeListener)
+        class CloseAfterHandshake(protocol.Protocol):
+            gotData = False
 
-            def rollback(self):
-                raise RuntimeError("problem!")
+            def __init__(self):
+                self.done = defer.Deferred()
 
-        def raisingFunction(connection):
-            raise ValueError("foo")
+            def handshakeCompleted(self):
+                self.transport.loseConnection()
 
-        pool = DummyConnectionPool()
-        pool.connectionFactory = ConnectionRollbackRaise
-        d = pool.runWithConnection(raisingFunction)
-        d = self.assertFailure(d, ValueError)
-        def cbFailed(ignored):
-            errors = self.flushLoggedErrors(RuntimeError)
-            self.assertEqual(len(errors), 1)
-            self.assertEqual(errors[0].value.args[0], "problem!")
-        d.addCallback(cbFailed)
-        return d
+            def connectionLost(self, reason):
+                self.done.errback(reason)
+                del self.done
+
+        org = "twisted.test.test_ssl"
+        self.setupServerAndClient(
+            (org, org + ", client"), {},
+            (org, org + ", server"), {})
+
+        serverProtocol = CloseAfterHandshake()
+        serverProtocolFactory = protocol.ServerFactory()
+        serverProtocolFactory.protocol = lambda: serverProtocol
+        serverPort = reactor.listenSSL(0,
+            serverProtocolFactory, self.serverCtxFactory)
+        self.addCleanup(serverPort.stopListening)
+
+        clientProtocol = CloseAfterHandshake()
+        clientProtocolFactory = protocol.ClientFactory()
+        clientProtocolFactory.protocol = lambda: clientProtocol
+        reactor.connectSSL('127.0.0.1',
+            serverPort.getHost().port, clientProtocolFactory, self.clientCtxFactory)
+
+        def checkResult(failure):
+            failure.trap(ConnectionDone)
+        return defer.gatherResults(
+            [clientProtocol.done.addErrback(checkResult),
+             serverProtocol.done.addErrback(checkResult)])
 
 
-    def test_closeLogError(self):
+    def testFailedVerify(self):
+        org = "twisted.test.test_ssl"
+        self.setupServerAndClient(
+            (org, org + ", client"), {},
+            (org, org + ", server"), {})
+
+        def verify(*a):
+            return False
+        self.clientCtxFactory.getContext().set_verify(SSL.VERIFY_PEER, verify)
+
+        serverConnLost = defer.Deferred()
+        serverProtocol = protocol.Protocol()
+        serverProtocol.connectionLost = serverConnLost.callback
+        serverProtocolFactory = protocol.ServerFactory()
+        serverProtocolFactory.protocol = lambda: serverProtocol
+        self.serverPort = serverPort = reactor.listenSSL(0,
+            serverProtocolFactory, self.serverCtxFactory)
+
+        clientConnLost = defer.Deferred()
+        clientProtocol = protocol.Protocol()
+        clientProtocol.connectionLost = clientConnLost.callback
+        clientProtocolFactory = protocol.ClientFactory()
+        clientProtocolFactory.protocol = lambda: clientProtocol
+        reactor.connectSSL('127.0.0.1',
+            serverPort.getHost().port, clientProtocolFactory, self.clientCtxFactory)
+
+        dl = defer.DeferredList([serverConnLost, clientConnLost], consumeErrors=True)
+        return dl.addCallback(self._cbLostConns)
+
+
+    def _cbLostConns(self, results):
+        (sSuccess, sResult), (cSuccess, cResult) = results
+
+        self.assertFalse(sSuccess)
+        self.assertFalse(cSuccess)
+
+        acceptableErrors = [SSL.Error]
+
+        # Rather than getting a verification failure on Windows, we are getting
+        # a connection failure.  Without something like sslverify proxying
+        # in-between we can't fix up the platform's errors, so let's just
+        # specifically say it is only OK in this one case to keep the tests
+        # passing.  Normally we'd like to be as strict as possible here, so
+        # we're not going to allow this to report errors incorrectly on any
+        # other platforms.
+
+        if platform.isWindows():
+            from twisted.internet.error import ConnectionLost
+            acceptableErrors.append(ConnectionLost)
+
+        sResult.trap(*acceptableErrors)
+        cResult.trap(*acceptableErrors)
+
+        return self.serverPort.stopListening()
+
+
+
+class FakeContext:
+    """
+    L{OpenSSL.SSL.Context} double which can more easily be inspected.
+    """
+    def __init__(self, method):
+        self._method = method
+        self._options = 0
+
+
+    def set_options(self, options):
+        self._options |= options
+
+
+    def use_certificate_file(self, fileName):
+        pass
+
+
+    def use_privatekey_file(self, fileName):
+        pass
+
+
+
+class DefaultOpenSSLContextFactoryTests(unittest.TestCase):
+    """
+    Tests for L{ssl.DefaultOpenSSLContextFactory}.
+    """
+    def setUp(self):
+        # pyOpenSSL Context objects aren't introspectable enough.  Pass in
+        # an alternate context factory so we can inspect what is done to it.
+        self.contextFactory = ssl.DefaultOpenSSLContextFactory(
+            certPath, certPath, _contextFactory=FakeContext)
+        self.context = self.contextFactory.getContext()
+
+
+    def test_method(self):
         """
-        L{ConnectionPool._close} logs exceptions.
+        L{ssl.DefaultOpenSSLContextFactory.getContext} returns an SSL context
+        which can use SSLv3 or TLSv1 but not SSLv2.
         """
-        class ConnectionCloseRaise(object):
-            def close(self):
-                raise RuntimeError("problem!")
+        # SSLv23_METHOD allows SSLv2, SSLv3, or TLSv1
+        self.assertEqual(self.context._method, SSL.SSLv23_METHOD)
 
-        pool = DummyConnectionPool()
-        pool._close(ConnectionCloseRaise())
+        # And OP_NO_SSLv2 disables the SSLv2 support.
+        self.assertEqual(self.context._options & SSL.OP_NO_SSLv2,
+                         SSL.OP_NO_SSLv2)
 
-        errors = self.flushLoggedErrors(RuntimeError)
-        self.assertEqual(len(errors), 1)
-        self.assertEqual(errors[0].value.args[0], "problem!")
+        # Make sure SSLv3 and TLSv1 aren't disabled though.
+        self.assertFalse(self.context._options & SSL.OP_NO_SSLv3)
+        self.assertFalse(self.context._options & SSL.OP_NO_TLSv1)
 
 
-    def test_runWithInteractionRaiseOriginalError(self):
+    def test_missingCertificateFile(self):
         """
-        If rollback fails, L{ConnectionPool.runInteraction} raises the
-        original exception and log the error of the rollback.
+        Instantiating L{ssl.DefaultOpenSSLContextFactory} with a certificate
+        filename which does not identify an existing file results in the
+        initializer raising L{OpenSSL.SSL.Error}.
         """
-        class ConnectionRollbackRaise(object):
-            def __init__(self, pool):
-                pass
-
-            def rollback(self):
-                raise RuntimeError("problem!")
-
-        class DummyTransaction(object):
-            def __init__(self, pool, connection):
-                pass
-
-        def raisingFunction(transaction):
-            raise ValueError("foo")
-
-        pool = DummyConnectionPool()
-        pool.connectionFactory = ConnectionRollbackRaise
-        pool.transactionFactory = DummyTransaction
-
-        d = pool.runInteraction(raisingFunction)
-        d = self.assertFailure(d, ValueError)
-        def cbFailed(ignored):
-            errors = self.flushLoggedErrors(RuntimeError)
-            self.assertEqual(len(errors), 1)
-            self.assertEqual(errors[0].value.args[0], "problem!")
-        d.addCallback(cbFailed)
-        return d
+        self.assertRaises(
+            SSL.Error,
+            ssl.DefaultOpenSSLContextFactory, certPath, self.mktemp())
 
 
-    def test_unstartedClose(self):
+    def test_missingPrivateKeyFile(self):
         """
-        If L{ConnectionPool.close} is called without L{ConnectionPool.start}
-        having been called, the pool's startup event is cancelled.
+        Instantiating L{ssl.DefaultOpenSSLContextFactory} with a private key
+        filename which does not identify an existing file results in the
+        initializer raising L{OpenSSL.SSL.Error}.
         """
-        reactor = EventReactor(False)
-        pool = ConnectionPool('twisted.test.test_adbapi', cp_reactor=reactor)
-        # There should be a startup trigger waiting.
-        self.assertEqual(reactor.triggers, [('after', 'startup', pool._start)])
-        pool.close()
-        # But not anymore.
-        self.assertFalse(reactor.triggers)
+        self.assertRaises(
+            SSL.Error,
+            ssl.DefaultOpenSSLContextFactory, self.mktemp(), certPath)
 
 
-    def test_startedClose(self):
+
+class ClientContextFactoryTests(unittest.TestCase):
+    """
+    Tests for L{ssl.ClientContextFactory}.
+    """
+    def setUp(self):
+        self.contextFactory = ssl.ClientContextFactory()
+        self.contextFactory._contextFactory = FakeContext
+        self.context = self.contextFactory.getContext()
+
+
+    def test_method(self):
         """
-        If L{ConnectionPool.close} is called after it has been started, but
-        not by its shutdown trigger, the shutdown trigger is cancelled.
+        L{ssl.ClientContextFactory.getContext} returns a context which can use
+        SSLv3 or TLSv1 but not SSLv2.
         """
-        reactor = EventReactor(True)
-        pool = ConnectionPool('twisted.test.test_adbapi', cp_reactor=reactor)
-        # There should be a shutdown trigger waiting.
-        self.assertEqual(reactor.triggers,
-                         [('during', 'shutdown', pool.finalClose)])
-        pool.close()
-        # But not anymore.
-        self.assertFalse(reactor.triggers)
+        self.assertEqual(self.context._method, SSL.SSLv23_METHOD)
+        self.assertEqual(self.context._options & SSL.OP_NO_SSLv2,
+                         SSL.OP_NO_SSLv2)
+        self.assertFalse(self.context._options & SSL.OP_NO_SSLv3)
+        self.assertFalse(self.context._options & SSL.OP_NO_TLSv1)
+
+
+
+if interfaces.IReactorSSL(reactor, None) is None:
+    for tCase in [StolenTCPTests, TLSTests, SpammyTLSTests,
+                  BufferingTests, ConnectionLostTests,
+                  DefaultOpenSSLContextFactoryTests,
+                  ClientContextFactoryTests]:
+        tCase.skip = "Reactor does not support SSL, cannot run SSL tests"

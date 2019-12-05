@@ -1,74 +1,84 @@
 """
-The temp module provides a NamedTemporaryFile that can be reopened in the same
-process on any platform. Most platforms use the standard Python
-tempfile.NamedTemporaryFile class, but Windows users are given a custom class.
+Utility functions for handling images.
 
-This is needed because the Python implementation of NamedTemporaryFile uses the
-O_TEMPORARY flag under Windows, which prevents the file from being reopened
-if the same flag is not provided [1][2]. Note that this does not address the
-more general issue of opening a file for writing and reading in multiple
-processes in a manner that works across platforms.
-
-The custom version of NamedTemporaryFile doesn't support the same keyword
-arguments available in tempfile.NamedTemporaryFile.
-
-1: https://mail.python.org/pipermail/python-list/2005-December/336957.html
-2: https://bugs.python.org/issue14243
+Requires Pillow as you might imagine.
 """
+import struct
+import zlib
 
-import os
-import tempfile
-
-from django.core.files.utils import FileProxyMixin
-
-__all__ = ('NamedTemporaryFile', 'gettempdir',)
+from django.core.files import File
 
 
-if os.name == 'nt':
-    class TemporaryFile(FileProxyMixin):
-        """
-        Temporary file object constructor that supports reopening of the
-        temporary file in Windows.
+class ImageFile(File):
+    """
+    A mixin for use alongside django.core.files.base.File, which provides
+    additional features for dealing with images.
+    """
+    @property
+    def width(self):
+        return self._get_image_dimensions()[0]
 
-        Unlike tempfile.NamedTemporaryFile from the standard library,
-        __init__() doesn't support the 'delete', 'buffering', 'encoding', or
-        'newline' keyword arguments.
-        """
-        def __init__(self, mode='w+b', bufsize=-1, suffix='', prefix='', dir=None):
-            fd, name = tempfile.mkstemp(suffix=suffix, prefix=prefix, dir=dir)
-            self.name = name
-            self.file = os.fdopen(fd, mode, bufsize)
-            self.close_called = False
+    @property
+    def height(self):
+        return self._get_image_dimensions()[1]
 
-        # Because close can be called during shutdown
-        # we need to cache os.unlink and access it
-        # as self.unlink only
-        unlink = os.unlink
+    def _get_image_dimensions(self):
+        if not hasattr(self, '_dimensions_cache'):
+            close = self.closed
+            self.open()
+            self._dimensions_cache = get_image_dimensions(self, close=close)
+        return self._dimensions_cache
 
-        def close(self):
-            if not self.close_called:
-                self.close_called = True
-                try:
-                    self.file.close()
-                except (OSError, IOError):
+
+def get_image_dimensions(file_or_path, close=False):
+    """
+    Return the (width, height) of an image, given an open file or a path.  Set
+    'close' to True to close the file at the end if it is initially in an open
+    state.
+    """
+    from PIL import ImageFile as PillowImageFile
+
+    p = PillowImageFile.Parser()
+    if hasattr(file_or_path, 'read'):
+        file = file_or_path
+        file_pos = file.tell()
+        file.seek(0)
+    else:
+        file = open(file_or_path, 'rb')
+        close = True
+    try:
+        # Most of the time Pillow only needs a small chunk to parse the image
+        # and get the dimensions, but with some TIFF files Pillow needs to
+        # parse the whole file.
+        chunk_size = 1024
+        while 1:
+            data = file.read(chunk_size)
+            if not data:
+                break
+            try:
+                p.feed(data)
+            except zlib.error as e:
+                # ignore zlib complaining on truncated stream, just feed more
+                # data to parser (ticket #19457).
+                if e.args[0].startswith("Error -5"):
                     pass
-                try:
-                    self.unlink(self.name)
-                except OSError:
-                    pass
-
-        def __del__(self):
-            self.close()
-
-        def __enter__(self):
-            self.file.__enter__()
-            return self
-
-        def __exit__(self, exc, value, tb):
-            self.file.__exit__(exc, value, tb)
-
-    NamedTemporaryFile = TemporaryFile
-else:
-    NamedTemporaryFile = tempfile.NamedTemporaryFile
-
-gettempdir = tempfile.gettempdir
+                else:
+                    raise
+            except struct.error:
+                # Ignore PIL failing on a too short buffer when reads return
+                # less bytes than expected. Skip and feed more data to the
+                # parser (ticket #24544).
+                pass
+            except RuntimeError:
+                # e.g. "RuntimeError: could not create decoder object" for
+                # WebP files. A different chunk_size may work.
+                pass
+            if p.image:
+                return p.image.size
+            chunk_size *= 2
+        return (None, None)
+    finally:
+        if close:
+            file.close()
+        else:
+            file.seek(file_pos)

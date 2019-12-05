@@ -1,1 +1,1 @@
-ç\+venv/lib/python3.6/site-packages/boto3/docs :æ\è\é\ê\ë\ì\í\î\ü\ý\þ\ÿ\€]
+ç\:venv/lib/python3.6/site-packages/boto3/docs/subresource.py 2pyXqh

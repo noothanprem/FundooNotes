@@ -1,1 +1,1 @@
-£Æ7venv/lib/python3.6/site-packages/django_common/mixin.py 2pyXh
+£ÆSvenv/lib/python3.6/site-packages/django_common/static/django_common/js/ajax_form.js 2jsXHh

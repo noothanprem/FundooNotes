@@ -1,323 +1,411 @@
-# -*- coding: utf-8 -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
-Test cases for L{twisted.logger._format}.
+Test cases for L{twisted.logger._filter}.
 """
 
-from itertools import count
-import json
-
-try:
-    from time import tzset
-    # We should upgrade to a version of pyflakes that does not require this.
-    tzset
-except ImportError:
-    tzset = None
+from zope.interface.verify import verifyObject, BrokenMethodImplementation
 
 from twisted.trial import unittest
 
-from .._format import formatEvent
-from .._flatten import (
-    flattenEvent, extractField, KeyFlattener, aFormatter
-)
+from .._levels import InvalidLogLevelError
+from .._levels import LogLevel
+from .._observer import ILogObserver
+from .._observer import LogPublisher
+from .._filter import FilteringLogObserver
+from .._filter import PredicateResult
+from .._filter import LogLevelFilterPredicate
 
 
 
-class FlatFormattingTests(unittest.TestCase):
+class FilteringLogObserverTests(unittest.TestCase):
     """
-    Tests for flattened event formatting functions.
+    Tests for L{FilteringLogObserver}.
     """
 
-    def test_formatFlatEvent(self):
+    def test_interface(self):
         """
-        L{flattenEvent} will "flatten" an event so that, if scrubbed of all but
-        serializable objects, it will preserve all necessary data to be
-        formatted once serialized.  When presented with an event thusly
-        flattened, L{formatEvent} will produce the same output.
+        L{FilteringLogObserver} is an L{ILogObserver}.
         """
-        counter = count()
-
-        class Ephemeral(object):
-            attribute = "value"
-
-        event1 = dict(
-            log_format=(
-                "callable: {callme()} "
-                "attribute: {object.attribute} "
-                "numrepr: {number!r} "
-                "numstr: {number!s} "
-                "strrepr: {string!r} "
-                "unistr: {unistr!s}"
-            ),
-            callme=lambda: next(counter), object=Ephemeral(),
-            number=7, string="hello", unistr=u"ö"
-        )
-
-        flattenEvent(event1)
-
-        event2 = dict(event1)
-        del event2["callme"]
-        del event2["object"]
-        event3 = json.loads(json.dumps(event2))
-        self.assertEqual(
-            formatEvent(event3),
-            (
-                u"callable: 0 "
-                "attribute: value "
-                "numrepr: 7 "
-                "numstr: 7 "
-                "strrepr: 'hello' "
-                u"unistr: ö"
-            )
-        )
-
-
-    def test_formatFlatEventBadFormat(self):
-        """
-        If the format string is invalid, an error is produced.
-        """
-        event1 = dict(
-            log_format=(
-                "strrepr: {string!X}"
-            ),
-            string="hello",
-        )
-
-        flattenEvent(event1)
-        event2 = json.loads(json.dumps(event1))
-
-        self.assertTrue(
-            formatEvent(event2).startswith(u"Unable to format event")
-        )
-
-
-    def test_formatFlatEventWithMutatedFields(self):
-        """
-        L{formatEvent} will prefer the stored C{str()} or C{repr()} value for
-        an object, in case the other version.
-        """
-        class Unpersistable(object):
-            """
-            Unpersitable object.
-            """
-            destructed = False
-
-            def selfDestruct(self):
-                """
-                Self destruct.
-                """
-                self.destructed = True
-
-            def __repr__(self):
-                if self.destructed:
-                    return "post-serialization garbage"
-                else:
-                    return "un-persistable"
-
-        up = Unpersistable()
-        event1 = dict(
-            log_format="unpersistable: {unpersistable}", unpersistable=up
-        )
-
-        flattenEvent(event1)
-        up.selfDestruct()
-
-        self.assertEqual(formatEvent(event1), "unpersistable: un-persistable")
-
-
-    def test_keyFlattening(self):
-        """
-        Test that L{KeyFlattener.flatKey} returns the expected keys for format
-        fields.
-        """
-
-        def keyFromFormat(format):
-            for (
-                literalText,
-                fieldName,
-                formatSpec,
-                conversion,
-            ) in aFormatter.parse(format):
-                return KeyFlattener().flatKey(
-                    fieldName, formatSpec, conversion
-                )
-
-        # No name
+        observer = FilteringLogObserver(lambda e: None, ())
         try:
-            self.assertEqual(keyFromFormat("{}"), "!:")
-        except ValueError:
-            # In python 2.6, an empty field name causes Formatter.parse to
-            # raise ValueError.
-            # In Python 2.7, it's allowed, so this exception is unexpected.
-            raise
-
-        # Just a name
-        self.assertEqual(keyFromFormat("{foo}"), "foo!:")
-
-        # Add conversion
-        self.assertEqual(keyFromFormat("{foo!s}"), "foo!s:")
-        self.assertEqual(keyFromFormat("{foo!r}"), "foo!r:")
-
-        # Add format spec
-        self.assertEqual(keyFromFormat("{foo:%s}"), "foo!:%s")
-        self.assertEqual(keyFromFormat("{foo:!}"), "foo!:!")
-        self.assertEqual(keyFromFormat("{foo::}"), "foo!::")
-
-        # Both
-        self.assertEqual(keyFromFormat("{foo!s:%s}"), "foo!s:%s")
-        self.assertEqual(keyFromFormat("{foo!s:!}"), "foo!s:!")
-        self.assertEqual(keyFromFormat("{foo!s::}"), "foo!s::")
-        [keyPlusLiteral] = aFormatter.parse("{x}")
-        key = keyPlusLiteral[1:]
-        sameFlattener = KeyFlattener()
-        self.assertEqual(sameFlattener.flatKey(*key), "x!:")
-        self.assertEqual(sameFlattener.flatKey(*key), "x!:/2")
+            verifyObject(ILogObserver, observer)
+        except BrokenMethodImplementation as e:
+            self.fail(e)
 
 
-    def _test_formatFlatEvent_fieldNamesSame(self, event=None):
+    def filterWith(self, filters, other=False):
         """
-        The same format field used twice in one event is rendered twice.
+        Apply a set of pre-defined filters on a known set of events and return
+        the filtered list of event numbers.
 
-        @param event: An event to flatten.  If L{None}, create a new event.
-        @return: C{event} or the event created.
+        The pre-defined events are four events with a C{count} attribute set to
+        C{0}, C{1}, C{2}, and C{3}.
+
+        @param filters: names of the filters to apply.
+
+            Options are:
+
+                - C{"twoMinus"} (count <=2),
+
+                - C{"twoPlus"} (count >= 2),
+
+                - C{"notTwo"} (count != 2),
+
+                - C{"no"} (False).
+
+        @type filters: iterable of str
+
+        @param other: Whether to return a list of filtered events as well.
+        @type other: L{bool}
+
+        @return: event numbers or 2-tuple of lists of event numbers.
+        @rtype: L{list} of L{int} or 2-L{tuple} of L{list} of L{int}
         """
-        if event is None:
-            counter = count()
+        events = [
+            dict(count=0),
+            dict(count=1),
+            dict(count=2),
+            dict(count=3),
+        ]
 
-            class CountStr(object):
+        class Filters(object):
+            @staticmethod
+            def twoMinus(event):
                 """
-                Hack
-                """
-                def __str__(self):
-                    return str(next(counter))
+                count <= 2
 
-            event = dict(
-                log_format="{x} {x}",
-                x=CountStr(),
+                @param event: an event
+                @type event: dict
+
+                @return: L{PredicateResult.yes} if C{event["count"] <= 2},
+                    otherwise L{PredicateResult.maybe}.
+                """
+                if event["count"] <= 2:
+                    return PredicateResult.yes
+                return PredicateResult.maybe
+
+            @staticmethod
+            def twoPlus(event):
+                """
+                count >= 2
+
+                @param event: an event
+                @type event: dict
+
+                @return: L{PredicateResult.yes} if C{event["count"] >= 2},
+                    otherwise L{PredicateResult.maybe}.
+                """
+                if event["count"] >= 2:
+                    return PredicateResult.yes
+                return PredicateResult.maybe
+
+            @staticmethod
+            def notTwo(event):
+                """
+                count != 2
+
+                @param event: an event
+                @type event: dict
+
+                @return: L{PredicateResult.yes} if C{event["count"] != 2},
+                    otherwise L{PredicateResult.maybe}.
+                """
+                if event["count"] == 2:
+                    return PredicateResult.no
+                return PredicateResult.maybe
+
+            @staticmethod
+            def no(event):
+                """
+                No way, man.
+
+                @param event: an event
+                @type event: dict
+
+                @return: L{PredicateResult.no}
+                """
+                return PredicateResult.no
+
+            @staticmethod
+            def bogus(event):
+                """
+                Bogus result.
+
+                @param event: an event
+                @type event: dict
+
+                @return: something other than a valid predicate result.
+                """
+                return None
+
+        predicates = (getattr(Filters, f) for f in filters)
+        eventsSeen = []
+        eventsNotSeen = []
+        trackingObserver = eventsSeen.append
+        if other:
+            extra = [eventsNotSeen.append]
+        else:
+            extra = []
+        filteringObserver = FilteringLogObserver(
+            trackingObserver, predicates, *extra
+        )
+        for e in events:
+            filteringObserver(e)
+
+        if extra:
+            return (
+                [e["count"] for e in eventsSeen],
+                [e["count"] for e in eventsNotSeen],
             )
-
-        flattenEvent(event)
-        self.assertEqual(formatEvent(event), u"0 1")
-
-        return event
+        return [e["count"] for e in eventsSeen]
 
 
-    def test_formatFlatEventFieldNamesSame(self):
+    def test_shouldLogEventNoFilters(self):
         """
-        The same format field used twice in one event is rendered twice.
+        No filters: all events come through.
         """
-        self._test_formatFlatEvent_fieldNamesSame()
+        self.assertEqual(self.filterWith([]), [0, 1, 2, 3])
 
 
-    def test_formatFlatEventFieldNamesSameAgain(self):
+    def test_shouldLogEventNoFilter(self):
         """
-        The same event flattened twice gives the same (already rendered)
-        result.
+        Filter with negative predicate result.
         """
-        event = self._test_formatFlatEvent_fieldNamesSame()
-        self._test_formatFlatEvent_fieldNamesSame(event)
+        self.assertEqual(self.filterWith(["notTwo"]), [0, 1, 3])
 
 
-    def test_formatEventFlatTrailingText(self):
+    def test_shouldLogEventOtherObserver(self):
         """
-        L{formatEvent} will handle a flattened event with tailing text after
-        a replacement field.
+        Filtered results get sent to the other observer, if passed.
         """
-        event = dict(
-            log_format="test {x} trailing",
-            x='value',
-        )
-        flattenEvent(event)
-
-        result = formatEvent(event)
-
-        self.assertEqual(result, u"test value trailing")
+        self.assertEqual(self.filterWith(["notTwo"], True), ([0, 1, 3], [2]))
 
 
-    def test_extractField(self, flattenFirst=lambda x: x):
+    def test_shouldLogEventYesFilter(self):
         """
-        L{extractField} will extract a field used in the format string.
-
-        @param flattenFirst: callable to flatten an event
+        Filter with positive predicate result.
         """
-        class ObjectWithRepr(object):
-            def __repr__(self):
-                return "repr"
-
-        class Something(object):
-            def __init__(self):
-                self.number = 7
-                self.object = ObjectWithRepr()
-
-            def __getstate__(self):
-                raise NotImplementedError("Just in case.")
-
-        event = dict(
-            log_format="{something.number} {something.object}",
-            something=Something(),
-        )
-
-        flattened = flattenFirst(event)
-
-        def extract(field):
-            return extractField(field, flattened)
-
-        self.assertEqual(extract("something.number"), 7)
-        self.assertEqual(extract("something.number!s"), "7")
-        self.assertEqual(extract("something.object!s"), "repr")
+        self.assertEqual(self.filterWith(["twoPlus"]), [0, 1, 2, 3])
 
 
-    def test_extractFieldFlattenFirst(self):
+    def test_shouldLogEventYesNoFilter(self):
         """
-        L{extractField} behaves identically if the event is explicitly
-        flattened first.
+        Series of filters with positive and negative predicate results.
         """
-        def flattened(evt):
-            flattenEvent(evt)
-            return evt
-        self.test_extractField(flattened)
+        self.assertEqual(self.filterWith(["twoPlus", "no"]), [2, 3])
 
 
-    def test_flattenEventWithoutFormat(self):
+    def test_shouldLogEventYesYesNoFilter(self):
         """
-        L{flattenEvent} will do nothing to an event with no format string.
+        Series of filters with positive, positive and negative predicate
+        results.
         """
-        inputEvent = {'a': 'b', 'c': 1}
-        flattenEvent(inputEvent)
-        self.assertEqual(inputEvent, {'a': 'b', 'c': 1})
-
-
-    def test_flattenEventWithInertFormat(self):
-        """
-        L{flattenEvent} will do nothing to an event with a format string that
-        contains no format fields.
-        """
-        inputEvent = {'a': 'b', 'c': 1, 'log_format': 'simple message'}
-        flattenEvent(inputEvent)
         self.assertEqual(
-            inputEvent,
-            {
-                'a': 'b',
-                'c': 1,
-                'log_format': 'simple message',
-            }
+            self.filterWith(["twoPlus", "twoMinus", "no"]),
+            [0, 1, 2, 3]
         )
 
 
-    def test_flattenEventWithNoneFormat(self):
+    def test_shouldLogEventBadPredicateResult(self):
         """
-        L{flattenEvent} will do nothing to an event with log_format set to
-        None.
+        Filter with invalid predicate result.
         """
-        inputEvent = {'a': 'b', 'c': 1, 'log_format': None}
-        flattenEvent(inputEvent)
+        self.assertRaises(TypeError, self.filterWith, ["bogus"])
+
+
+    def test_call(self):
+        """
+        Test filtering results from each predicate type.
+        """
+        e = dict(obj=object())
+
+        def callWithPredicateResult(result):
+            seen = []
+            observer = FilteringLogObserver(
+                lambda e: seen.append(e),
+                (lambda e: result,)
+            )
+            observer(e)
+            return seen
+
+        self.assertIn(e, callWithPredicateResult(PredicateResult.yes))
+        self.assertIn(e, callWithPredicateResult(PredicateResult.maybe))
+        self.assertNotIn(e, callWithPredicateResult(PredicateResult.no))
+
+
+    def test_trace(self):
+        """
+        Tracing keeps track of forwarding through the filtering observer.
+        """
+        event = dict(log_trace=[])
+
+        oYes = lambda e: None
+        oNo = lambda e: None
+
+        def testObserver(e):
+            self.assertIs(e, event)
+            self.assertEqual(
+                event["log_trace"],
+                [
+                    (publisher, yesFilter),
+                    (yesFilter, oYes),
+                    (publisher, noFilter),
+                    # ... noFilter doesn't call oNo
+                    (publisher, oTest),
+                ]
+            )
+        oTest = testObserver
+
+        yesFilter = FilteringLogObserver(
+            oYes,
+            (lambda e: PredicateResult.yes,)
+        )
+        noFilter = FilteringLogObserver(
+            oNo,
+            (lambda e: PredicateResult.no,)
+        )
+
+        publisher = LogPublisher(yesFilter, noFilter, testObserver)
+        publisher(event)
+
+
+
+class LogLevelFilterPredicateTests(unittest.TestCase):
+    """
+    Tests for L{LogLevelFilterPredicate}.
+    """
+
+    def test_defaultLogLevel(self):
+        """
+        Default log level is used.
+        """
+        predicate = LogLevelFilterPredicate()
+
         self.assertEqual(
-            inputEvent,
-            {
-                'a': 'b',
-                'c': 1,
-                'log_format': None,
-            }
+            predicate.logLevelForNamespace(None),
+            predicate.defaultLogLevel
         )
+        self.assertEqual(
+            predicate.logLevelForNamespace(""),
+            predicate.defaultLogLevel
+        )
+        self.assertEqual(
+            predicate.logLevelForNamespace("rocker.cool.namespace"),
+            predicate.defaultLogLevel
+        )
+
+
+    def test_setLogLevel(self):
+        """
+        Setting and retrieving log levels.
+        """
+        predicate = LogLevelFilterPredicate()
+
+        predicate.setLogLevelForNamespace(None, LogLevel.error)
+        predicate.setLogLevelForNamespace("twext.web2", LogLevel.debug)
+        predicate.setLogLevelForNamespace("twext.web2.dav", LogLevel.warn)
+
+        self.assertEqual(
+            predicate.logLevelForNamespace(None),
+            LogLevel.error
+        )
+        self.assertEqual(
+            predicate.logLevelForNamespace("twisted"),
+            LogLevel.error
+        )
+        self.assertEqual(
+            predicate.logLevelForNamespace("twext.web2"),
+            LogLevel.debug
+        )
+        self.assertEqual(
+            predicate.logLevelForNamespace("twext.web2.dav"),
+            LogLevel.warn
+        )
+        self.assertEqual(
+            predicate.logLevelForNamespace("twext.web2.dav.test"),
+            LogLevel.warn
+        )
+        self.assertEqual(
+            predicate.logLevelForNamespace("twext.web2.dav.test1.test2"),
+            LogLevel.warn
+        )
+
+
+    def test_setInvalidLogLevel(self):
+        """
+        Can't pass invalid log levels to C{setLogLevelForNamespace()}.
+        """
+        predicate = LogLevelFilterPredicate()
+
+        self.assertRaises(
+            InvalidLogLevelError,
+            predicate.setLogLevelForNamespace, "twext.web2", object()
+        )
+
+        # Level must be a constant, not the name of a constant
+        self.assertRaises(
+            InvalidLogLevelError,
+            predicate.setLogLevelForNamespace, "twext.web2", "debug"
+        )
+
+
+    def test_clearLogLevels(self):
+        """
+        Clearing log levels.
+        """
+        predicate = LogLevelFilterPredicate()
+
+        predicate.setLogLevelForNamespace("twext.web2", LogLevel.debug)
+        predicate.setLogLevelForNamespace("twext.web2.dav", LogLevel.error)
+
+        predicate.clearLogLevels()
+
+        self.assertEqual(
+            predicate.logLevelForNamespace("twisted"),
+            predicate.defaultLogLevel
+        )
+        self.assertEqual(
+            predicate.logLevelForNamespace("twext.web2"),
+            predicate.defaultLogLevel
+        )
+        self.assertEqual(
+            predicate.logLevelForNamespace("twext.web2.dav"),
+            predicate.defaultLogLevel
+        )
+        self.assertEqual(
+            predicate.logLevelForNamespace("twext.web2.dav.test"),
+            predicate.defaultLogLevel
+        )
+        self.assertEqual(
+            predicate.logLevelForNamespace("twext.web2.dav.test1.test2"),
+            predicate.defaultLogLevel
+        )
+
+
+    def test_filtering(self):
+        """
+        Events are filtered based on log level/namespace.
+        """
+        predicate = LogLevelFilterPredicate()
+
+        predicate.setLogLevelForNamespace(None, LogLevel.error)
+        predicate.setLogLevelForNamespace("twext.web2", LogLevel.debug)
+        predicate.setLogLevelForNamespace("twext.web2.dav", LogLevel.warn)
+
+        def checkPredicate(namespace, level, expectedResult):
+            event = dict(log_namespace=namespace, log_level=level)
+            self.assertEqual(expectedResult, predicate(event))
+
+        checkPredicate("", LogLevel.debug, PredicateResult.no)
+        checkPredicate("", LogLevel.error, PredicateResult.maybe)
+
+        checkPredicate("twext.web2", LogLevel.debug, PredicateResult.maybe)
+        checkPredicate("twext.web2", LogLevel.error, PredicateResult.maybe)
+
+        checkPredicate("twext.web2.dav", LogLevel.debug, PredicateResult.no)
+        checkPredicate("twext.web2.dav", LogLevel.error, PredicateResult.maybe)
+
+        checkPredicate(None, LogLevel.critical, PredicateResult.no)
+        checkPredicate("twext.web2", None, PredicateResult.no)

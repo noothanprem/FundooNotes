@@ -1,1 +1,1 @@
-úÐ?venv/lib64/python3.6/site-packages/celery/backends/couchbase.py 2pyXuh
+úÐ8venv/lib64/python3.6/site-packages/celery/backends/s3.py 2pyXTh

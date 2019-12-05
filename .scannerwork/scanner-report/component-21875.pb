@@ -1,1 +1,1 @@
-óª?venv/lib/python3.6/site-packages/twisted/words/protocols/irc.py 2pyXëh
+óªIvenv/lib/python3.6/site-packages/twisted/words/protocols/jabber/client.py 2pyX™h

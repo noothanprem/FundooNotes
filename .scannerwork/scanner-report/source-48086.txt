@@ -1,67 +1,51 @@
+# Copyright (c) 2005 Divmod, Inc.
+# Copyright (c) Twisted Matrix Laboratories.
+# See LICENSE for details.
+
+# Don't change the docstring, it's part of the tests
 """
-Test win32 shortcut script
+I'm a test drop-in.  The plugin system's unit tests use me.  No one
+else should.
 """
 
-import os.path
-import sys
-import tempfile
+from zope.interface import provider
 
-from twisted.trial import unittest
-
-skipReason = None
-try:
-    from win32com.shell import shell
-    from twisted.python import shortcut
-except ImportError:
-    skipReason = "Only runs on Windows with win32com"
-
-if sys.version_info[0:2] >= (3, 7):
-    skipReason = "Broken on Python 3.7+."
+from twisted.plugin import IPlugin
+from twisted.test.test_plugin import ITestPlugin, ITestPlugin2
 
 
 
-class ShortcutTests(unittest.TestCase):
-    skip = skipReason
+@provider(ITestPlugin, IPlugin)
+class TestPlugin:
+    """
+    A plugin used solely for testing purposes.
+    """
 
-    def test_create(self):
-        """
-        Create a simple shortcut.
-        """
-        testFilename = __file__
-        baseFileName = os.path.basename(testFilename)
-        s1 = shortcut.Shortcut(testFilename)
-        tempname = self.mktemp() + '.lnk'
-        s1.save(tempname)
-        self.assertTrue(os.path.exists(tempname))
-        sc = shortcut.open(tempname)
-        scPath = sc.GetPath(shell.SLGP_RAWPATH)[0]
-        self.assertEqual(scPath[-len(baseFileName):].lower(),
-                         baseFileName.lower())
+    def test1():
+        pass
+    test1 = staticmethod(test1)
 
 
-    def test_createPythonShortcut(self):
-        """
-        Create a shortcut to the Python executable,
-        and set some values.
-        """
-        testFilename = sys.executable
-        baseFileName = os.path.basename(testFilename)
-        tempDir = tempfile.gettempdir()
-        s1 = shortcut.Shortcut(
-            path=testFilename,
-            arguments="-V",
-            description="The Python executable",
-            workingdir=tempDir,
-            iconpath=tempDir,
-            iconidx=1,
-            )
-        tempname = self.mktemp() + '.lnk'
-        s1.save(tempname)
-        self.assertTrue(os.path.exists(tempname))
-        sc = shortcut.open(tempname)
-        scPath = sc.GetPath(shell.SLGP_RAWPATH)[0]
-        self.assertEqual(scPath[-len(baseFileName):].lower(),
-                         baseFileName.lower())
-        self.assertEqual(sc.GetDescription(), "The Python executable")
-        self.assertEqual(sc.GetWorkingDirectory(), tempDir)
-        self.assertEqual(sc.GetIconLocation(), (tempDir, 1))
+
+@provider(ITestPlugin2, IPlugin)
+class AnotherTestPlugin:
+    """
+    Another plugin used solely for testing purposes.
+    """
+
+    def test():
+        pass
+    test = staticmethod(test)
+
+
+
+@provider(ITestPlugin2, IPlugin)
+class ThirdTestPlugin:
+    """
+    Another plugin used solely for testing purposes.
+    """
+
+    def test():
+        pass
+    test = staticmethod(test)
+

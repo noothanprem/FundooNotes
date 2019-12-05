@@ -1,1 +1,0 @@
-ù@:venv/lib/python3.6/site-packages/django/core/mail/utils.py 2pyXh

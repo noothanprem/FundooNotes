@@ -1,1 +1,0 @@
-õ5venv/lib/python3.6/site-packages/celery/bin/worker.py 2pyXðh

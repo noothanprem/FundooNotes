@@ -1,1 +1,1 @@
-ÜÇevenv/lib64/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lang/zh-cn.js 2jsX6h
+ÜÇbvenv/lib64/python3.6/site-packages/rest_framework_swagger/static/rest_framework_swagger/lang/pt.js 2jsX6h

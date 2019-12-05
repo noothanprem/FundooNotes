@@ -11,516 +11,138 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 
-import copy
 import logging
 
-from botocore import xform_name
-from botocore.utils import merge_dicts
-
-from .action import BatchAction
-from .params import create_request_parameters
-from .response import ResourceHandler
-from ..docs import docstring
+import boto3
 
 
 logger = logging.getLogger(__name__)
 
 
-class ResourceCollection(object):
+class ResourceMeta(object):
     """
-    Represents a collection of resources, which can be iterated through,
-    optionally with filtering. Collections automatically handle pagination
-    for you.
-
-    See :ref:`guide_collections` for a high-level overview of collections,
-    including when remote service requests are performed.
-
-    :type model: :py:class:`~boto3.resources.model.Collection`
-    :param model: Collection model
-    :type parent: :py:class:`~boto3.resources.base.ServiceResource`
-    :param parent: The collection's parent resource
-    :type handler: :py:class:`~boto3.resources.response.ResourceHandler`
-    :param handler: The resource response handler used to create resource
-                    instances
+    An object containing metadata about a resource.
     """
-    def __init__(self, model, parent, handler, **kwargs):
-        self._model = model
-        self._parent = parent
-        self._py_operation_name = xform_name(
-            model.request.operation)
-        self._handler = handler
-        self._params = copy.deepcopy(kwargs)
+    def __init__(self, service_name, identifiers=None, client=None,
+                 data=None, resource_model=None):
+        #: (``string``) The service name, e.g. 's3'
+        self.service_name = service_name
+
+        if identifiers is None:
+            identifiers = []
+        #: (``list``) List of identifier names
+        self.identifiers = identifiers
+
+        #: (:py:class:`~botocore.client.BaseClient`) Low-level Botocore client
+        self.client = client
+        #: (``dict``) Loaded resource data attributes
+        self.data = data
+
+        # The resource model for that resource
+        self.resource_model = resource_model
 
     def __repr__(self):
-        return '{0}({1}, {2})'.format(
-            self.__class__.__name__,
-            self._parent,
-            '{0}.{1}'.format(
-                self._parent.meta.service_name,
-                self._model.resource.type
-            )
-        )
+        return 'ResourceMeta(\'{0}\', identifiers={1})'.format(
+            self.service_name, self.identifiers)
 
-    def __iter__(self):
+    def __eq__(self, other):
+        # Two metas are equal if their components are all equal
+        if other.__class__.__name__ != self.__class__.__name__:
+            return False
+
+        return self.__dict__ == other.__dict__
+
+    def copy(self):
         """
-        A generator which yields resource instances after doing the
-        appropriate service operation calls and handling any pagination
-        on your behalf.
-
-        Page size, item limit, and filter parameters are applied
-        if they have previously been set.
-
-            >>> bucket = s3.Bucket('boto3')
-            >>> for obj in bucket.objects.all():
-            ...     print(obj.key)
-            'key1'
-            'key2'
-
+        Create a copy of this metadata object.
         """
-        limit = self._params.get('limit', None)
+        params = self.__dict__.copy()
+        service_name = params.pop('service_name')
+        return ResourceMeta(service_name, **params)
 
-        count = 0
-        for page in self.pages():
-            for item in page:
-                yield item
 
-                # If the limit is set and has been reached, then
-                # we stop processing items here.
-                count += 1
-                if limit is not None and count >= limit:
-                    return
+class ServiceResource(object):
+    """
+    A base class for resources.
 
-    def _clone(self, **kwargs):
-        """
-        Create a clone of this collection. This is used by the methods
-        below to provide a chainable interface that returns copies
-        rather than the original. This allows things like:
+    :type client: botocore.client
+    :param client: A low-level Botocore client instance
+    """
 
-            >>> base = collection.filter(Param1=1)
-            >>> query1 = base.filter(Param2=2)
-            >>> query2 = base.filter(Param3=3)
-            >>> query1.params
-            {'Param1': 1, 'Param2': 2}
-            >>> query2.params
-            {'Param1': 1, 'Param3': 3}
+    meta = None
+    """
+    Stores metadata about this resource instance, such as the
+    ``service_name``, the low-level ``client`` and any cached ``data``
+    from when the instance was hydrated. For example::
 
-        :rtype: :py:class:`ResourceCollection`
-        :return: A clone of this resource collection
-        """
-        params = copy.deepcopy(self._params)
-        merge_dicts(params, kwargs, append_lists=True)
-        clone = self.__class__(self._model, self._parent,
-                               self._handler, **params)
-        return clone
+        # Get a low-level client from a resource instance
+        client = resource.meta.client
+        response = client.operation(Param='foo')
 
-    def pages(self):
-        """
-        A generator which yields pages of resource instances after
-        doing the appropriate service operation calls and handling
-        any pagination on your behalf. Non-paginated calls will
-        return a single page of items.
+        # Print the resource instance's service short name
+        print(resource.meta.service_name)
 
-        Page size, item limit, and filter parameters are applied
-        if they have previously been set.
+    See :py:class:`ResourceMeta` for more information.
+    """
 
-            >>> bucket = s3.Bucket('boto3')
-            >>> for page in bucket.objects.pages():
-            ...     for obj in page:
-            ...         print(obj.key)
-            'key1'
-            'key2'
+    def __init__(self, *args, **kwargs):
+        # Always work on a copy of meta, otherwise we would affect other
+        # instances of the same subclass.
+        self.meta = self.meta.copy()
 
-        :rtype: list(:py:class:`~boto3.resources.base.ServiceResource`)
-        :return: List of resource instances
-        """
-        client = self._parent.meta.client
-        cleaned_params = self._params.copy()
-        limit = cleaned_params.pop('limit', None)
-        page_size = cleaned_params.pop('page_size', None)
-        params = create_request_parameters(
-            self._parent, self._model.request)
-        merge_dicts(params, cleaned_params, append_lists=True)
-
-        # Is this a paginated operation? If so, we need to get an
-        # iterator for the various pages. If not, then we simply
-        # call the operation and return the result as a single
-        # page in a list. For non-paginated results, we just ignore
-        # the page size parameter.
-        if client.can_paginate(self._py_operation_name):
-            logger.debug('Calling paginated %s:%s with %r',
-                         self._parent.meta.service_name,
-                         self._py_operation_name, params)
-            paginator = client.get_paginator(self._py_operation_name)
-            pages = paginator.paginate(
-                PaginationConfig={
-                    'MaxItems': limit, 'PageSize': page_size}, **params)
+        # Create a default client if none was passed
+        if kwargs.get('client') is not None:
+            self.meta.client = kwargs.get('client')
         else:
-            logger.debug('Calling %s:%s with %r',
-                         self._parent.meta.service_name,
-                         self._py_operation_name, params)
-            pages = [getattr(client, self._py_operation_name)(**params)]
+            self.meta.client = boto3.client(self.meta.service_name)
 
-        # Now that we have a page iterator or single page of results
-        # we start processing and yielding individual items.
-        count = 0
-        for page in pages:
-            page_items = []
-            for item in self._handler(self._parent, params, page):
-                page_items.append(item)
+        # Allow setting identifiers as positional arguments in the order
+        # in which they were defined in the ResourceJSON.
+        for i, value in enumerate(args):
+            setattr(self, '_' + self.meta.identifiers[i], value)
 
-                # If the limit is set and has been reached, then
-                # we stop processing items here.
-                count += 1
-                if limit is not None and count >= limit:
-                    break
+        # Allow setting identifiers via keyword arguments. Here we need
+        # extra logic to ignore other keyword arguments like ``client``.
+        for name, value in kwargs.items():
+            if name == 'client':
+                continue
 
-            yield page_items
+            if name not in self.meta.identifiers:
+                raise ValueError('Unknown keyword argument: {0}'.format(name))
 
-            # Stop reading pages if we've reached out limit
-            if limit is not None and count >= limit:
-                break
+            setattr(self, '_' + name, value)
 
-    def all(self):
-        """
-        Get all items from the collection, optionally with a custom
-        page size and item count limit.
-
-        This method returns an iterable generator which yields
-        individual resource instances. Example use::
-
-            # Iterate through items
-            >>> for queue in sqs.queues.all():
-            ...     print(queue.url)
-            'https://url1'
-            'https://url2'
-
-            # Convert to list
-            >>> queues = list(sqs.queues.all())
-            >>> len(queues)
-            2
-        """
-        return self._clone()
-
-    def filter(self, **kwargs):
-        """
-        Get items from the collection, passing keyword arguments along
-        as parameters to the underlying service operation, which are
-        typically used to filter the results.
-
-        This method returns an iterable generator which yields
-        individual resource instances. Example use::
-
-            # Iterate through items
-            >>> for queue in sqs.queues.filter(Param='foo'):
-            ...     print(queue.url)
-            'https://url1'
-            'https://url2'
-
-            # Convert to list
-            >>> queues = list(sqs.queues.filter(Param='foo'))
-            >>> len(queues)
-            2
-
-        :rtype: :py:class:`ResourceCollection`
-        """
-        return self._clone(**kwargs)
-
-    def limit(self, count):
-        """
-        Return at most this many resources.
-
-            >>> for bucket in s3.buckets.limit(5):
-            ...     print(bucket.name)
-            'bucket1'
-            'bucket2'
-            'bucket3'
-            'bucket4'
-            'bucket5'
-
-        :type count: int
-        :param count: Return no more than this many items
-        :rtype: :py:class:`ResourceCollection`
-        """
-        return self._clone(limit=count)
-
-    def page_size(self, count):
-        """
-        Fetch at most this many resources per service request.
-
-            >>> for obj in s3.Bucket('boto3').objects.page_size(100):
-            ...     print(obj.key)
-
-        :type count: int
-        :param count: Fetch this many items per request
-        :rtype: :py:class:`ResourceCollection`
-        """
-        return self._clone(page_size=count)
-
-
-class CollectionManager(object):
-    """
-    A collection manager provides access to resource collection instances,
-    which can be iterated and filtered. The manager exposes some
-    convenience functions that are also found on resource collections,
-    such as :py:meth:`~ResourceCollection.all` and
-    :py:meth:`~ResourceCollection.filter`.
-
-    Get all items::
-
-        >>> for bucket in s3.buckets.all():
-        ...     print(bucket.name)
-
-    Get only some items via filtering::
-
-        >>> for queue in sqs.queues.filter(QueueNamePrefix='AWS'):
-        ...     print(queue.url)
-
-    Get whole pages of items:
-
-        >>> for page in s3.Bucket('boto3').objects.pages():
-        ...     for obj in page:
-        ...         print(obj.key)
-
-    A collection manager is not iterable. You **must** call one of the
-    methods that return a :py:class:`ResourceCollection` before trying
-    to iterate, slice, or convert to a list.
-
-    See the :ref:`guide_collections` guide for a high-level overview
-    of collections, including when remote service requests are performed.
-
-    :type collection_model: :py:class:`~boto3.resources.model.Collection`
-    :param model: Collection model
-
-    :type parent: :py:class:`~boto3.resources.base.ServiceResource`
-    :param parent: The collection's parent resource
-
-    :type factory: :py:class:`~boto3.resources.factory.ResourceFactory`
-    :param factory: The resource factory to create new resources
-
-    :type service_context: :py:class:`~boto3.utils.ServiceContext`
-    :param service_context: Context about the AWS service
-    """
-    # The class to use when creating an iterator
-    _collection_cls = ResourceCollection
-
-    def __init__(self, collection_model, parent, factory, service_context):
-        self._model = collection_model
-        operation_name = self._model.request.operation
-        self._parent = parent
-
-        search_path = collection_model.resource.path
-        self._handler = ResourceHandler(
-            search_path=search_path, factory=factory,
-            resource_model=collection_model.resource,
-            service_context=service_context,
-            operation_name=operation_name
-        )
+        # Validate that all identifiers have been set.
+        for identifier in self.meta.identifiers:
+            if getattr(self, identifier) is None:
+                raise ValueError(
+                    'Required parameter {0} not set'.format(identifier))
 
     def __repr__(self):
-        return '{0}({1}, {2})'.format(
+        identifiers = []
+        for identifier in self.meta.identifiers:
+            identifiers.append('{0}={1}'.format(
+                identifier, repr(getattr(self, identifier))))
+        return "{0}({1})".format(
             self.__class__.__name__,
-            self._parent,
-            '{0}.{1}'.format(
-                self._parent.meta.service_name,
-                self._model.resource.type
-            )
+            ', '.join(identifiers),
         )
 
-    def iterator(self, **kwargs):
-        """
-        Get a resource collection iterator from this manager.
+    def __eq__(self, other):
+        # Should be instances of the same resource class
+        if other.__class__.__name__ != self.__class__.__name__:
+            return False
 
-        :rtype: :py:class:`ResourceCollection`
-        :return: An iterable representing the collection of resources
-        """
-        return self._collection_cls(self._model, self._parent,
-                                    self._handler, **kwargs)
+        # Each of the identifiers should have the same value in both
+        # instances, e.g. two buckets need the same name to be equal.
+        for identifier in self.meta.identifiers:
+            if getattr(self, identifier) != getattr(other, identifier):
+                return False
 
-    # Set up some methods to proxy ResourceCollection methods
-    def all(self):
-        return self.iterator()
-    all.__doc__ = ResourceCollection.all.__doc__
+        return True
 
-    def filter(self, **kwargs):
-        return self.iterator(**kwargs)
-    filter.__doc__ = ResourceCollection.filter.__doc__
-
-    def limit(self, count):
-        return self.iterator(limit=count)
-    limit.__doc__ = ResourceCollection.limit.__doc__
-
-    def page_size(self, count):
-        return self.iterator(page_size=count)
-    page_size.__doc__ = ResourceCollection.page_size.__doc__
-
-    def pages(self):
-        return self.iterator().pages()
-    pages.__doc__ = ResourceCollection.pages.__doc__
-
-
-class CollectionFactory(object):
-    """
-    A factory to create new
-    :py:class:`CollectionManager` and :py:class:`ResourceCollection`
-    subclasses from a :py:class:`~boto3.resources.model.Collection`
-    model. These subclasses include methods to perform batch operations.
-    """
-    def load_from_definition(self, resource_name, collection_model,
-                             service_context, event_emitter):
-        """
-        Loads a collection from a model, creating a new
-        :py:class:`CollectionManager` subclass
-        with the correct properties and methods, named based on the service
-        and resource name, e.g. ec2.InstanceCollectionManager. It also
-        creates a new :py:class:`ResourceCollection` subclass which is used
-        by the new manager class.
-
-        :type resource_name: string
-        :param resource_name: Name of the resource to look up. For services,
-                              this should match the ``service_name``.
-
-        :type service_context: :py:class:`~boto3.utils.ServiceContext`
-        :param service_context: Context about the AWS service
-
-        :type event_emitter: :py:class:`~botocore.hooks.HierarchialEmitter`
-        :param event_emitter: An event emitter
-
-        :rtype: Subclass of :py:class:`CollectionManager`
-        :return: The collection class.
-        """
-        attrs = {}
-        collection_name = collection_model.name
-
-        # Create the batch actions for a collection
-        self._load_batch_actions(
-            attrs, resource_name, collection_model,
-            service_context.service_model, event_emitter)
-        # Add the documentation to the collection class's methods
-        self._load_documented_collection_methods(
-            attrs=attrs, resource_name=resource_name,
-            collection_model=collection_model,
-            service_model=service_context.service_model,
-            event_emitter=event_emitter,
-            base_class=ResourceCollection)
-
-        if service_context.service_name == resource_name:
-            cls_name = '{0}.{1}Collection'.format(
-                service_context.service_name, collection_name)
-        else:
-            cls_name = '{0}.{1}.{2}Collection'.format(
-                service_context.service_name, resource_name, collection_name)
-
-        collection_cls = type(str(cls_name), (ResourceCollection,),
-                              attrs)
-
-        # Add the documentation to the collection manager's methods
-        self._load_documented_collection_methods(
-            attrs=attrs, resource_name=resource_name,
-            collection_model=collection_model,
-            service_model=service_context.service_model,
-            event_emitter=event_emitter,
-            base_class=CollectionManager)
-        attrs['_collection_cls'] = collection_cls
-        cls_name += 'Manager'
-
-        return type(str(cls_name), (CollectionManager,), attrs)
-
-    def _load_batch_actions(self, attrs, resource_name, collection_model,
-                            service_model, event_emitter):
-        """
-        Batch actions on the collection become methods on both
-        the collection manager and iterators.
-        """
-        for action_model in collection_model.batch_actions:
-            snake_cased = xform_name(action_model.name)
-            attrs[snake_cased] = self._create_batch_action(
-                resource_name, snake_cased, action_model, collection_model,
-                service_model, event_emitter)
-
-    def _load_documented_collection_methods(
-            factory_self, attrs, resource_name, collection_model,
-            service_model, event_emitter, base_class):
-        # The base class already has these methods defined. However
-        # the docstrings are generic and not based for a particular service
-        # or resource. So we override these methods by proxying to the
-        # base class's builtin method and adding a docstring
-        # that pertains to the resource.
-
-        # A collection's all() method.
-        def all(self):
-            return base_class.all(self)
-
-        all.__doc__ = docstring.CollectionMethodDocstring(
-            resource_name=resource_name,
-            action_name='all',
-            event_emitter=event_emitter,
-            collection_model=collection_model,
-            service_model=service_model,
-            include_signature=False
-        )
-        attrs['all'] = all
-
-        # The collection's filter() method.
-        def filter(self, **kwargs):
-            return base_class.filter(self, **kwargs)
-
-        filter.__doc__ = docstring.CollectionMethodDocstring(
-            resource_name=resource_name,
-            action_name='filter',
-            event_emitter=event_emitter,
-            collection_model=collection_model,
-            service_model=service_model,
-            include_signature=False
-        )
-        attrs['filter'] = filter
-
-        # The collection's limit method.
-        def limit(self, count):
-            return base_class.limit(self, count)
-
-        limit.__doc__ = docstring.CollectionMethodDocstring(
-            resource_name=resource_name,
-            action_name='limit',
-            event_emitter=event_emitter,
-            collection_model=collection_model,
-            service_model=service_model,
-            include_signature=False
-        )
-        attrs['limit'] = limit
-
-        # The collection's page_size method.
-        def page_size(self, count):
-            return base_class.page_size(self, count)
-
-        page_size.__doc__ = docstring.CollectionMethodDocstring(
-            resource_name=resource_name,
-            action_name='page_size',
-            event_emitter=event_emitter,
-            collection_model=collection_model,
-            service_model=service_model,
-            include_signature=False
-        )
-        attrs['page_size'] = page_size
-
-    def _create_batch_action(factory_self, resource_name, snake_cased,
-                             action_model, collection_model, service_model,
-                             event_emitter):
-        """
-        Creates a new method which makes a batch operation request
-        to the underlying service API.
-        """
-        action = BatchAction(action_model)
-
-        def batch_action(self, *args, **kwargs):
-            return action(self, *args, **kwargs)
-
-        batch_action.__name__ = str(snake_cased)
-        batch_action.__doc__ = docstring.BatchActionDocstring(
-            resource_name=resource_name,
-            event_emitter=event_emitter,
-            batch_action_model=action_model,
-            service_model=service_model,
-            collection_model=collection_model,
-            include_signature=False
-        )
-        return batch_action
+    def __hash__(self):
+        identifiers = []
+        for identifier in self.meta.identifiers:
+            identifiers.append(getattr(self, identifier))
+        return hash((self.__class__.__name__, tuple(identifiers)))

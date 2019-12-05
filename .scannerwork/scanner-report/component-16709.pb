@@ -1,1 +1,1 @@
-ł1venv/lib/python3.6/site-packages/keyring/backends :ĂƂǂȂɂʂ˂̂ւ
+ł1venv/lib/python3.6/site-packages/keyring/backends :ĂƂǂȂɂʂ̂˂ׂ

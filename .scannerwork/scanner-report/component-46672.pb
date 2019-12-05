@@ -1,1 +1,1 @@
-ÐìCvenv/lib64/python3.6/site-packages/django_social_share/templatetags :ÏìÑì
+ÐìOvenv/lib64/python3.6/site-packages/django_social_share/templatetags/__init__.py 2pyXh

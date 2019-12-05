@@ -1,1 +1,0 @@
-þ7venv/lib/python3.6/site-packages/launchpadlib/errors.py 2pyXh

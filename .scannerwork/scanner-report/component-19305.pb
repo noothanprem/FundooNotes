@@ -1,1 +1,0 @@
-é–Gvenv/lib/python3.6/site-packages/botocore/vendored/requests/adapters.py 2pyX¶h

@@ -20,7 +20,7 @@ from django.test import Client
 client = Client()
 
 header = {
-    'HTTP_AUTHORIZATION': 'Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNTc1NjA3Njk3LCJqdGkiOiI4ZjNlMjBiYzUzMjY0OGZiYmRlMzA1OGQwNDAxYjQ2ZCIsInVzZXJfaWQiOjN9.f7sagte8jCtQYRDPKQuhWp9-USs0nwouch71ag5o_NI'}
+    'HTTP_AUTHORIZATION': 'Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNTc1NjMzMzIyLCJqdGkiOiI2MzE3NTI5Mzk3ZGE0OTMxYjFmYWNlNzRiN2I0YWJmNiIsInVzZXJfaWQiOjN9.g2MxwZtku38dZWL45xWDntim3LQe657U3ABXoXgYzSk'}
 # headers = {
 #    'Content_Type': "application/json",
 #    'Authorization': "TEST_TOKEN"

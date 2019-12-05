@@ -1,1 +1,2 @@
-éCvenv/lib/python3.6/site-packages/django/db/migrations/serializer.py 2pyXÎh
+éEvenv/lib/python3.6/site-packages/django/db/migrations/autodetector.py 2pyX©
+h

@@ -1,1 +1,1 @@
-‹%9venv/lib/python3.6/site-packages/django/contrib/flatpages :Š%Œ%%”%•%–%©'«'¬'
+‹%Avenv/lib/python3.6/site-packages/django/contrib/flatpages/urls.py 2pyXh

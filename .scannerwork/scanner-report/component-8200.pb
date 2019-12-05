@@ -1,1 +1,1 @@
-ˆ@Gvenv/lib/python3.6/site-packages/django/core/mail/backends/filebased.py 2pyXGh
+ˆ@=venv/lib/python3.6/site-packages/django/core/mail/__init__.py 2pyXuh

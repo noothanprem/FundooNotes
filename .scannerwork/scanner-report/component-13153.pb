@@ -1,1 +1,1 @@
-áf.venv/lib/python3.6/site-packages/idna/codec.py 2pyXwh
+áf%venv/lib/python3.6/site-packages/idna :ßfàfâfãfäfåfïfðf

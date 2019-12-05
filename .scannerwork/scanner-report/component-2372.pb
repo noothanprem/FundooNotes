@@ -1,1 +1,0 @@
-Ä/venv/lib/python3.6/site-packages/zope/interface :ÃÆÇÈÉÊËúûüý‹£

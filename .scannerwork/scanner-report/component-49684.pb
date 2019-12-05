@@ -1,1 +1,1 @@
-”„Avenv/lib64/python3.6/site-packages/social_core/backends/legacy.py 2pyX-h
+”„Avenv/lib64/python3.6/site-packages/social_core/backends/lastfm.py 2pyX<h

@@ -1,1 +1,3 @@
-from zmq.eventloop.ioloop import *
+from zmq.green.eventloop.ioloop import IOLoop
+
+__all__ = ['IOLoop']

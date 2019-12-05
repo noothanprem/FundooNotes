@@ -1,1 +1,1 @@
-ŸÖ+venv/lib64/python3.6/site-packages/colorama :žÖ Ö¡Ö¢ÖªÖ«Ö
+ŸÖ+venv/lib64/python3.6/site-packages/colorama :žÖ Ö¡Ö¢Ö©Ö«Ö

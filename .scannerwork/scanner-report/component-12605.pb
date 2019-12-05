@@ -1,1 +1,1 @@
-½b3venv/lib/python3.6/site-packages/docutils/languages :4¼b¾b¿bÀbÁbÂbÃbÄbÅbÆbÇbÈbÉbÊbËbÌbÍbÎbÏbĞbÑbÒbÓbÔbğbñb
+½b9venv/lib/python3.6/site-packages/docutils/languages/pl.py 2pyX?h

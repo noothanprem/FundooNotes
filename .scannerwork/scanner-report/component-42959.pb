@@ -1,1 +1,1 @@
-оо;venv/lib64/python3.6/site-packages/google/protobuf/compiler :нопо
+ооGvenv/lib64/python3.6/site-packages/google/protobuf/compiler/__init__.py 2pyXh

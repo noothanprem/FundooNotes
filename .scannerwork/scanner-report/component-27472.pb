@@ -1,1 +1,1 @@
-ÐÖ7venv/lib64/python3.6/site-packages/future/moves/tkinter :'ÏÖÑÖÒÖÓÖÔÖÕÖÖÖ×ÖØÖÙÖÚÖèÖêÖ
+ÐÖ7venv/lib64/python3.6/site-packages/future/moves/tkinter :'ÏÖÑÖÒÖÓÖÕÖÔÖÖÖ×ÖØÖÙÖÚÖéÖëÖ

@@ -1,1 +1,1 @@
-Þ¬Ivenv/lib64/python3.6/site-packages/docutils/writers/html4css1/__init__.py 2pyXºh
+Þ¬>venv/lib64/python3.6/site-packages/docutils/writers/manpage.py 2pyXŒ	h

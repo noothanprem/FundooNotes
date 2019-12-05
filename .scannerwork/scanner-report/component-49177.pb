@@ -1,1 +1,0 @@
-™€=venv/lib64/python3.6/site-packages/rest_framework/response.py 2pyXhh

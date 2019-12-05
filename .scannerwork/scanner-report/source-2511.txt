@@ -1,137 +1,195 @@
-"""Functions for generating and parsing HTTP Accept: headers for
-supporting server-directed content negotiation.
-"""
+class YadisServiceManager(object):
+    """Holds the state of a list of selected Yadis services, managing
+    storing it in a session and iterating over the services in order."""
+
+    def __init__(self, starting_url, yadis_url, services, session_key):
+        # The URL that was used to initiate the Yadis protocol
+        self.starting_url = starting_url
+
+        # The URL after following redirects (the identifier)
+        self.yadis_url = yadis_url
+
+        # List of service elements
+        self.services = list(services)
+
+        self.session_key = session_key
+
+        # Reference to the current service object
+        self._current = None
+
+    def __len__(self):
+        """How many untried services remain?"""
+        return len(self.services)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        """Return the next service
+
+        self.current() will continue to return that service until the
+        next call to this method."""
+        try:
+            self._current = self.services.pop(0)
+        except IndexError:
+            raise StopIteration
+        else:
+            return self._current
+
+    def current(self):
+        """Return the current service.
+
+        Returns None if there are no services left.
+        """
+        return self._current
+
+    def forURL(self, url):
+        return url in [self.starting_url, self.yadis_url]
+
+    def started(self):
+        """Has the first service been returned?"""
+        return self._current is not None
+
+    def store(self, session):
+        """Store this object in the session, by its session key."""
+        session[self.session_key] = self
 
 
-def generateAcceptHeader(*elements):
-    """Generate an accept header value
+class Discovery(object):
+    """State management for discovery.
 
-    [str or (str, float)] -> str
+    High-level usage pattern is to call .getNextService(discover) in
+    order to find the next available service for this user for this
+    session. Once a request completes, call .finish() to clean up the
+    session state.
+
+    @ivar session: a dict-like object that stores state unique to the
+        requesting user-agent. This object must be able to store
+        serializable objects.
+
+    @ivar url: the URL that is used to make the discovery request
+
+    @ivar session_key_suffix: The suffix that will be used to identify
+        this object in the session object.
     """
-    parts = []
-    for element in elements:
-        if type(element) is str:
-            qs = "1.0"
-            mtype = element
+
+    DEFAULT_SUFFIX = 'auth'
+    PREFIX = '_yadis_services_'
+
+    def __init__(self, session, url, session_key_suffix=None):
+        """Initialize a discovery object"""
+        self.session = session
+        self.url = url
+        if session_key_suffix is None:
+            session_key_suffix = self.DEFAULT_SUFFIX
+
+        self.session_key_suffix = session_key_suffix
+
+    def getNextService(self, discover):
+        """Return the next authentication service for the pair of
+        user_input and session.  This function handles fallback.
+
+
+        @param discover: a callable that takes a URL and returns a
+            list of services
+
+        @type discover: str -> [service]
+
+
+        @return: the next available service
+        """
+        manager = self.getManager()
+        if manager is not None and not manager:
+            self.destroyManager()
+
+        if not manager:
+            yadis_url, services = discover(self.url)
+            manager = self.createManager(services, yadis_url)
+
+        if manager:
+            service = next(manager)
+            manager.store(self.session)
         else:
-            mtype, q = element
-            q = float(q)
-            if q > 1 or q <= 0:
-                raise ValueError('Invalid preference factor: %r' % q)
+            service = None
 
-            qs = '%0.1f' % (q, )
+        return service
 
-        parts.append((qs, mtype))
+    def cleanup(self, force=False):
+        """Clean up Yadis-related services in the session and return
+        the most-recently-attempted service from the manager, if one
+        exists.
 
-    parts.sort()
-    chunks = []
-    for q, mtype in parts:
-        if q == '1.0':
-            chunks.append(mtype)
+        @param force: True if the manager should be deleted regardless
+        of whether it's a manager for self.url.
+
+        @return: current service endpoint object or None if there is
+            no current service
+        """
+        manager = self.getManager(force=force)
+        if manager is not None:
+            service = manager.current()
+            self.destroyManager(force=force)
         else:
-            chunks.append('%s; q=%s' % (mtype, q))
+            service = None
 
-    return ', '.join(chunks)
+        return service
 
+    ### Lower-level methods
 
-def parseAcceptHeader(value):
-    """Parse an accept header, ignoring any accept-extensions
+    def getSessionKey(self):
+        """Get the session key for this starting URL and suffix
 
-    returns a list of tuples containing main MIME type, MIME subtype,
-    and quality markdown.
+        @return: The session key
+        @rtype: str
+        """
+        return self.PREFIX + self.session_key_suffix
 
-    str -> [(str, str, float)]
-    """
-    chunks = [chunk.strip() for chunk in value.split(',')]
-    accept = []
-    for chunk in chunks:
-        parts = [s.strip() for s in chunk.split(';')]
+    def getManager(self, force=False):
+        """Extract the YadisServiceManager for this object's URL and
+        suffix from the session.
 
-        mtype = parts.pop(0)
-        if '/' not in mtype:
-            # This is not a MIME type, so ignore the bad data
-            continue
+        @param force: True if the manager should be returned
+        regardless of whether it's a manager for self.url.
 
-        main, sub = mtype.split('/', 1)
-
-        for ext in parts:
-            if '=' in ext:
-                k, v = ext.split('=', 1)
-                if k == 'q':
-                    try:
-                        q = float(v)
-                        break
-                    except ValueError:
-                        # Ignore poorly formed q-values
-                        pass
+        @return: The current YadisServiceManager, if it's for this
+            URL, or else None
+        """
+        manager = self.session.get(self.getSessionKey())
+        if (manager is not None and (manager.forURL(self.url) or force)):
+            return manager
         else:
-            q = 1.0
+            return None
 
-        accept.append((q, main, sub))
+    def createManager(self, services, yadis_url=None):
+        """Create a new YadisService Manager for this starting URL and
+        suffix, and store it in the session.
 
-    accept.sort()
-    accept.reverse()
-    return [(main, sub, q) for (q, main, sub) in accept]
+        @raises KeyError: When I already have a manager.
 
+        @return: A new YadisServiceManager or None
+        """
+        key = self.getSessionKey()
+        if self.getManager():
+            raise KeyError('There is already a %r manager for %r' %
+                           (key, self.url))
 
-def matchTypes(accept_types, have_types):
-    """Given the result of parsing an Accept: header, and the
-    available MIME types, return the acceptable types with their
-    quality markdowns.
+        if not services:
+            return None
 
-    For example:
+        manager = YadisServiceManager(self.url, yadis_url, services, key)
+        manager.store(self.session)
+        return manager
 
-    >>> acceptable = parseAcceptHeader('text/html, text/plain; q=0.5')
-    >>> matchTypes(acceptable, ['text/plain', 'text/html', 'image/jpeg'])
-    [('text/html', 1.0), ('text/plain', 0.5)]
+    def destroyManager(self, force=False):
+        """Delete any YadisServiceManager with this starting URL and
+        suffix from the session.
 
+        If there is no service manager or the service manager is for a
+        different URL, it silently does nothing.
 
-    Type signature: ([(str, str, float)], [str]) -> [(str, float)]
-    """
-    if not accept_types:
-        # Accept all of them
-        default = 1
-    else:
-        default = 0
-
-    match_main = {}
-    match_sub = {}
-    for (main, sub, q) in accept_types:
-        if main == '*':
-            default = max(default, q)
-            continue
-        elif sub == '*':
-            match_main[main] = max(match_main.get(main, 0), q)
-        else:
-            match_sub[(main, sub)] = max(match_sub.get((main, sub), 0), q)
-
-    accepted_list = []
-    order_maintainer = 0
-    for mtype in have_types:
-        main, sub = mtype.split('/')
-        if (main, sub) in match_sub:
-            q = match_sub[(main, sub)]
-        else:
-            q = match_main.get(main, default)
-
-        if q:
-            accepted_list.append((1 - q, order_maintainer, q, mtype))
-            order_maintainer += 1
-
-    accepted_list.sort()
-    return [(mtype, q) for (_, _, q, mtype) in accepted_list]
-
-
-def getAcceptable(accept_header, have_types):
-    """Parse the accept header and return a list of available types in
-    preferred order. If a type is unacceptable, it will not be in the
-    resulting list.
-
-    This is a convenience wrapper around matchTypes and
-    parseAcceptHeader.
-
-    (str, [str]) -> [str]
-    """
-    accepted = parseAcceptHeader(accept_header)
-    preferred = matchTypes(accepted, have_types)
-    return [mtype for (mtype, _) in preferred]
+        @param force: True if the manager should be deleted regardless
+        of whether it's a manager for self.url.
+        """
+        if self.getManager(force=force) is not None:
+            key = self.getSessionKey()
+            del self.session[key]

@@ -1,1 +1,1 @@
-Ê×4venv/lib64/python3.6/site-packages/MySQLdb/constants :É×Ë×Ì×Í×Î×Ö×
+Ê×4venv/lib64/python3.6/site-packages/MySQLdb/constants :É×Ë×Ì×Í×Î×ð×

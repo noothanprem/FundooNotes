@@ -1,1 +1,0 @@
-Ž~=venv/lib/python3.6/site-packages/gevent/tests/test__select.py 2pyXsh

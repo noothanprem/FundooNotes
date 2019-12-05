@@ -11,14 +11,25 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 
-from awscli.customizations.servicecatalog.generate \
-    import GenerateCommand
+from awscli.customizations.commands import BasicCommand
+from awscli.customizations.servicecatalog import helptext
+from awscli.customizations.servicecatalog.generateproduct \
+    import GenerateProductCommand
+from awscli.customizations.servicecatalog.generateprovisioningartifact \
+    import GenerateProvisioningArtifactCommand
 
 
-def register_servicecatalog_commands(event_emitter):
-    event_emitter.register('building-command-table.servicecatalog',
-                           inject_commands)
+class GenerateCommand(BasicCommand):
+    NAME = "generate"
+    DESCRIPTION = helptext.GENERATE_COMMAND
+    SUBCOMMANDS = [
+        {'name': 'product',
+         'command_class': GenerateProductCommand},
+        {'name': 'provisioning-artifact',
+         'command_class': GenerateProvisioningArtifactCommand}
+    ]
 
-
-def inject_commands(command_table, session, **kwargs):
-    command_table['generate'] = GenerateCommand(session)
+    def _run_main(self, parsed_args, parsed_globals):
+        if parsed_args.subcommand is None:
+            raise ValueError("usage: aws [options] <command> <subcommand> "
+                             "[parameters]\naws: error: too few arguments")

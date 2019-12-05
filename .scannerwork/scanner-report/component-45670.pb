@@ -1,1 +1,1 @@
-ждIvenv/lib64/python3.6/site-packages/hamcrest/library/text/stringmatches.py 2pyX)h
+ждWvenv/lib64/python3.6/site-packages/hamcrest/library/text/isequal_ignoring_whitespace.py 2pyX:h

@@ -1,1 +1,1 @@
-ау6venv/lib64/python3.6/site-packages/twisted/spread/test :Яубувуйулу
+ау6venv/lib64/python3.6/site-packages/twisted/spread/test :Яубувуиуку

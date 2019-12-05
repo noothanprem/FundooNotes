@@ -1,1 +1,1 @@
-†ÍLvenv/lib64/python3.6/site-packages/django/db/backends/postgresql/features.py 2pyXNh
+†ÍNvenv/lib64/python3.6/site-packages/django/db/backends/postgresql/operations.py 2pyXùh

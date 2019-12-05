@@ -1,1 +1,1 @@
-ßøVvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/oracle/operations.py 2pyXÚh
+ßøRvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/oracle/schema.py 2pyX_h

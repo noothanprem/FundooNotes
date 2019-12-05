@@ -1,1 +1,1 @@
-ашRvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/oracle/schema.py 2pyX_h
+ашPvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/oracle/base.py 2pyXh

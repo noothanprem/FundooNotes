@@ -1,1 +1,1 @@
-луAvenv/lib64/python3.6/site-packages/twisted/spread/test/test_pb.py 2pyXсh
+лу6venv/lib64/python3.6/site-packages/twisted/__init__.py 2pyXh

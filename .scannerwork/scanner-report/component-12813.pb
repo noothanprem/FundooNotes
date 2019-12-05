@@ -1,1 +1,0 @@
-çdHvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_httpbakery.py 2pyXh

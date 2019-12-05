@@ -1,1 +1,1 @@
-¼¾>venv/lib/python3.6/site-packages/elasticsearch_dsl/document.py 2pyX¬h
+¼¾2venv/lib/python3.6/site-packages/elasticsearch_dsl :-»¾½¾¾¾¿¾À¾Á¾Â¾Ã¾Ä¾Í¾Î¾Ï¾ß¾á¾â¾

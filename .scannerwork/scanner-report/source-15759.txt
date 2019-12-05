@@ -1,20 +1,29 @@
-from .first_party import (
-    FirstPartyCaveatDelegate, FirstPartyCaveatVerifierDelegate
-)
-from .encrypted_first_party import (
-    EncryptedFirstPartyCaveatDelegate,
-    EncryptedFirstPartyCaveatVerifierDelegate
-)
-from .third_party import (
-    ThirdPartyCaveatDelegate,
-    ThirdPartyCaveatVerifierDelegate
-)
+from abc import ABCMeta, abstractmethod
 
-__all__ = [
-    'FirstPartyCaveatDelegate',
-    'FirstPartyCaveatVerifierDelegate',
-    'ThirdPartyCaveatDelegate',
-    'ThirdPartyCaveatVerifierDelegate',
-    'EncryptedFirstPartyCaveatDelegate',
-    'EncryptedFirstPartyCaveatVerifierDelegate',
-]
+
+class BaseFirstPartyCaveatDelegate(object):
+    __metaclass__ = ABCMeta
+
+    def __init__(self, *args, **kwargs):
+        super(BaseFirstPartyCaveatDelegate, self).__init__(*args, **kwargs)
+
+    @abstractmethod
+    def add_first_party_caveat(self, macaroon, predicate, **kwargs):
+        pass
+
+
+class BaseFirstPartyCaveatVerifierDelegate(object):
+    __metaclass__ = ABCMeta
+
+    def __init__(self, *args, **kwargs):
+        super(BaseFirstPartyCaveatVerifierDelegate, self).__init__(
+            *args, **kwargs
+        )
+
+    @abstractmethod
+    def verify_first_party_caveat(self, verifier, caveat, signature):
+        pass
+
+    @abstractmethod
+    def update_signature(self, signature, caveat):
+        pass

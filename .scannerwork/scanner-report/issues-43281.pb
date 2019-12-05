@@ -1,2 +1,3 @@
-j
-pythonS100NRename method "runTest" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 
+i
+pythonS1066/Merge this if statement with the enclosing one. 2ss :
+‘Ònn 	enclosing

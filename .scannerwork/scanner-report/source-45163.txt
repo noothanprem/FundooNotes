@@ -10,668 +10,580 @@
 # distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
-
-from itertools import tee
-
-from botocore.compat import six
-
-import jmespath
-import json
-import base64
+import copy
 import logging
-from botocore.exceptions import PaginationError
-from botocore.compat import zip
-from botocore.utils import set_value_from_jmespath, merge_dicts
+from collections import defaultdict, deque, namedtuple
+from botocore.compat import accepts_kwargs, six
+from botocore.utils import EVENT_ALIASES
+
+logger = logging.getLogger(__name__)
 
 
-log = logging.getLogger(__name__)
+_NodeList = namedtuple('NodeList', ['first', 'middle', 'last'])
+_FIRST = 0
+_MIDDLE = 1
+_LAST = 2
 
 
-class TokenEncoder(object):
-    """Encodes dictionaries into opaque strings.
+class NodeList(_NodeList):
 
-    This for the most part json dumps + base64 encoding, but also supports
-    having bytes in the dictionary in addition to the types that json can
-    handle by default.
+    def __copy__(self):
+        first_copy = copy.copy(self.first)
+        middle_copy = copy.copy(self.middle)
+        last_copy = copy.copy(self.last)
+        copied = NodeList(first_copy, middle_copy, last_copy)
+        return copied
 
-    This is intended for use in encoding pagination tokens, which in some
-    cases can be complex structures and / or contain bytes.
+
+def first_non_none_response(responses, default=None):
+    """Find first non None response in a list of tuples.
+
+    This function can be used to find the first non None response from
+    handlers connected to an event.  This is useful if you are interested
+    in the returned responses from event handlers. Example usage::
+
+        print(first_non_none_response([(func1, None), (func2, 'foo'),
+                                       (func3, 'bar')]))
+        # This will print 'foo'
+
+    :type responses: list of tuples
+    :param responses: The responses from the ``EventHooks.emit`` method.
+        This is a list of tuples, and each tuple is
+        (handler, handler_response).
+
+    :param default: If no non-None responses are found, then this default
+        value will be returned.
+
+    :return: The first non-None response in the list of tuples.
+
     """
+    for response in responses:
+        if response[1] is not None:
+            return response[1]
+    return default
 
-    def encode(self, token):
-        """Encodes a dictionary to an opaque string.
 
-        :type token: dict
-        :param token: A dictionary containing pagination information,
-            particularly the service pagination token(s) but also other boto
-            metadata.
+class BaseEventHooks(object):
+    def emit(self, event_name, **kwargs):
+        """Call all handlers subscribed to an event.
 
-        :rtype: str
-        :returns: An opaque string
+        :type event_name: str
+        :param event_name: The name of the event to emit.
+
+        :type **kwargs: dict
+        :param **kwargs: Arbitrary kwargs to pass through to the
+            subscribed handlers.  The ``event_name`` will be injected
+            into the kwargs so it's not necesary to add this to **kwargs.
+
+        :rtype: list of tuples
+        :return: A list of ``(handler_func, handler_func_return_value)``
+
+        """
+        return []
+
+    def register(self, event_name, handler, unique_id=None,
+                 unique_id_uses_count=False):
+        """Register an event handler for a given event.
+
+        If a ``unique_id`` is given, the handler will not be registered
+        if a handler with the ``unique_id`` has already been registered.
+
+        Handlers are called in the order they have been registered.
+        Note handlers can also be registered with ``register_first()``
+        and ``register_last()``.  All handlers registered with
+        ``register_first()`` are called before handlers registered
+        with ``register()`` which are called before handlers registered
+        with ``register_last()``.
+
+        """
+        self._verify_and_register(event_name, handler, unique_id,
+                                  register_method=self._register,
+                                  unique_id_uses_count=unique_id_uses_count)
+
+    def register_first(self, event_name, handler, unique_id=None,
+                       unique_id_uses_count=False):
+        """Register an event handler to be called first for an event.
+
+        All event handlers registered with ``register_first()`` will
+        be called before handlers registered with ``register()`` and
+        ``register_last()``.
+
+        """
+        self._verify_and_register(event_name, handler, unique_id,
+                                  register_method=self._register_first,
+                                  unique_id_uses_count=unique_id_uses_count)
+
+    def register_last(self, event_name, handler, unique_id=None,
+                      unique_id_uses_count=False):
+        """Register an event handler to be called last for an event.
+
+        All event handlers registered with ``register_last()`` will be called
+        after handlers registered with ``register_first()`` and ``register()``.
+
+        """
+        self._verify_and_register(event_name, handler, unique_id,
+                                  register_method=self._register_last,
+                                  unique_id_uses_count=unique_id_uses_count)
+
+    def _verify_and_register(self, event_name, handler, unique_id,
+                             register_method, unique_id_uses_count):
+        self._verify_is_callable(handler)
+        self._verify_accept_kwargs(handler)
+        register_method(event_name, handler, unique_id, unique_id_uses_count)
+
+    def unregister(self, event_name, handler=None, unique_id=None,
+                   unique_id_uses_count=False):
+        """Unregister an event handler for a given event.
+
+        If no ``unique_id`` was given during registration, then the
+        first instance of the event handler is removed (if the event
+        handler has been registered multiple times).
+
+        """
+        pass
+
+    def _verify_is_callable(self, func):
+        if not six.callable(func):
+            raise ValueError("Event handler %s must be callable." % func)
+
+    def _verify_accept_kwargs(self, func):
+        """Verifies a callable accepts kwargs
+
+        :type func: callable
+        :param func: A callable object.
+
+        :returns: True, if ``func`` accepts kwargs, otherwise False.
+
         """
         try:
-            # Try just using json dumps first to avoid having to traverse
-            # and encode the dict. In 99.9999% of cases this will work.
-            json_string = json.dumps(token)
-        except (TypeError, UnicodeDecodeError):
-            # If normal dumping failed, go through and base64 encode all bytes.
-            encoded_token, encoded_keys = self._encode(token, [])
+            if not accepts_kwargs(func):
+                raise ValueError("Event handler %s must accept keyword "
+                                 "arguments (**kwargs)" % func)
+        except TypeError:
+            return False
 
-            # Save the list of all the encoded key paths. We can safely
-            # assume that no service will ever use this key.
-            encoded_token['boto_encoded_keys'] = encoded_keys
 
-            # Now that the bytes are all encoded, dump the json.
-            json_string = json.dumps(encoded_token)
+class HierarchicalEmitter(BaseEventHooks):
+    def __init__(self):
+        # We keep a reference to the handlers for quick
+        # read only access (we never modify self._handlers).
+        # A cache of event name to handler list.
+        self._lookup_cache = {}
+        self._handlers = _PrefixTrie()
+        # This is used to ensure that unique_id's are only
+        # registered once.
+        self._unique_id_handlers = {}
 
-        # base64 encode the json string to produce an opaque token string.
-        return base64.b64encode(json_string.encode('utf-8')).decode('utf-8')
+    def _emit(self, event_name, kwargs, stop_on_response=False):
+        """
+        Emit an event with optional keyword arguments.
 
-    def _encode(self, data, path):
-        """Encode bytes in given data, keeping track of the path traversed."""
-        if isinstance(data, dict):
-            return self._encode_dict(data, path)
-        elif isinstance(data, list):
-            return self._encode_list(data, path)
-        elif isinstance(data, six.binary_type):
-            return self._encode_bytes(data, path)
+        :type event_name: string
+        :param event_name: Name of the event
+        :type kwargs: dict
+        :param kwargs: Arguments to be passed to the handler functions.
+        :type stop_on_response: boolean
+        :param stop_on_response: Whether to stop on the first non-None
+                                response. If False, then all handlers
+                                will be called. This is especially useful
+                                to handlers which mutate data and then
+                                want to stop propagation of the event.
+        :rtype: list
+        :return: List of (handler, response) tuples from all processed
+                 handlers.
+        """
+        responses = []
+        # Invoke the event handlers from most specific
+        # to least specific, each time stripping off a dot.
+        handlers_to_call = self._lookup_cache.get(event_name)
+        if handlers_to_call is None:
+            handlers_to_call = self._handlers.prefix_search(event_name)
+            self._lookup_cache[event_name] = handlers_to_call
+        elif not handlers_to_call:
+            # Short circuit and return an empty response is we have
+            # no handlers to call.  This is the common case where
+            # for the majority of signals, nothing is listening.
+            return []
+        kwargs['event_name'] = event_name
+        responses = []
+        for handler in handlers_to_call:
+            logger.debug('Event %s: calling handler %s', event_name, handler)
+            response = handler(**kwargs)
+            responses.append((handler, response))
+            if stop_on_response and response is not None:
+                return responses
+        return responses
+
+    def emit(self, event_name, **kwargs):
+        """
+        Emit an event by name with arguments passed as keyword args.
+
+            >>> responses = emitter.emit(
+            ...     'my-event.service.operation', arg1='one', arg2='two')
+
+        :rtype: list
+        :return: List of (handler, response) tuples from all processed
+                 handlers.
+        """
+        return self._emit(event_name, kwargs)
+
+    def emit_until_response(self, event_name, **kwargs):
+        """
+        Emit an event by name with arguments passed as keyword args,
+        until the first non-``None`` response is received. This
+        method prevents subsequent handlers from being invoked.
+
+            >>> handler, response = emitter.emit_until_response(
+                'my-event.service.operation', arg1='one', arg2='two')
+
+        :rtype: tuple
+        :return: The first (handler, response) tuple where the response
+                 is not ``None``, otherwise (``None``, ``None``).
+        """
+        responses = self._emit(event_name, kwargs, stop_on_response=True)
+        if responses:
+            return responses[-1]
         else:
-            return data, []
+            return (None, None)
 
-    def _encode_list(self, data, path):
-        """Encode any bytes in a list, noting the index of what is encoded."""
-        new_data = []
-        encoded = []
-        for i, value in enumerate(data):
-            new_path = path + [i]
-            new_value, new_encoded = self._encode(value, new_path)
-            new_data.append(new_value)
-            encoded.extend(new_encoded)
-        return new_data, encoded
+    def _register(self, event_name, handler, unique_id=None,
+                  unique_id_uses_count=False):
+        self._register_section(event_name, handler, unique_id,
+                               unique_id_uses_count, section=_MIDDLE)
 
-    def _encode_dict(self, data, path):
-        """Encode any bytes in a dict, noting the index of what is encoded."""
-        new_data = {}
-        encoded = []
-        for key, value in data.items():
-            new_path = path + [key]
-            new_value, new_encoded = self._encode(value, new_path)
-            new_data[key] = new_value
-            encoded.extend(new_encoded)
-        return new_data, encoded
+    def _register_first(self, event_name, handler, unique_id=None,
+                        unique_id_uses_count=False):
+        self._register_section(event_name, handler, unique_id,
+                               unique_id_uses_count, section=_FIRST)
 
-    def _encode_bytes(self, data, path):
-        """Base64 encode a byte string."""
-        return base64.b64encode(data).decode('utf-8'), [path]
+    def _register_last(self, event_name, handler, unique_id,
+                       unique_id_uses_count=False):
+        self._register_section(event_name, handler, unique_id,
+                               unique_id_uses_count, section=_LAST)
 
-
-class TokenDecoder(object):
-    """Decodes token strings back into dictionaries.
-
-    This performs the inverse operation to the TokenEncoder, accepting
-    opaque strings and decoding them into a useable form.
-    """
-
-    def decode(self, token):
-        """Decodes an opaque string to a dictionary.
-
-        :type token: str
-        :param token: A token string given by the botocore pagination
-            interface.
-
-        :rtype: dict
-        :returns: A dictionary containing pagination information,
-            particularly the service pagination token(s) but also other boto
-            metadata.
-        """
-        json_string = base64.b64decode(token.encode('utf-8')).decode('utf-8')
-        decoded_token = json.loads(json_string)
-
-        # Remove the encoding metadata as it is read since it will no longer
-        # be needed.
-        encoded_keys = decoded_token.pop('boto_encoded_keys', None)
-        if encoded_keys is None:
-            return decoded_token
+    def _register_section(self, event_name, handler, unique_id,
+                          unique_id_uses_count, section):
+        if unique_id is not None:
+            if unique_id in self._unique_id_handlers:
+                # We've already registered a handler using this unique_id
+                # so we don't need to register it again.
+                count = self._unique_id_handlers[unique_id].get('count', None)
+                if unique_id_uses_count:
+                    if not count:
+                        raise ValueError(
+                            "Initial registration of  unique id %s was "
+                            "specified to use a counter. Subsequent register "
+                            "calls to unique id must specify use of a counter "
+                            "as well." % unique_id)
+                    else:
+                        self._unique_id_handlers[unique_id]['count'] += 1
+                else:
+                    if count:
+                        raise ValueError(
+                            "Initial registration of unique id %s was "
+                            "specified to not use a counter. Subsequent "
+                            "register calls to unique id must specify not to "
+                            "use a counter as well." % unique_id)
+                return
+            else:
+                # Note that the trie knows nothing about the unique
+                # id.  We track uniqueness in this class via the
+                # _unique_id_handlers.
+                self._handlers.append_item(event_name, handler,
+                                           section=section)
+                unique_id_handler_item = {'handler': handler}
+                if unique_id_uses_count:
+                    unique_id_handler_item['count'] = 1
+                self._unique_id_handlers[unique_id] = unique_id_handler_item
         else:
-            return self._decode(decoded_token, encoded_keys)
+            self._handlers.append_item(event_name, handler, section=section)
+        # Super simple caching strategy for now, if we change the registrations
+        # clear the cache.  This has the opportunity for smarter invalidations.
+        self._lookup_cache = {}
 
-    def _decode(self, token, encoded_keys):
-        """Find each encoded value and decode it."""
-        for key in encoded_keys:
-            encoded = self._path_get(token, key)
-            decoded = base64.b64decode(encoded.encode('utf-8'))
-            self._path_set(token, key, decoded)
-        return token
-
-    def _path_get(self, data, path):
-        """Return the nested data at the given path.
-
-        For instance:
-            data = {'foo': ['bar', 'baz']}
-            path = ['foo', 0]
-            ==> 'bar'
-        """
-        # jmespath isn't used here because it would be difficult to actually
-        # create the jmespath query when taking all of the unknowns of key
-        # structure into account. Gross though this is, it is simple and not
-        # very error prone.
-        d = data
-        for step in path:
-            d = d[step]
-        return d
-
-    def _path_set(self, data, path, value):
-        """Set the value of a key in the given data.
-
-        Example:
-            data = {'foo': ['bar', 'baz']}
-            path = ['foo', 1]
-            value = 'bin'
-            ==> data = {'foo': ['bar', 'bin']}
-        """
-        container = self._path_get(data, path[:-1])
-        container[path[-1]] = value
-
-
-class PaginatorModel(object):
-    def __init__(self, paginator_config):
-        self._paginator_config = paginator_config['pagination']
-
-    def get_paginator(self, operation_name):
-        try:
-            single_paginator_config = self._paginator_config[operation_name]
-        except KeyError:
-            raise ValueError("Paginator for operation does not exist: %s"
-                             % operation_name)
-        return single_paginator_config
-
-
-class PageIterator(object):
-    def __init__(self, method, input_token, output_token, more_results,
-                 result_keys, non_aggregate_keys, limit_key, max_items,
-                 starting_token, page_size, op_kwargs):
-        self._method = method
-        self._input_token = input_token
-        self._output_token = output_token
-        self._more_results = more_results
-        self._result_keys = result_keys
-        self._max_items = max_items
-        self._limit_key = limit_key
-        self._starting_token = starting_token
-        self._page_size = page_size
-        self._op_kwargs = op_kwargs
-        self._resume_token = None
-        self._non_aggregate_key_exprs = non_aggregate_keys
-        self._non_aggregate_part = {}
-        self._token_encoder = TokenEncoder()
-        self._token_decoder = TokenDecoder()
-
-    @property
-    def result_keys(self):
-        return self._result_keys
-
-    @property
-    def resume_token(self):
-        """Token to specify to resume pagination."""
-        return self._resume_token
-
-    @resume_token.setter
-    def resume_token(self, value):
-        if not isinstance(value, dict):
-            raise ValueError("Bad starting token: %s" % value)
-
-        if 'boto_truncate_amount' in value:
-            token_keys = sorted(self._input_token + ['boto_truncate_amount'])
-        else:
-            token_keys = sorted(self._input_token)
-        dict_keys = sorted(value.keys())
-
-        if token_keys == dict_keys:
-            self._resume_token = self._token_encoder.encode(value)
-        else:
-            raise ValueError("Bad starting token: %s" % value)
-
-    @property
-    def non_aggregate_part(self):
-        return self._non_aggregate_part
-
-    def __iter__(self):
-        current_kwargs = self._op_kwargs
-        previous_next_token = None
-        next_token = dict((key, None) for key in self._input_token)
-        if self._starting_token is not None:
-            # If the starting token exists, populate the next_token with the
-            # values inside it. This ensures that we have the service's
-            # pagination token on hand if we need to truncate after the
-            # first response.
-            next_token = self._parse_starting_token()[0]
-        # The number of items from result_key we've seen so far.
-        total_items = 0
-        first_request = True
-        primary_result_key = self.result_keys[0]
-        starting_truncation = 0
-        self._inject_starting_params(current_kwargs)
-        while True:
-            response = self._make_request(current_kwargs)
-            parsed = self._extract_parsed_response(response)
-            if first_request:
-                # The first request is handled differently.  We could
-                # possibly have a resume/starting token that tells us where
-                # to index into the retrieved page.
-                if self._starting_token is not None:
-                    starting_truncation = self._handle_first_request(
-                        parsed, primary_result_key, starting_truncation)
-                first_request = False
-                self._record_non_aggregate_key_values(parsed)
-            else:
-                # If this isn't the first request, we have already sliced into
-                # the first request and had to make additional requests after.
-                # We no longer need to add this to truncation.
-                starting_truncation = 0
-            current_response = primary_result_key.search(parsed)
-            if current_response is None:
-                current_response = []
-            num_current_response = len(current_response)
-            truncate_amount = 0
-            if self._max_items is not None:
-                truncate_amount = (total_items + num_current_response) \
-                                  - self._max_items
-            if truncate_amount > 0:
-                self._truncate_response(parsed, primary_result_key,
-                                        truncate_amount, starting_truncation,
-                                        next_token)
-                yield response
-                break
-            else:
-                yield response
-                total_items += num_current_response
-                next_token = self._get_next_token(parsed)
-                if all(t is None for t in next_token.values()):
-                    break
-                if self._max_items is not None and \
-                        total_items == self._max_items:
-                    # We're on a page boundary so we can set the current
-                    # next token to be the resume token.
-                    self.resume_token = next_token
-                    break
-                if previous_next_token is not None and \
-                        previous_next_token == next_token:
-                    message = ("The same next token was received "
-                               "twice: %s" % next_token)
-                    raise PaginationError(message=message)
-                self._inject_token_into_kwargs(current_kwargs, next_token)
-                previous_next_token = next_token
-
-    def search(self, expression):
-        """Applies a JMESPath expression to a paginator
-
-        Each page of results is searched using the provided JMESPath
-        expression. If the result is not a list, it is yielded
-        directly. If the result is a list, each element in the result
-        is yielded individually (essentially implementing a flatmap in
-        which the JMESPath search is the mapping function).
-
-        :type expression: str
-        :param expression: JMESPath expression to apply to each page.
-
-        :return: Returns an iterator that yields the individual
-            elements of applying a JMESPath expression to each page of
-            results.
-        """
-        compiled = jmespath.compile(expression)
-        for page in self:
-            results = compiled.search(page)
-            if isinstance(results, list):
-                for element in results:
-                    yield element
-            else:
-                # Yield result directly if it is not a list.
-                yield results
-
-    def _make_request(self, current_kwargs):
-        return self._method(**current_kwargs)
-
-    def _extract_parsed_response(self, response):
-        return response
-
-    def _record_non_aggregate_key_values(self, response):
-        non_aggregate_keys = {}
-        for expression in self._non_aggregate_key_exprs:
-            result = expression.search(response)
-            set_value_from_jmespath(non_aggregate_keys,
-                                    expression.expression,
-                                    result)
-        self._non_aggregate_part = non_aggregate_keys
-
-    def _inject_starting_params(self, op_kwargs):
-        # If the user has specified a starting token we need to
-        # inject that into the operation's kwargs.
-        if self._starting_token is not None:
-            # Don't need to do anything special if there is no starting
-            # token specified.
-            next_token = self._parse_starting_token()[0]
-            self._inject_token_into_kwargs(op_kwargs, next_token)
-        if self._page_size is not None:
-            # Pass the page size as the parameter name for limiting
-            # page size, also known as the limit_key.
-            op_kwargs[self._limit_key] = self._page_size
-
-    def _inject_token_into_kwargs(self, op_kwargs, next_token):
-        for name, token in next_token.items():
-            if (token is not None) and (token != 'None'):
-                op_kwargs[name] = token
-            elif name in op_kwargs:
-                del op_kwargs[name]
-
-    def _handle_first_request(self, parsed, primary_result_key,
-                              starting_truncation):
-        # If the payload is an array or string, we need to slice into it
-        # and only return the truncated amount.
-        starting_truncation = self._parse_starting_token()[1]
-        all_data = primary_result_key.search(parsed)
-        if isinstance(all_data, (list, six.string_types)):
-            data = all_data[starting_truncation:]
-        else:
-            data = None
-        set_value_from_jmespath(
-            parsed,
-            primary_result_key.expression,
-            data
-        )
-        # We also need to truncate any secondary result keys
-        # because they were not truncated in the previous last
-        # response.
-        for token in self.result_keys:
-            if token == primary_result_key:
-                continue
-            sample = token.search(parsed)
-            if isinstance(sample, list):
-                empty_value = []
-            elif isinstance(sample, six.string_types):
-                empty_value = ''
-            elif isinstance(sample, (int, float)):
-                empty_value = 0
-            else:
-                empty_value = None
-            set_value_from_jmespath(parsed, token.expression, empty_value)
-        return starting_truncation
-
-    def _truncate_response(self, parsed, primary_result_key, truncate_amount,
-                           starting_truncation, next_token):
-        original = primary_result_key.search(parsed)
-        if original is None:
-            original = []
-        amount_to_keep = len(original) - truncate_amount
-        truncated = original[:amount_to_keep]
-        set_value_from_jmespath(
-            parsed,
-            primary_result_key.expression,
-            truncated
-        )
-        # The issue here is that even though we know how much we've truncated
-        # we need to account for this globally including any starting
-        # left truncation. For example:
-        # Raw response: [0,1,2,3]
-        # Starting index: 1
-        # Max items: 1
-        # Starting left truncation: [1, 2, 3]
-        # End right truncation for max items: [1]
-        # However, even though we only kept 1, this is post
-        # left truncation so the next starting index should be 2, not 1
-        # (left_truncation + amount_to_keep).
-        next_token['boto_truncate_amount'] = \
-            amount_to_keep + starting_truncation
-        self.resume_token = next_token
-
-    def _get_next_token(self, parsed):
-        if self._more_results is not None:
-            if not self._more_results.search(parsed):
-                return {}
-        next_tokens = {}
-        for output_token, input_key in \
-                zip(self._output_token, self._input_token):
-            next_token = output_token.search(parsed)
-            # We do not want to include any empty strings as actual tokens.
-            # Treat them as None.
-            if next_token:
-                next_tokens[input_key] = next_token
-            else:
-                next_tokens[input_key] = None
-        return next_tokens
-
-    def result_key_iters(self):
-        teed_results = tee(self, len(self.result_keys))
-        return [ResultKeyIterator(i, result_key) for i, result_key
-                in zip(teed_results, self.result_keys)]
-
-    def build_full_result(self):
-        complete_result = {}
-        for response in self:
-            page = response
-            # We want to try to catch operation object pagination
-            # and format correctly for those. They come in the form
-            # of a tuple of two elements: (http_response, parsed_responsed).
-            # We want the parsed_response as that is what the page iterator
-            # uses. We can remove it though once operation objects are removed.
-            if isinstance(response, tuple) and len(response) == 2:
-                page = response[1]
-            # We're incrementally building the full response page
-            # by page.  For each page in the response we need to
-            # inject the necessary components from the page
-            # into the complete_result.
-            for result_expression in self.result_keys:
-                # In order to incrementally update a result key
-                # we need to search the existing value from complete_result,
-                # then we need to search the _current_ page for the
-                # current result key value.  Then we append the current
-                # value onto the existing value, and re-set that value
-                # as the new value.
-                result_value = result_expression.search(page)
-                if result_value is None:
-                    continue
-                existing_value = result_expression.search(complete_result)
-                if existing_value is None:
-                    # Set the initial result
-                    set_value_from_jmespath(
-                        complete_result, result_expression.expression,
-                        result_value)
-                    continue
-                # Now both result_value and existing_value contain something
-                if isinstance(result_value, list):
-                    existing_value.extend(result_value)
-                elif isinstance(result_value, (int, float, six.string_types)):
-                    # Modify the existing result with the sum or concatenation
-                    set_value_from_jmespath(
-                        complete_result, result_expression.expression,
-                        existing_value + result_value)
-        merge_dicts(complete_result, self.non_aggregate_part)
-        if self.resume_token is not None:
-            complete_result['NextToken'] = self.resume_token
-        return complete_result
-
-    def _parse_starting_token(self):
-        if self._starting_token is None:
-            return None
-
-        # The starting token is a dict passed as a base64 encoded string.
-        next_token = self._starting_token
-        try:
-            next_token = self._token_decoder.decode(next_token)
-            index = 0
-            if 'boto_truncate_amount' in next_token:
-                index = next_token.get('boto_truncate_amount')
-                del next_token['boto_truncate_amount']
-        except (ValueError, TypeError):
-            next_token, index = self._parse_starting_token_deprecated()
-        return next_token, index
-
-    def _parse_starting_token_deprecated(self):
-        """
-        This handles parsing of old style starting tokens, and attempts to
-        coerce them into the new style.
-        """
-        log.debug("Attempting to fall back to old starting token parser. For "
-                  "token: %s" % self._starting_token)
-        if self._starting_token is None:
-            return None
-
-        parts = self._starting_token.split('___')
-        next_token = []
-        index = 0
-        if len(parts) == len(self._input_token) + 1:
+    def unregister(self, event_name, handler=None, unique_id=None,
+                   unique_id_uses_count=False):
+        if unique_id is not None:
             try:
-                index = int(parts.pop())
-            except ValueError:
-                # This doesn't look like a valid old-style token, so we're
-                # passing it along as an opaque service token.
-                parts = [self._starting_token]
-
-        for part in parts:
-            if part == 'None':
-                next_token.append(None)
+                count = self._unique_id_handlers[unique_id].get('count', None)
+            except KeyError:
+                # There's no handler matching that unique_id so we have
+                # nothing to unregister.
+                return
+            if unique_id_uses_count:
+                if count is None:
+                    raise ValueError(
+                        "Initial registration of unique id %s was specified to "
+                        "use a counter. Subsequent unregister calls to unique "
+                        "id must specify use of a counter as well." % unique_id)
+                elif count == 1:
+                    handler = self._unique_id_handlers.pop(unique_id)['handler']
+                else:
+                    self._unique_id_handlers[unique_id]['count'] -= 1
+                    return
             else:
-                next_token.append(part)
-        return self._convert_deprecated_starting_token(next_token), index
+                if count:
+                    raise ValueError(
+                        "Initial registration of unique id %s was specified "
+                        "to not use a counter. Subsequent unregister calls "
+                        "to unique id must specify not to use a counter as "
+                        "well." % unique_id)
+                handler = self._unique_id_handlers.pop(unique_id)['handler']
+        try:
+            self._handlers.remove_item(event_name, handler)
+            self._lookup_cache = {}
+        except ValueError:
+            pass
 
-    def _convert_deprecated_starting_token(self, deprecated_token):
-        """
-        This attempts to convert a deprecated starting token into the new
-        style.
-        """
-        len_deprecated_token = len(deprecated_token)
-        len_input_token = len(self._input_token)
-        if len_deprecated_token > len_input_token:
-            raise ValueError("Bad starting token: %s" % self._starting_token)
-        elif len_deprecated_token < len_input_token:
-            log.debug("Old format starting token does not contain all input "
-                      "tokens. Setting the rest, in order, as None.")
-            for i in range(len_input_token - len_deprecated_token):
-                deprecated_token.append(None)
-        return dict(zip(self._input_token, deprecated_token))
+    def __copy__(self):
+        new_instance = self.__class__()
+        new_state = self.__dict__.copy()
+        new_state['_handlers'] = copy.copy(self._handlers)
+        new_state['_unique_id_handlers'] = copy.copy(self._unique_id_handlers)
+        new_instance.__dict__ = new_state
+        return new_instance
 
 
-class Paginator(object):
-    PAGE_ITERATOR_CLS = PageIterator
+class EventAliaser(BaseEventHooks):
+    def __init__(self, event_emitter, event_aliases=None):
+        self._event_aliases = event_aliases
+        if event_aliases is None:
+            self._event_aliases = EVENT_ALIASES
+        self._emitter = event_emitter
 
-    def __init__(self, method, pagination_config, model):
-        self._model = model
-        self._method = method
-        self._pagination_cfg = pagination_config
-        self._output_token = self._get_output_tokens(self._pagination_cfg)
-        self._input_token = self._get_input_tokens(self._pagination_cfg)
-        self._more_results = self._get_more_results_token(self._pagination_cfg)
-        self._non_aggregate_keys = self._get_non_aggregate_keys(
-            self._pagination_cfg)
-        self._result_keys = self._get_result_keys(self._pagination_cfg)
-        self._limit_key = self._get_limit_key(self._pagination_cfg)
+    def emit(self, event_name, **kwargs):
+        aliased_event_name = self._alias_event_name(event_name)
+        return self._emitter.emit(aliased_event_name, **kwargs)
 
-    @property
-    def result_keys(self):
-        return self._result_keys
+    def emit_until_response(self, event_name, **kwargs):
+        aliased_event_name = self._alias_event_name(event_name)
+        return self._emitter.emit_until_response(aliased_event_name, **kwargs)
 
-    def _get_non_aggregate_keys(self, config):
-        keys = []
-        for key in config.get('non_aggregate_keys', []):
-            keys.append(jmespath.compile(key))
-        return keys
+    def register(self, event_name, handler, unique_id=None,
+                 unique_id_uses_count=False):
+        aliased_event_name = self._alias_event_name(event_name)
+        return self._emitter.register(
+            aliased_event_name, handler, unique_id, unique_id_uses_count
+        )
 
-    def _get_output_tokens(self, config):
-        output = []
-        output_token = config['output_token']
-        if not isinstance(output_token, list):
-            output_token = [output_token]
-        for config in output_token:
-            output.append(jmespath.compile(config))
-        return output
+    def register_first(self, event_name, handler, unique_id=None,
+                       unique_id_uses_count=False):
+        aliased_event_name = self._alias_event_name(event_name)
+        return self._emitter.register_first(
+            aliased_event_name, handler, unique_id, unique_id_uses_count
+        )
 
-    def _get_input_tokens(self, config):
-        input_token = self._pagination_cfg['input_token']
-        if not isinstance(input_token, list):
-            input_token = [input_token]
-        return input_token
+    def register_last(self, event_name, handler, unique_id=None,
+                      unique_id_uses_count=False):
+        aliased_event_name = self._alias_event_name(event_name)
+        return self._emitter.register_last(
+            aliased_event_name, handler, unique_id, unique_id_uses_count
+        )
 
-    def _get_more_results_token(self, config):
-        more_results = config.get('more_results')
-        if more_results is not None:
-            return jmespath.compile(more_results)
+    def unregister(self, event_name, handler=None, unique_id=None,
+                   unique_id_uses_count=False):
+        aliased_event_name = self._alias_event_name(event_name)
+        return self._emitter.unregister(
+            aliased_event_name, handler, unique_id, unique_id_uses_count
+        )
 
-    def _get_result_keys(self, config):
-        result_key = config.get('result_key')
-        if result_key is not None:
-            if not isinstance(result_key, list):
-                result_key = [result_key]
-            result_key = [jmespath.compile(rk) for rk in result_key]
-            return result_key
+    def _alias_event_name(self, event_name):
+        for old_part, new_part in self._event_aliases.items():
 
-    def _get_limit_key(self, config):
-        return config.get('limit_key')
+            # We can't simply do a string replace for everything, otherwise we
+            # might end up translating substrings that we never intended to
+            # translate. When there aren't any dots in the old event name
+            # part, then we can quickly replace the item in the list if it's
+            # there.
+            event_parts = event_name.split('.')
+            if '.' not in old_part:
+                try:
+                    # Theoretically a given event name could have the same part
+                    # repeated, but in practice this doesn't happen
+                    event_parts[event_parts.index(old_part)] = new_part
+                except ValueError:
+                    continue
 
-    def paginate(self, **kwargs):
-        """Create paginator object for an operation.
-
-        This returns an iterable object.  Iterating over
-        this object will yield a single page of a response
-        at a time.
-
-        """
-        page_params = self._extract_paging_params(kwargs)
-        return self.PAGE_ITERATOR_CLS(
-            self._method, self._input_token,
-            self._output_token, self._more_results,
-            self._result_keys, self._non_aggregate_keys,
-            self._limit_key,
-            page_params['MaxItems'],
-            page_params['StartingToken'],
-            page_params['PageSize'],
-            kwargs)
-
-    def _extract_paging_params(self, kwargs):
-        pagination_config = kwargs.pop('PaginationConfig', {})
-        max_items = pagination_config.get('MaxItems', None)
-        if max_items is not None:
-            max_items = int(max_items)
-        page_size = pagination_config.get('PageSize', None)
-        if page_size is not None:
-            if self._limit_key is None:
-                raise PaginationError(
-                    message="PageSize parameter is not supported for the "
-                            "pagination interface for this operation.")
-            input_members = self._model.input_shape.members
-            limit_key_shape = input_members.get(self._limit_key)
-            if limit_key_shape.type_name == 'string':
-                if not isinstance(page_size, six.string_types):
-                    page_size = str(page_size)
+            # If there's dots in the name, it gets more complicated. Now we
+            # have to replace multiple sections of the original event.
+            elif old_part in event_name:
+                old_parts = old_part.split('.')
+                self._replace_subsection(event_parts, old_parts, new_part)
             else:
-                page_size = int(page_size)
-        return {
-            'MaxItems': max_items,
-            'StartingToken': pagination_config.get('StartingToken', None),
-            'PageSize': page_size,
-        }
+                continue
+
+            new_name = '.'.join(event_parts)
+            logger.debug("Changing event name from %s to %s" % (
+                event_name, new_name
+            ))
+            return new_name
+        return event_name
+
+    def _replace_subsection(self, sections, old_parts, new_part):
+        for i in range(len(sections)):
+            if sections[i] == old_parts[0] and \
+                    sections[i:i+len(old_parts)] == old_parts:
+                sections[i:i+len(old_parts)] = [new_part]
+                return
+
+    def __copy__(self):
+        return self.__class__(
+            copy.copy(self._emitter),
+            copy.copy(self._event_aliases)
+        )
 
 
-class ResultKeyIterator(object):
-    """Iterates over the results of paginated responses.
+class _PrefixTrie(object):
+    """Specialized prefix trie that handles wildcards.
 
-    Each iterator is associated with a single result key.
-    Iterating over this object will give you each element in
-    the result key list.
+    The prefixes in this case are based on dot separated
+    names so 'foo.bar.baz' is::
 
-    :param pages_iterator: An iterator that will give you
-        pages of results (a ``PageIterator`` class).
-    :param result_key: The JMESPath expression representing
-        the result key.
+        foo -> bar -> baz
+
+    Wildcard support just means that having a key such as 'foo.bar.*.baz' will
+    be matched with a call to ``get_items(key='foo.bar.ANYTHING.baz')``.
+
+    You can think of this prefix trie as the equivalent as defaultdict(list),
+    except that it can do prefix searches:
+
+        foo.bar.baz -> A
+        foo.bar -> B
+        foo -> C
+
+    Calling ``get_items('foo.bar.baz')`` will return [A + B + C], from
+    most specific to least specific.
 
     """
+    def __init__(self):
+        # Each dictionary can be though of as a node, where a node
+        # has values associated with the node, and children is a link
+        # to more nodes.  So 'foo.bar' would have a 'foo' node with
+        # a 'bar' node as a child of foo.
+        # {'foo': {'children': {'bar': {...}}}}.
+        self._root = {'chunk': None, 'children': {}, 'values': None}
 
-    def __init__(self, pages_iterator, result_key):
-        self._pages_iterator = pages_iterator
-        self.result_key = result_key
+    def append_item(self, key, value, section=_MIDDLE):
+        """Add an item to a key.
 
-    def __iter__(self):
-        for page in self._pages_iterator:
-            results = self.result_key.search(page)
-            if results is None:
-                results = []
-            for result in results:
-                yield result
+        If a value is already associated with that key, the new
+        value is appended to the list for the key.
+        """
+        key_parts = key.split('.')
+        current = self._root
+        for part in key_parts:
+            if part not in current['children']:
+                new_child = {'chunk': part, 'values': None, 'children': {}}
+                current['children'][part] = new_child
+                current = new_child
+            else:
+                current = current['children'][part]
+        if current['values'] is None:
+            current['values'] = NodeList([], [], [])
+        current['values'][section].append(value)
+
+    def prefix_search(self, key):
+        """Collect all items that are prefixes of key.
+
+        Prefix in this case are delineated by '.' characters so
+        'foo.bar.baz' is a 3 chunk sequence of 3 "prefixes" (
+        "foo", "bar", and "baz").
+
+        """
+        collected = deque()
+        key_parts = key.split('.')
+        current = self._root
+        self._get_items(current, key_parts, collected, 0)
+        return collected
+
+    def _get_items(self, starting_node, key_parts, collected, starting_index):
+        stack = [(starting_node, starting_index)]
+        key_parts_len = len(key_parts)
+        # Traverse down the nodes, where at each level we add the
+        # next part from key_parts as well as the wildcard element '*'.
+        # This means for each node we see we potentially add two more
+        # elements to our stack.
+        while stack:
+            current_node, index = stack.pop()
+            if current_node['values']:
+                # We're using extendleft because we want
+                # the values associated with the node furthest
+                # from the root to come before nodes closer
+                # to the root.  extendleft() also adds its items
+                # in right-left order so .extendleft([1, 2, 3])
+                # will result in final_list = [3, 2, 1], which is
+                # why we reverse the lists.
+                node_list = current_node['values']
+                complete_order = (node_list.first + node_list.middle +
+                                  node_list.last)
+                collected.extendleft(reversed(complete_order))
+            if not index == key_parts_len:
+                children = current_node['children']
+                directs = children.get(key_parts[index])
+                wildcard = children.get('*')
+                next_index = index + 1
+                if wildcard is not None:
+                    stack.append((wildcard, next_index))
+                if directs is not None:
+                    stack.append((directs, next_index))
+
+    def remove_item(self, key, value):
+        """Remove an item associated with a key.
+
+        If the value is not associated with the key a ``ValueError``
+        will be raised.  If the key does not exist in the trie, a
+        ``ValueError`` will be raised.
+
+        """
+        key_parts = key.split('.')
+        current = self._root
+        self._remove_item(current, key_parts, value, index=0)
+
+    def _remove_item(self, current_node, key_parts, value, index):
+        if current_node is None:
+            return
+        elif index < len(key_parts):
+            next_node = current_node['children'].get(key_parts[index])
+            if next_node is not None:
+                self._remove_item(next_node, key_parts, value, index + 1)
+                if index == len(key_parts) - 1:
+                    node_list = next_node['values']
+                    if value in node_list.first:
+                        node_list.first.remove(value)
+                    elif value in node_list.middle:
+                        node_list.middle.remove(value)
+                    elif value in node_list.last:
+                        node_list.last.remove(value)
+                if not next_node['children'] and not next_node['values']:
+                    # Then this is a leaf node with no values so
+                    # we can just delete this link from the parent node.
+                    # This makes subsequent search faster in the case
+                    # where a key does not exist.
+                    del current_node['children'][key_parts[index]]
+            else:
+                raise ValueError(
+                    "key is not in trie: %s" % '.'.join(key_parts))
+
+    def __copy__(self):
+        # The fact that we're using a nested dict under the covers
+        # is an implementation detail, and the user shouldn't have
+        # to know that they'd normally need a deepcopy so we expose
+        # __copy__ instead of __deepcopy__.
+        new_copy = self.__class__()
+        copied_attrs = self._recursive_copy(self.__dict__)
+        new_copy.__dict__ = copied_attrs
+        return new_copy
+
+    def _recursive_copy(self, node):
+        # We can't use copy.deepcopy because we actually only want to copy
+        # the structure of the trie, not the handlers themselves.
+        # Each node has a chunk, children, and values.
+        copied_node = {}
+        for key, value in node.items():
+            if isinstance(value, NodeList):
+                copied_node[key] = copy.copy(value)
+            elif isinstance(value, dict):
+                copied_node[key] = self._recursive_copy(value)
+            else:
+                copied_node[key] = value
+        return copied_node

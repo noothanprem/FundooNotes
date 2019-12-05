@@ -1,43 +1,54 @@
 """
-Coursera OAuth2 backend, docs at:
-    https://tech.coursera.org/app-platform/oauth2/
+Clef OAuth support.
+
+This contribution adds support for Clef OAuth service. The settings
+SOCIAL_AUTH_CLEF_KEY and SOCIAL_AUTH_CLEF_SECRET must be defined with the
+values given by Clef application registration process.
 """
+
 from .oauth import BaseOAuth2
 
 
-class CourseraOAuth2(BaseOAuth2):
-    """Coursera OAuth2 authentication backend"""
-    name = 'coursera'
-    ID_KEY = 'username'
-    AUTHORIZATION_URL = 'https://accounts.coursera.org/oauth2/v1/auth'
-    ACCESS_TOKEN_URL = 'https://accounts.coursera.org/oauth2/v1/token'
+class ClefOAuth2(BaseOAuth2):
+    """Clef OAuth authentication backend"""
+    name = 'clef'
+    AUTHORIZATION_URL = 'https://clef.io/iframes/qr'
+    ACCESS_TOKEN_URL = 'https://clef.io/api/v1/authorize'
     ACCESS_TOKEN_METHOD = 'POST'
-    REDIRECT_STATE = False
     SCOPE_SEPARATOR = ','
-    DEFAULT_SCOPE = ['view_profile']
 
-    def _get_username_from_response(self, response):
-        elements = response.get('elements', [])
-        for element in elements:
-            if 'id' in element:
-                return element.get('id')
+    def auth_params(self, *args, **kwargs):
+        params = super(ClefOAuth2, self).auth_params(*args, **kwargs)
+        params['app_id'] = params.pop('client_id')
+        params['redirect_url'] = params.pop('redirect_uri')
+        return params
 
-        return None
+    def get_user_id(self, response, details):
+        return details.get('info').get('id')
 
     def get_user_details(self, response):
-        """Return user details from Coursera account"""
-        return {'username': self._get_username_from_response(response)}
-
-    def get_user_id(self, details, response):
-        """Return a username prepared in get_user_details as uid"""
-        return details.get(self.ID_KEY)
-
-    def user_data(self, access_token, *args, **kwargs):
-        """Load user data from the service"""
-        return self.get_json(
-            'https://api.coursera.org/api/externalBasicProfiles.v1?q=me',
-            headers=self.get_auth_header(access_token)
+        """Return user details from Github account"""
+        info = response.get('info')
+        fullname, first_name, last_name = self.get_user_names(
+            first_name=info.get('first_name'),
+            last_name=info.get('last_name')
         )
 
-    def get_auth_header(self, access_token):
-        return {'Authorization': 'Bearer {0}'.format(access_token)}
+        email = info.get('email', '')
+        if email:
+            username = email.split('@', 1)[0]
+        else:
+            username = info.get('id')
+
+        return {
+            'username': username,
+            'email': email,
+            'fullname': fullname,
+            'first_name': first_name,
+            'last_name': last_name,
+            'phone_number': info.get('phone_number', '')
+        }
+
+    def user_data(self, access_token, *args, **kwargs):
+        return self.get_json('https://clef.io/api/v1/info',
+                             params={'access_token': access_token})

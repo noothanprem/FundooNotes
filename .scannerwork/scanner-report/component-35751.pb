@@ -1,1 +1,1 @@
-§—Jvenv/lib64/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/Message.py 2pyX*h
+§—Kvenv/lib64/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/HelloNew.py 2pyX”h

@@ -1,1 +1,0 @@
-ö7venv/lib/python3.6/site-packages/soupsieve/css_types.py 2pyXÚh

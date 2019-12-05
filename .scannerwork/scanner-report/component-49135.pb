@@ -1,1 +1,1 @@
-пяFvenv/lib64/python3.6/site-packages/rest_framework/authtoken/migrations :	ояряхя
+пяFvenv/lib64/python3.6/site-packages/rest_framework/authtoken/migrations :	оярячя

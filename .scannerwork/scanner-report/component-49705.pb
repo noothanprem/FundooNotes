@@ -1,1 +1,1 @@
-©„Avenv/lib64/python3.6/site-packages/social_core/backends/ngpvan.py 2pyXCh
+©„Avenv/lib64/python3.6/site-packages/social_core/backends/zotero.py 2pyXh

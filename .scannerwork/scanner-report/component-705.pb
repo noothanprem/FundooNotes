@@ -1,1 +1,1 @@
-Á7venv/lib/python3.6/site-packages/celery/backends/rpc.py 2pyXÚh
+Á<venv/lib/python3.6/site-packages/celery/backends/dynamodb.py 2pyXžh

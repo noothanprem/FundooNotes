@@ -1,1 +1,1 @@
-Ø³Kvenv/lib/python3.6/site-packages/rest_framework/utils/serializer_helpers.py 2pyX¡h
+Ø³>venv/lib/python3.6/site-packages/rest_framework/serializers.py 2pyXÕh

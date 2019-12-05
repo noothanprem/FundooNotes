@@ -1,1 +1,1 @@
-æ.venv/lib/python3.6/site-packages/nacl/bindings :åçèéêëìíîïðþ
+æBvenv/lib/python3.6/site-packages/nacl/bindings/crypto_shorthash.py 2pyX?h

@@ -1,15 +1,13 @@
 ######################## BEGIN LICENSE BLOCK ########################
-# The Original Code is Mozilla Universal charset detector code.
+# The Original Code is mozilla.org code.
 #
 # The Initial Developer of the Original Code is
 # Netscape Communications Corporation.
-# Portions created by the Initial Developer are Copyright (C) 2001
+# Portions created by the Initial Developer are Copyright (C) 1998
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
 #   Mark Pilgrim - port to Python
-#   Shy Shalom - original C code
-#   Proofpoint, Inc.
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -27,36 +25,33 @@
 # 02110-1301  USA
 ######################### END LICENSE BLOCK #########################
 
-from .charsetprober import CharSetProber
+from .mbcharsetprober import MultiByteCharSetProber
+from .codingstatemachine import CodingStateMachine
+from .chardistribution import SJISDistributionAnalysis
+from .jpcntx import SJISContextAnalysis
+from .mbcssm import SJIS_SM_MODEL
 from .enums import ProbingState, MachineState
 
 
-class MultiByteCharSetProber(CharSetProber):
-    """
-    MultiByteCharSetProber
-    """
-
-    def __init__(self, lang_filter=None):
-        super(MultiByteCharSetProber, self).__init__(lang_filter=lang_filter)
-        self.distribution_analyzer = None
-        self.coding_sm = None
-        self._last_char = [0, 0]
+class SJISProber(MultiByteCharSetProber):
+    def __init__(self):
+        super(SJISProber, self).__init__()
+        self.coding_sm = CodingStateMachine(SJIS_SM_MODEL)
+        self.distribution_analyzer = SJISDistributionAnalysis()
+        self.context_analyzer = SJISContextAnalysis()
+        self.reset()
 
     def reset(self):
-        super(MultiByteCharSetProber, self).reset()
-        if self.coding_sm:
-            self.coding_sm.reset()
-        if self.distribution_analyzer:
-            self.distribution_analyzer.reset()
-        self._last_char = [0, 0]
+        super(SJISProber, self).reset()
+        self.context_analyzer.reset()
 
     @property
     def charset_name(self):
-        raise NotImplementedError
+        return self.context_analyzer.charset_name
 
     @property
     def language(self):
-        raise NotImplementedError
+        return "Japanese"
 
     def feed(self, byte_str):
         for i in range(len(byte_str)):
@@ -73,19 +68,25 @@ class MultiByteCharSetProber(CharSetProber):
                 char_len = self.coding_sm.get_current_charlen()
                 if i == 0:
                     self._last_char[1] = byte_str[0]
+                    self.context_analyzer.feed(self._last_char[2 - char_len:],
+                                               char_len)
                     self.distribution_analyzer.feed(self._last_char, char_len)
                 else:
+                    self.context_analyzer.feed(byte_str[i + 1 - char_len:i + 3
+                                                        - char_len], char_len)
                     self.distribution_analyzer.feed(byte_str[i - 1:i + 1],
                                                     char_len)
 
         self._last_char[0] = byte_str[-1]
 
         if self.state == ProbingState.DETECTING:
-            if (self.distribution_analyzer.got_enough_data() and
-                    (self.get_confidence() > self.SHORTCUT_THRESHOLD)):
+            if (self.context_analyzer.got_enough_data() and
+               (self.get_confidence() > self.SHORTCUT_THRESHOLD)):
                 self._state = ProbingState.FOUND_IT
 
         return self.state
 
     def get_confidence(self):
-        return self.distribution_analyzer.get_confidence()
+        context_conf = self.context_analyzer.get_confidence()
+        distrib_conf = self.distribution_analyzer.get_confidence()
+        return max(context_conf, distrib_conf)

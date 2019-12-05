@@ -1,1 +1,1 @@
-זל&venv/lib64/python3.6/site-packages/xdg :'דלהלחלטלילךלכלללתלûל‎ל‏לÿל
+זל0venv/lib64/python3.6/site-packages/xdg/Config.py 2pyX(h

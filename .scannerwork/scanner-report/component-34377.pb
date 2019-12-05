@@ -1,1 +1,1 @@
-Ɍ6venv/lib64/python3.6/site-packages/django/core/servers :Ȍ͌
+ɌBvenv/lib64/python3.6/site-packages/django/core/servers/__init__.py 2pyXh

@@ -1,1 +1,1 @@
-û€Cvenv/lib64/python3.6/site-packages/django/contrib/sites/managers.py 2pyX=h
+û€Evenv/lib64/python3.6/site-packages/django/contrib/sites/middleware.py 2pyXh

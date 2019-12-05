@@ -1,1 +1,1 @@
-¢êLvenv/lib64/python3.6/site-packages/django/db/backends/postgresql/__init__.py 2pyXh
+¢êJvenv/lib64/python3.6/site-packages/django/db/backends/postgresql/schema.py 2pyXŽh

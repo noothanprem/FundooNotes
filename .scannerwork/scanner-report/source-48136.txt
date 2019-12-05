@@ -1,380 +1,283 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-"""
-Tests for L{twisted.internet.stdio}.
 
-@var properEnv: A copy of L{os.environ} which has L{bytes} keys/values on POSIX
-    platforms and native L{str} keys/values on Windows.
-"""
-
-from __future__ import absolute_import, division
-
-import os
-import sys
-import itertools
+import sys, os
+import types
 
 from twisted.trial import unittest
-from twisted.python import filepath, log
-from twisted.python.reflect import requireModule
-from twisted.python.runtime import platform
-from twisted.python.compat import range, intToBytes, bytesEnviron
-from twisted.internet import error, defer, protocol, stdio, reactor
-from twisted.test.test_tcp import ConnectionLostNotifyingProtocol
+from twisted.python import rebuild
+from twisted.python.compat import _PY3
 
+from . import crash_test_dummy
+f = crash_test_dummy.foo
 
-# A short string which is intended to appear here and nowhere else,
-# particularly not in any random garbage output CPython unavoidable
-# generates (such as in warning text and so forth).  This is searched
-# for in the output from stdio_test_lastwrite and if it is found at
-# the end, the functionality works.
-UNIQUE_LAST_WRITE_STRING = b'xyz123abc Twisted is great!'
+class Foo: pass
+class Bar(Foo): pass
+class Baz(object): pass
+class Buz(Bar, Baz): pass
 
-skipWindowsNopywin32 = None
-if platform.isWindows():
-    if requireModule('win32process') is None:
-        skipWindowsNopywin32 = ("On windows, spawnProcess is not available "
-                                "in the absence of win32process.")
-    properEnv = dict(os.environ)
-    properEnv["PYTHONPATH"] = os.pathsep.join(sys.path)
-else:
-    properEnv = bytesEnviron()
-    properEnv[b"PYTHONPATH"] = os.pathsep.join(sys.path).encode(
-        sys.getfilesystemencoding())
-
-
-class StandardIOTestProcessProtocol(protocol.ProcessProtocol):
+class HashRaisesRuntimeError:
     """
-    Test helper for collecting output from a child process and notifying
-    something when it exits.
+    Things that don't hash (raise an Exception) should be ignored by the
+    rebuilder.
 
-    @ivar onConnection: A L{defer.Deferred} which will be called back with
-    L{None} when the connection to the child process is established.
-
-    @ivar onCompletion: A L{defer.Deferred} which will be errbacked with the
-    failure associated with the child process exiting when it exits.
-
-    @ivar onDataReceived: A L{defer.Deferred} which will be called back with
-    this instance whenever C{childDataReceived} is called, or L{None} to
-    suppress these callbacks.
-
-    @ivar data: A C{dict} mapping file descriptors to strings containing all
-    bytes received from the child process on each file descriptor.
+    @ivar hashCalled: C{bool} set to True when __hash__ is called.
     """
-    onDataReceived = None
-
     def __init__(self):
-        self.onConnection = defer.Deferred()
-        self.onCompletion = defer.Deferred()
-        self.data = {}
+        self.hashCalled = False
 
 
-    def connectionMade(self):
-        self.onConnection.callback(None)
+    def __hash__(self):
+        self.hashCalled = True
+        raise RuntimeError('not a TypeError!')
 
 
-    def childDataReceived(self, name, bytes):
+
+# Set in test_hashException
+unhashableObject = None
+
+
+
+class RebuildTests(unittest.TestCase):
+    """
+    Simple testcase for rebuilding, to at least exercise the code.
+    """
+    def setUp(self):
+        self.libPath = self.mktemp()
+        os.mkdir(self.libPath)
+        self.fakelibPath = os.path.join(self.libPath,
+                                        'twisted_rebuild_fakelib')
+        os.mkdir(self.fakelibPath)
+        open(os.path.join(self.fakelibPath, '__init__.py'), 'w').close()
+        sys.path.insert(0, self.libPath)
+
+
+    def tearDown(self):
+        sys.path.remove(self.libPath)
+
+
+    def test_FileRebuild(self):
+        from twisted.python.util import sibpath
+        import shutil, time
+        shutil.copyfile(sibpath(__file__, "myrebuilder1.py"),
+                        os.path.join(self.fakelibPath, "myrebuilder.py"))
+        from twisted_rebuild_fakelib import myrebuilder
+        a = myrebuilder.A()
+        b = myrebuilder.B()
+        i = myrebuilder.Inherit()
+        self.assertEqual(a.a(), 'a')
+        # Necessary because the file has not "changed" if a second has not gone
+        # by in unix.  This sucks, but it's not often that you'll be doing more
+        # than one reload per second.
+        time.sleep(1.1)
+        shutil.copyfile(sibpath(__file__, "myrebuilder2.py"),
+                        os.path.join(self.fakelibPath, "myrebuilder.py"))
+        rebuild.rebuild(myrebuilder)
+        b2 = myrebuilder.B()
+        self.assertEqual(b2.b(), 'c')
+        self.assertEqual(b.b(), 'c')
+        self.assertEqual(i.a(), 'd')
+        self.assertEqual(a.a(), 'b')
+
+
+    def test_Rebuild(self):
         """
-        Record all bytes received from the child process in the C{data}
-        dictionary.  Fire C{onDataReceived} if it is not L{None}.
+        Rebuilding an unchanged module.
         """
-        self.data[name] = self.data.get(name, b'') + bytes
-        if self.onDataReceived is not None:
-            d, self.onDataReceived = self.onDataReceived, None
-            d.callback(self)
+        # This test would actually pass if rebuild was a no-op, but it
+        # ensures rebuild doesn't break stuff while being a less
+        # complex test than testFileRebuild.
+
+        x = crash_test_dummy.X('a')
+
+        rebuild.rebuild(crash_test_dummy, doLog=False)
+        # Instance rebuilding is triggered by attribute access.
+        x.do()
+        self.assertEqual(x.__class__, crash_test_dummy.X)
+
+        self.assertEqual(f, crash_test_dummy.foo)
 
 
-    def processEnded(self, reason):
-        self.onCompletion.callback(reason)
+    def test_ComponentInteraction(self):
+        x = crash_test_dummy.XComponent()
+        x.setAdapter(crash_test_dummy.IX, crash_test_dummy.XA)
+        x.getComponent(crash_test_dummy.IX)
+        rebuild.rebuild(crash_test_dummy, 0)
+        newComponent = x.getComponent(crash_test_dummy.IX)
+
+        newComponent.method()
+
+        self.assertEqual(newComponent.__class__, crash_test_dummy.XA)
+
+        # Test that a duplicate registerAdapter is not allowed
+        from twisted.python import components
+        self.assertRaises(ValueError, components.registerAdapter,
+                              crash_test_dummy.XA, crash_test_dummy.X,
+                              crash_test_dummy.IX)
 
 
+    def test_UpdateInstance(self):
+        global Foo, Buz
 
-class StandardInputOutputTests(unittest.TestCase):
+        b = Buz()
 
-    skip = skipWindowsNopywin32
+        class Foo:
+            def foo(self):
+                """
+                Dummy method
+                """
 
-    def _spawnProcess(self, proto, sibling, *args, **kw):
+        class Buz(Bar, Baz):
+            x = 10
+
+        rebuild.updateInstance(b)
+        assert hasattr(b, 'foo'), "Missing method on rebuilt instance"
+        assert hasattr(b, 'x'), "Missing class attribute on rebuilt instance"
+
+
+    def test_BananaInteraction(self):
+        from twisted.python import rebuild
+        from twisted.spread import banana
+        rebuild.latestClass(banana.Banana)
+
+
+    def test_hashException(self):
         """
-        Launch a child Python process and communicate with it using the
-        given ProcessProtocol.
-
-        @param proto: A L{ProcessProtocol} instance which will be connected
-        to the child process.
-
-        @param sibling: The basename of a file containing the Python program
-        to run in the child process.
-
-        @param *args: strings which will be passed to the child process on
-        the command line as C{argv[2:]}.
-
-        @param **kw: additional arguments to pass to L{reactor.spawnProcess}.
-
-        @return: The L{IProcessTransport} provider for the spawned process.
+        Rebuilding something that has a __hash__ that raises a non-TypeError
+        shouldn't cause rebuild to die.
         """
-        args = [sys.executable,
-                b"-m", b"twisted.test." + sibling,
-                reactor.__class__.__module__] + list(args)
-        return reactor.spawnProcess(
-            proto,
-            sys.executable,
-            args,
-            env=properEnv,
-            **kw)
+        global unhashableObject
+        unhashableObject = HashRaisesRuntimeError()
+        def _cleanup():
+            global unhashableObject
+            unhashableObject = None
+        self.addCleanup(_cleanup)
+        rebuild.rebuild(rebuild)
+        self.assertTrue(unhashableObject.hashCalled)
 
 
-    def _requireFailure(self, d, callback):
-        def cb(result):
-            self.fail("Process terminated with non-Failure: %r" % (result,))
-        def eb(err):
-            return callback(err)
-        return d.addCallbacks(cb, eb)
-
-
-    def test_loseConnection(self):
+    def test_Sensitive(self):
         """
-        Verify that a protocol connected to L{StandardIO} can disconnect
-        itself using C{transport.loseConnection}.
+        L{twisted.python.rebuild.Sensitive}
         """
-        errorLogFile = self.mktemp()
-        log.msg("Child process logging to " + errorLogFile)
-        p = StandardIOTestProcessProtocol()
-        d = p.onCompletion
-        self._spawnProcess(p, b'stdio_test_loseconn', errorLogFile)
+        from twisted.python import rebuild
+        from twisted.python.rebuild import Sensitive
 
-        def processEnded(reason):
-            # Copy the child's log to ours so it's more visible.
-            with open(errorLogFile, 'r') as f:
-                for line in f:
-                    log.msg("Child logged: " + line.rstrip())
+        class TestSensitive(Sensitive):
+            def test_method(self):
+                """
+                Dummy method
+                """
 
-            self.failIfIn(1, p.data)
-            reason.trap(error.ProcessDone)
-        return self._requireFailure(d, processEnded)
+        testSensitive = TestSensitive()
+        testSensitive.rebuildUpToDate()
+        self.assertFalse(testSensitive.needRebuildUpdate())
 
+        # Test rebuilding a builtin class
+        newException = rebuild.latestClass(Exception)
+        if _PY3:
+            self.assertEqual(repr(Exception), repr(newException))
+        else:
+            self.assertIn('twisted.python.rebuild.Exception', repr(newException))
+        self.assertEqual(newException, testSensitive.latestVersionOf(newException))
 
-    def test_readConnectionLost(self):
-        """
-        When stdin is closed and the protocol connected to it implements
-        L{IHalfCloseableProtocol}, the protocol's C{readConnectionLost} method
-        is called.
-        """
-        errorLogFile = self.mktemp()
-        log.msg("Child process logging to " + errorLogFile)
-        p = StandardIOTestProcessProtocol()
-        p.onDataReceived = defer.Deferred()
+        # Test types.MethodType on method in class
+        self.assertEqual(TestSensitive.test_method,
+            testSensitive.latestVersionOf(TestSensitive.test_method))
+        # Test types.MethodType on method in instance of class
+        self.assertEqual(testSensitive.test_method,
+            testSensitive.latestVersionOf(testSensitive.test_method))
+        # Test a class
+        self.assertEqual(TestSensitive,
+            testSensitive.latestVersionOf(TestSensitive))
 
-        def cbBytes(ignored):
-            d = p.onCompletion
-            p.transport.closeStdin()
-            return d
-        p.onDataReceived.addCallback(cbBytes)
-
-        def processEnded(reason):
-            reason.trap(error.ProcessDone)
-        d = self._requireFailure(p.onDataReceived, processEnded)
-
-        self._spawnProcess(
-            p, b'stdio_test_halfclose', errorLogFile)
-        return d
-
-
-    def test_lastWriteReceived(self):
-        """
-        Verify that a write made directly to stdout using L{os.write}
-        after StandardIO has finished is reliably received by the
-        process reading that stdout.
-        """
-        p = StandardIOTestProcessProtocol()
-
-        # Note: the macOS bug which prompted the addition of this test
-        # is an apparent race condition involving non-blocking PTYs.
-        # Delaying the parent process significantly increases the
-        # likelihood of the race going the wrong way.  If you need to
-        # fiddle with this code at all, uncommenting the next line
-        # will likely make your life much easier.  It is commented out
-        # because it makes the test quite slow.
-
-        # p.onConnection.addCallback(lambda ign: __import__('time').sleep(5))
-
-        try:
-            self._spawnProcess(
-                p, b'stdio_test_lastwrite', UNIQUE_LAST_WRITE_STRING,
-                usePTY=True)
-        except ValueError as e:
-            # Some platforms don't work with usePTY=True
-            raise unittest.SkipTest(str(e))
-
-        def processEnded(reason):
+        class Foo:
             """
-            Asserts that the parent received the bytes written by the child
-            immediately after the child starts.
+            Dummy class
             """
-            self.assertTrue(
-                p.data[1].endswith(UNIQUE_LAST_WRITE_STRING),
-                "Received %r from child, did not find expected bytes." % (
-                    p.data,))
-            reason.trap(error.ProcessDone)
-        return self._requireFailure(p.onCompletion, processEnded)
+
+        foo = Foo()
+
+        # Test types.InstanceType
+        self.assertEqual(foo, testSensitive.latestVersionOf(foo))
+
+        def myFunction():
+            """
+            Dummy method
+            """
+
+        # Test types.FunctionType
+        self.assertEqual(myFunction, testSensitive.latestVersionOf(myFunction))
 
 
-    def test_hostAndPeer(self):
+
+class NewStyleTests(unittest.TestCase):
+    """
+    Tests for rebuilding new-style classes of various sorts.
+    """
+    def setUp(self):
+        self.m = types.ModuleType('whipping')
+        sys.modules['whipping'] = self.m
+
+
+    def tearDown(self):
+        del sys.modules['whipping']
+        del self.m
+
+
+    def test_slots(self):
         """
-        Verify that the transport of a protocol connected to L{StandardIO}
-        has C{getHost} and C{getPeer} methods.
+        Try to rebuild a new style class with slots defined.
         """
-        p = StandardIOTestProcessProtocol()
-        d = p.onCompletion
-        self._spawnProcess(p, b'stdio_test_hostpeer')
+        classDefinition = (
+            "class SlottedClass(object):\n"
+            "    __slots__ = ['a']\n")
 
-        def processEnded(reason):
-            host, peer = p.data[1].splitlines()
-            self.assertTrue(host)
-            self.assertTrue(peer)
-            reason.trap(error.ProcessDone)
-        return self._requireFailure(d, processEnded)
+        exec(classDefinition, self.m.__dict__)
+        inst = self.m.SlottedClass()
+        inst.a = 7
+        exec(classDefinition, self.m.__dict__)
+        rebuild.updateInstance(inst)
+        self.assertEqual(inst.a, 7)
+        self.assertIs(type(inst), self.m.SlottedClass)
 
 
-    def test_write(self):
+    def test_typeSubclass(self):
         """
-        Verify that the C{write} method of the transport of a protocol
-        connected to L{StandardIO} sends bytes to standard out.
+        Try to rebuild a base type subclass.
         """
-        p = StandardIOTestProcessProtocol()
-        d = p.onCompletion
+        classDefinition = (
+            "class ListSubclass(list):\n"
+            "    pass\n")
 
-        self._spawnProcess(p, b'stdio_test_write')
+        exec(classDefinition, self.m.__dict__)
+        inst = self.m.ListSubclass()
+        inst.append(2)
+        exec(classDefinition, self.m.__dict__)
+        rebuild.updateInstance(inst)
+        self.assertEqual(inst[0], 2)
+        self.assertIs(type(inst), self.m.ListSubclass)
 
-        def processEnded(reason):
-            self.assertEqual(p.data[1], b'ok!')
-            reason.trap(error.ProcessDone)
-        return self._requireFailure(d, processEnded)
 
-
-    def test_writeSequence(self):
+    def test_instanceSlots(self):
         """
-        Verify that the C{writeSequence} method of the transport of a
-        protocol connected to L{StandardIO} sends bytes to standard out.
+        Test that when rebuilding an instance with a __slots__ attribute, it
+        fails accurately instead of giving a L{rebuild.RebuildError}.
         """
-        p = StandardIOTestProcessProtocol()
-        d = p.onCompletion
+        classDefinition = (
+            "class NotSlottedClass(object):\n"
+            "    pass\n")
 
-        self._spawnProcess(p, b'stdio_test_writeseq')
+        exec(classDefinition, self.m.__dict__)
+        inst = self.m.NotSlottedClass()
+        inst.__slots__ = ['a']
+        classDefinition = (
+            "class NotSlottedClass:\n"
+            "    pass\n")
+        exec(classDefinition, self.m.__dict__)
+        # Moving from new-style class to old-style should fail.
+        self.assertRaises(TypeError, rebuild.updateInstance, inst)
 
-        def processEnded(reason):
-            self.assertEqual(p.data[1], b'ok!')
-            reason.trap(error.ProcessDone)
-        return self._requireFailure(d, processEnded)
-
-
-    def _junkPath(self):
-        junkPath = self.mktemp()
-        with open(junkPath, 'wb') as junkFile:
-            for i in range(1024):
-                junkFile.write(intToBytes(i) + b'\n')
-        return junkPath
-
-
-    def test_producer(self):
-        """
-        Verify that the transport of a protocol connected to L{StandardIO}
-        is a working L{IProducer} provider.
-        """
-        p = StandardIOTestProcessProtocol()
-        d = p.onCompletion
-
-        written = []
-        toWrite = list(range(100))
-
-        def connectionMade(ign):
-            if toWrite:
-                written.append(intToBytes(toWrite.pop()) + b"\n")
-                proc.write(written[-1])
-                reactor.callLater(0.01, connectionMade, None)
-
-        proc = self._spawnProcess(p, b'stdio_test_producer')
-
-        p.onConnection.addCallback(connectionMade)
-
-        def processEnded(reason):
-            self.assertEqual(p.data[1], b''.join(written))
-            self.assertFalse(
-                toWrite,
-                "Connection lost with %d writes left to go." % (len(toWrite),))
-            reason.trap(error.ProcessDone)
-        return self._requireFailure(d, processEnded)
-
-
-    def test_consumer(self):
-        """
-        Verify that the transport of a protocol connected to L{StandardIO}
-        is a working L{IConsumer} provider.
-        """
-        p = StandardIOTestProcessProtocol()
-        d = p.onCompletion
-
-        junkPath = self._junkPath()
-
-        self._spawnProcess(p, b'stdio_test_consumer', junkPath)
-
-        def processEnded(reason):
-            with open(junkPath, 'rb') as f:
-                self.assertEqual(p.data[1], f.read())
-            reason.trap(error.ProcessDone)
-        return self._requireFailure(d, processEnded)
-
-
-    def test_normalFileStandardOut(self):
-        """
-        If L{StandardIO} is created with a file descriptor which refers to a
-        normal file (ie, a file from the filesystem), L{StandardIO.write}
-        writes bytes to that file.  In particular, it does not immediately
-        consider the file closed or call its protocol's C{connectionLost}
-        method.
-        """
-        onConnLost = defer.Deferred()
-        proto = ConnectionLostNotifyingProtocol(onConnLost)
-        path = filepath.FilePath(self.mktemp())
-        self.normal = normal = path.open('wb')
-        self.addCleanup(normal.close)
-
-        kwargs = dict(stdout=normal.fileno())
-        if not platform.isWindows():
-            # Make a fake stdin so that StandardIO doesn't mess with the *real*
-            # stdin.
-            r, w = os.pipe()
-            self.addCleanup(os.close, r)
-            self.addCleanup(os.close, w)
-            kwargs['stdin'] = r
-        connection = stdio.StandardIO(proto, **kwargs)
-
-        # The reactor needs to spin a bit before it might have incorrectly
-        # decided stdout is closed.  Use this counter to keep track of how
-        # much we've let it spin.  If it closes before we expected, this
-        # counter will have a value that's too small and we'll know.
-        howMany = 5
-        count = itertools.count()
-
-        def spin():
-            for value in count:
-                if value == howMany:
-                    connection.loseConnection()
-                    return
-                connection.write(intToBytes(value))
-                break
-            reactor.callLater(0, spin)
-        reactor.callLater(0, spin)
-
-        # Once the connection is lost, make sure the counter is at the
-        # appropriate value.
-        def cbLost(reason):
-            self.assertEqual(next(count), howMany + 1)
-            self.assertEqual(
-                path.getContent(),
-                b''.join(map(intToBytes, range(howMany))))
-        onConnLost.addCallback(cbLost)
-        return onConnLost
-
-    if platform.isWindows():
-        test_normalFileStandardOut.skip = (
-            "StandardIO does not accept stdout as an argument to Windows.  "
-            "Testing redirection to a file is therefore harder.")
+    if getattr(types, 'ClassType', None) is None:
+        test_instanceSlots.skip = "Old-style classes not supported on Python 3"

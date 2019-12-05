@@ -1,58 +1,19 @@
-import gevent
 import sys
-import gevent.testing as greentest
-from gevent.testing import six
-from gevent.testing import ExpectedException as ExpectedError
+import unittest
 
-if not six.PY3:
-    sys.exc_clear()
+@unittest.skipUnless(
+    sys.version_info[0] == 2,
+    "Only on Python 2"
+)
+class Test(unittest.TestCase):
 
-class RawException(Exception):
-    pass
+    def test(self):
+        import threading
+        import gevent.monkey
+        gevent.monkey.patch_all()
+        import gevent
 
-
-def hello(err):
-    assert sys.exc_info() == (None, None, None), sys.exc_info()
-    raise err
-
-
-def hello2():
-    try:
-        hello(ExpectedError('expected exception in hello'))
-    except ExpectedError:
-        pass
-
-
-class Test(greentest.TestCase):
-
-    def test1(self):
-        error = RawException('hello')
-        expected_error = ExpectedError('expected exception in hello')
-        try:
-            raise error
-        except RawException:
-            self.expect_one_error()
-            g = gevent.spawn(hello, expected_error)
-            g.join()
-            self.assert_error(ExpectedError, expected_error)
-            self.assertIsInstance(g.exception, ExpectedError)
-
-            try:
-                raise
-            except: # pylint:disable=bare-except
-                ex = sys.exc_info()[1]
-                self.assertIs(ex, error)
-
-    def test2(self):
-        timer = gevent.get_hub().loop.timer(0)
-        timer.start(hello2)
-        try:
-            gevent.sleep(0.1)
-            self.assertEqual(sys.exc_info(), (None, None, None))
-        finally:
-            timer.close()
-
-
+        self.assertIs(threading._sleep, gevent.sleep)
 
 if __name__ == '__main__':
-    greentest.main()
+    unittest.main()

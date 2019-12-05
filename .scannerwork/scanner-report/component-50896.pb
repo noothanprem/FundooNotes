@@ -1,1 +1,1 @@
-Ğavenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet/langbulgarianmodel.py 2pyXåh
+ĞKvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet :uÎÏÑÒÓÔÕÖ×ÛÜİŞßàáâãäåæçèéêëìíîï—˜™š›œŸ

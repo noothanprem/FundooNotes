@@ -1,1 +1,1 @@
-ªEDvenv/lib/python3.6/site-packages/django/conf/locale/pt_BR/formats.py 2pyX"h
+ªE9venv/lib/python3.6/site-packages/django/conf/locale/pt_BR :©E«E

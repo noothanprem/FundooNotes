@@ -1,37 +1,59 @@
-import functools
+from collections import abc
+
+__metaclass__ = type
 
 
-def once(func):
+class ClassProperty(property):
     """
-    Decorate func so it's only ever called the first time.
+    An implementation of a property callable on a class. Used to decorate a
+    classmethod but to then treat it like a property.
 
-    This decorator can ensure that an expensive or non-idempotent function
-    will not be expensive on subsequent calls and is idempotent.
+    Example:
 
-    >>> func = once(lambda a: a+3)
-    >>> func(3)
-    6
-    >>> func(9)
-    6
-    >>> func('12')
-    6
+    >>> class MyClass:
+    ...    @ClassProperty
+    ...    @classmethod
+    ...    def skillz(cls):
+    ...        return cls.__name__.startswith('My')
+    >>> MyClass.skillz
+    True
+    >>> class YourClass(MyClass): pass
+    >>> YourClass.skillz
+    False
     """
 
-    def wrapper(*args, **kwargs):
-        if not hasattr(func, 'always_returns'):
-            func.always_returns = func(*args, **kwargs)
-        return func.always_returns
-
-    return functools.wraps(func)(wrapper)
+    def __get__(self, cls, owner):
+        return self.fget.__get__(None, owner)()
 
 
-def suppress_exceptions(callables, exceptions=Exception):
+# borrowed from jaraco.util.dictlib
+
+
+class NonDataProperty:
+    """Much like the property builtin, but only implements __get__,
+    making it a non-data property, and can be subsequently reset.
+
+    See http://users.rcn.com/python/download/Descriptor.htm for more
+    information.
+
+    >>> class X:
+    ...   @NonDataProperty
+    ...   def foo(self):
+    ...     return 3
+    >>> x = X()
+    >>> x.foo
+    3
+    >>> x.foo = 4
+    >>> x.foo
+    4
     """
-    yield the results of calling each element of callables, suppressing
-    any indicated exceptions.
-    """
-    for callable in callables:
-        try:
-            yield callable()
-        except exceptions:
-            pass
+
+    def __init__(self, fget):
+        assert fget is not None, "fget cannot be none"
+        assert isinstance(fget, abc.Callable), "fget must be callable"
+        self.fget = fget
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return self.fget(obj)

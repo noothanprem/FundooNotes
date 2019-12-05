@@ -1,385 +1,389 @@
 # -*- coding: utf-8 -*-
-"""
-    werkzeug.contrib.wrappers
+r"""
+    werkzeug.contrib.sessions
     ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    Extra wrappers or mixins contributed by the community.  These wrappers can
-    be mixed in into request objects to add extra functionality.
+    This module contains some helper classes that help one to add session
+    support to a python WSGI application.  For full client-side session
+    storage see :mod:`~werkzeug.contrib.securecookie` which implements a
+    secure, client-side session storage.
 
-    Example::
 
-        from werkzeug.wrappers import Request as RequestBase
-        from werkzeug.contrib.wrappers import JSONRequestMixin
+    Application Integration
+    =======================
 
-        class Request(RequestBase, JSONRequestMixin):
-            pass
+    ::
 
-    Afterwards this request object provides the extra functionality of the
-    :class:`JSONRequestMixin`.
+        from werkzeug.contrib.sessions import SessionMiddleware, \
+             FilesystemSessionStore
+
+        app = SessionMiddleware(app, FilesystemSessionStore())
+
+    The current session will then appear in the WSGI environment as
+    `werkzeug.session`.  However it's recommended to not use the middleware
+    but the stores directly in the application.  However for very simple
+    scripts a middleware for sessions could be sufficient.
+
+    This module does not implement methods or ways to check if a session is
+    expired.  That should be done by a cronjob and storage specific.  For
+    example to prune unused filesystem sessions one could check the modified
+    time of the files.  If sessions are stored in the database the new()
+    method should add an expiration timestamp for the session.
+
+    For better flexibility it's recommended to not use the middleware but the
+    store and session object directly in the application dispatching::
+
+        session_store = FilesystemSessionStore()
+
+        def application(environ, start_response):
+            request = Request(environ)
+            sid = request.cookies.get('cookie_name')
+            if sid is None:
+                request.session = session_store.new()
+            else:
+                request.session = session_store.get(sid)
+            response = get_the_response_object(request)
+            if request.session.should_save:
+                session_store.save(request.session)
+                response.set_cookie('cookie_name', request.session.sid)
+            return response(environ, start_response)
 
     :copyright: 2007 Pallets
     :license: BSD-3-Clause
 """
-import codecs
+import os
+import re
+import tempfile
 import warnings
+from hashlib import sha1
+from os import path
+from pickle import dump
+from pickle import HIGHEST_PROTOCOL
+from pickle import load
+from random import random
+from time import time
 
-from .._compat import wsgi_decoding_dance
-from ..exceptions import BadRequest
-from ..http import dump_options_header
-from ..http import parse_options_header
-from ..utils import cached_property
-from ..wrappers.json import JSONMixin as _JSONMixin
+from .._compat import PY2
+from .._compat import text_type
+from ..datastructures import CallbackDict
+from ..filesystem import get_filesystem_encoding
+from ..http import dump_cookie
+from ..http import parse_cookie
+from ..posixemulation import rename
+from ..wsgi import ClosingIterator
+
+warnings.warn(
+    "'werkzeug.contrib.sessions' is deprecated as of version 0.15 and"
+    " will be removed in version 1.0. It has moved to"
+    " https://github.com/pallets/secure-cookie.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+_sha1_re = re.compile(r"^[a-f0-9]{40}$")
 
 
-def is_known_charset(charset):
-    """Checks if the given charset is known to Python."""
-    try:
-        codecs.lookup(charset)
-    except LookupError:
-        return False
-    return True
+def _urandom():
+    if hasattr(os, "urandom"):
+        return os.urandom(30)
+    return text_type(random()).encode("ascii")
 
 
-class JSONRequestMixin(_JSONMixin):
+def generate_key(salt=None):
+    if salt is None:
+        salt = repr(salt).encode("ascii")
+    return sha1(b"".join([salt, str(time()).encode("ascii"), _urandom()])).hexdigest()
+
+
+class ModificationTrackingDict(CallbackDict):
+    __slots__ = ("modified",)
+
+    def __init__(self, *args, **kwargs):
+        def on_update(self):
+            self.modified = True
+
+        self.modified = False
+        CallbackDict.__init__(self, on_update=on_update)
+        dict.update(self, *args, **kwargs)
+
+    def copy(self):
+        """Create a flat copy of the dict."""
+        missing = object()
+        result = object.__new__(self.__class__)
+        for name in self.__slots__:
+            val = getattr(self, name, missing)
+            if val is not missing:
+                setattr(result, name, val)
+        return result
+
+    def __copy__(self):
+        return self.copy()
+
+
+class Session(ModificationTrackingDict):
+    """Subclass of a dict that keeps track of direct object changes.  Changes
+    in mutable structures are not tracked, for those you have to set
+    `modified` to `True` by hand.
     """
-    .. deprecated:: 0.15
-        Moved to :class:`werkzeug.wrappers.json.JSONMixin`. This old
-        import will be removed in version 1.0.
-    """
+
+    __slots__ = ModificationTrackingDict.__slots__ + ("sid", "new")
+
+    def __init__(self, data, sid, new=False):
+        ModificationTrackingDict.__init__(self, data)
+        self.sid = sid
+        self.new = new
+
+    def __repr__(self):
+        return "<%s %s%s>" % (
+            self.__class__.__name__,
+            dict.__repr__(self),
+            "*" if self.should_save else "",
+        )
 
     @property
-    def json(self):
-        warnings.warn(
-            "'werkzeug.contrib.wrappers.JSONRequestMixin' has moved to"
-            " 'werkzeug.wrappers.json.JSONMixin'. This old import will"
-            " be removed in version 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return super(JSONRequestMixin, self).json
+    def should_save(self):
+        """True if the session should be saved.
+
+        .. versionchanged:: 0.6
+           By default the session is now only saved if the session is
+           modified, not if it is new like it was before.
+        """
+        return self.modified
 
 
-class ProtobufRequestMixin(object):
+class SessionStore(object):
+    """Baseclass for all session stores.  The Werkzeug contrib module does not
+    implement any useful stores besides the filesystem store, application
+    developers are encouraged to create their own stores.
 
-    """Add protobuf parsing method to a request object.  This will parse the
-    input data through `protobuf`_ if possible.
-
-    :exc:`~werkzeug.exceptions.BadRequest` will be raised if the content-type
-    is not protobuf or if the data itself cannot be parsed property.
-
-    .. _protobuf: https://github.com/protocolbuffers/protobuf
-
-    .. deprecated:: 0.15
-        This mixin will be removed in version 1.0.
+    :param session_class: The session class to use.  Defaults to
+                          :class:`Session`.
     """
 
-    #: by default the :class:`ProtobufRequestMixin` will raise a
-    #: :exc:`~werkzeug.exceptions.BadRequest` if the object is not
-    #: initialized.  You can bypass that check by setting this
-    #: attribute to `False`.
-    protobuf_check_initialization = True
+    def __init__(self, session_class=None):
+        if session_class is None:
+            session_class = Session
+        self.session_class = session_class
 
-    def parse_protobuf(self, proto_type):
-        """Parse the data into an instance of proto_type."""
-        warnings.warn(
-            "'werkzeug.contrib.wrappers.ProtobufRequestMixin' is"
-            " deprecated as of version 0.15 and will be removed in"
-            " version 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
+    def is_valid_key(self, key):
+        """Check if a key has the correct format."""
+        return _sha1_re.match(key) is not None
+
+    def generate_key(self, salt=None):
+        """Simple function that generates a new session key."""
+        return generate_key(salt)
+
+    def new(self):
+        """Generate a new session."""
+        return self.session_class({}, self.generate_key(), True)
+
+    def save(self, session):
+        """Save a session."""
+
+    def save_if_modified(self, session):
+        """Save if a session class wants an update."""
+        if session.should_save:
+            self.save(session)
+
+    def delete(self, session):
+        """Delete a session."""
+
+    def get(self, sid):
+        """Get a session for this sid or a new session object.  This method
+        has to check if the session key is valid and create a new session if
+        that wasn't the case.
+        """
+        return self.session_class({}, sid, True)
+
+
+#: used for temporary files by the filesystem session store
+_fs_transaction_suffix = ".__wz_sess"
+
+
+class FilesystemSessionStore(SessionStore):
+    """Simple example session store that saves sessions on the filesystem.
+    This store works best on POSIX systems and Windows Vista / Windows
+    Server 2008 and newer.
+
+    .. versionchanged:: 0.6
+       `renew_missing` was added.  Previously this was considered `True`,
+       now the default changed to `False` and it can be explicitly
+       deactivated.
+
+    :param path: the path to the folder used for storing the sessions.
+                 If not provided the default temporary directory is used.
+    :param filename_template: a string template used to give the session
+                              a filename.  ``%s`` is replaced with the
+                              session id.
+    :param session_class: The session class to use.  Defaults to
+                          :class:`Session`.
+    :param renew_missing: set to `True` if you want the store to
+                          give the user a new sid if the session was
+                          not yet saved.
+    """
+
+    def __init__(
+        self,
+        path=None,
+        filename_template="werkzeug_%s.sess",
+        session_class=None,
+        renew_missing=False,
+        mode=0o644,
+    ):
+        SessionStore.__init__(self, session_class)
+        if path is None:
+            path = tempfile.gettempdir()
+        self.path = path
+        if isinstance(filename_template, text_type) and PY2:
+            filename_template = filename_template.encode(get_filesystem_encoding())
+        assert not filename_template.endswith(_fs_transaction_suffix), (
+            "filename templates may not end with %s" % _fs_transaction_suffix
         )
-        if "protobuf" not in self.environ.get("CONTENT_TYPE", ""):
-            raise BadRequest("Not a Protobuf request")
+        self.filename_template = filename_template
+        self.renew_missing = renew_missing
+        self.mode = mode
 
-        obj = proto_type()
+    def get_session_filename(self, sid):
+        # out of the box, this should be a strict ASCII subset but
+        # you might reconfigure the session object to have a more
+        # arbitrary string.
+        if isinstance(sid, text_type) and PY2:
+            sid = sid.encode(get_filesystem_encoding())
+        return path.join(self.path, self.filename_template % sid)
+
+    def save(self, session):
+        fn = self.get_session_filename(session.sid)
+        fd, tmp = tempfile.mkstemp(suffix=_fs_transaction_suffix, dir=self.path)
+        f = os.fdopen(fd, "wb")
         try:
-            obj.ParseFromString(self.data)
-        except Exception:
-            raise BadRequest("Unable to parse Protobuf request")
-
-        # Fail if not all required fields are set
-        if self.protobuf_check_initialization and not obj.IsInitialized():
-            raise BadRequest("Partial Protobuf request")
-
-        return obj
-
-
-class RoutingArgsRequestMixin(object):
-
-    """This request mixin adds support for the wsgiorg routing args
-    `specification`_.
-
-    .. _specification: https://wsgi.readthedocs.io/en/latest/
-       specifications/routing_args.html
-
-    .. deprecated:: 0.15
-        This mixin will be removed in version 1.0.
-    """
-
-    def _get_routing_args(self):
-        warnings.warn(
-            "'werkzeug.contrib.wrappers.RoutingArgsRequestMixin' is"
-            " deprecated as of version 0.15 and will be removed in"
-            " version 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.environ.get("wsgiorg.routing_args", (()))[0]
-
-    def _set_routing_args(self, value):
-        warnings.warn(
-            "'werkzeug.contrib.wrappers.RoutingArgsRequestMixin' is"
-            " deprecated as of version 0.15 and will be removed in"
-            " version 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if self.shallow:
-            raise RuntimeError(
-                "A shallow request tried to modify the WSGI "
-                "environment.  If you really want to do that, "
-                "set `shallow` to False."
-            )
-        self.environ["wsgiorg.routing_args"] = (value, self.routing_vars)
-
-    routing_args = property(
-        _get_routing_args,
-        _set_routing_args,
-        doc="""
-        The positional URL arguments as `tuple`.""",
-    )
-    del _get_routing_args, _set_routing_args
-
-    def _get_routing_vars(self):
-        warnings.warn(
-            "'werkzeug.contrib.wrappers.RoutingArgsRequestMixin' is"
-            " deprecated as of version 0.15 and will be removed in"
-            " version 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        rv = self.environ.get("wsgiorg.routing_args")
-        if rv is not None:
-            return rv[1]
-        rv = {}
-        if not self.shallow:
-            self.routing_vars = rv
-        return rv
-
-    def _set_routing_vars(self, value):
-        warnings.warn(
-            "'werkzeug.contrib.wrappers.RoutingArgsRequestMixin' is"
-            " deprecated as of version 0.15 and will be removed in"
-            " version 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if self.shallow:
-            raise RuntimeError(
-                "A shallow request tried to modify the WSGI "
-                "environment.  If you really want to do that, "
-                "set `shallow` to False."
-            )
-        self.environ["wsgiorg.routing_args"] = (self.routing_args, value)
-
-    routing_vars = property(
-        _get_routing_vars,
-        _set_routing_vars,
-        doc="""
-        The keyword URL arguments as `dict`.""",
-    )
-    del _get_routing_vars, _set_routing_vars
-
-
-class ReverseSlashBehaviorRequestMixin(object):
-
-    """This mixin reverses the trailing slash behavior of :attr:`script_root`
-    and :attr:`path`.  This makes it possible to use :func:`~urlparse.urljoin`
-    directly on the paths.
-
-    Because it changes the behavior or :class:`Request` this class has to be
-    mixed in *before* the actual request class::
-
-        class MyRequest(ReverseSlashBehaviorRequestMixin, Request):
+            dump(dict(session), f, HIGHEST_PROTOCOL)
+        finally:
+            f.close()
+        try:
+            rename(tmp, fn)
+            os.chmod(fn, self.mode)
+        except (IOError, OSError):
             pass
 
-    This example shows the differences (for an application mounted on
-    `/application` and the request going to `/application/foo/bar`):
+    def delete(self, session):
+        fn = self.get_session_filename(session.sid)
+        try:
+            os.unlink(fn)
+        except OSError:
+            pass
 
-        +---------------+-------------------+---------------------+
-        |               | normal behavior   | reverse behavior    |
-        +===============+===================+=====================+
-        | `script_root` | ``/application``  | ``/application/``   |
-        +---------------+-------------------+---------------------+
-        | `path`        | ``/foo/bar``      | ``foo/bar``         |
-        +---------------+-------------------+---------------------+
+    def get(self, sid):
+        if not self.is_valid_key(sid):
+            return self.new()
+        try:
+            f = open(self.get_session_filename(sid), "rb")
+        except IOError:
+            if self.renew_missing:
+                return self.new()
+            data = {}
+        else:
+            try:
+                try:
+                    data = load(f)
+                except Exception:
+                    data = {}
+            finally:
+                f.close()
+        return self.session_class(data, sid, False)
 
-    .. deprecated:: 0.15
-        This mixin will be removed in version 1.0.
-    """
+    def list(self):
+        """Lists all sessions in the store.
 
-    @cached_property
-    def path(self):
-        """Requested path as unicode.  This works a bit like the regular path
-        info in the WSGI environment but will not include a leading slash.
+        .. versionadded:: 0.6
         """
-        warnings.warn(
-            "'werkzeug.contrib.wrappers.ReverseSlashBehaviorRequestMixin'"
-            " is deprecated as of version 0.15 and will be removed in"
-            " version 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
+        before, after = self.filename_template.split("%s", 1)
+        filename_re = re.compile(
+            r"%s(.{5,})%s$" % (re.escape(before), re.escape(after))
         )
-        path = wsgi_decoding_dance(
-            self.environ.get("PATH_INFO") or "", self.charset, self.encoding_errors
-        )
-        return path.lstrip("/")
-
-    @cached_property
-    def script_root(self):
-        """The root path of the script includling a trailing slash."""
-        warnings.warn(
-            "'werkzeug.contrib.wrappers.ReverseSlashBehaviorRequestMixin'"
-            " is deprecated as of version 0.15 and will be removed in"
-            " version 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        path = wsgi_decoding_dance(
-            self.environ.get("SCRIPT_NAME") or "", self.charset, self.encoding_errors
-        )
-        return path.rstrip("/") + "/"
+        result = []
+        for filename in os.listdir(self.path):
+            #: this is a session that is still being saved.
+            if filename.endswith(_fs_transaction_suffix):
+                continue
+            match = filename_re.match(filename)
+            if match is not None:
+                result.append(match.group(1))
+        return result
 
 
-class DynamicCharsetRequestMixin(object):
+class SessionMiddleware(object):
+    """A simple middleware that puts the session object of a store provided
+    into the WSGI environ.  It automatically sets cookies and restores
+    sessions.
 
-    """"If this mixin is mixed into a request class it will provide
-    a dynamic `charset` attribute.  This means that if the charset is
-    transmitted in the content type headers it's used from there.
+    However a middleware is not the preferred solution because it won't be as
+    fast as sessions managed by the application itself and will put a key into
+    the WSGI environment only relevant for the application which is against
+    the concept of WSGI.
 
-    Because it changes the behavior or :class:`Request` this class has
-    to be mixed in *before* the actual request class::
-
-        class MyRequest(DynamicCharsetRequestMixin, Request):
-            pass
-
-    By default the request object assumes that the URL charset is the
-    same as the data charset.  If the charset varies on each request
-    based on the transmitted data it's not a good idea to let the URLs
-    change based on that.  Most browsers assume either utf-8 or latin1
-    for the URLs if they have troubles figuring out.  It's strongly
-    recommended to set the URL charset to utf-8::
-
-        class MyRequest(DynamicCharsetRequestMixin, Request):
-            url_charset = 'utf-8'
-
-    .. deprecated:: 0.15
-        This mixin will be removed in version 1.0.
-
-    .. versionadded:: 0.6
+    The cookie parameters are the same as for the :func:`~dump_cookie`
+    function just prefixed with ``cookie_``.  Additionally `max_age` is
+    called `cookie_age` and not `cookie_max_age` because of backwards
+    compatibility.
     """
 
-    #: the default charset that is assumed if the content type header
-    #: is missing or does not contain a charset parameter.  The default
-    #: is latin1 which is what HTTP specifies as default charset.
-    #: You may however want to set this to utf-8 to better support
-    #: browsers that do not transmit a charset for incoming data.
-    default_charset = "latin1"
+    def __init__(
+        self,
+        app,
+        store,
+        cookie_name="session_id",
+        cookie_age=None,
+        cookie_expires=None,
+        cookie_path="/",
+        cookie_domain=None,
+        cookie_secure=None,
+        cookie_httponly=False,
+        cookie_samesite="Lax",
+        environ_key="werkzeug.session",
+    ):
+        self.app = app
+        self.store = store
+        self.cookie_name = cookie_name
+        self.cookie_age = cookie_age
+        self.cookie_expires = cookie_expires
+        self.cookie_path = cookie_path
+        self.cookie_domain = cookie_domain
+        self.cookie_secure = cookie_secure
+        self.cookie_httponly = cookie_httponly
+        self.cookie_samesite = cookie_samesite
+        self.environ_key = environ_key
 
-    def unknown_charset(self, charset):
-        """Called if a charset was provided but is not supported by
-        the Python codecs module.  By default latin1 is assumed then
-        to not lose any information, you may override this method to
-        change the behavior.
+    def __call__(self, environ, start_response):
+        cookie = parse_cookie(environ.get("HTTP_COOKIE", ""))
+        sid = cookie.get(self.cookie_name, None)
+        if sid is None:
+            session = self.store.new()
+        else:
+            session = self.store.get(sid)
+        environ[self.environ_key] = session
 
-        :param charset: the charset that was not found.
-        :return: the replacement charset.
-        """
-        return "latin1"
+        def injecting_start_response(status, headers, exc_info=None):
+            if session.should_save:
+                self.store.save(session)
+                headers.append(
+                    (
+                        "Set-Cookie",
+                        dump_cookie(
+                            self.cookie_name,
+                            session.sid,
+                            self.cookie_age,
+                            self.cookie_expires,
+                            self.cookie_path,
+                            self.cookie_domain,
+                            self.cookie_secure,
+                            self.cookie_httponly,
+                            samesite=self.cookie_samesite,
+                        ),
+                    )
+                )
+            return start_response(status, headers, exc_info)
 
-    @cached_property
-    def charset(self):
-        """The charset from the content type."""
-        warnings.warn(
-            "'werkzeug.contrib.wrappers.DynamicCharsetRequestMixin'"
-            " is deprecated as of version 0.15 and will be removed in"
-            " version 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
+        return ClosingIterator(
+            self.app(environ, injecting_start_response),
+            lambda: self.store.save_if_modified(session),
         )
-        header = self.environ.get("CONTENT_TYPE")
-        if header:
-            ct, options = parse_options_header(header)
-            charset = options.get("charset")
-            if charset:
-                if is_known_charset(charset):
-                    return charset
-                return self.unknown_charset(charset)
-        return self.default_charset
-
-
-class DynamicCharsetResponseMixin(object):
-
-    """If this mixin is mixed into a response class it will provide
-    a dynamic `charset` attribute.  This means that if the charset is
-    looked up and stored in the `Content-Type` header and updates
-    itself automatically.  This also means a small performance hit but
-    can be useful if you're working with different charsets on
-    responses.
-
-    Because the charset attribute is no a property at class-level, the
-    default value is stored in `default_charset`.
-
-    Because it changes the behavior or :class:`Response` this class has
-    to be mixed in *before* the actual response class::
-
-        class MyResponse(DynamicCharsetResponseMixin, Response):
-            pass
-
-    .. deprecated:: 0.15
-        This mixin will be removed in version 1.0.
-
-    .. versionadded:: 0.6
-    """
-
-    #: the default charset.
-    default_charset = "utf-8"
-
-    def _get_charset(self):
-        warnings.warn(
-            "'werkzeug.contrib.wrappers.DynamicCharsetResponseMixin'"
-            " is deprecated as of version 0.15 and will be removed in"
-            " version 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        header = self.headers.get("content-type")
-        if header:
-            charset = parse_options_header(header)[1].get("charset")
-            if charset:
-                return charset
-        return self.default_charset
-
-    def _set_charset(self, charset):
-        warnings.warn(
-            "'werkzeug.contrib.wrappers.DynamicCharsetResponseMixin'"
-            " is deprecated as of version 0.15 and will be removed in"
-            " version 1.0.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        header = self.headers.get("content-type")
-        ct, options = parse_options_header(header)
-        if not ct:
-            raise TypeError("Cannot set charset if Content-Type header is missing.")
-        options["charset"] = charset
-        self.headers["Content-Type"] = dump_options_header(ct, options)
-
-    charset = property(
-        _get_charset,
-        _set_charset,
-        doc="""
-        The charset for the response.  It's stored inside the
-        Content-Type header as a parameter.""",
-    )
-    del _get_charset, _set_charset

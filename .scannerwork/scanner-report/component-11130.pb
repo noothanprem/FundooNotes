@@ -1,1 +1,0 @@
-úV=venv/lib/python3.6/site-packages/faker/providers/person/ru_RU :ùV

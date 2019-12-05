@@ -1,1 +1,1 @@
-ноIvenv/lib64/python3.6/site-packages/google/protobuf/compiler/plugin_pb2.py 2pyX╫h
+но;venv/lib64/python3.6/site-packages/google/protobuf/compiler :мооо

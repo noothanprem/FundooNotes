@@ -1,1 +1,2 @@
-Ç{8venv/lib/python3.6/site-packages/pymacaroons/serializers :Å{É{Ñ{Ö{
+Ç{Dvenv/lib/python3.6/site-packages/pymacaroons/serializers/__init__.py 2pyX
+h

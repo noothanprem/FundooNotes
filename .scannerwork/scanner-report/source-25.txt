@@ -1,5 +1,26 @@
-from django.core.mail import send_mail
+from rest_framework import serializers
+from .models import Img, Note, Label
 
 
-def send_reminder_mail(subject, message, sender, reciever):
-    send_mail(subject,message,sender,[reciever])
+class UploadImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Img
+        fields = ['imgs']
+
+
+class NoteShareSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Note
+        fields = ['title', 'note']
+
+
+class NoteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Note
+        fields = ['title', 'note', 'label', 'collab', 'image', 'is_archieve', 'is_trash', 'reminder', 'pin', 'url']
+
+
+class LabelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Label
+        fields = ['id', 'name']

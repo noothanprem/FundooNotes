@@ -1,1 +1,1 @@
-‚ùZvenv/lib64/python3.6/site-packages/django/contrib/gis/db/backends/postgis/introspection.py 2pyXeh
+‚ùJvenv/lib64/python3.6/site-packages/django/contrib/gis/sitemaps/__init__.py 2pyXh

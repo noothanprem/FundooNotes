@@ -1,1 +1,1 @@
-слPvenv/lib64/python3.6/site-packages/oauth2_provider/migrations/0002_08_updates.py 2pyXh
+слIvenv/lib64/python3.6/site-packages/oauth2_provider/migrations/__init__.py 2pyXh

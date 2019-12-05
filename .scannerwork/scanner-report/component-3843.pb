@@ -1,1 +1,1 @@
-É@venv/lib/python3.6/site-packages/django/db/migrations/operations :ÇÑÖÜéè
+ÉJvenv/lib/python3.6/site-packages/django/db/migrations/operations/models.py 2pyXÔh

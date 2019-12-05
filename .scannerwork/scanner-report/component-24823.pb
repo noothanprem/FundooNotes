@@ -1,1 +1,1 @@
-÷ÁXvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/exceptions.py 2pyXh
+÷ÁZvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/requests/status_codes.py 2pyXyh

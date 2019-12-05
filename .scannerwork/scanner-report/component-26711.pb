@@ -1,1 +1,1 @@
-за;venv/lib64/python3.6/site-packages/celery/contrib/sphinx.py 2pyXoh
+за1venv/lib64/python3.6/site-packages/celery/contrib :жаиайакалама

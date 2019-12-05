@@ -1,1 +1,1 @@
-ÆÃUvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/progress/spinner.py 2pyX-h
+ÆÃXvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/colorama/initialise.py 2pyXQh

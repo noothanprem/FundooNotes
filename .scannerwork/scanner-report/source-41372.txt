@@ -11,103 +11,83 @@
 # ANY KIND, either express or implied. See the License for the specific
 # language governing permissions and limitations under the License.
 
-from awscli.customizations.commands import BasicCommand
 from awscli.customizations.emr import constants
-from awscli.customizations.emr import emrutils
-from awscli.customizations.emr import helptext
-from awscli.customizations.emr.command import Command
-from botocore.exceptions import NoCredentialsError
+from awscli.customizations.emr import exceptions
 
 
-class DescribeCluster(Command):
-    NAME = 'describe-cluster'
-    DESCRIPTION = ('Provides  cluster-level details including status, hardware'
-                   ' and software configuration, VPC settings, bootstrap'
-                   ' actions, instance groups and so on. For information about'
-                   ' the cluster steps, see <code>list-steps</code>.')
-    ARG_TABLE = [
-        {'name': 'cluster-id', 'required': True,
-         'help_text': helptext.CLUSTER_ID}
-    ]
+def build_instance_groups(parsed_instance_groups):
+    """
+    Helper method that converts --instance-groups option value in
+    create-cluster and add-instance-groups to
+    Amazon Elastic MapReduce InstanceGroupConfig data type.
+    """
+    instance_groups = []
+    for instance_group in parsed_instance_groups:
+        ig_config = {}
 
-    def _run_main_command(self, parsed_args, parsed_globals):
-        parameters = {'ClusterId': parsed_args.cluster_id}
-        list_instance_fleets_result = None
-        list_instance_groups_result = None
-        is_fleet_based_cluster = False
-
-        describe_cluster_result = self._call(
-            self._session, 'describe_cluster', parameters, parsed_globals)
-
-
-        if 'Cluster' in describe_cluster_result:
-            describe_cluster = describe_cluster_result['Cluster']
-            if describe_cluster.get('InstanceCollectionType') == constants.INSTANCE_FLEET_TYPE:
-                is_fleet_based_cluster = True
-
-            if 'Ec2InstanceAttributes' in describe_cluster:
-                ec2_instance_attr_keys = \
-                    describe_cluster['Ec2InstanceAttributes'].keys()
-                ec2_instance_attr = \
-                    describe_cluster['Ec2InstanceAttributes']
+        keys = instance_group.keys()
+        if 'Name' in keys:
+            ig_config['Name'] = instance_group['Name']
         else:
-            ec2_instance_attr_keys = {}
+            ig_config['Name'] = instance_group['InstanceGroupType']
+        ig_config['InstanceType'] = instance_group['InstanceType']
+        ig_config['InstanceCount'] = instance_group['InstanceCount']
+        ig_config['InstanceRole'] = instance_group['InstanceGroupType'].upper()
 
-        if is_fleet_based_cluster:
-            list_instance_fleets_result = self._call(
-                self._session, 'list_instance_fleets', parameters,
-                parsed_globals)
+        if 'BidPrice' in keys:
+            if instance_group['BidPrice'] != 'OnDemandPrice':
+                ig_config['BidPrice'] = instance_group['BidPrice']
+            ig_config['Market'] = constants.SPOT
         else:
-            list_instance_groups_result = self._call(
-                self._session, 'list_instance_groups', parameters,
-                parsed_globals)
+            ig_config['Market'] = constants.ON_DEMAND
+        if 'EbsConfiguration' in keys:
+            ig_config['EbsConfiguration'] = instance_group['EbsConfiguration']
 
-        list_bootstrap_actions_result = self._call(
-            self._session, 'list_bootstrap_actions',
-            parameters, parsed_globals)
+        if 'AutoScalingPolicy' in keys:
+            ig_config['AutoScalingPolicy'] = instance_group['AutoScalingPolicy']
 
-        constructed_result = self._construct_result(
-            describe_cluster_result,
-            list_instance_fleets_result,
-            list_instance_groups_result,
-            list_bootstrap_actions_result)
+        if 'Configurations' in keys:
+            ig_config['Configurations'] = instance_group['Configurations']
 
-        emrutils.display_response(self._session, 'describe_cluster',
-                                  constructed_result, parsed_globals)
+        instance_groups.append(ig_config)
+    return instance_groups
 
-        return 0
 
-    def _call(self, session, operation_name, parameters, parsed_globals):
-        return emrutils.call(
-            session, operation_name, parameters,
-            region_name=self.region,
-            endpoint_url=parsed_globals.endpoint_url,
-            verify=parsed_globals.verify_ssl)
+def _build_instance_group(
+        instance_type, instance_count, instance_group_type):
+    ig_config = {}
+    ig_config['InstanceType'] = instance_type
+    ig_config['InstanceCount'] = instance_count
+    ig_config['InstanceRole'] = instance_group_type.upper()
+    ig_config['Name'] = ig_config['InstanceRole']
+    ig_config['Market'] = constants.ON_DEMAND
+    return ig_config
 
-    def _get_key_of_result(self, keys):
-        # Return the first key that is not "Marker"
-        for key in keys:
-            if key != "Marker":
-                return key
 
-    def _construct_result(
-            self, describe_cluster_result, list_instance_fleets_result,
-            list_instance_groups_result, list_bootstrap_actions_result):
-        result = describe_cluster_result
-        result['Cluster']['BootstrapActions'] = []
+def validate_and_build_instance_groups(
+        instance_groups, instance_type, instance_count):
+    if (instance_groups is None and instance_type is None):
+        raise exceptions.MissingRequiredInstanceGroupsError
 
-        if (list_instance_fleets_result is not None and
-                list_instance_fleets_result.get('InstanceFleets') is not None):
-            result['Cluster']['InstanceFleets'] = \
-                list_instance_fleets_result.get('InstanceFleets')
-        if (list_instance_groups_result is not None and
-                list_instance_groups_result.get('InstanceGroups') is not None):
-            result['Cluster']['InstanceGroups'] = \
-                list_instance_groups_result.get('InstanceGroups')
-        if (list_bootstrap_actions_result is not None and
-                list_bootstrap_actions_result.get('BootstrapActions')
-                is not None):
-            result['Cluster']['BootstrapActions'] = \
-                list_bootstrap_actions_result['BootstrapActions']
+    if (instance_groups is not None and
+        (instance_type is not None or
+            instance_count is not None)):
+        raise exceptions.InstanceGroupsValidationError
 
-        return result
+    if instance_groups is not None:
+        return build_instance_groups(instance_groups)
+    else:
+        instance_groups = []
+        master_ig = _build_instance_group(
+            instance_type=instance_type,
+            instance_count=1,
+            instance_group_type="MASTER")
+        instance_groups.append(master_ig)
+        if instance_count is not None and int(instance_count) > 1:
+            core_ig = _build_instance_group(
+                instance_type=instance_type,
+                instance_count=int(instance_count) - 1,
+                instance_group_type="CORE")
+            instance_groups.append(core_ig)
+
+        return instance_groups

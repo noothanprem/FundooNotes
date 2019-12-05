@@ -1,1 +1,1 @@
-Í@venv/lib/python3.6/site-packages/django/db/backends/base/base.py 2pyX”h
+ÍBvenv/lib/python3.6/site-packages/django/db/backends/base/schema.py 2pyXŒ	h

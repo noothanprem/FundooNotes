@@ -1,1 +1,1 @@
-°äRvenv/lib64/python3.6/site-packages/social_django/migrations/0007_code_timestamp.py 2pyXh
+°ä;venv/lib64/python3.6/site-packages/social_django/storage.py 2pyXÔh

@@ -1,9 +1,3 @@
-m
-pythonS117QRename this parameter "dkLen" to match the regular expression ^[_a-z][a-z0-9_]*$. 2--  p
-pythonS117TRename this parameter "hashAlgo" to match the regular expression ^[_a-z][a-z0-9_]*$. 2--. 6r
-pythonS117VRename this local variable "pHash" to match the regular expression ^[_a-z][a-z0-9_]*$. 2LL 	m
-pythonS117QRename this parameter "dkLen" to match the regular expression ^[_a-z][a-z0-9_]*$. 2VV  v
-pythonS117ZRename this local variable "previousU" to match the regular expression ^[_a-z][a-z0-9_]*$. 2tt l
-pythonS1542ORename function "PBKDF1" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2-- 
-l
-pythonS1542ORename function "PBKDF2" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2VV 
+~
+pythonS101bRename class "RandomPool_DeprecationWarning" to match the regular expression ^[A-Z_][a-zA-Z0-9]+$. 2++ #ƒ
+pythonS101gRename class "GetRandomNumber_DeprecationWarning" to match the regular expression ^[A-Z_][a-zA-Z0-9]+$. 211 (

@@ -1,51 +1,52 @@
-# coding=utf-8
-from functools import wraps
+from django.contrib.auth import REDIRECT_FIELD_NAME
+from django.utils.functional import SimpleLazyObject
+from django.utils.http import urlquote
 
-from django.conf import settings
-from django.http import Http404
-
-from social_core.utils import setting_name, module_member, get_strategy
-from social_core.exceptions import MissingBackend
-from social_core.backends.utils import get_backend
-from .compat import reverse
-
-
-BACKENDS = settings.AUTHENTICATION_BACKENDS
-STRATEGY = getattr(settings, setting_name('STRATEGY'),
-                   'social_django.strategy.DjangoStrategy')
-STORAGE = getattr(settings, setting_name('STORAGE'),
-                  'social_django.models.DjangoStorage')
-Strategy = module_member(STRATEGY)
-Storage = module_member(STORAGE)
+try:
+    from django.utils.functional import empty as _empty
+    empty = _empty
+except ImportError:  # django < 1.4
+    empty = None
 
 
-def load_strategy(request=None):
-    return get_strategy(STRATEGY, STORAGE, request)
+from social_core.backends.utils import user_backends_data
+from .utils import Storage, BACKENDS
 
 
-def load_backend(strategy, name, redirect_uri):
-    Backend = get_backend(BACKENDS, name)
-    return Backend(strategy, redirect_uri)
+class LazyDict(SimpleLazyObject):
+    """Lazy dict initialization."""
+    def __getitem__(self, name):
+        if self._wrapped is empty:
+            self._setup()
+        return self._wrapped[name]
+
+    def __setitem__(self, name, value):
+        if self._wrapped is empty:
+            self._setup()
+        self._wrapped[name] = value
 
 
-def psa(redirect_uri=None, load_strategy=load_strategy):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(request, backend, *args, **kwargs):
-            uri = redirect_uri
-            if uri and not uri.startswith('/'):
-                uri = reverse(redirect_uri, args=(backend,))
-            request.social_strategy = load_strategy(request)
-            # backward compatibility in attribute name, only if not already
-            # defined
-            if not hasattr(request, 'strategy'):
-                request.strategy = request.social_strategy
+def backends(request):
+    """Load Social Auth current user data to context under the key 'backends'.
+    Will return the output of social_core.backends.utils.user_backends_data."""
+    return {'backends': LazyDict(lambda: user_backends_data(request.user,
+                                                            BACKENDS,
+                                                            Storage))}
 
-            try:
-                request.backend = load_backend(request.social_strategy,
-                                               backend, uri)
-            except MissingBackend:
-                raise Http404('Backend not found')
-            return func(request, backend, *args, **kwargs)
-        return wrapper
-    return decorator
+
+def login_redirect(request):
+    """Load current redirect to context."""
+    value = request.method == 'POST' and \
+                request.POST.get(REDIRECT_FIELD_NAME) or \
+                request.GET.get(REDIRECT_FIELD_NAME)
+    if value:
+        value = urlquote(value)
+        querystring = REDIRECT_FIELD_NAME + '=' + value
+    else:
+        querystring = ''
+
+    return {
+        'REDIRECT_FIELD_NAME': REDIRECT_FIELD_NAME,
+        'REDIRECT_FIELD_VALUE': value,
+        'REDIRECT_QUERYSTRING': querystring
+    }

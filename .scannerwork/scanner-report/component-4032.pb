@@ -1,1 +1,1 @@
-ÀJvenv/lib/python3.6/site-packages/django/db/backends/mysql/introspection.py 2pyXÒh
+ÀCvenv/lib/python3.6/site-packages/django/db/backends/mysql/client.py 2pyX1h

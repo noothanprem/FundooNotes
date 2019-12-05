@@ -1,1 +1,1 @@
-òšKvenv/lib/python3.6/site-packages/rest_framework_simplejwt/authentication.py 2pyX…h
+òšBvenv/lib/python3.6/site-packages/rest_framework_simplejwt/views.py 2pyXWh

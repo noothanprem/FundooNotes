@@ -1,1 +1,1 @@
-š"@venv/lib/python3.6/site-packages/django/contrib/humanize/apps.py 2pyXh
+š"Gvenv/lib/python3.6/site-packages/django/contrib/syndication/__init__.py 2pyXh

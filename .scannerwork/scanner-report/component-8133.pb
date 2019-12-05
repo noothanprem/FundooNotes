@@ -1,1 +1,1 @@
-Å?=venv/lib/python3.6/site-packages/django/core/handlers/wsgi.py 2pyX×h
+Å?Evenv/lib/python3.6/site-packages/django/contrib/contenttypes/admin.py 2pyX‚h

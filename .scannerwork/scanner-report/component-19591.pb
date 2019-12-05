@@ -1,1 +1,1 @@
-‡™9venv/lib/python3.6/site-packages/social_django/management :†™
+‡™Evenv/lib/python3.6/site-packages/social_django/management/__init__.py 2pyXh

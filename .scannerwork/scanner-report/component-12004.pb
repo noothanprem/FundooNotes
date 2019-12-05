@@ -1,1 +1,1 @@
-ä]Avenv/lib/python3.6/site-packages/storages/backends/sftpstorage.py 2pyXâh
+ä]Cvenv/lib/python3.6/site-packages/storages/backends/azure_storage.py 2pyXÌh

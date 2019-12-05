@@ -1,8 +1,6 @@
-i
-pythonS1066/Merge this if statement with the enclosing one. 2<< :
-¥–55 	enclosingi
-pythonS1066/Merge this if statement with the enclosing one. 2@@ :
-¥–?? 
-	enclosingl
-pythonS117PRename this parameter "aBuf" to match the regular expression ^[_a-z][a-z0-9_]*$. 222 x
-pythonS117\Rename this local variable "codingState" to match the regular expression ^[_a-z][a-z0-9_]*$. 244 
+t
+pythonS117XRename this local variable "byteCls" to match the regular expression ^[_a-z][a-z0-9_]*$. 2.. k
+pythonS116ORename this field "_mModel" to match the regular expression ^[_a-z][_a-z0-9]*$. 2"" t
+pythonS116XRename this field "_mCurrentBytePos" to match the regular expression ^[_a-z][_a-z0-9]*$. 2## t
+pythonS116XRename this field "_mCurrentCharLen" to match the regular expression ^[_a-z][_a-z0-9]*$. 2$$ r
+pythonS116VRename this field "_mCurrentState" to match the regular expression ^[_a-z][_a-z0-9]*$. 2(( 

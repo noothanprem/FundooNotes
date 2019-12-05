@@ -1,1 +1,1 @@
-›ÄUvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_internal/utils/temp_dir.py 2pyXœh
+›ÄSvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_internal/utils/models.py 2pyX)h

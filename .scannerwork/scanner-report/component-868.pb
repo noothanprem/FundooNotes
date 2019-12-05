@@ -1,2 +1,1 @@
-ä?venv/lib/python3.6/site-packages/celery/concurrency/asynpool.py 2pyX–
-h
+ä:venv/lib/python3.6/site-packages/celery/loaders/default.py 2pyX.h

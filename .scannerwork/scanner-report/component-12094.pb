@@ -1,1 +1,1 @@
-¾^Hvenv/lib/python3.6/site-packages/locust/test/test_task_sequence_class.py 2pyXMh
+¾^/venv/lib/python3.6/site-packages/locust/core.py 2pyXëh

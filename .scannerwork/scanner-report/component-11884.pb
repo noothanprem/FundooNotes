@@ -1,1 +1,1 @@
-ì\7venv/lib/python3.6/site-packages/boto3/docs/__init__.py 2pyX(h
+ì\6venv/lib/python3.6/site-packages/boto3/docs/service.py 2pyX„h

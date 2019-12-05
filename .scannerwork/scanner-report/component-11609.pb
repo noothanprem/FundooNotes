@@ -1,1 +1,0 @@
-ÙZJvenv/lib/python3.6/site-packages/faker/providers/company/hu_HU/__init__.py 2pyXh

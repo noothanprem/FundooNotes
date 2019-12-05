@@ -1,1 +1,1 @@
-Ý£-venv/lib/python3.6/site-packages/twisted/cred :Ü£Þ£ß£à£á£â£ã£
+Ý£-venv/lib/python3.6/site-packages/twisted/cred :Ü£ß£Þ£à£á£â£ã£

@@ -1,1 +1,1 @@
-¿Dvenv/lib/python3.6/site-packages/oauth2_provider/management/commands :¾Å
+¿Dvenv/lib/python3.6/site-packages/oauth2_provider/management/commands :¾Ã

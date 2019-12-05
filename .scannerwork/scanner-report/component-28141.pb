@@ -1,1 +1,1 @@
-Ì€Yvenv/lib64/python3.6/site-packages/reportlab/pdfbase/_fontdata_widths_helveticaoblique.py 2pyXÊh
+Ì€9venv/lib64/python3.6/site-packages/reportlab/rl_config.py 2pyXÑh

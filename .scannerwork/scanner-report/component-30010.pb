@@ -1,1 +1,1 @@
-ºêIvenv/lib64/python3.6/site-packages/django/db/backends/postgresql_psycopg2 :¸ê»ê¼ê½ê¾ê¿êÊêËêÌê
+ºêIvenv/lib64/python3.6/site-packages/django/db/backends/postgresql_psycopg2 :¹ê»ê¼ê½ê¾ê¿êÊêËêÌê

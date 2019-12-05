@@ -1,1 +1,1 @@
-×\.venv/lib/python3.6/site-packages/dotenv/cli.py 2pyXŽh
+×\'venv/lib/python3.6/site-packages/dotenv :Ö\Ø\Ú\Û\Ü\ä\æ\

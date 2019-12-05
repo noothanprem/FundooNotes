@@ -1,1 +1,1 @@
-ûÜ=venv/lib64/python3.6/site-packages/reportlab/graphics/widgets :úÜıÜşÜÿÜ€İİ‰İ
+ûÜ=venv/lib64/python3.6/site-packages/reportlab/graphics/widgets :úÜüÜıÜşÜÿÜ€İ‰İ

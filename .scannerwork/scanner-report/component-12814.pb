@@ -1,1 +1,1 @@
-éd5venv/lib/python3.6/site-packages/macaroonbakery/tests :&çdèdêdëdídìdîdïdñdódòdôdödõdúd±d≥d¥dµd
+édHvenv/lib/python3.6/site-packages/macaroonbakery/tests/test_httpbakery.py 2pyXh

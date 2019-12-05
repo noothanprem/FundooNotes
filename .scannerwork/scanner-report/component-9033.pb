@@ -1,1 +1,1 @@
-ÉFAvenv/lib/python3.6/site-packages/django/conf/locale/es/formats.py 2pyXh
+ÉF6venv/lib/python3.6/site-packages/django/conf/locale/es :ÆFÊF

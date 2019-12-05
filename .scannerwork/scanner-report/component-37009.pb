@@ -1,1 +1,0 @@
-‘¡Kvenv/lib64/python3.6/site-packages/faker/providers/person/fa_IR/__init__.py 2pyXah

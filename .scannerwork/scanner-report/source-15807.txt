@@ -1,675 +1,961 @@
-#
-# DEPRECATED: implementation for ffi.verify()
-#
-import sys, os
-import types
-
+import sys, types
+from .lock import allocate_lock
+from .error import CDefError
 from . import model
-from .error import VerificationError
+
+try:
+    callable
+except NameError:
+    # Python 3.1
+    from collections import Callable
+    callable = lambda x: isinstance(x, Callable)
+
+try:
+    basestring
+except NameError:
+    # Python 3.x
+    basestring = str
+
+_unspecified = object()
 
 
-class VGenericEngine(object):
-    _class_key = 'g'
-    _gen_python_module = False
 
-    def __init__(self, verifier):
-        self.verifier = verifier
-        self.ffi = verifier.ffi
-        self.export_symbols = []
-        self._struct_pending_verification = {}
+class FFI(object):
+    r'''
+    The main top-level class that you instantiate once, or once per module.
 
-    def patch_extension_kwds(self, kwds):
-        # add 'export_symbols' to the dictionary.  Note that we add the
-        # list before filling it.  When we fill it, it will thus also show
-        # up in kwds['export_symbols'].
-        kwds.setdefault('export_symbols', self.export_symbols)
+    Example usage:
 
-    def find_module(self, module_name, path, so_suffixes):
-        for so_suffix in so_suffixes:
-            basename = module_name + so_suffix
-            if path is None:
-                path = sys.path
-            for dirname in path:
-                filename = os.path.join(dirname, basename)
-                if os.path.isfile(filename):
-                    return filename
+        ffi = FFI()
+        ffi.cdef("""
+            int printf(const char *, ...);
+        """)
 
-    def collect_types(self):
-        pass      # not needed in the generic engine
+        C = ffi.dlopen(None)   # standard library
+        -or-
+        C = ffi.verify()  # use a C compiler: verify the decl above is right
 
-    def _prnt(self, what=''):
-        self._f.write(what + '\n')
+        C.printf("hello, %s!\n", ffi.new("char[]", "world"))
+    '''
 
-    def write_source_to_f(self):
-        prnt = self._prnt
-        # first paste some standard set of lines that are mostly '#include'
-        prnt(cffimod_header)
-        # then paste the C source given by the user, verbatim.
-        prnt(self.verifier.preamble)
+    def __init__(self, backend=None):
+        """Create an FFI instance.  The 'backend' argument is used to
+        select a non-default backend, mostly for tests.
+        """
+        if backend is None:
+            # You need PyPy (>= 2.0 beta), or a CPython (>= 2.6) with
+            # _cffi_backend.so compiled.
+            import _cffi_backend as backend
+            from . import __version__
+            if backend.__version__ != __version__:
+                # bad version!  Try to be as explicit as possible.
+                if hasattr(backend, '__file__'):
+                    # CPython
+                    raise Exception("Version mismatch: this is the 'cffi' package version %s, located in %r.  When we import the top-level '_cffi_backend' extension module, we get version %s, located in %r.  The two versions should be equal; check your installation." % (
+                        __version__, __file__,
+                        backend.__version__, backend.__file__))
+                else:
+                    # PyPy
+                    raise Exception("Version mismatch: this is the 'cffi' package version %s, located in %r.  This interpreter comes with a built-in '_cffi_backend' module, which is version %s.  The two versions should be equal; check your installation." % (
+                        __version__, __file__, backend.__version__))
+            # (If you insist you can also try to pass the option
+            # 'backend=backend_ctypes.CTypesBackend()', but don't
+            # rely on it!  It's probably not going to work well.)
+
+        from . import cparser
+        self._backend = backend
+        self._lock = allocate_lock()
+        self._parser = cparser.Parser()
+        self._cached_btypes = {}
+        self._parsed_types = types.ModuleType('parsed_types').__dict__
+        self._new_types = types.ModuleType('new_types').__dict__
+        self._function_caches = []
+        self._libraries = []
+        self._cdefsources = []
+        self._included_ffis = []
+        self._windows_unicode = None
+        self._init_once_cache = {}
+        self._cdef_version = None
+        self._embedding = None
+        self._typecache = model.get_typecache(backend)
+        if hasattr(backend, 'set_ffi'):
+            backend.set_ffi(self)
+        for name in list(backend.__dict__):
+            if name.startswith('RTLD_'):
+                setattr(self, name, getattr(backend, name))
         #
-        # call generate_gen_xxx_decl(), for every xxx found from
-        # ffi._parser._declarations.  This generates all the functions.
-        self._generate('decl')
+        with self._lock:
+            self.BVoidP = self._get_cached_btype(model.voidp_type)
+            self.BCharA = self._get_cached_btype(model.char_array_type)
+        if isinstance(backend, types.ModuleType):
+            # _cffi_backend: attach these constants to the class
+            if not hasattr(FFI, 'NULL'):
+                FFI.NULL = self.cast(self.BVoidP, 0)
+                FFI.CData, FFI.CType = backend._get_types()
+        else:
+            # ctypes backend: attach these constants to the instance
+            self.NULL = self.cast(self.BVoidP, 0)
+            self.CData, self.CType = backend._get_types()
+        self.buffer = backend.buffer
+
+    def cdef(self, csource, override=False, packed=False, pack=None):
+        """Parse the given C source.  This registers all declared functions,
+        types, and global variables.  The functions and global variables can
+        then be accessed via either 'ffi.dlopen()' or 'ffi.verify()'.
+        The types can be used in 'ffi.new()' and other functions.
+        If 'packed' is specified as True, all structs declared inside this
+        cdef are packed, i.e. laid out without any field alignment at all.
+        Alternatively, 'pack' can be a small integer, and requests for
+        alignment greater than that are ignored (pack=1 is equivalent to
+        packed=True).
+        """
+        self._cdef(csource, override=override, packed=packed, pack=pack)
+
+    def embedding_api(self, csource, packed=False, pack=None):
+        self._cdef(csource, packed=packed, pack=pack, dllexport=True)
+        if self._embedding is None:
+            self._embedding = ''
+
+    def _cdef(self, csource, override=False, **options):
+        if not isinstance(csource, str):    # unicode, on Python 2
+            if not isinstance(csource, basestring):
+                raise TypeError("cdef() argument must be a string")
+            csource = csource.encode('ascii')
+        with self._lock:
+            self._cdef_version = object()
+            self._parser.parse(csource, override=override, **options)
+            self._cdefsources.append(csource)
+            if override:
+                for cache in self._function_caches:
+                    cache.clear()
+            finishlist = self._parser._recomplete
+            if finishlist:
+                self._parser._recomplete = []
+                for tp in finishlist:
+                    tp.finish_backend_type(self, finishlist)
+
+    def dlopen(self, name, flags=0):
+        """Load and return a dynamic library identified by 'name'.
+        The standard C library can be loaded by passing None.
+        Note that functions and types declared by 'ffi.cdef()' are not
+        linked to a particular library, just like C headers; in the
+        library we only look for the actual (untyped) symbols.
+        """
+        assert isinstance(name, basestring) or name is None
+        with self._lock:
+            lib, function_cache = _make_ffi_library(self, name, flags)
+            self._function_caches.append(function_cache)
+            self._libraries.append(lib)
+        return lib
+
+    def dlclose(self, lib):
+        """Close a library obtained with ffi.dlopen().  After this call,
+        access to functions or variables from the library will fail
+        (possibly with a segmentation fault).
+        """
+        type(lib).__cffi_close__(lib)
+
+    def _typeof_locked(self, cdecl):
+        # call me with the lock!
+        key = cdecl
+        if key in self._parsed_types:
+            return self._parsed_types[key]
         #
-        # on Windows, distutils insists on putting init_cffi_xyz in
-        # 'export_symbols', so instead of fighting it, just give up and
-        # give it one
-        if sys.platform == 'win32':
-            if sys.version_info >= (3,):
-                prefix = 'PyInit_'
+        if not isinstance(cdecl, str):    # unicode, on Python 2
+            cdecl = cdecl.encode('ascii')
+        #
+        type = self._parser.parse_type(cdecl)
+        really_a_function_type = type.is_raw_function
+        if really_a_function_type:
+            type = type.as_function_pointer()
+        btype = self._get_cached_btype(type)
+        result = btype, really_a_function_type
+        self._parsed_types[key] = result
+        return result
+
+    def _typeof(self, cdecl, consider_function_as_funcptr=False):
+        # string -> ctype object
+        try:
+            result = self._parsed_types[cdecl]
+        except KeyError:
+            with self._lock:
+                result = self._typeof_locked(cdecl)
+        #
+        btype, really_a_function_type = result
+        if really_a_function_type and not consider_function_as_funcptr:
+            raise CDefError("the type %r is a function type, not a "
+                            "pointer-to-function type" % (cdecl,))
+        return btype
+
+    def typeof(self, cdecl):
+        """Parse the C type given as a string and return the
+        corresponding <ctype> object.
+        It can also be used on 'cdata' instance to get its C type.
+        """
+        if isinstance(cdecl, basestring):
+            return self._typeof(cdecl)
+        if isinstance(cdecl, self.CData):
+            return self._backend.typeof(cdecl)
+        if isinstance(cdecl, types.BuiltinFunctionType):
+            res = _builtin_function_type(cdecl)
+            if res is not None:
+                return res
+        if (isinstance(cdecl, types.FunctionType)
+                and hasattr(cdecl, '_cffi_base_type')):
+            with self._lock:
+                return self._get_cached_btype(cdecl._cffi_base_type)
+        raise TypeError(type(cdecl))
+
+    def sizeof(self, cdecl):
+        """Return the size in bytes of the argument.  It can be a
+        string naming a C type, or a 'cdata' instance.
+        """
+        if isinstance(cdecl, basestring):
+            BType = self._typeof(cdecl)
+            return self._backend.sizeof(BType)
+        else:
+            return self._backend.sizeof(cdecl)
+
+    def alignof(self, cdecl):
+        """Return the natural alignment size in bytes of the C type
+        given as a string.
+        """
+        if isinstance(cdecl, basestring):
+            cdecl = self._typeof(cdecl)
+        return self._backend.alignof(cdecl)
+
+    def offsetof(self, cdecl, *fields_or_indexes):
+        """Return the offset of the named field inside the given
+        structure or array, which must be given as a C type name.
+        You can give several field names in case of nested structures.
+        You can also give numeric values which correspond to array
+        items, in case of an array type.
+        """
+        if isinstance(cdecl, basestring):
+            cdecl = self._typeof(cdecl)
+        return self._typeoffsetof(cdecl, *fields_or_indexes)[1]
+
+    def new(self, cdecl, init=None):
+        """Allocate an instance according to the specified C type and
+        return a pointer to it.  The specified C type must be either a
+        pointer or an array: ``new('X *')`` allocates an X and returns
+        a pointer to it, whereas ``new('X[n]')`` allocates an array of
+        n X'es and returns an array referencing it (which works
+        mostly like a pointer, like in C).  You can also use
+        ``new('X[]', n)`` to allocate an array of a non-constant
+        length n.
+
+        The memory is initialized following the rules of declaring a
+        global variable in C: by default it is zero-initialized, but
+        an explicit initializer can be given which can be used to
+        fill all or part of the memory.
+
+        When the returned <cdata> object goes out of scope, the memory
+        is freed.  In other words the returned <cdata> object has
+        ownership of the value of type 'cdecl' that it points to.  This
+        means that the raw data can be used as long as this object is
+        kept alive, but must not be used for a longer time.  Be careful
+        about that when copying the pointer to the memory somewhere
+        else, e.g. into another structure.
+        """
+        if isinstance(cdecl, basestring):
+            cdecl = self._typeof(cdecl)
+        return self._backend.newp(cdecl, init)
+
+    def new_allocator(self, alloc=None, free=None,
+                      should_clear_after_alloc=True):
+        """Return a new allocator, i.e. a function that behaves like ffi.new()
+        but uses the provided low-level 'alloc' and 'free' functions.
+
+        'alloc' is called with the size as argument.  If it returns NULL, a
+        MemoryError is raised.  'free' is called with the result of 'alloc'
+        as argument.  Both can be either Python function or directly C
+        functions.  If 'free' is None, then no free function is called.
+        If both 'alloc' and 'free' are None, the default is used.
+
+        If 'should_clear_after_alloc' is set to False, then the memory
+        returned by 'alloc' is assumed to be already cleared (or you are
+        fine with garbage); otherwise CFFI will clear it.
+        """
+        compiled_ffi = self._backend.FFI()
+        allocator = compiled_ffi.new_allocator(alloc, free,
+                                               should_clear_after_alloc)
+        def allocate(cdecl, init=None):
+            if isinstance(cdecl, basestring):
+                cdecl = self._typeof(cdecl)
+            return allocator(cdecl, init)
+        return allocate
+
+    def cast(self, cdecl, source):
+        """Similar to a C cast: returns an instance of the named C
+        type initialized with the given 'source'.  The source is
+        casted between integers or pointers of any type.
+        """
+        if isinstance(cdecl, basestring):
+            cdecl = self._typeof(cdecl)
+        return self._backend.cast(cdecl, source)
+
+    def string(self, cdata, maxlen=-1):
+        """Return a Python string (or unicode string) from the 'cdata'.
+        If 'cdata' is a pointer or array of characters or bytes, returns
+        the null-terminated string.  The returned string extends until
+        the first null character, or at most 'maxlen' characters.  If
+        'cdata' is an array then 'maxlen' defaults to its length.
+
+        If 'cdata' is a pointer or array of wchar_t, returns a unicode
+        string following the same rules.
+
+        If 'cdata' is a single character or byte or a wchar_t, returns
+        it as a string or unicode string.
+
+        If 'cdata' is an enum, returns the value of the enumerator as a
+        string, or 'NUMBER' if the value is out of range.
+        """
+        return self._backend.string(cdata, maxlen)
+
+    def unpack(self, cdata, length):
+        """Unpack an array of C data of the given length,
+        returning a Python string/unicode/list.
+
+        If 'cdata' is a pointer to 'char', returns a byte string.
+        It does not stop at the first null.  This is equivalent to:
+        ffi.buffer(cdata, length)[:]
+
+        If 'cdata' is a pointer to 'wchar_t', returns a unicode string.
+        'length' is measured in wchar_t's; it is not the size in bytes.
+
+        If 'cdata' is a pointer to anything else, returns a list of
+        'length' items.  This is a faster equivalent to:
+        [cdata[i] for i in range(length)]
+        """
+        return self._backend.unpack(cdata, length)
+
+   #def buffer(self, cdata, size=-1):
+   #    """Return a read-write buffer object that references the raw C data
+   #    pointed to by the given 'cdata'.  The 'cdata' must be a pointer or
+   #    an array.  Can be passed to functions expecting a buffer, or directly
+   #    manipulated with:
+   #
+   #        buf[:]          get a copy of it in a regular string, or
+   #        buf[idx]        as a single character
+   #        buf[:] = ...
+   #        buf[idx] = ...  change the content
+   #    """
+   #    note that 'buffer' is a type, set on this instance by __init__
+
+    def from_buffer(self, cdecl, python_buffer=_unspecified,
+                    require_writable=False):
+        """Return a cdata of the given type pointing to the data of the
+        given Python object, which must support the buffer interface.
+        Note that this is not meant to be used on the built-in types
+        str or unicode (you can build 'char[]' arrays explicitly)
+        but only on objects containing large quantities of raw data
+        in some other format, like 'array.array' or numpy arrays.
+
+        The first argument is optional and default to 'char[]'.
+        """
+        if python_buffer is _unspecified:
+            cdecl, python_buffer = self.BCharA, cdecl
+        elif isinstance(cdecl, basestring):
+            cdecl = self._typeof(cdecl)
+        return self._backend.from_buffer(cdecl, python_buffer,
+                                         require_writable)
+
+    def memmove(self, dest, src, n):
+        """ffi.memmove(dest, src, n) copies n bytes of memory from src to dest.
+
+        Like the C function memmove(), the memory areas may overlap;
+        apart from that it behaves like the C function memcpy().
+
+        'src' can be any cdata ptr or array, or any Python buffer object.
+        'dest' can be any cdata ptr or array, or a writable Python buffer
+        object.  The size to copy, 'n', is always measured in bytes.
+
+        Unlike other methods, this one supports all Python buffer including
+        byte strings and bytearrays---but it still does not support
+        non-contiguous buffers.
+        """
+        return self._backend.memmove(dest, src, n)
+
+    def callback(self, cdecl, python_callable=None, error=None, onerror=None):
+        """Return a callback object or a decorator making such a
+        callback object.  'cdecl' must name a C function pointer type.
+        The callback invokes the specified 'python_callable' (which may
+        be provided either directly or via a decorator).  Important: the
+        callback object must be manually kept alive for as long as the
+        callback may be invoked from the C level.
+        """
+        def callback_decorator_wrap(python_callable):
+            if not callable(python_callable):
+                raise TypeError("the 'python_callable' argument "
+                                "is not callable")
+            return self._backend.callback(cdecl, python_callable,
+                                          error, onerror)
+        if isinstance(cdecl, basestring):
+            cdecl = self._typeof(cdecl, consider_function_as_funcptr=True)
+        if python_callable is None:
+            return callback_decorator_wrap                # decorator mode
+        else:
+            return callback_decorator_wrap(python_callable)  # direct mode
+
+    def getctype(self, cdecl, replace_with=''):
+        """Return a string giving the C type 'cdecl', which may be itself
+        a string or a <ctype> object.  If 'replace_with' is given, it gives
+        extra text to append (or insert for more complicated C types), like
+        a variable name, or '*' to get actually the C type 'pointer-to-cdecl'.
+        """
+        if isinstance(cdecl, basestring):
+            cdecl = self._typeof(cdecl)
+        replace_with = replace_with.strip()
+        if (replace_with.startswith('*')
+                and '&[' in self._backend.getcname(cdecl, '&')):
+            replace_with = '(%s)' % replace_with
+        elif replace_with and not replace_with[0] in '[(':
+            replace_with = ' ' + replace_with
+        return self._backend.getcname(cdecl, replace_with)
+
+    def gc(self, cdata, destructor, size=0):
+        """Return a new cdata object that points to the same
+        data.  Later, when this new cdata object is garbage-collected,
+        'destructor(old_cdata_object)' will be called.
+
+        The optional 'size' gives an estimate of the size, used to
+        trigger the garbage collection more eagerly.  So far only used
+        on PyPy.  It tells the GC that the returned object keeps alive
+        roughly 'size' bytes of external memory.
+        """
+        return self._backend.gcp(cdata, destructor, size)
+
+    def _get_cached_btype(self, type):
+        assert self._lock.acquire(False) is False
+        # call me with the lock!
+        try:
+            BType = self._cached_btypes[type]
+        except KeyError:
+            finishlist = []
+            BType = type.get_cached_btype(self, finishlist)
+            for type in finishlist:
+                type.finish_backend_type(self, finishlist)
+        return BType
+
+    def verify(self, source='', tmpdir=None, **kwargs):
+        """Verify that the current ffi signatures compile on this
+        machine, and return a dynamic library object.  The dynamic
+        library can be used to call functions and access global
+        variables declared in this 'ffi'.  The library is compiled
+        by the C compiler: it gives you C-level API compatibility
+        (including calling macros).  This is unlike 'ffi.dlopen()',
+        which requires binary compatibility in the signatures.
+        """
+        from .verifier import Verifier, _caller_dir_pycache
+        #
+        # If set_unicode(True) was called, insert the UNICODE and
+        # _UNICODE macro declarations
+        if self._windows_unicode:
+            self._apply_windows_unicode(kwargs)
+        #
+        # Set the tmpdir here, and not in Verifier.__init__: it picks
+        # up the caller's directory, which we want to be the caller of
+        # ffi.verify(), as opposed to the caller of Veritier().
+        tmpdir = tmpdir or _caller_dir_pycache()
+        #
+        # Make a Verifier() and use it to load the library.
+        self.verifier = Verifier(self, source, tmpdir, **kwargs)
+        lib = self.verifier.load_library()
+        #
+        # Save the loaded library for keep-alive purposes, even
+        # if the caller doesn't keep it alive itself (it should).
+        self._libraries.append(lib)
+        return lib
+
+    def _get_errno(self):
+        return self._backend.get_errno()
+    def _set_errno(self, errno):
+        self._backend.set_errno(errno)
+    errno = property(_get_errno, _set_errno, None,
+                     "the value of 'errno' from/to the C calls")
+
+    def getwinerror(self, code=-1):
+        return self._backend.getwinerror(code)
+
+    def _pointer_to(self, ctype):
+        with self._lock:
+            return model.pointer_cache(self, ctype)
+
+    def addressof(self, cdata, *fields_or_indexes):
+        """Return the address of a <cdata 'struct-or-union'>.
+        If 'fields_or_indexes' are given, returns the address of that
+        field or array item in the structure or array, recursively in
+        case of nested structures.
+        """
+        try:
+            ctype = self._backend.typeof(cdata)
+        except TypeError:
+            if '__addressof__' in type(cdata).__dict__:
+                return type(cdata).__addressof__(cdata, *fields_or_indexes)
+            raise
+        if fields_or_indexes:
+            ctype, offset = self._typeoffsetof(ctype, *fields_or_indexes)
+        else:
+            if ctype.kind == "pointer":
+                raise TypeError("addressof(pointer)")
+            offset = 0
+        ctypeptr = self._pointer_to(ctype)
+        return self._backend.rawaddressof(ctypeptr, cdata, offset)
+
+    def _typeoffsetof(self, ctype, field_or_index, *fields_or_indexes):
+        ctype, offset = self._backend.typeoffsetof(ctype, field_or_index)
+        for field1 in fields_or_indexes:
+            ctype, offset1 = self._backend.typeoffsetof(ctype, field1, 1)
+            offset += offset1
+        return ctype, offset
+
+    def include(self, ffi_to_include):
+        """Includes the typedefs, structs, unions and enums defined
+        in another FFI instance.  Usage is similar to a #include in C,
+        where a part of the program might include types defined in
+        another part for its own usage.  Note that the include()
+        method has no effect on functions, constants and global
+        variables, which must anyway be accessed directly from the
+        lib object returned by the original FFI instance.
+        """
+        if not isinstance(ffi_to_include, FFI):
+            raise TypeError("ffi.include() expects an argument that is also of"
+                            " type cffi.FFI, not %r" % (
+                                type(ffi_to_include).__name__,))
+        if ffi_to_include is self:
+            raise ValueError("self.include(self)")
+        with ffi_to_include._lock:
+            with self._lock:
+                self._parser.include(ffi_to_include._parser)
+                self._cdefsources.append('[')
+                self._cdefsources.extend(ffi_to_include._cdefsources)
+                self._cdefsources.append(']')
+                self._included_ffis.append(ffi_to_include)
+
+    def new_handle(self, x):
+        return self._backend.newp_handle(self.BVoidP, x)
+
+    def from_handle(self, x):
+        return self._backend.from_handle(x)
+
+    def release(self, x):
+        self._backend.release(x)
+
+    def set_unicode(self, enabled_flag):
+        """Windows: if 'enabled_flag' is True, enable the UNICODE and
+        _UNICODE defines in C, and declare the types like TCHAR and LPTCSTR
+        to be (pointers to) wchar_t.  If 'enabled_flag' is False,
+        declare these types to be (pointers to) plain 8-bit characters.
+        This is mostly for backward compatibility; you usually want True.
+        """
+        if self._windows_unicode is not None:
+            raise ValueError("set_unicode() can only be called once")
+        enabled_flag = bool(enabled_flag)
+        if enabled_flag:
+            self.cdef("typedef wchar_t TBYTE;"
+                      "typedef wchar_t TCHAR;"
+                      "typedef const wchar_t *LPCTSTR;"
+                      "typedef const wchar_t *PCTSTR;"
+                      "typedef wchar_t *LPTSTR;"
+                      "typedef wchar_t *PTSTR;"
+                      "typedef TBYTE *PTBYTE;"
+                      "typedef TCHAR *PTCHAR;")
+        else:
+            self.cdef("typedef char TBYTE;"
+                      "typedef char TCHAR;"
+                      "typedef const char *LPCTSTR;"
+                      "typedef const char *PCTSTR;"
+                      "typedef char *LPTSTR;"
+                      "typedef char *PTSTR;"
+                      "typedef TBYTE *PTBYTE;"
+                      "typedef TCHAR *PTCHAR;")
+        self._windows_unicode = enabled_flag
+
+    def _apply_windows_unicode(self, kwds):
+        defmacros = kwds.get('define_macros', ())
+        if not isinstance(defmacros, (list, tuple)):
+            raise TypeError("'define_macros' must be a list or tuple")
+        defmacros = list(defmacros) + [('UNICODE', '1'),
+                                       ('_UNICODE', '1')]
+        kwds['define_macros'] = defmacros
+
+    def _apply_embedding_fix(self, kwds):
+        # must include an argument like "-lpython2.7" for the compiler
+        def ensure(key, value):
+            lst = kwds.setdefault(key, [])
+            if value not in lst:
+                lst.append(value)
+        #
+        if '__pypy__' in sys.builtin_module_names:
+            import os
+            if sys.platform == "win32":
+                # we need 'libpypy-c.lib'.  Current distributions of
+                # pypy (>= 4.1) contain it as 'libs/python27.lib'.
+                pythonlib = "python{0[0]}{0[1]}".format(sys.version_info)
+                if hasattr(sys, 'prefix'):
+                    ensure('library_dirs', os.path.join(sys.prefix, 'libs'))
             else:
-                prefix = 'init'
-            modname = self.verifier.get_module_name()
-            prnt("void %s%s(void) { }\n" % (prefix, modname))
-
-    def load_library(self, flags=0):
-        # import it with the CFFI backend
-        backend = self.ffi._backend
-        # needs to make a path that contains '/', on Posix
-        filename = os.path.join(os.curdir, self.verifier.modulefilename)
-        module = backend.load_library(filename, flags)
-        #
-        # call loading_gen_struct() to get the struct layout inferred by
-        # the C compiler
-        self._load(module, 'loading')
-
-        # build the FFILibrary class and instance, this is a module subclass
-        # because modules are expected to have usually-constant-attributes and
-        # in PyPy this means the JIT is able to treat attributes as constant,
-        # which we want.
-        class FFILibrary(types.ModuleType):
-            _cffi_generic_module = module
-            _cffi_ffi = self.ffi
-            _cffi_dir = []
-            def __dir__(self):
-                return FFILibrary._cffi_dir
-        library = FFILibrary("")
-        #
-        # finally, call the loaded_gen_xxx() functions.  This will set
-        # up the 'library' object.
-        self._load(module, 'loaded', library=library)
-        return library
-
-    def _get_declarations(self):
-        lst = [(key, tp) for (key, (tp, qual)) in
-                                self.ffi._parser._declarations.items()]
-        lst.sort()
-        return lst
-
-    def _generate(self, step_name):
-        for name, tp in self._get_declarations():
-            kind, realname = name.split(' ', 1)
-            try:
-                method = getattr(self, '_generate_gen_%s_%s' % (kind,
-                                                                step_name))
-            except AttributeError:
-                raise VerificationError(
-                    "not implemented in verify(): %r" % name)
-            try:
-                method(tp, realname)
-            except Exception as e:
-                model.attach_exception_info(e, name)
-                raise
-
-    def _load(self, module, step_name, **kwds):
-        for name, tp in self._get_declarations():
-            kind, realname = name.split(' ', 1)
-            method = getattr(self, '_%s_gen_%s' % (step_name, kind))
-            try:
-                method(tp, realname, module, **kwds)
-            except Exception as e:
-                model.attach_exception_info(e, name)
-                raise
-
-    def _generate_nothing(self, tp, name):
-        pass
-
-    def _loaded_noop(self, tp, name, module, **kwds):
-        pass
-
-    # ----------
-    # typedefs: generates no code so far
-
-    _generate_gen_typedef_decl   = _generate_nothing
-    _loading_gen_typedef         = _loaded_noop
-    _loaded_gen_typedef          = _loaded_noop
-
-    # ----------
-    # function declarations
-
-    def _generate_gen_function_decl(self, tp, name):
-        assert isinstance(tp, model.FunctionPtrType)
-        if tp.ellipsis:
-            # cannot support vararg functions better than this: check for its
-            # exact type (including the fixed arguments), and build it as a
-            # constant function pointer (no _cffi_f_%s wrapper)
-            self._generate_gen_const(False, name, tp)
-            return
-        prnt = self._prnt
-        numargs = len(tp.args)
-        argnames = []
-        for i, type in enumerate(tp.args):
-            indirection = ''
-            if isinstance(type, model.StructOrUnion):
-                indirection = '*'
-            argnames.append('%sx%d' % (indirection, i))
-        context = 'argument of %s' % name
-        arglist = [type.get_c_name(' %s' % arg, context)
-                   for type, arg in zip(tp.args, argnames)]
-        tpresult = tp.result
-        if isinstance(tpresult, model.StructOrUnion):
-            arglist.insert(0, tpresult.get_c_name(' *r', context))
-            tpresult = model.void_type
-        arglist = ', '.join(arglist) or 'void'
-        wrappername = '_cffi_f_%s' % name
-        self.export_symbols.append(wrappername)
-        if tp.abi:
-            abi = tp.abi + ' '
+                # we need 'libpypy-c.{so,dylib}', which should be by
+                # default located in 'sys.prefix/bin' for installed
+                # systems.
+                if sys.version_info < (3,):
+                    pythonlib = "pypy-c"
+                else:
+                    pythonlib = "pypy3-c"
+                if hasattr(sys, 'prefix'):
+                    ensure('library_dirs', os.path.join(sys.prefix, 'bin'))
+            # On uninstalled pypy's, the libpypy-c is typically found in
+            # .../pypy/goal/.
+            if hasattr(sys, 'prefix'):
+                ensure('library_dirs', os.path.join(sys.prefix, 'pypy', 'goal'))
         else:
-            abi = ''
-        funcdecl = ' %s%s(%s)' % (abi, wrappername, arglist)
-        context = 'result of %s' % name
-        prnt(tpresult.get_c_name(funcdecl, context))
-        prnt('{')
-        #
-        if isinstance(tp.result, model.StructOrUnion):
-            result_code = '*r = '
-        elif not isinstance(tp.result, model.VoidType):
-            result_code = 'return '
-        else:
-            result_code = ''
-        prnt('  %s%s(%s);' % (result_code, name, ', '.join(argnames)))
-        prnt('}')
-        prnt()
-
-    _loading_gen_function = _loaded_noop
-
-    def _loaded_gen_function(self, tp, name, module, library):
-        assert isinstance(tp, model.FunctionPtrType)
-        if tp.ellipsis:
-            newfunction = self._load_constant(False, tp, name, module)
-        else:
-            indirections = []
-            base_tp = tp
-            if (any(isinstance(typ, model.StructOrUnion) for typ in tp.args)
-                    or isinstance(tp.result, model.StructOrUnion)):
-                indirect_args = []
-                for i, typ in enumerate(tp.args):
-                    if isinstance(typ, model.StructOrUnion):
-                        typ = model.PointerType(typ)
-                        indirections.append((i, typ))
-                    indirect_args.append(typ)
-                indirect_result = tp.result
-                if isinstance(indirect_result, model.StructOrUnion):
-                    if indirect_result.fldtypes is None:
-                        raise TypeError("'%s' is used as result type, "
-                                        "but is opaque" % (
-                                            indirect_result._get_c_name(),))
-                    indirect_result = model.PointerType(indirect_result)
-                    indirect_args.insert(0, indirect_result)
-                    indirections.insert(0, ("result", indirect_result))
-                    indirect_result = model.void_type
-                tp = model.FunctionPtrType(tuple(indirect_args),
-                                           indirect_result, tp.ellipsis)
-            BFunc = self.ffi._get_cached_btype(tp)
-            wrappername = '_cffi_f_%s' % name
-            newfunction = module.load_function(BFunc, wrappername)
-            for i, typ in indirections:
-                newfunction = self._make_struct_wrapper(newfunction, i, typ,
-                                                        base_tp)
-        setattr(library, name, newfunction)
-        type(library)._cffi_dir.append(name)
-
-    def _make_struct_wrapper(self, oldfunc, i, tp, base_tp):
-        backend = self.ffi._backend
-        BType = self.ffi._get_cached_btype(tp)
-        if i == "result":
-            ffi = self.ffi
-            def newfunc(*args):
-                res = ffi.new(BType)
-                oldfunc(res, *args)
-                return res[0]
-        else:
-            def newfunc(*args):
-                args = args[:i] + (backend.newp(BType, args[i]),) + args[i+1:]
-                return oldfunc(*args)
-        newfunc._cffi_base_type = base_tp
-        return newfunc
-
-    # ----------
-    # named structs
-
-    def _generate_gen_struct_decl(self, tp, name):
-        assert name == tp.name
-        self._generate_struct_or_union_decl(tp, 'struct', name)
-
-    def _loading_gen_struct(self, tp, name, module):
-        self._loading_struct_or_union(tp, 'struct', name, module)
-
-    def _loaded_gen_struct(self, tp, name, module, **kwds):
-        self._loaded_struct_or_union(tp)
-
-    def _generate_gen_union_decl(self, tp, name):
-        assert name == tp.name
-        self._generate_struct_or_union_decl(tp, 'union', name)
-
-    def _loading_gen_union(self, tp, name, module):
-        self._loading_struct_or_union(tp, 'union', name, module)
-
-    def _loaded_gen_union(self, tp, name, module, **kwds):
-        self._loaded_struct_or_union(tp)
-
-    def _generate_struct_or_union_decl(self, tp, prefix, name):
-        if tp.fldnames is None:
-            return     # nothing to do with opaque structs
-        checkfuncname = '_cffi_check_%s_%s' % (prefix, name)
-        layoutfuncname = '_cffi_layout_%s_%s' % (prefix, name)
-        cname = ('%s %s' % (prefix, name)).strip()
-        #
-        prnt = self._prnt
-        prnt('static void %s(%s *p)' % (checkfuncname, cname))
-        prnt('{')
-        prnt('  /* only to generate compile-time warnings or errors */')
-        prnt('  (void)p;')
-        for fname, ftype, fbitsize, fqual in tp.enumfields():
-            if (isinstance(ftype, model.PrimitiveType)
-                and ftype.is_integer_type()) or fbitsize >= 0:
-                # accept all integers, but complain on float or double
-                prnt('  (void)((p->%s) << 1);' % fname)
+            if sys.platform == "win32":
+                template = "python%d%d"
+                if hasattr(sys, 'gettotalrefcount'):
+                    template += '_d'
             else:
-                # only accept exactly the type declared.
                 try:
-                    prnt('  { %s = &p->%s; (void)tmp; }' % (
-                        ftype.get_c_name('*tmp', 'field %r'%fname, quals=fqual),
-                        fname))
-                except VerificationError as e:
-                    prnt('  /* %s */' % str(e))   # cannot verify it, ignore
-        prnt('}')
-        self.export_symbols.append(layoutfuncname)
-        prnt('intptr_t %s(intptr_t i)' % (layoutfuncname,))
-        prnt('{')
-        prnt('  struct _cffi_aligncheck { char x; %s y; };' % cname)
-        prnt('  static intptr_t nums[] = {')
-        prnt('    sizeof(%s),' % cname)
-        prnt('    offsetof(struct _cffi_aligncheck, y),')
-        for fname, ftype, fbitsize, fqual in tp.enumfields():
-            if fbitsize >= 0:
-                continue      # xxx ignore fbitsize for now
-            prnt('    offsetof(%s, %s),' % (cname, fname))
-            if isinstance(ftype, model.ArrayType) and ftype.length is None:
-                prnt('    0,  /* %s */' % ftype._get_c_name())
-            else:
-                prnt('    sizeof(((%s *)0)->%s),' % (cname, fname))
-        prnt('    -1')
-        prnt('  };')
-        prnt('  return nums[i];')
-        prnt('  /* the next line is not executed, but compiled */')
-        prnt('  %s(0);' % (checkfuncname,))
-        prnt('}')
-        prnt()
+                    import sysconfig
+                except ImportError:    # 2.6
+                    from distutils import sysconfig
+                template = "python%d.%d"
+                if sysconfig.get_config_var('DEBUG_EXT'):
+                    template += sysconfig.get_config_var('DEBUG_EXT')
+            pythonlib = (template %
+                    (sys.hexversion >> 24, (sys.hexversion >> 16) & 0xff))
+            if hasattr(sys, 'abiflags'):
+                pythonlib += sys.abiflags
+        ensure('libraries', pythonlib)
+        if sys.platform == "win32":
+            ensure('extra_link_args', '/MANIFEST')
 
-    def _loading_struct_or_union(self, tp, prefix, name, module):
-        if tp.fldnames is None:
-            return     # nothing to do with opaque structs
-        layoutfuncname = '_cffi_layout_%s_%s' % (prefix, name)
+    def set_source(self, module_name, source, source_extension='.c', **kwds):
+        import os
+        if hasattr(self, '_assigned_source'):
+            raise ValueError("set_source() cannot be called several times "
+                             "per ffi object")
+        if not isinstance(module_name, basestring):
+            raise TypeError("'module_name' must be a string")
+        if os.sep in module_name or (os.altsep and os.altsep in module_name):
+            raise ValueError("'module_name' must not contain '/': use a dotted "
+                             "name to make a 'package.module' location")
+        self._assigned_source = (str(module_name), source,
+                                 source_extension, kwds)
+
+    def set_source_pkgconfig(self, module_name, pkgconfig_libs, source,
+                             source_extension='.c', **kwds):
+        from . import pkgconfig
+        if not isinstance(pkgconfig_libs, list):
+            raise TypeError("the pkgconfig_libs argument must be a list "
+                            "of package names")
+        kwds2 = pkgconfig.flags_from_pkgconfig(pkgconfig_libs)
+        pkgconfig.merge_flags(kwds, kwds2)
+        self.set_source(module_name, source, source_extension, **kwds)
+
+    def distutils_extension(self, tmpdir='build', verbose=True):
+        from distutils.dir_util import mkpath
+        from .recompiler import recompile
         #
-        BFunc = self.ffi._typeof_locked("intptr_t(*)(intptr_t)")[0]
-        function = module.load_function(BFunc, layoutfuncname)
-        layout = []
-        num = 0
-        while True:
-            x = function(num)
-            if x < 0: break
-            layout.append(x)
-            num += 1
-        if isinstance(tp, model.StructOrUnion) and tp.partial:
-            # use the function()'s sizes and offsets to guide the
-            # layout of the struct
-            totalsize = layout[0]
-            totalalignment = layout[1]
-            fieldofs = layout[2::2]
-            fieldsize = layout[3::2]
-            tp.force_flatten()
-            assert len(fieldofs) == len(fieldsize) == len(tp.fldnames)
-            tp.fixedlayout = fieldofs, fieldsize, totalsize, totalalignment
-        else:
-            cname = ('%s %s' % (prefix, name)).strip()
-            self._struct_pending_verification[tp] = layout, cname
-
-    def _loaded_struct_or_union(self, tp):
-        if tp.fldnames is None:
-            return     # nothing to do with opaque structs
-        self.ffi._get_cached_btype(tp)   # force 'fixedlayout' to be considered
-
-        if tp in self._struct_pending_verification:
-            # check that the layout sizes and offsets match the real ones
-            def check(realvalue, expectedvalue, msg):
-                if realvalue != expectedvalue:
-                    raise VerificationError(
-                        "%s (we have %d, but C compiler says %d)"
-                        % (msg, expectedvalue, realvalue))
-            ffi = self.ffi
-            BStruct = ffi._get_cached_btype(tp)
-            layout, cname = self._struct_pending_verification.pop(tp)
-            check(layout[0], ffi.sizeof(BStruct), "wrong total size")
-            check(layout[1], ffi.alignof(BStruct), "wrong total alignment")
-            i = 2
-            for fname, ftype, fbitsize, fqual in tp.enumfields():
-                if fbitsize >= 0:
-                    continue        # xxx ignore fbitsize for now
-                check(layout[i], ffi.offsetof(BStruct, fname),
-                      "wrong offset for field %r" % (fname,))
-                if layout[i+1] != 0:
-                    BField = ffi._get_cached_btype(ftype)
-                    check(layout[i+1], ffi.sizeof(BField),
-                          "wrong size for field %r" % (fname,))
-                i += 2
-            assert i == len(layout)
-
-    # ----------
-    # 'anonymous' declarations.  These are produced for anonymous structs
-    # or unions; the 'name' is obtained by a typedef.
-
-    def _generate_gen_anonymous_decl(self, tp, name):
-        if isinstance(tp, model.EnumType):
-            self._generate_gen_enum_decl(tp, name, '')
-        else:
-            self._generate_struct_or_union_decl(tp, '', name)
-
-    def _loading_gen_anonymous(self, tp, name, module):
-        if isinstance(tp, model.EnumType):
-            self._loading_gen_enum(tp, name, module, '')
-        else:
-            self._loading_struct_or_union(tp, '', name, module)
-
-    def _loaded_gen_anonymous(self, tp, name, module, **kwds):
-        if isinstance(tp, model.EnumType):
-            self._loaded_gen_enum(tp, name, module, **kwds)
-        else:
-            self._loaded_struct_or_union(tp)
-
-    # ----------
-    # constants, likely declared with '#define'
-
-    def _generate_gen_const(self, is_int, name, tp=None, category='const',
-                            check_value=None):
-        prnt = self._prnt
-        funcname = '_cffi_%s_%s' % (category, name)
-        self.export_symbols.append(funcname)
-        if check_value is not None:
-            assert is_int
-            assert category == 'const'
-            prnt('int %s(char *out_error)' % funcname)
-            prnt('{')
-            self._check_int_constant_value(name, check_value)
-            prnt('  return 0;')
-            prnt('}')
-        elif is_int:
-            assert category == 'const'
-            prnt('int %s(long long *out_value)' % funcname)
-            prnt('{')
-            prnt('  *out_value = (long long)(%s);' % (name,))
-            prnt('  return (%s) <= 0;' % (name,))
-            prnt('}')
-        else:
-            assert tp is not None
-            assert check_value is None
-            if category == 'var':
-                ampersand = '&'
+        if not hasattr(self, '_assigned_source'):
+            if hasattr(self, 'verifier'):     # fallback, 'tmpdir' ignored
+                return self.verifier.get_extension()
+            raise ValueError("set_source() must be called before"
+                             " distutils_extension()")
+        module_name, source, source_extension, kwds = self._assigned_source
+        if source is None:
+            raise TypeError("distutils_extension() is only for C extension "
+                            "modules, not for dlopen()-style pure Python "
+                            "modules")
+        mkpath(tmpdir)
+        ext, updated = recompile(self, module_name,
+                                 source, tmpdir=tmpdir, extradir=tmpdir,
+                                 source_extension=source_extension,
+                                 call_c_compiler=False, **kwds)
+        if verbose:
+            if updated:
+                sys.stderr.write("regenerated: %r\n" % (ext.sources[0],))
             else:
-                ampersand = ''
-            extra = ''
-            if category == 'const' and isinstance(tp, model.StructOrUnion):
-                extra = 'const *'
-                ampersand = '&'
-            prnt(tp.get_c_name(' %s%s(void)' % (extra, funcname), name))
-            prnt('{')
-            prnt('  return (%s%s);' % (ampersand, name))
-            prnt('}')
-        prnt()
+                sys.stderr.write("not modified: %r\n" % (ext.sources[0],))
+        return ext
 
-    def _generate_gen_constant_decl(self, tp, name):
-        is_int = isinstance(tp, model.PrimitiveType) and tp.is_integer_type()
-        self._generate_gen_const(is_int, name, tp)
+    def emit_c_code(self, filename):
+        from .recompiler import recompile
+        #
+        if not hasattr(self, '_assigned_source'):
+            raise ValueError("set_source() must be called before emit_c_code()")
+        module_name, source, source_extension, kwds = self._assigned_source
+        if source is None:
+            raise TypeError("emit_c_code() is only for C extension modules, "
+                            "not for dlopen()-style pure Python modules")
+        recompile(self, module_name, source,
+                  c_file=filename, call_c_compiler=False, **kwds)
 
-    _loading_gen_constant = _loaded_noop
+    def emit_python_code(self, filename):
+        from .recompiler import recompile
+        #
+        if not hasattr(self, '_assigned_source'):
+            raise ValueError("set_source() must be called before emit_c_code()")
+        module_name, source, source_extension, kwds = self._assigned_source
+        if source is not None:
+            raise TypeError("emit_python_code() is only for dlopen()-style "
+                            "pure Python modules, not for C extension modules")
+        recompile(self, module_name, source,
+                  c_file=filename, call_c_compiler=False, **kwds)
 
-    def _load_constant(self, is_int, tp, name, module, check_value=None):
-        funcname = '_cffi_const_%s' % name
-        if check_value is not None:
-            assert is_int
-            self._load_known_int_constant(module, funcname)
-            value = check_value
-        elif is_int:
-            BType = self.ffi._typeof_locked("long long*")[0]
-            BFunc = self.ffi._typeof_locked("int(*)(long long*)")[0]
-            function = module.load_function(BFunc, funcname)
-            p = self.ffi.new(BType)
-            negative = function(p)
-            value = int(p[0])
-            if value < 0 and not negative:
-                BLongLong = self.ffi._typeof_locked("long long")[0]
-                value += (1 << (8*self.ffi.sizeof(BLongLong)))
-        else:
-            assert check_value is None
-            fntypeextra = '(*)(void)'
-            if isinstance(tp, model.StructOrUnion):
-                fntypeextra = '*' + fntypeextra
-            BFunc = self.ffi._typeof_locked(tp.get_c_name(fntypeextra, name))[0]
-            function = module.load_function(BFunc, funcname)
-            value = function()
-            if isinstance(tp, model.StructOrUnion):
-                value = value[0]
-        return value
+    def compile(self, tmpdir='.', verbose=0, target=None, debug=None):
+        """The 'target' argument gives the final file name of the
+        compiled DLL.  Use '*' to force distutils' choice, suitable for
+        regular CPython C API modules.  Use a file name ending in '.*'
+        to ask for the system's default extension for dynamic libraries
+        (.so/.dll/.dylib).
 
-    def _loaded_gen_constant(self, tp, name, module, library):
-        is_int = isinstance(tp, model.PrimitiveType) and tp.is_integer_type()
-        value = self._load_constant(is_int, tp, name, module)
-        setattr(library, name, value)
-        type(library)._cffi_dir.append(name)
+        The default is '*' when building a non-embedded C API extension,
+        and (module_name + '.*') when building an embedded library.
+        """
+        from .recompiler import recompile
+        #
+        if not hasattr(self, '_assigned_source'):
+            raise ValueError("set_source() must be called before compile()")
+        module_name, source, source_extension, kwds = self._assigned_source
+        return recompile(self, module_name, source, tmpdir=tmpdir,
+                         target=target, source_extension=source_extension,
+                         compiler_verbose=verbose, debug=debug, **kwds)
 
-    # ----------
-    # enums
+    def init_once(self, func, tag):
+        # Read _init_once_cache[tag], which is either (False, lock) if
+        # we're calling the function now in some thread, or (True, result).
+        # Don't call setdefault() in most cases, to avoid allocating and
+        # immediately freeing a lock; but still use setdefaut() to avoid
+        # races.
+        try:
+            x = self._init_once_cache[tag]
+        except KeyError:
+            x = self._init_once_cache.setdefault(tag, (False, allocate_lock()))
+        # Common case: we got (True, result), so we return the result.
+        if x[0]:
+            return x[1]
+        # Else, it's a lock.  Acquire it to serialize the following tests.
+        with x[1]:
+            # Read again from _init_once_cache the current status.
+            x = self._init_once_cache[tag]
+            if x[0]:
+                return x[1]
+            # Call the function and store the result back.
+            result = func()
+            self._init_once_cache[tag] = (True, result)
+        return result
 
-    def _check_int_constant_value(self, name, value):
-        prnt = self._prnt
-        if value <= 0:
-            prnt('  if ((%s) > 0 || (long)(%s) != %dL) {' % (
-                name, name, value))
-        else:
-            prnt('  if ((%s) <= 0 || (unsigned long)(%s) != %dUL) {' % (
-                name, name, value))
-        prnt('    char buf[64];')
-        prnt('    if ((%s) <= 0)' % name)
-        prnt('        sprintf(buf, "%%ld", (long)(%s));' % name)
-        prnt('    else')
-        prnt('        sprintf(buf, "%%lu", (unsigned long)(%s));' %
-             name)
-        prnt('    sprintf(out_error, "%s has the real value %s, not %s",')
-        prnt('            "%s", buf, "%d");' % (name[:100], value))
-        prnt('    return -1;')
-        prnt('  }')
+    def embedding_init_code(self, pysource):
+        if self._embedding:
+            raise ValueError("embedding_init_code() can only be called once")
+        # fix 'pysource' before it gets dumped into the C file:
+        # - remove empty lines at the beginning, so it starts at "line 1"
+        # - dedent, if all non-empty lines are indented
+        # - check for SyntaxErrors
+        import re
+        match = re.match(r'\s*\n', pysource)
+        if match:
+            pysource = pysource[match.end():]
+        lines = pysource.splitlines() or ['']
+        prefix = re.match(r'\s*', lines[0]).group()
+        for i in range(1, len(lines)):
+            line = lines[i]
+            if line.rstrip():
+                while not line.startswith(prefix):
+                    prefix = prefix[:-1]
+        i = len(prefix)
+        lines = [line[i:]+'\n' for line in lines]
+        pysource = ''.join(lines)
+        #
+        compile(pysource, "cffi_init", "exec")
+        #
+        self._embedding = pysource
 
-    def _load_known_int_constant(self, module, funcname):
-        BType = self.ffi._typeof_locked("char[]")[0]
-        BFunc = self.ffi._typeof_locked("int(*)(char*)")[0]
-        function = module.load_function(BFunc, funcname)
-        p = self.ffi.new(BType, 256)
-        if function(p) < 0:
-            error = self.ffi.string(p)
-            if sys.version_info >= (3,):
-                error = str(error, 'utf-8')
-            raise VerificationError(error)
+    def def_extern(self, *args, **kwds):
+        raise ValueError("ffi.def_extern() is only available on API-mode FFI "
+                         "objects")
 
-    def _enum_funcname(self, prefix, name):
-        # "$enum_$1" => "___D_enum____D_1"
-        name = name.replace('$', '___D_')
-        return '_cffi_e_%s_%s' % (prefix, name)
+    def list_types(self):
+        """Returns the user type names known to this FFI instance.
+        This returns a tuple containing three lists of names:
+        (typedef_names, names_of_structs, names_of_unions)
+        """
+        typedefs = []
+        structs = []
+        unions = []
+        for key in self._parser._declarations:
+            if key.startswith('typedef '):
+                typedefs.append(key[8:])
+            elif key.startswith('struct '):
+                structs.append(key[7:])
+            elif key.startswith('union '):
+                unions.append(key[6:])
+        typedefs.sort()
+        structs.sort()
+        unions.sort()
+        return (typedefs, structs, unions)
 
-    def _generate_gen_enum_decl(self, tp, name, prefix='enum'):
-        if tp.partial:
-            for enumerator in tp.enumerators:
-                self._generate_gen_const(True, enumerator)
+
+def _load_backend_lib(backend, name, flags):
+    import os
+    if name is None:
+        if sys.platform != "win32":
+            return backend.load_library(None, flags)
+        name = "c"    # Windows: load_library(None) fails, but this works
+                      # on Python 2 (backward compatibility hack only)
+    first_error = None
+    if '.' in name or '/' in name or os.sep in name:
+        try:
+            return backend.load_library(name, flags)
+        except OSError as e:
+            first_error = e
+    import ctypes.util
+    path = ctypes.util.find_library(name)
+    if path is None:
+        if name == "c" and sys.platform == "win32" and sys.version_info >= (3,):
+            raise OSError("dlopen(None) cannot work on Windows for Python 3 "
+                          "(see http://bugs.python.org/issue23606)")
+        msg = ("ctypes.util.find_library() did not manage "
+               "to locate a library called %r" % (name,))
+        if first_error is not None:
+            msg = "%s.  Additionally, %s" % (first_error, msg)
+        raise OSError(msg)
+    return backend.load_library(path, flags)
+
+def _make_ffi_library(ffi, libname, flags):
+    backend = ffi._backend
+    backendlib = _load_backend_lib(backend, libname, flags)
+    #
+    def accessor_function(name):
+        key = 'function ' + name
+        tp, _ = ffi._parser._declarations[key]
+        BType = ffi._get_cached_btype(tp)
+        value = backendlib.load_function(BType, name)
+        library.__dict__[name] = value
+    #
+    def accessor_variable(name):
+        key = 'variable ' + name
+        tp, _ = ffi._parser._declarations[key]
+        BType = ffi._get_cached_btype(tp)
+        read_variable = backendlib.read_variable
+        write_variable = backendlib.write_variable
+        setattr(FFILibrary, name, property(
+            lambda self: read_variable(BType, name),
+            lambda self, value: write_variable(BType, name, value)))
+    #
+    def addressof_var(name):
+        try:
+            return addr_variables[name]
+        except KeyError:
+            with ffi._lock:
+                if name not in addr_variables:
+                    key = 'variable ' + name
+                    tp, _ = ffi._parser._declarations[key]
+                    BType = ffi._get_cached_btype(tp)
+                    if BType.kind != 'array':
+                        BType = model.pointer_cache(ffi, BType)
+                    p = backendlib.load_function(BType, name)
+                    addr_variables[name] = p
+            return addr_variables[name]
+    #
+    def accessor_constant(name):
+        raise NotImplementedError("non-integer constant '%s' cannot be "
+                                  "accessed from a dlopen() library" % (name,))
+    #
+    def accessor_int_constant(name):
+        library.__dict__[name] = ffi._parser._int_constants[name]
+    #
+    accessors = {}
+    accessors_version = [False]
+    addr_variables = {}
+    #
+    def update_accessors():
+        if accessors_version[0] is ffi._cdef_version:
             return
         #
-        funcname = self._enum_funcname(prefix, name)
-        self.export_symbols.append(funcname)
-        prnt = self._prnt
-        prnt('int %s(char *out_error)' % funcname)
-        prnt('{')
-        for enumerator, enumvalue in zip(tp.enumerators, tp.enumvalues):
-            self._check_int_constant_value(enumerator, enumvalue)
-        prnt('  return 0;')
-        prnt('}')
-        prnt()
+        for key, (tp, _) in ffi._parser._declarations.items():
+            if not isinstance(tp, model.EnumType):
+                tag, name = key.split(' ', 1)
+                if tag == 'function':
+                    accessors[name] = accessor_function
+                elif tag == 'variable':
+                    accessors[name] = accessor_variable
+                elif tag == 'constant':
+                    accessors[name] = accessor_constant
+            else:
+                for i, enumname in enumerate(tp.enumerators):
+                    def accessor_enum(name, tp=tp, i=i):
+                        tp.check_not_partial()
+                        library.__dict__[name] = tp.enumvalues[i]
+                    accessors[enumname] = accessor_enum
+        for name in ffi._parser._int_constants:
+            accessors.setdefault(name, accessor_int_constant)
+        accessors_version[0] = ffi._cdef_version
+    #
+    def make_accessor(name):
+        with ffi._lock:
+            if name in library.__dict__ or name in FFILibrary.__dict__:
+                return    # added by another thread while waiting for the lock
+            if name not in accessors:
+                update_accessors()
+                if name not in accessors:
+                    raise AttributeError(name)
+            accessors[name](name)
+    #
+    class FFILibrary(object):
+        def __getattr__(self, name):
+            make_accessor(name)
+            return getattr(self, name)
+        def __setattr__(self, name, value):
+            try:
+                property = getattr(self.__class__, name)
+            except AttributeError:
+                make_accessor(name)
+                setattr(self, name, value)
+            else:
+                property.__set__(self, value)
+        def __dir__(self):
+            with ffi._lock:
+                update_accessors()
+                return accessors.keys()
+        def __addressof__(self, name):
+            if name in library.__dict__:
+                return library.__dict__[name]
+            if name in FFILibrary.__dict__:
+                return addressof_var(name)
+            make_accessor(name)
+            if name in library.__dict__:
+                return library.__dict__[name]
+            if name in FFILibrary.__dict__:
+                return addressof_var(name)
+            raise AttributeError("cffi library has no function or "
+                                 "global variable named '%s'" % (name,))
+        def __cffi_close__(self):
+            backendlib.close_lib()
+            self.__dict__.clear()
+    #
+    if libname is not None:
+        try:
+            if not isinstance(libname, str):    # unicode, on Python 2
+                libname = libname.encode('utf-8')
+            FFILibrary.__name__ = 'FFILibrary_%s' % libname
+        except UnicodeError:
+            pass
+    library = FFILibrary()
+    return library, library.__dict__
 
-    def _loading_gen_enum(self, tp, name, module, prefix='enum'):
-        if tp.partial:
-            enumvalues = [self._load_constant(True, tp, enumerator, module)
-                          for enumerator in tp.enumerators]
-            tp.enumvalues = tuple(enumvalues)
-            tp.partial_resolved = True
-        else:
-            funcname = self._enum_funcname(prefix, name)
-            self._load_known_int_constant(module, funcname)
-
-    def _loaded_gen_enum(self, tp, name, module, library):
-        for enumerator, enumvalue in zip(tp.enumerators, tp.enumvalues):
-            setattr(library, enumerator, enumvalue)
-            type(library)._cffi_dir.append(enumerator)
-
-    # ----------
-    # macros: for now only for integers
-
-    def _generate_gen_macro_decl(self, tp, name):
-        if tp == '...':
-            check_value = None
-        else:
-            check_value = tp     # an integer
-        self._generate_gen_const(True, name, check_value=check_value)
-
-    _loading_gen_macro = _loaded_noop
-
-    def _loaded_gen_macro(self, tp, name, module, library):
-        if tp == '...':
-            check_value = None
-        else:
-            check_value = tp     # an integer
-        value = self._load_constant(True, tp, name, module,
-                                    check_value=check_value)
-        setattr(library, name, value)
-        type(library)._cffi_dir.append(name)
-
-    # ----------
-    # global variables
-
-    def _generate_gen_variable_decl(self, tp, name):
-        if isinstance(tp, model.ArrayType):
-            if tp.length == '...':
-                prnt = self._prnt
-                funcname = '_cffi_sizeof_%s' % (name,)
-                self.export_symbols.append(funcname)
-                prnt("size_t %s(void)" % funcname)
-                prnt("{")
-                prnt("  return sizeof(%s);" % (name,))
-                prnt("}")
-            tp_ptr = model.PointerType(tp.item)
-            self._generate_gen_const(False, name, tp_ptr)
-        else:
-            tp_ptr = model.PointerType(tp)
-            self._generate_gen_const(False, name, tp_ptr, category='var')
-
-    _loading_gen_variable = _loaded_noop
-
-    def _loaded_gen_variable(self, tp, name, module, library):
-        if isinstance(tp, model.ArrayType):   # int a[5] is "constant" in the
-                                              # sense that "a=..." is forbidden
-            if tp.length == '...':
-                funcname = '_cffi_sizeof_%s' % (name,)
-                BFunc = self.ffi._typeof_locked('size_t(*)(void)')[0]
-                function = module.load_function(BFunc, funcname)
-                size = function()
-                BItemType = self.ffi._get_cached_btype(tp.item)
-                length, rest = divmod(size, self.ffi.sizeof(BItemType))
-                if rest != 0:
-                    raise VerificationError(
-                        "bad size: %r does not seem to be an array of %s" %
-                        (name, tp.item))
-                tp = tp.resolve_length(length)
-            tp_ptr = model.PointerType(tp.item)
-            value = self._load_constant(False, tp_ptr, name, module)
-            # 'value' is a <cdata 'type *'> which we have to replace with
-            # a <cdata 'type[N]'> if the N is actually known
-            if tp.length is not None:
-                BArray = self.ffi._get_cached_btype(tp)
-                value = self.ffi.cast(BArray, value)
-            setattr(library, name, value)
-            type(library)._cffi_dir.append(name)
-            return
-        # remove ptr=<cdata 'int *'> from the library instance, and replace
-        # it by a property on the class, which reads/writes into ptr[0].
-        funcname = '_cffi_var_%s' % name
-        BFunc = self.ffi._typeof_locked(tp.get_c_name('*(*)(void)', name))[0]
-        function = module.load_function(BFunc, funcname)
-        ptr = function()
-        def getter(library):
-            return ptr[0]
-        def setter(library, value):
-            ptr[0] = value
-        setattr(type(library), name, property(getter, setter))
-        type(library)._cffi_dir.append(name)
-
-cffimod_header = r'''
-#include <stdio.h>
-#include <stddef.h>
-#include <stdarg.h>
-#include <errno.h>
-#include <sys/types.h>   /* XXX for ssize_t on some platforms */
-
-/* this block of #ifs should be kept exactly identical between
-   c/_cffi_backend.c, cffi/vengine_cpy.py, cffi/vengine_gen.py
-   and cffi/_cffi_include.h */
-#if defined(_MSC_VER)
-# include <malloc.h>   /* for alloca() */
-# if _MSC_VER < 1600   /* MSVC < 2010 */
-   typedef __int8 int8_t;
-   typedef __int16 int16_t;
-   typedef __int32 int32_t;
-   typedef __int64 int64_t;
-   typedef unsigned __int8 uint8_t;
-   typedef unsigned __int16 uint16_t;
-   typedef unsigned __int32 uint32_t;
-   typedef unsigned __int64 uint64_t;
-   typedef __int8 int_least8_t;
-   typedef __int16 int_least16_t;
-   typedef __int32 int_least32_t;
-   typedef __int64 int_least64_t;
-   typedef unsigned __int8 uint_least8_t;
-   typedef unsigned __int16 uint_least16_t;
-   typedef unsigned __int32 uint_least32_t;
-   typedef unsigned __int64 uint_least64_t;
-   typedef __int8 int_fast8_t;
-   typedef __int16 int_fast16_t;
-   typedef __int32 int_fast32_t;
-   typedef __int64 int_fast64_t;
-   typedef unsigned __int8 uint_fast8_t;
-   typedef unsigned __int16 uint_fast16_t;
-   typedef unsigned __int32 uint_fast32_t;
-   typedef unsigned __int64 uint_fast64_t;
-   typedef __int64 intmax_t;
-   typedef unsigned __int64 uintmax_t;
-# else
-#  include <stdint.h>
-# endif
-# if _MSC_VER < 1800   /* MSVC < 2013 */
-#  ifndef __cplusplus
-    typedef unsigned char _Bool;
-#  endif
-# endif
-#else
-# include <stdint.h>
-# if (defined (__SVR4) && defined (__sun)) || defined(_AIX) || defined(__hpux)
-#  include <alloca.h>
-# endif
-#endif
-'''
+def _builtin_function_type(func):
+    # a hack to make at least ffi.typeof(builtin_function) work,
+    # if the builtin function was obtained by 'vengine_cpy'.
+    import sys
+    try:
+        module = sys.modules[func.__module__]
+        ffi = module._cffi_original_ffi
+        types_of_builtin_funcs = module._cffi_types_of_builtin_funcs
+        tp = types_of_builtin_funcs[func]
+    except (KeyError, AttributeError, TypeError):
+        return None
+    else:
+        with ffi._lock:
+            return ffi._get_cached_btype(tp)

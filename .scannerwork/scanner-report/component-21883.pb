@@ -1,1 +1,1 @@
-ûª@venv/lib/python3.6/site-packages/twisted/words/xish/xmlstream.py 2pyX˜h
+ûª3venv/lib/python3.6/site-packages/twisted/words/xish :úªüªýªÿª€«‡«

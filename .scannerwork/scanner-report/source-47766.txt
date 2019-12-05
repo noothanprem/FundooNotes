@@ -3,8 +3,8 @@
 
 from twisted.application.service import ServiceMaker
 
-TwistedINETD = ServiceMaker(
-    "Twisted INETD Server",
-    "twisted.runner.inetdtap",
-    "An inetd(8) replacement.",
-    "inetd")
+TwistedProcmon = ServiceMaker(
+    "Twisted Process Monitor",
+    "twisted.runner.procmontap",
+    ("A process watchdog / supervisor"),
+    "procmon")

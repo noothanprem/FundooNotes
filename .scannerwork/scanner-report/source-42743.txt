@@ -1,60 +1,65 @@
-import os
-import abc
+"""
+Keyring Chainer - iterates over other viable backends to
+discover passwords in each.
+"""
 
-__metaclass__ = type
+from .. import backend
+from ..util import properties
 
 
-class Credential(metaclass=abc.ABCMeta):
-    """Abstract class to manage credentials
+class ChainerBackend(backend.KeyringBackend):
+    """
+    >>> ChainerBackend()
+    <keyring.backends.chainer.ChainerBackend object at ...>
     """
 
-    @abc.abstractproperty
-    def username(self):
-        return None
+    # override viability as 'priority' cannot be determined
+    # until other backends have been constructed
+    viable = True
 
-    @abc.abstractproperty
-    def password(self):
-        return None
-
-
-class SimpleCredential(Credential):
-    """Simple credentials implementation
-    """
-
-    def __init__(self, username, password):
-        self._username = username
-        self._password = password
-
-    @property
-    def username(self):
-        return self._username
-
-    @property
-    def password(self):
-        return self._password
-
-
-class EnvironCredential(Credential):
-    """Source credentials from environment variables.
-       Actual sourcing is deferred until requested.
-    """
-
-    def __init__(self, user_env_var, pwd_env_var):
-        self.user_env_var = user_env_var
-        self.pwd_env_var = pwd_env_var
-
-    def _get_env(self, env_var):
-        """Helper to read an environment variable
+    @properties.ClassProperty
+    @classmethod
+    def priority(cls):
         """
-        value = os.environ.get(env_var)
-        if not value:
-            raise ValueError('Missing environment variable:%s' % env_var)
-        return value
+        High-priority if there are backends to chain, otherwise 0.
+        """
+        return 10 * (len(cls.backends) > 1)
 
-    @property
-    def username(self):
-        return self._get_env(self.user_env_var)
+    @properties.ClassProperty
+    @classmethod
+    def backends(cls):
+        """
+        Discover all keyrings for chaining.
+        """
+        allowed = (
+            keyring
+            for keyring in filter(backend._limit, backend.get_all_keyring())
+            if not isinstance(keyring, ChainerBackend) and keyring.priority > 0
+        )
+        return sorted(allowed, key=backend.by_priority, reverse=True)
 
-    @property
-    def password(self):
-        return self._get_env(self.pwd_env_var)
+    def get_password(self, service, username):
+        for keyring in self.backends:
+            password = keyring.get_password(service, username)
+            if password is not None:
+                return password
+
+    def set_password(self, service, username, password):
+        for keyring in self.backends:
+            try:
+                return keyring.set_password(service, username, password)
+            except NotImplementedError:
+                pass
+
+    def delete_password(self, service, username):
+        for keyring in self.backends:
+            try:
+                return keyring.delete_password(service, username)
+            except NotImplementedError:
+                pass
+
+    def get_credential(self, service, username):
+        for keyring in self.backends:
+            credential = keyring.get_credential(service, username)
+            if credential is not None:
+                return credential

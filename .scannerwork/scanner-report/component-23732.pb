@@ -1,1 +1,1 @@
-´¹?venv/lib/python3.6/site-packages/social_core/backends/meetup.py 2pyX#h
+´¹?venv/lib/python3.6/site-packages/social_core/backends/disqus.py 2pyX5h

@@ -1,1 +1,1 @@
-ºdEvenv/lib/python3.6/site-packages/macaroonbakery/bakery/_authorizer.py 2pyXkh
+ºd6venv/lib/python3.6/site-packages/macaroonbakery/bakery :¹d»d¼d½dÁdÄdÆdÇdÈdØdÙdÚdÛdÜd

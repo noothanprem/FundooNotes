@@ -1,1 +1,1 @@
-æµMvenv/lib/python3.6/site-packages/rest_framework/static/rest_framework/docs/js :	åµèµéµ
+æµMvenv/lib/python3.6/site-packages/rest_framework/static/rest_framework/docs/js :	åµçµèµ

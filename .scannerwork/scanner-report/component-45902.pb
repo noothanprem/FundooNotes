@@ -1,1 +1,1 @@
-ÎæTvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/token_blacklist/admin.py 2pyX\h
+ÎæDvenv/lib64/python3.6/site-packages/rest_framework_simplejwt/utils.py 2pyX!h

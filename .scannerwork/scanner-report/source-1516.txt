@@ -14,253 +14,300 @@
 
 from __future__ import absolute_import, division, print_function
 
-from nacl.bindings.crypto_box import (
-    crypto_box, crypto_box_BEFORENMBYTES, crypto_box_BOXZEROBYTES,
-    crypto_box_NONCEBYTES, crypto_box_PUBLICKEYBYTES, crypto_box_SEALBYTES,
-    crypto_box_SECRETKEYBYTES, crypto_box_SEEDBYTES, crypto_box_ZEROBYTES,
-    crypto_box_afternm, crypto_box_beforenm, crypto_box_keypair,
-    crypto_box_open, crypto_box_open_afternm, crypto_box_seal,
-    crypto_box_seal_open, crypto_box_seed_keypair,
-)
-from nacl.bindings.crypto_generichash import (
-    crypto_generichash_BYTES, crypto_generichash_BYTES_MAX,
-    crypto_generichash_BYTES_MIN, crypto_generichash_KEYBYTES,
-    crypto_generichash_KEYBYTES_MAX, crypto_generichash_KEYBYTES_MIN,
-    crypto_generichash_PERSONALBYTES, crypto_generichash_SALTBYTES,
-    crypto_generichash_STATEBYTES,
-    generichash_blake2b_final as crypto_generichash_blake2b_final,
-    generichash_blake2b_init as crypto_generichash_blake2b_init,
-    generichash_blake2b_salt_personal as
-    crypto_generichash_blake2b_salt_personal,
-    generichash_blake2b_state_copy as crypto_generichash_blake2b_state_copy,
-    generichash_blake2b_update as crypto_generichash_blake2b_update
-)
-from nacl.bindings.crypto_hash import (
-    crypto_hash, crypto_hash_BYTES, crypto_hash_sha256,
-    crypto_hash_sha256_BYTES, crypto_hash_sha512, crypto_hash_sha512_BYTES,
-)
-from nacl.bindings.crypto_pwhash import (
-    crypto_pwhash_ALG_ARGON2I13,
-    crypto_pwhash_ALG_ARGON2ID13,
-    crypto_pwhash_ALG_DEFAULT,
-    crypto_pwhash_BYTES_MAX,
-    crypto_pwhash_BYTES_MIN,
-    crypto_pwhash_PASSWD_MAX,
-    crypto_pwhash_PASSWD_MIN,
-    crypto_pwhash_SALTBYTES,
-    crypto_pwhash_STRBYTES,
-    crypto_pwhash_alg,
-    crypto_pwhash_argon2i_MEMLIMIT_INTERACTIVE,
-    crypto_pwhash_argon2i_MEMLIMIT_MAX,
-    crypto_pwhash_argon2i_MEMLIMIT_MIN,
-    crypto_pwhash_argon2i_MEMLIMIT_MODERATE,
-    crypto_pwhash_argon2i_MEMLIMIT_SENSITIVE,
-    crypto_pwhash_argon2i_OPSLIMIT_INTERACTIVE,
-    crypto_pwhash_argon2i_OPSLIMIT_MAX,
-    crypto_pwhash_argon2i_OPSLIMIT_MIN,
-    crypto_pwhash_argon2i_OPSLIMIT_MODERATE,
-    crypto_pwhash_argon2i_OPSLIMIT_SENSITIVE,
-    crypto_pwhash_argon2i_STRPREFIX,
-    crypto_pwhash_argon2id_MEMLIMIT_INTERACTIVE,
-    crypto_pwhash_argon2id_MEMLIMIT_MAX,
-    crypto_pwhash_argon2id_MEMLIMIT_MIN,
-    crypto_pwhash_argon2id_MEMLIMIT_MODERATE,
-    crypto_pwhash_argon2id_MEMLIMIT_SENSITIVE,
-    crypto_pwhash_argon2id_OPSLIMIT_INTERACTIVE,
-    crypto_pwhash_argon2id_OPSLIMIT_MAX,
-    crypto_pwhash_argon2id_OPSLIMIT_MIN,
-    crypto_pwhash_argon2id_OPSLIMIT_MODERATE,
-    crypto_pwhash_argon2id_OPSLIMIT_SENSITIVE,
-    crypto_pwhash_argon2id_STRPREFIX,
-    crypto_pwhash_scryptsalsa208sha256_BYTES_MAX,
-    crypto_pwhash_scryptsalsa208sha256_BYTES_MIN,
-    crypto_pwhash_scryptsalsa208sha256_MEMLIMIT_INTERACTIVE,
-    crypto_pwhash_scryptsalsa208sha256_MEMLIMIT_MAX,
-    crypto_pwhash_scryptsalsa208sha256_MEMLIMIT_MIN,
-    crypto_pwhash_scryptsalsa208sha256_MEMLIMIT_SENSITIVE,
-    crypto_pwhash_scryptsalsa208sha256_OPSLIMIT_INTERACTIVE,
-    crypto_pwhash_scryptsalsa208sha256_OPSLIMIT_MAX,
-    crypto_pwhash_scryptsalsa208sha256_OPSLIMIT_MIN,
-    crypto_pwhash_scryptsalsa208sha256_OPSLIMIT_SENSITIVE,
-    crypto_pwhash_scryptsalsa208sha256_PASSWD_MAX,
-    crypto_pwhash_scryptsalsa208sha256_PASSWD_MIN,
-    crypto_pwhash_scryptsalsa208sha256_SALTBYTES,
-    crypto_pwhash_scryptsalsa208sha256_STRBYTES,
-    crypto_pwhash_scryptsalsa208sha256_STRPREFIX,
-    crypto_pwhash_scryptsalsa208sha256_ll,
-    crypto_pwhash_scryptsalsa208sha256_str,
-    crypto_pwhash_scryptsalsa208sha256_str_verify,
-    crypto_pwhash_str_alg,
-    crypto_pwhash_str_verify,
-    nacl_bindings_pick_scrypt_params,
-)
-from nacl.bindings.crypto_scalarmult import (
-    crypto_scalarmult, crypto_scalarmult_BYTES, crypto_scalarmult_SCALARBYTES,
-    crypto_scalarmult_base
-)
-from nacl.bindings.crypto_secretbox import (
-    crypto_secretbox, crypto_secretbox_BOXZEROBYTES, crypto_secretbox_KEYBYTES,
-    crypto_secretbox_NONCEBYTES, crypto_secretbox_ZEROBYTES,
-    crypto_secretbox_open
-)
-from nacl.bindings.crypto_shorthash import (
-    BYTES as crypto_shorthash_siphash24_BYTES,
-    KEYBYTES as crypto_shorthash_siphash24_KEYBYTES,
-    XBYTES as crypto_shorthash_siphashx24_BYTES,
-    XKEYBYTES as crypto_shorthash_siphashx24_KEYBYTES,
-    crypto_shorthash_siphash24,
-    crypto_shorthash_siphashx24
-)
-from nacl.bindings.crypto_sign import (
-    crypto_sign, crypto_sign_BYTES, crypto_sign_PUBLICKEYBYTES,
-    crypto_sign_SECRETKEYBYTES, crypto_sign_SEEDBYTES,
-    crypto_sign_ed25519_pk_to_curve25519, crypto_sign_ed25519_sk_to_curve25519,
-    crypto_sign_keypair, crypto_sign_open, crypto_sign_seed_keypair
-)
-from nacl.bindings.randombytes import randombytes
-from nacl.bindings.sodium_core import sodium_init
-from nacl.bindings.utils import sodium_memcmp
+from nacl import exceptions as exc
+from nacl._sodium import ffi, lib
+from nacl.exceptions import ensure
 
 
-__all__ = [
-    "crypto_box_SECRETKEYBYTES",
-    "crypto_box_PUBLICKEYBYTES",
-    "crypto_box_SEEDBYTES",
-    "crypto_box_NONCEBYTES",
-    "crypto_box_ZEROBYTES",
-    "crypto_box_BOXZEROBYTES",
-    "crypto_box_BEFORENMBYTES",
-    "crypto_box_SEALBYTES",
-    "crypto_box_keypair",
-    "crypto_box",
-    "crypto_box_open",
-    "crypto_box_beforenm",
-    "crypto_box_afternm",
-    "crypto_box_open_afternm",
-    "crypto_box_seal",
-    "crypto_box_seal_open",
-    "crypto_box_seed_keypair",
+__all__ = ["crypto_box_keypair", "crypto_box"]
 
-    "crypto_hash_BYTES",
-    "crypto_hash_sha256_BYTES",
-    "crypto_hash_sha512_BYTES",
-    "crypto_hash",
-    "crypto_hash_sha256",
-    "crypto_hash_sha512",
 
-    "crypto_generichash_BYTES",
-    "crypto_generichash_BYTES_MIN",
-    "crypto_generichash_BYTES_MAX",
-    "crypto_generichash_KEYBYTES",
-    "crypto_generichash_KEYBYTES_MIN",
-    "crypto_generichash_KEYBYTES_MAX",
-    "crypto_generichash_SALTBYTES",
-    "crypto_generichash_PERSONALBYTES",
-    "crypto_generichash_STATEBYTES",
-    "crypto_generichash_blake2b_salt_personal",
-    "crypto_generichash_blake2b_init",
-    "crypto_generichash_blake2b_update",
-    "crypto_generichash_blake2b_final",
-    "crypto_generichash_blake2b_state_copy",
+crypto_box_SECRETKEYBYTES = lib.crypto_box_secretkeybytes()
+crypto_box_PUBLICKEYBYTES = lib.crypto_box_publickeybytes()
+crypto_box_SEEDBYTES = lib.crypto_box_seedbytes()
+crypto_box_NONCEBYTES = lib.crypto_box_noncebytes()
+crypto_box_ZEROBYTES = lib.crypto_box_zerobytes()
+crypto_box_BOXZEROBYTES = lib.crypto_box_boxzerobytes()
+crypto_box_BEFORENMBYTES = lib.crypto_box_beforenmbytes()
+crypto_box_SEALBYTES = lib.crypto_box_sealbytes()
 
-    "crypto_scalarmult_BYTES",
-    "crypto_scalarmult_SCALARBYTES",
-    "crypto_scalarmult",
-    "crypto_scalarmult_base",
 
-    "crypto_secretbox_KEYBYTES",
-    "crypto_secretbox_NONCEBYTES",
-    "crypto_secretbox_ZEROBYTES",
-    "crypto_secretbox_BOXZEROBYTES",
-    "crypto_secretbox",
-    "crypto_secretbox_open",
+def crypto_box_keypair():
+    """
+    Returns a randomly generated public and secret key.
 
-    "crypto_shorthash_siphash24_BYTES",
-    "crypto_shorthash_siphash24_KEYBYTES",
-    "crypto_shorthash_siphash24",
-    "crypto_shorthash_siphashx24_BYTES",
-    "crypto_shorthash_siphashx24_KEYBYTES",
-    "crypto_shorthash_siphashx24",
+    :rtype: (bytes(public_key), bytes(secret_key))
+    """
+    pk = ffi.new("unsigned char[]", crypto_box_PUBLICKEYBYTES)
+    sk = ffi.new("unsigned char[]", crypto_box_SECRETKEYBYTES)
 
-    "crypto_sign_BYTES",
-    "crypto_sign_SEEDBYTES",
-    "crypto_sign_PUBLICKEYBYTES",
-    "crypto_sign_SECRETKEYBYTES",
-    "crypto_sign_keypair",
-    "crypto_sign_seed_keypair",
-    "crypto_sign",
-    "crypto_sign_open",
-    "crypto_sign_ed25519_pk_to_curve25519",
-    "crypto_sign_ed25519_sk_to_curve25519",
+    rc = lib.crypto_box_keypair(pk, sk)
+    ensure(rc == 0,
+           'Unexpected library error',
+           raising=exc.RuntimeError)
 
-    "crypto_pwhash_ALG_ARGON2I13",
-    "crypto_pwhash_ALG_ARGON2ID13",
-    "crypto_pwhash_ALG_DEFAULT",
-    "crypto_pwhash_BYTES_MAX",
-    "crypto_pwhash_BYTES_MIN",
-    "crypto_pwhash_MEMLIMIT_MAX",
-    "crypto_pwhash_MEMLIMIT_MIN",
-    "crypto_pwhash_OPSLIMIT_MAX",
-    "crypto_pwhash_OPSLIMIT_MIN",
-    "crypto_pwhash_PASSWD_MAX",
-    "crypto_pwhash_PASSWD_MIN",
-    "crypto_pwhash_SALTBYTES",
-    "crypto_pwhash_STRBYTES",
+    return (
+        ffi.buffer(pk, crypto_box_PUBLICKEYBYTES)[:],
+        ffi.buffer(sk, crypto_box_SECRETKEYBYTES)[:],
+    )
 
-    "crypto_pwhash_alg",
-    "crypto_pwhash_argon2i_MEMLIMIT_MIN",
-    "crypto_pwhash_argon2i_MEMLIMIT_MAX",
-    "crypto_pwhash_argon2i_MEMLIMIT_INTERACTIVE",
-    "crypto_pwhash_argon2i_MEMLIMIT_MODERATE",
-    "crypto_pwhash_argon2i_MEMLIMIT_SENSITIVE",
-    "crypto_pwhash_argon2i_OPSLIMIT_MIN",
-    "crypto_pwhash_argon2i_OPSLIMIT_MAX",
-    "crypto_pwhash_argon2i_OPSLIMIT_INTERACTIVE",
-    "crypto_pwhash_argon2i_OPSLIMIT_MODERATE",
-    "crypto_pwhash_argon2i_OPSLIMIT_SENSITIVE",
-    "crypto_pwhash_argon2i_STRPREFIX",
 
-    "crypto_pwhash_argon2id_MEMLIMIT_MIN",
-    "crypto_pwhash_argon2id_MEMLIMIT_MAX",
-    "crypto_pwhash_argon2id_MEMLIMIT_INTERACTIVE",
-    "crypto_pwhash_argon2id_MEMLIMIT_MODERATE",
-    "crypto_pwhash_argon2id_OPSLIMIT_MIN",
-    "crypto_pwhash_argon2id_OPSLIMIT_MAX",
-    "crypto_pwhash_argon2id_MEMLIMIT_SENSITIVE",
-    "crypto_pwhash_argon2id_OPSLIMIT_INTERACTIVE",
-    "crypto_pwhash_argon2id_OPSLIMIT_MODERATE",
-    "crypto_pwhash_argon2id_OPSLIMIT_SENSITIVE",
-    "crypto_pwhash_argon2id_STRPREFIX",
+def crypto_box_seed_keypair(seed):
+    """
+    Returns a (public, secret) keypair deterministically generated
+    from an input ``seed``.
 
-    "crypto_pwhash_str_alg",
-    "crypto_pwhash_str_verify",
+    .. warning:: The seed **must** be high-entropy; therefore,
+        its generator **must** be a cryptographic quality
+        random function like, for example, :func:`~nacl.utils.random`.
 
-    "crypto_pwhash_scryptsalsa208sha256_BYTES_MAX",
-    "crypto_pwhash_scryptsalsa208sha256_BYTES_MIN",
-    "crypto_pwhash_scryptsalsa208sha256_MEMLIMIT_INTERACTIVE",
-    "crypto_pwhash_scryptsalsa208sha256_MEMLIMIT_MAX",
-    "crypto_pwhash_scryptsalsa208sha256_MEMLIMIT_MIN",
-    "crypto_pwhash_scryptsalsa208sha256_MEMLIMIT_SENSITIVE",
-    "crypto_pwhash_scryptsalsa208sha256_OPSLIMIT_INTERACTIVE",
-    "crypto_pwhash_scryptsalsa208sha256_OPSLIMIT_MAX",
-    "crypto_pwhash_scryptsalsa208sha256_OPSLIMIT_MIN",
-    "crypto_pwhash_scryptsalsa208sha256_OPSLIMIT_SENSITIVE",
-    "crypto_pwhash_scryptsalsa208sha256_PASSWD_MAX",
-    "crypto_pwhash_scryptsalsa208sha256_PASSWD_MIN",
-    "crypto_pwhash_scryptsalsa208sha256_SALTBYTES",
-    "crypto_pwhash_scryptsalsa208sha256_STRBYTES",
-    "crypto_pwhash_scryptsalsa208sha256_STRPREFIX",
-    "crypto_pwhash_scryptsalsa208sha256_ll",
-    "crypto_pwhash_scryptsalsa208sha256_str",
-    "crypto_pwhash_scryptsalsa208sha256_str_verify",
-    "nacl_bindings_pick_scrypt_params",
+    .. warning:: The seed **must** be protected and remain secret.
+        Anyone who knows the seed is really in possession of
+        the corresponding PrivateKey.
 
-    "randombytes",
 
-    "sodium_init",
+    :param seed: bytes
+    :rtype: (bytes(public_key), bytes(secret_key))
+    """
+    ensure(isinstance(seed, bytes),
+           "seed must be bytes",
+           raising=TypeError)
 
-    "sodium_memcmp",
-]
+    if len(seed) != crypto_box_SEEDBYTES:
+        raise exc.ValueError("Invalid seed")
 
-# Initialize Sodium
-sodium_init()
+    pk = ffi.new("unsigned char[]", crypto_box_PUBLICKEYBYTES)
+    sk = ffi.new("unsigned char[]", crypto_box_SECRETKEYBYTES)
+
+    rc = lib.crypto_box_seed_keypair(pk, sk, seed)
+    ensure(rc == 0,
+           'Unexpected library error',
+           raising=exc.RuntimeError)
+
+    return (
+        ffi.buffer(pk, crypto_box_PUBLICKEYBYTES)[:],
+        ffi.buffer(sk, crypto_box_SECRETKEYBYTES)[:],
+    )
+
+
+def crypto_box(message, nonce, pk, sk):
+    """
+    Encrypts and returns a message ``message`` using the secret key ``sk``,
+    public key ``pk``, and the nonce ``nonce``.
+
+    :param message: bytes
+    :param nonce: bytes
+    :param pk: bytes
+    :param sk: bytes
+    :rtype: bytes
+    """
+    if len(nonce) != crypto_box_NONCEBYTES:
+        raise exc.ValueError("Invalid nonce size")
+
+    if len(pk) != crypto_box_PUBLICKEYBYTES:
+        raise exc.ValueError("Invalid public key")
+
+    if len(sk) != crypto_box_SECRETKEYBYTES:
+        raise exc.ValueError("Invalid secret key")
+
+    padded = (b"\x00" * crypto_box_ZEROBYTES) + message
+    ciphertext = ffi.new("unsigned char[]", len(padded))
+
+    rc = lib.crypto_box(ciphertext, padded, len(padded), nonce, pk, sk)
+    ensure(rc == 0,
+           'Unexpected library error',
+           raising=exc.RuntimeError)
+
+    return ffi.buffer(ciphertext, len(padded))[crypto_box_BOXZEROBYTES:]
+
+
+def crypto_box_open(ciphertext, nonce, pk, sk):
+    """
+    Decrypts and returns an encrypted message ``ciphertext``, using the secret
+    key ``sk``, public key ``pk``, and the nonce ``nonce``.
+
+    :param ciphertext: bytes
+    :param nonce: bytes
+    :param pk: bytes
+    :param sk: bytes
+    :rtype: bytes
+    """
+    if len(nonce) != crypto_box_NONCEBYTES:
+        raise exc.ValueError("Invalid nonce size")
+
+    if len(pk) != crypto_box_PUBLICKEYBYTES:
+        raise exc.ValueError("Invalid public key")
+
+    if len(sk) != crypto_box_SECRETKEYBYTES:
+        raise exc.ValueError("Invalid secret key")
+
+    padded = (b"\x00" * crypto_box_BOXZEROBYTES) + ciphertext
+    plaintext = ffi.new("unsigned char[]", len(padded))
+
+    res = lib.crypto_box_open(plaintext, padded, len(padded), nonce, pk, sk)
+    ensure(res == 0, "An error occurred trying to decrypt the message",
+           raising=exc.CryptoError)
+
+    return ffi.buffer(plaintext, len(padded))[crypto_box_ZEROBYTES:]
+
+
+def crypto_box_beforenm(pk, sk):
+    """
+    Computes and returns the shared key for the public key ``pk`` and the
+    secret key ``sk``. This can be used to speed up operations where the same
+    set of keys is going to be used multiple times.
+
+    :param pk: bytes
+    :param sk: bytes
+    :rtype: bytes
+    """
+    if len(pk) != crypto_box_PUBLICKEYBYTES:
+        raise exc.ValueError("Invalid public key")
+
+    if len(sk) != crypto_box_SECRETKEYBYTES:
+        raise exc.ValueError("Invalid secret key")
+
+    k = ffi.new("unsigned char[]", crypto_box_BEFORENMBYTES)
+
+    rc = lib.crypto_box_beforenm(k, pk, sk)
+    ensure(rc == 0,
+           'Unexpected library error',
+           raising=exc.RuntimeError)
+
+    return ffi.buffer(k, crypto_box_BEFORENMBYTES)[:]
+
+
+def crypto_box_afternm(message, nonce, k):
+    """
+    Encrypts and returns the message ``message`` using the shared key ``k`` and
+    the nonce ``nonce``.
+
+    :param message: bytes
+    :param nonce: bytes
+    :param k: bytes
+    :rtype: bytes
+    """
+    if len(nonce) != crypto_box_NONCEBYTES:
+        raise exc.ValueError("Invalid nonce")
+
+    if len(k) != crypto_box_BEFORENMBYTES:
+        raise exc.ValueError("Invalid shared key")
+
+    padded = b"\x00" * crypto_box_ZEROBYTES + message
+    ciphertext = ffi.new("unsigned char[]", len(padded))
+
+    rc = lib.crypto_box_afternm(ciphertext, padded, len(padded), nonce, k)
+    ensure(rc == 0,
+           'Unexpected library error',
+           raising=exc.RuntimeError)
+
+    return ffi.buffer(ciphertext, len(padded))[crypto_box_BOXZEROBYTES:]
+
+
+def crypto_box_open_afternm(ciphertext, nonce, k):
+    """
+    Decrypts and returns the encrypted message ``ciphertext``, using the shared
+    key ``k`` and the nonce ``nonce``.
+
+    :param ciphertext: bytes
+    :param nonce: bytes
+    :param k: bytes
+    :rtype: bytes
+    """
+    if len(nonce) != crypto_box_NONCEBYTES:
+        raise exc.ValueError("Invalid nonce")
+
+    if len(k) != crypto_box_BEFORENMBYTES:
+        raise exc.ValueError("Invalid shared key")
+
+    padded = (b"\x00" * crypto_box_BOXZEROBYTES) + ciphertext
+    plaintext = ffi.new("unsigned char[]", len(padded))
+
+    res = lib.crypto_box_open_afternm(
+        plaintext, padded, len(padded), nonce, k)
+    ensure(res == 0, "An error occurred trying to decrypt the message",
+           raising=exc.CryptoError)
+
+    return ffi.buffer(plaintext, len(padded))[crypto_box_ZEROBYTES:]
+
+
+def crypto_box_seal(message, pk):
+    """
+    Encrypts and returns a message ``message`` using an ephemeral secret key
+    and the public key ``pk``.
+    The ephemeral public key, which is embedded in the sealed box, is also
+    used, in combination with ``pk``, to derive the nonce needed for the
+    underlying box construct.
+
+    :param message: bytes
+    :param pk: bytes
+    :rtype: bytes
+
+    .. versionadded:: 1.2
+    """
+    ensure(isinstance(message, bytes),
+           "input message must be bytes",
+           raising=TypeError)
+
+    ensure(isinstance(pk, bytes),
+           "public key must be bytes",
+           raising=TypeError)
+
+    if len(pk) != crypto_box_PUBLICKEYBYTES:
+        raise exc.ValueError("Invalid public key")
+
+    _mlen = len(message)
+    _clen = crypto_box_SEALBYTES + _mlen
+
+    ciphertext = ffi.new("unsigned char[]", _clen)
+
+    rc = lib.crypto_box_seal(ciphertext, message, _mlen, pk)
+    ensure(rc == 0,
+           'Unexpected library error',
+           raising=exc.RuntimeError)
+
+    return ffi.buffer(ciphertext, _clen)[:]
+
+
+def crypto_box_seal_open(ciphertext, pk, sk):
+    """
+    Decrypts and returns an encrypted message ``ciphertext``, using the
+    recipent's secret key ``sk`` and the sender's ephemeral public key
+    embedded in the sealed box. The box contruct nonce is derived from
+    the recipient's public key ``pk`` and the sender's public key.
+
+    :param ciphertext: bytes
+    :param pk: bytes
+    :param sk: bytes
+    :rtype: bytes
+
+    .. versionadded:: 1.2
+    """
+    ensure(isinstance(ciphertext, bytes),
+           "input ciphertext must be bytes",
+           raising=TypeError)
+
+    ensure(isinstance(pk, bytes),
+           "public key must be bytes",
+           raising=TypeError)
+
+    ensure(isinstance(sk, bytes),
+           "secret key must be bytes",
+           raising=TypeError)
+
+    if len(pk) != crypto_box_PUBLICKEYBYTES:
+        raise exc.ValueError("Invalid public key")
+
+    if len(sk) != crypto_box_SECRETKEYBYTES:
+        raise exc.ValueError("Invalid secret key")
+
+    _clen = len(ciphertext)
+    _mlen = _clen - crypto_box_SEALBYTES
+
+    plaintext = ffi.new("unsigned char[]", _mlen)
+
+    res = lib.crypto_box_seal_open(plaintext, ciphertext, _clen, pk, sk)
+    ensure(res == 0, "An error occurred trying to decrypt the message",
+           raising=exc.CryptoError)
+
+    return ffi.buffer(plaintext, _mlen)[:]

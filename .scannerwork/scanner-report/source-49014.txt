@@ -1,93 +1,83 @@
 """
-Utility functions to return a formatted name and description for a given view.
+Handling of media types, as found in HTTP Content-Type and Accept headers.
+
+See https://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.7
 """
-import re
+from django.http.multipartparser import parse_header
 
-from django.utils.encoding import force_text
-from django.utils.html import escape
-from django.utils.safestring import mark_safe
-
-from rest_framework.compat import apply_markdown
+from rest_framework import HTTP_HEADER_ENCODING
 
 
-def remove_trailing_string(content, trailing):
+def media_type_matches(lhs, rhs):
     """
-    Strip trailing component `trailing` from `content` if it exists.
-    Used when generating names from view classes.
+    Returns ``True`` if the media type in the first argument <= the
+    media type in the second argument.  The media types are strings
+    as described by the HTTP spec.
+
+    Valid media type strings include:
+
+    'application/json; indent=4'
+    'application/json'
+    'text/*'
+    '*/*'
     """
-    if content.endswith(trailing) and content != trailing:
-        return content[:-len(trailing)]
-    return content
+    lhs = _MediaType(lhs)
+    rhs = _MediaType(rhs)
+    return lhs.match(rhs)
 
 
-def dedent(content):
+def order_by_precedence(media_type_lst):
     """
-    Remove leading indent from a block of text.
-    Used when generating descriptions from docstrings.
+    Returns a list of sets of media type strings, ordered by precedence.
+    Precedence is determined by how specific a media type is:
 
-    Note that python's `textwrap.dedent` doesn't quite cut it,
-    as it fails to dedent multiline docstrings that include
-    unindented text on the initial line.
+    3. 'type/subtype; param=val'
+    2. 'type/subtype'
+    1. 'type/*'
+    0. '*/*'
     """
-    content = force_text(content)
-    lines = [line for line in content.splitlines()[1:] if line.lstrip()]
-
-    # unindent the content if needed
-    if lines:
-        whitespace_counts = min([len(line) - len(line.lstrip(' ')) for line in lines])
-        tab_counts = min([len(line) - len(line.lstrip('\t')) for line in lines])
-        if whitespace_counts:
-            whitespace_pattern = '^' + (' ' * whitespace_counts)
-            content = re.sub(re.compile(whitespace_pattern, re.MULTILINE), '', content)
-        elif tab_counts:
-            whitespace_pattern = '^' + ('\t' * tab_counts)
-            content = re.sub(re.compile(whitespace_pattern, re.MULTILINE), '', content)
-    return content.strip()
+    ret = [set(), set(), set(), set()]
+    for media_type in media_type_lst:
+        precedence = _MediaType(media_type).precedence
+        ret[3 - precedence].add(media_type)
+    return [media_types for media_types in ret if media_types]
 
 
-def camelcase_to_spaces(content):
-    """
-    Translate 'CamelCaseNames' to 'Camel Case Names'.
-    Used when generating names from view classes.
-    """
-    camelcase_boundary = '(((?<=[a-z])[A-Z])|([A-Z](?![A-Z]|$)))'
-    content = re.sub(camelcase_boundary, ' \\1', content).strip()
-    return ' '.join(content.split('_')).title()
+class _MediaType:
+    def __init__(self, media_type_str):
+        self.orig = '' if (media_type_str is None) else media_type_str
+        self.full_type, self.params = parse_header(self.orig.encode(HTTP_HEADER_ENCODING))
+        self.main_type, sep, self.sub_type = self.full_type.partition('/')
 
+    def match(self, other):
+        """Return true if this MediaType satisfies the given MediaType."""
+        for key in self.params:
+            if key != 'q' and other.params.get(key, None) != self.params.get(key, None):
+                return False
 
-def markup_description(description):
-    """
-    Apply HTML markup to the given description.
-    """
-    if apply_markdown:
-        description = apply_markdown(description)
-    else:
-        description = escape(description).replace('\n', '<br />')
-        description = '<p>' + description + '</p>'
-    return mark_safe(description)
+        if self.sub_type != '*' and other.sub_type != '*' and other.sub_type != self.sub_type:
+            return False
 
+        if self.main_type != '*' and other.main_type != '*' and other.main_type != self.main_type:
+            return False
 
-class lazy_format:
-    """
-    Delay formatting until it's actually needed.
+        return True
 
-    Useful when the format string or one of the arguments is lazy.
-
-    Not using Django's lazy because it is too slow.
-    """
-    __slots__ = ('format_string', 'args', 'kwargs', 'result')
-
-    def __init__(self, format_string, *args, **kwargs):
-        self.result = None
-        self.format_string = format_string
-        self.args = args
-        self.kwargs = kwargs
+    @property
+    def precedence(self):
+        """
+        Return a precedence level from 0-3 for the media type given how specific it is.
+        """
+        if self.main_type == '*':
+            return 0
+        elif self.sub_type == '*':
+            return 1
+        elif not self.params or list(self.params) == ['q']:
+            return 2
+        return 3
 
     def __str__(self):
-        if self.result is None:
-            self.result = self.format_string.format(*self.args, **self.kwargs)
-            self.format_string, self.args, self.kwargs = None, None, None
-        return self.result
-
-    def __mod__(self, value):
-        return str(self) % value
+        ret = "%s/%s" % (self.main_type, self.sub_type)
+        for key, val in self.params.items():
+            ret += "; %s=%s" % (key, val.decode('ascii'))
+        return ret

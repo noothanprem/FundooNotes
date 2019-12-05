@@ -1,336 +1,346 @@
-from coreapi import exceptions
-from coreapi.compat import string_types, text_type, urlparse, _TemporaryFileWrapper
-from collections import namedtuple
-import os
-import pkg_resources
-import tempfile
+from __future__ import unicode_literals
+from collections import OrderedDict
+from coreapi.codecs.base import BaseCodec
+from coreapi.compat import force_bytes, string_types, urlparse
+from coreapi.compat import COMPACT_SEPARATORS, VERBOSE_SEPARATORS
+from coreapi.document import Document, Link, Array, Object, Error, Field
+from coreapi.exceptions import ParseError
+import coreschema
+import json
 
 
-def domain_matches(request, domain):
-    """
-    Domain string matching against an outgoing request.
-    Patterns starting with '*' indicate a wildcard domain.
-    """
-    if (domain is None) or (domain == '*'):
-        return True
+# Schema encoding and decoding.
+# Just a naive first-pass at this point.
 
-    host = urlparse.urlparse(request.url).hostname
-    if domain.startswith('*'):
-        return host.endswith(domain[1:])
-    return host == domain
+SCHEMA_CLASS_TO_TYPE_ID = {
+    coreschema.Object: 'object',
+    coreschema.Array: 'array',
+    coreschema.Number: 'number',
+    coreschema.Integer: 'integer',
+    coreschema.String: 'string',
+    coreschema.Boolean: 'boolean',
+    coreschema.Null: 'null',
+    coreschema.Enum: 'enum',
+    coreschema.Anything: 'anything'
+}
+
+TYPE_ID_TO_SCHEMA_CLASS = {
+    value: key
+    for key, value
+    in SCHEMA_CLASS_TO_TYPE_ID.items()
+}
 
 
-def get_installed_codecs():
-    packages = [
-        (package, package.load()) for package in
-        pkg_resources.iter_entry_points(group='coreapi.codecs')
-    ]
-    return {
-        package.name: cls() for (package, cls) in packages
+def encode_schema_to_corejson(schema):
+    if hasattr(schema, 'typename'):
+        type_id = schema.typename
+    else:
+        type_id = SCHEMA_CLASS_TO_TYPE_ID.get(schema.__class__, 'anything')
+    retval = {
+        '_type': type_id,
+        'title': schema.title,
+        'description': schema.description
     }
+    if hasattr(schema, 'enum'):
+        retval['enum'] = schema.enum
+    return retval
 
 
-# File utilities for upload and download support.
+def decode_schema_from_corejson(data):
+    type_id = _get_string(data, '_type')
+    title = _get_string(data, 'title')
+    description = _get_string(data, 'description')
 
-File = namedtuple('File', 'name content content_type')
-File.__new__.__defaults__ = (None,)
+    kwargs = {}
+    if type_id == 'enum':
+        kwargs['enum'] = _get_list(data, 'enum')
 
-
-def is_file(obj):
-    if isinstance(obj, File):
-        return True
-
-    if hasattr(obj, '__iter__') and not isinstance(obj, (string_types, list, tuple, dict)):
-        # A stream object.
-        return True
-
-    return False
+    schema_cls = TYPE_ID_TO_SCHEMA_CLASS.get(type_id, coreschema.Anything)
+    return schema_cls(title=title, description=description, **kwargs)
 
 
-def guess_filename(obj):
-    name = getattr(obj, 'name', None)
-    if name and isinstance(name, string_types) and name[0] != '<' and name[-1] != '>':
-        return os.path.basename(name)
+# Robust dictionary lookups, that always return an item of the correct
+# type, using an empty default if an incorrect type exists.
+# Useful for liberal parsing of inputs.
+
+def _get_schema(item, key):
+    schema_data = _get_dict(item, key)
+    if schema_data:
+        return decode_schema_from_corejson(schema_data)
     return None
 
 
-def guess_extension(content_type):
-    """
-    Python's `mimetypes.guess_extension` is no use because it simply returns
-    the first of an unordered set. We use the same set of media types here,
-    but take a reasonable preference on what extension to map to.
-    """
-    return {
-        'application/javascript': '.js',
-        'application/msword': '.doc',
-        'application/octet-stream': '.bin',
-        'application/oda': '.oda',
-        'application/pdf': '.pdf',
-        'application/pkcs7-mime': '.p7c',
-        'application/postscript': '.ps',
-        'application/vnd.apple.mpegurl': '.m3u',
-        'application/vnd.ms-excel': '.xls',
-        'application/vnd.ms-powerpoint': '.ppt',
-        'application/x-bcpio': '.bcpio',
-        'application/x-cpio': '.cpio',
-        'application/x-csh': '.csh',
-        'application/x-dvi': '.dvi',
-        'application/x-gtar': '.gtar',
-        'application/x-hdf': '.hdf',
-        'application/x-latex': '.latex',
-        'application/x-mif': '.mif',
-        'application/x-netcdf': '.nc',
-        'application/x-pkcs12': '.p12',
-        'application/x-pn-realaudio': '.ram',
-        'application/x-python-code': '.pyc',
-        'application/x-sh': '.sh',
-        'application/x-shar': '.shar',
-        'application/x-shockwave-flash': '.swf',
-        'application/x-sv4cpio': '.sv4cpio',
-        'application/x-sv4crc': '.sv4crc',
-        'application/x-tar': '.tar',
-        'application/x-tcl': '.tcl',
-        'application/x-tex': '.tex',
-        'application/x-texinfo': '.texinfo',
-        'application/x-troff': '.tr',
-        'application/x-troff-man': '.man',
-        'application/x-troff-me': '.me',
-        'application/x-troff-ms': '.ms',
-        'application/x-ustar': '.ustar',
-        'application/x-wais-source': '.src',
-        'application/xml': '.xml',
-        'application/zip': '.zip',
-        'audio/basic': '.au',
-        'audio/mpeg': '.mp3',
-        'audio/x-aiff': '.aif',
-        'audio/x-pn-realaudio': '.ra',
-        'audio/x-wav': '.wav',
-        'image/gif': '.gif',
-        'image/ief': '.ief',
-        'image/jpeg': '.jpe',
-        'image/png': '.png',
-        'image/svg+xml': '.svg',
-        'image/tiff': '.tiff',
-        'image/vnd.microsoft.icon': '.ico',
-        'image/x-cmu-raster': '.ras',
-        'image/x-ms-bmp': '.bmp',
-        'image/x-portable-anymap': '.pnm',
-        'image/x-portable-bitmap': '.pbm',
-        'image/x-portable-graymap': '.pgm',
-        'image/x-portable-pixmap': '.ppm',
-        'image/x-rgb': '.rgb',
-        'image/x-xbitmap': '.xbm',
-        'image/x-xpixmap': '.xpm',
-        'image/x-xwindowdump': '.xwd',
-        'message/rfc822': '.eml',
-        'text/css': '.css',
-        'text/csv': '.csv',
-        'text/html': '.html',
-        'text/plain': '.txt',
-        'text/richtext': '.rtx',
-        'text/tab-separated-values': '.tsv',
-        'text/x-python': '.py',
-        'text/x-setext': '.etx',
-        'text/x-sgml': '.sgml',
-        'text/x-vcard': '.vcf',
-        'text/xml': '.xml',
-        'video/mp4': '.mp4',
-        'video/mpeg': '.mpeg',
-        'video/quicktime': '.mov',
-        'video/webm': '.webm',
-        'video/x-msvideo': '.avi',
-        'video/x-sgi-movie': '.movie'
-    }.get(content_type, '')
-
-
-if _TemporaryFileWrapper:
-    # Ideally we subclass this so that we can present a custom representation.
-    class DownloadedFile(_TemporaryFileWrapper):
-        basename = None
-
-        def __repr__(self):
-            state = "closed" if self.closed else "open"
-            mode = "" if self.closed else " '%s'" % self.file.mode
-            return "<DownloadedFile '%s', %s%s>" % (self.name, state, mode)
-
-            def __str__(self):
-                return self.__repr__()
-else:
-    # On some platforms (eg GAE) the private _TemporaryFileWrapper may not be
-    # available, just use the standard `NamedTemporaryFile` function
-    # in this case.
-    DownloadedFile = tempfile.NamedTemporaryFile
-
-
-# Negotiation utilities. USed to determine which codec or transport class
-# should be used, given a list of supported instances.
-
-def determine_transport(transports, url):
-    """
-    Given a URL determine the appropriate transport instance.
-    """
-    url_components = urlparse.urlparse(url)
-    scheme = url_components.scheme.lower()
-    netloc = url_components.netloc
-
-    if not scheme:
-        raise exceptions.NetworkError("URL missing scheme '%s'." % url)
-
-    if not netloc:
-        raise exceptions.NetworkError("URL missing hostname '%s'." % url)
-
-    for transport in transports:
-        if scheme in transport.schemes:
-            return transport
-
-    raise exceptions.NetworkError("Unsupported URL scheme '%s'." % scheme)
-
-
-def negotiate_decoder(decoders, content_type=None):
-    """
-    Given the value of a 'Content-Type' header, return the appropriate
-    codec for decoding the request content.
-    """
-    if content_type is None:
-        return decoders[0]
-
-    content_type = content_type.split(';')[0].strip().lower()
-    main_type = content_type.split('/')[0] + '/*'
-    wildcard_type = '*/*'
-
-    for codec in decoders:
-        for media_type in codec.get_media_types():
-            if media_type in (content_type, main_type, wildcard_type):
-                return codec
-
-    msg = "Unsupported media in Content-Type header '%s'" % content_type
-    raise exceptions.NoCodecAvailable(msg)
-
-
-def negotiate_encoder(encoders, accept=None):
-    """
-    Given the value of a 'Accept' header, return the appropriate codec for
-    encoding the response content.
-    """
-    if accept is None:
-        return encoders[0]
-
-    acceptable = set([
-        item.split(';')[0].strip().lower()
-        for item in accept.split(',')
-    ])
-
-    for codec in encoders:
-        for media_type in codec.get_media_types():
-            if media_type in acceptable:
-                return codec
-
-    for codec in encoders:
-        for media_type in codec.get_media_types():
-            if codec.media_type.split('/')[0] + '/*' in acceptable:
-                return codec
-
-    if '*/*' in acceptable:
-        return encoders[0]
-
-    msg = "Unsupported media in Accept header '%s'" % accept
-    raise exceptions.NoCodecAvailable(msg)
-
-
-# Validation utilities. Used to ensure that we get consistent validation
-# exceptions when invalid types are passed as a parameter, rather than
-# an exception occuring when the request is made.
-
-def validate_path_param(value):
-    value = _validate_form_field(value, allow_list=False)
-    if not value:
-        msg = 'Parameter %s: May not be empty.'
-        raise exceptions.ParameterError(msg)
-    return value
-
-
-def validate_query_param(value):
-    return _validate_form_field(value)
-
-
-def validate_body_param(value, encoding):
-    if encoding == 'application/json':
-        return _validate_json_data(value)
-    elif encoding == 'multipart/form-data':
-        return _validate_form_object(value, allow_files=True)
-    elif encoding == 'application/x-www-form-urlencoded':
-        return _validate_form_object(value)
-    elif encoding == 'application/octet-stream':
-        if not is_file(value):
-            msg = 'Must be an file upload.'
-            raise exceptions.ParameterError(msg)
+def _get_string(item, key):
+    value = item.get(key)
+    if isinstance(value, string_types):
         return value
-    msg = 'Unsupported encoding "%s" for outgoing request.'
-    raise exceptions.NetworkError(msg % encoding)
+    return ''
 
 
-def validate_form_param(value, encoding):
-    if encoding == 'application/json':
-        return _validate_json_data(value)
-    elif encoding == 'multipart/form-data':
-        return _validate_form_field(value, allow_files=True)
-    elif encoding == 'application/x-www-form-urlencoded':
-        return _validate_form_field(value)
-    msg = 'Unsupported encoding "%s" for outgoing request.'
-    raise exceptions.NetworkError(msg % encoding)
+def _get_dict(item, key):
+    value = item.get(key)
+    if isinstance(value, dict):
+        return value
+    return {}
 
 
-def _validate_form_object(value, allow_files=False):
+def _get_list(item, key):
+    value = item.get(key)
+    if isinstance(value, list):
+        return value
+    return []
+
+
+def _get_bool(item, key):
+    value = item.get(key)
+    if isinstance(value, bool):
+        return value
+    return False
+
+
+def _graceful_relative_url(base_url, url):
     """
-    Ensure that `value` can be encoded as form data or as query parameters.
+    Return a graceful link for a URL relative to a base URL.
+
+    * If they are the same, return an empty string.
+    * If the have the same scheme and hostname, return the path & query params.
+    * Otherwise return the full URL.
     """
-    if not isinstance(value, dict):
-        msg = 'Must be an object.'
-        raise exceptions.ParameterError(msg)
+    if url == base_url:
+        return ''
+    base_prefix = '%s://%s' % urlparse.urlparse(base_url or '')[0:2]
+    url_prefix = '%s://%s' % urlparse.urlparse(url or '')[0:2]
+    if base_prefix == url_prefix and url_prefix != '://':
+        return url[len(url_prefix):]
+    return url
+
+
+def _escape_key(string):
+    """
+    The '_type' and '_meta' keys are reserved.
+    Prefix with an additional '_' if they occur.
+    """
+    if string.startswith('_') and string.lstrip('_') in ('type', 'meta'):
+        return '_' + string
+    return string
+
+
+def _unescape_key(string):
+    """
+    Unescape '__type' and '__meta' keys if they occur.
+    """
+    if string.startswith('__') and string.lstrip('_') in ('type', 'meta'):
+        return string[1:]
+    return string
+
+
+def _get_content(item, base_url=None):
+    """
+    Return a dictionary of content, for documents, objects and errors.
+    """
     return {
-        text_type(item_key): _validate_form_field(item_val, allow_files=allow_files)
-        for item_key, item_val in value.items()
+        _unescape_key(key): _primitive_to_document(value, base_url)
+        for key, value in item.items()
+        if key not in ('_type', '_meta')
     }
 
 
-def _validate_form_field(value, allow_files=False, allow_list=True):
+def _document_to_primitive(node, base_url=None):
     """
-    Ensure that `value` can be encoded as a single form data or a query parameter.
-    Basic types that has a simple string representation are supported.
-    A list of basic types is also valid.
+    Take a Core API document and return Python primitives
+    ready to be rendered into the JSON style encoding.
     """
-    if isinstance(value, string_types):
-        return value
-    elif isinstance(value, bool) or (value is None):
-        return {True: 'true', False: 'false', None: ''}[value]
-    elif isinstance(value, (int, float)):
-        return "%s" % value
-    elif allow_list and isinstance(value, (list, tuple)) and not is_file(value):
-        # Only the top-level element may be a list.
-        return [
-            _validate_form_field(item, allow_files=False, allow_list=False)
-            for item in value
+    if isinstance(node, Document):
+        ret = OrderedDict()
+        ret['_type'] = 'document'
+
+        meta = OrderedDict()
+        url = _graceful_relative_url(base_url, node.url)
+        if url:
+            meta['url'] = url
+        if node.title:
+            meta['title'] = node.title
+        if node.description:
+            meta['description'] = node.description
+        if meta:
+            ret['_meta'] = meta
+
+        # Fill in key-value content.
+        ret.update([
+            (_escape_key(key), _document_to_primitive(value, base_url=url))
+            for key, value in node.items()
+        ])
+        return ret
+
+    elif isinstance(node, Error):
+        ret = OrderedDict()
+        ret['_type'] = 'error'
+
+        if node.title:
+            ret['_meta'] = {'title': node.title}
+
+        # Fill in key-value content.
+        ret.update([
+            (_escape_key(key), _document_to_primitive(value, base_url=base_url))
+            for key, value in node.items()
+        ])
+        return ret
+
+    elif isinstance(node, Link):
+        ret = OrderedDict()
+        ret['_type'] = 'link'
+        url = _graceful_relative_url(base_url, node.url)
+        if url:
+            ret['url'] = url
+        if node.action:
+            ret['action'] = node.action
+        if node.encoding:
+            ret['encoding'] = node.encoding
+        if node.transform:
+            ret['transform'] = node.transform
+        if node.title:
+            ret['title'] = node.title
+        if node.description:
+            ret['description'] = node.description
+        if node.fields:
+            ret['fields'] = [
+                _document_to_primitive(field) for field in node.fields
+            ]
+        return ret
+
+    elif isinstance(node, Field):
+        ret = OrderedDict({'name': node.name})
+        if node.required:
+            ret['required'] = node.required
+        if node.location:
+            ret['location'] = node.location
+        if node.schema:
+            ret['schema'] = encode_schema_to_corejson(node.schema)
+        return ret
+
+    elif isinstance(node, Object):
+        return OrderedDict([
+            (_escape_key(key), _document_to_primitive(value, base_url=base_url))
+            for key, value in node.items()
+        ])
+
+    elif isinstance(node, Array):
+        return [_document_to_primitive(value) for value in node]
+
+    return node
+
+
+def _primitive_to_document(data, base_url=None):
+    """
+    Take Python primitives as returned from parsing JSON content,
+    and return a Core API document.
+    """
+    if isinstance(data, dict) and data.get('_type') == 'document':
+        # Document
+        meta = _get_dict(data, '_meta')
+        url = _get_string(meta, 'url')
+        url = urlparse.urljoin(base_url, url)
+        title = _get_string(meta, 'title')
+        description = _get_string(meta, 'description')
+        content = _get_content(data, base_url=url)
+        return Document(
+            url=url,
+            title=title,
+            description=description,
+            media_type='application/coreapi+json',
+            content=content
+        )
+
+    if isinstance(data, dict) and data.get('_type') == 'error':
+        # Error
+        meta = _get_dict(data, '_meta')
+        title = _get_string(meta, 'title')
+        content = _get_content(data, base_url=base_url)
+        return Error(title=title, content=content)
+
+    elif isinstance(data, dict) and data.get('_type') == 'link':
+        # Link
+        url = _get_string(data, 'url')
+        url = urlparse.urljoin(base_url, url)
+        action = _get_string(data, 'action')
+        encoding = _get_string(data, 'encoding')
+        transform = _get_string(data, 'transform')
+        title = _get_string(data, 'title')
+        description = _get_string(data, 'description')
+        fields = _get_list(data, 'fields')
+        fields = [
+            Field(
+                name=_get_string(item, 'name'),
+                required=_get_bool(item, 'required'),
+                location=_get_string(item, 'location'),
+                schema=_get_schema(item, 'schema')
+            )
+            for item in fields if isinstance(item, dict)
         ]
-    elif allow_files and is_file(value):
-        return value
+        return Link(
+            url=url, action=action, encoding=encoding, transform=transform,
+            title=title, description=description, fields=fields
+        )
 
-    msg = 'Must be a primitive type.'
-    raise exceptions.ParameterError(msg)
+    elif isinstance(data, dict):
+        # Map
+        content = _get_content(data, base_url=base_url)
+        return Object(content)
+
+    elif isinstance(data, list):
+        # Array
+        content = [_primitive_to_document(item, base_url) for item in data]
+        return Array(content)
+
+    # String, Integer, Number, Boolean, null.
+    return data
 
 
-def _validate_json_data(value):
-    """
-    Ensure that `value` can be encoded into JSON.
-    """
-    if (value is None) or isinstance(value, (bool, int, float, string_types)):
-        return value
-    elif isinstance(value, (list, tuple)) and not is_file(value):
-        return [_validate_json_data(item) for item in value]
-    elif isinstance(value, dict):
-        return {
-            text_type(item_key): _validate_json_data(item_val)
-            for item_key, item_val in value.items()
-        }
+class CoreJSONCodec(BaseCodec):
+    media_type = 'application/coreapi+json'
+    format = 'corejson'
 
-    msg = 'Must be a JSON primitive.'
-    raise exceptions.ParameterError(msg)
+    # The following is due to be deprecated...
+    media_types = ['application/coreapi+json', 'application/vnd.coreapi+json']
+
+    def decode(self, bytestring, **options):
+        """
+        Takes a bytestring and returns a document.
+        """
+        base_url = options.get('base_url')
+
+        try:
+            data = json.loads(bytestring.decode('utf-8'))
+        except ValueError as exc:
+            raise ParseError('Malformed JSON. %s' % exc)
+
+        doc = _primitive_to_document(data, base_url)
+
+        if isinstance(doc, Object):
+            doc = Document(content=dict(doc))
+        elif not (isinstance(doc, Document) or isinstance(doc, Error)):
+            raise ParseError('Top level node should be a document or error.')
+
+        return doc
+
+    def encode(self, document, **options):
+        """
+        Takes a document and returns a bytestring.
+        """
+        indent = options.get('indent')
+
+        if indent:
+            kwargs = {
+                'ensure_ascii': False,
+                'indent': 4,
+                'separators': VERBOSE_SEPARATORS
+            }
+        else:
+            kwargs = {
+                'ensure_ascii': False,
+                'indent': None,
+                'separators': COMPACT_SEPARATORS
+            }
+
+        data = _document_to_primitive(document)
+        return force_bytes(json.dumps(data, **kwargs))

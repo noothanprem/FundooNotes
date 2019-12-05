@@ -1,71 +1,49 @@
-# -*- test-case-name: twisted.protocols.haproxy.test.test_parser -*-
+# -*- test-case-name: twisted.test.test_stateful -*-
+
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-"""
-Parser for 'haproxy:' string endpoint.
-"""
 
-from zope.interface import implementer
-from twisted.plugin import IPlugin
+from twisted.internet import protocol
 
-from twisted.internet.endpoints import (
-    quoteStringArgument, serverFromString, IStreamServerEndpointStringParser
-)
-from twisted.python.compat import iteritems
+from io import BytesIO
 
-from . import proxyEndpoint
+class StatefulProtocol(protocol.Protocol):
+    """A Protocol that stores state for you.
 
-
-def unparseEndpoint(args, kwargs):
+    state is a pair (function, num_bytes). When num_bytes bytes of data arrives
+    from the network, function is called. It is expected to return the next
+    state or None to keep same state. Initial state is returned by
+    getInitialState (override it).
     """
-    Un-parse the already-parsed args and kwargs back into endpoint syntax.
+    _sful_data = None, None, 0
 
-    @param args: C{:}-separated arguments
-    @type args: L{tuple} of native L{str}
+    def makeConnection(self, transport):
+        protocol.Protocol.makeConnection(self, transport)
+        self._sful_data = self.getInitialState(), BytesIO(), 0
 
-    @param kwargs: C{:} and then C{=}-separated keyword arguments
+    def getInitialState(self):
+        raise NotImplementedError
 
-    @type arguments: L{tuple} of native L{str}
+    def dataReceived(self, data):
+        state, buffer, offset = self._sful_data
+        buffer.seek(0, 2)
+        buffer.write(data)
+        blen = buffer.tell() # how many bytes total is in the buffer
+        buffer.seek(offset)
+        while blen - offset >= state[1]:
+            d = buffer.read(state[1])
+            offset += state[1]
+            next = state[0](d)
+            if self.transport.disconnecting: # XXX: argh stupid hack borrowed right from LineReceiver
+                return # dataReceived won't be called again, so who cares about consistent state
+            if next:
+                state = next
+        if offset != 0:
+            b = buffer.read()
+            buffer.seek(0)
+            buffer.truncate()
+            buffer.write(b)
+            offset = 0
+        self._sful_data = state, buffer, offset
 
-    @return: a string equivalent to the original format which this was parsed
-        as.
-    @rtype: native L{str}
-    """
-
-    description = ':'.join(
-        [quoteStringArgument(str(arg)) for arg in args] +
-        sorted(['%s=%s' % (quoteStringArgument(str(key)),
-                    quoteStringArgument(str(value)))
-         for key, value in iteritems(kwargs)
-        ]))
-    return description
-
-
-
-@implementer(IPlugin, IStreamServerEndpointStringParser)
-class HAProxyServerParser(object):
-    """
-    Stream server endpoint string parser for the HAProxyServerEndpoint type.
-
-    @ivar prefix: See L{IStreamServerEndpointStringParser.prefix}.
-    """
-    prefix = "haproxy"
-
-    def parseStreamServer(self, reactor, *args, **kwargs):
-        """
-        Parse a stream server endpoint from a reactor and string-only arguments
-        and keyword arguments.
-
-        @param reactor: The reactor.
-
-        @param args: The parsed string arguments.
-
-        @param kwargs: The parsed keyword arguments.
-
-        @return: a stream server endpoint
-        @rtype: L{IStreamServerEndpoint}
-        """
-        subdescription = unparseEndpoint(args, kwargs)
-        wrappedEndpoint = serverFromString(reactor, subdescription)
-        return proxyEndpoint(wrappedEndpoint)

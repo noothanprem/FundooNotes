@@ -1,1 +1,1 @@
-åŠEvenv/lib/python3.6/site-packages/importlib_metadata/tests/test_zip.py 2pyXCh
+åŠ?venv/lib/python3.6/site-packages/importlib_metadata/__init__.py 2pyXØh

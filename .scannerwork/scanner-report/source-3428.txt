@@ -1,37 +1,10 @@
-from django.contrib.auth import get_user_model
+# -*- coding: utf-8 -*-
 
-from rest_framework import serializers
+__title__ = 'djangorestframework-jwt'
+__version__ = '1.11.0'
+__author__ = 'José Padilla'
+__license__ = 'MIT'
+__copyright__ = 'Copyright 2014-2017 Blimp LLC'
 
-
-class Serializer(serializers.Serializer):
-    @property
-    def object(self):
-        return self.validated_data
-
-
-class PasswordField(serializers.CharField):
-
-    def __init__(self, *args, **kwargs):
-        if 'style' not in kwargs:
-            kwargs['style'] = {'input_type': 'password'}
-        else:
-            kwargs['style']['input_type'] = 'password'
-        super(PasswordField, self).__init__(*args, **kwargs)
-
-
-def get_username_field():
-    try:
-        username_field = get_user_model().USERNAME_FIELD
-    except:
-        username_field = 'username'
-
-    return username_field
-
-
-def get_username(user):
-    try:
-        username = user.get_username()
-    except AttributeError:
-        username = user.username
-
-    return username
+# Version synonym
+VERSION = __version__

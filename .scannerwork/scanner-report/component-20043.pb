@@ -1,1 +1,0 @@
-˜*venv/lib/python3.6/site-packages/zmq/sugar :ʜ̜͜ΜϜМќҜޜߜ

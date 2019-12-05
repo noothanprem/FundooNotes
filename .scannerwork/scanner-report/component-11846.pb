@@ -1,1 +1,1 @@
-Æ\2venv/lib/python3.6/site-packages/faker/__main__.py 2pyXh
+Æ\2venv/lib/python3.6/site-packages/faker/__init__.py 2pyXh

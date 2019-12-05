@@ -1,39 +1,79 @@
 """
-Functions to configure Basic Settings
+Helper Module for Locale settings
+
+This module is based on a ROX module (LGPL):
+
+http://cvs.sourceforge.net/viewcvs.py/rox/ROX-Lib2/python/rox/i18n.py?rev=1.3&view=log
 """
 
-language = "C"
-windowmanager = None
-icon_theme = "hicolor"
-icon_size = 48
-cache_time = 5
-root_mode = False
+import os
+from locale import normalize
 
-def setWindowManager(wm):
-    global windowmanager
-    windowmanager = wm
+regex = "(\[([a-zA-Z]+)(_[a-zA-Z]+)?(\.[a-zA-Z\-0-9]+)?(@[a-zA-Z]+)?\])?"
 
-def setIconTheme(theme):
-    global icon_theme
-    icon_theme = theme
-    import xdg.IconTheme
-    xdg.IconTheme.themes = []
+def _expand_lang(locale):
+    locale = normalize(locale)
+    COMPONENT_CODESET   = 1 << 0
+    COMPONENT_MODIFIER  = 1 << 1
+    COMPONENT_TERRITORY = 1 << 2
+    # split up the locale into its base components
+    mask = 0
+    pos = locale.find('@')
+    if pos >= 0:
+        modifier = locale[pos:]
+        locale = locale[:pos]
+        mask |= COMPONENT_MODIFIER
+    else:
+        modifier = ''
+    pos = locale.find('.')
+    codeset = ''
+    if pos >= 0:
+        locale = locale[:pos]
+    pos = locale.find('_')
+    if pos >= 0:
+        territory = locale[pos:]
+        locale = locale[:pos]
+        mask |= COMPONENT_TERRITORY
+    else:
+        territory = ''
+    language = locale
+    ret = []
+    for i in range(mask+1):
+        if not (i & ~mask):  # if all components for this combo exist ...
+            val = language
+            if i & COMPONENT_TERRITORY: val += territory
+            if i & COMPONENT_CODESET:   val += codeset
+            if i & COMPONENT_MODIFIER:  val += modifier
+            ret.append(val)
+    ret.reverse()
+    return ret
 
-def setIconSize(size):
-    global icon_size
-    icon_size = size
+def expand_languages(languages=None):
+    # Get some reasonable defaults for arguments that were not supplied
+    if languages is None:
+        languages = []
+        for envar in ('LANGUAGE', 'LC_ALL', 'LC_MESSAGES', 'LANG'):
+            val = os.environ.get(envar)
+            if val:
+                languages = val.split(':')
+                break
+    #if 'C' not in languages:
+    #   languages.append('C')
 
-def setCacheTime(time):
-    global cache_time
-    cache_time = time
+    # now normalize and expand the languages
+    nelangs = []
+    for lang in languages:
+        for nelang in _expand_lang(lang):
+            if nelang not in nelangs:
+                nelangs.append(nelang)
+    return nelangs
 
-def setLocale(lang):
-    import locale
-    lang = locale.normalize(lang)
-    locale.setlocale(locale.LC_ALL, lang)
-    import xdg.Locale
-    xdg.Locale.update(lang)
+def update(language=None):
+    global langs
+    if language:
+        langs = expand_languages([language])
+    else:
+        langs = expand_languages()
 
-def setRootMode(boolean):
-    global root_mode
-    root_mode = boolean
+langs = []
+update()

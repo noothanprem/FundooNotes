@@ -1,53 +1,35 @@
-"""
-Instagram OAuth2 backend, docs at:
-    https://python-social-auth.readthedocs.io/en/latest/backends/instagram.html
-"""
-import hmac
-
-from hashlib import sha256
-
 from .oauth import BaseOAuth2
 
 
-class InstagramOAuth2(BaseOAuth2):
-    name = 'instagram'
-    AUTHORIZATION_URL = 'https://api.instagram.com/oauth/authorize'
-    ACCESS_TOKEN_URL = 'https://api.instagram.com/oauth/access_token'
+class UniverseOAuth2(BaseOAuth2):
+    """Universe Ticketing OAuth2 authentication backend"""
+    name = 'universe'
+    AUTHORIZATION_URL = 'https://www.universe.com/oauth/authorize'
+    ACCESS_TOKEN_URL = 'https://www.universe.com/oauth/token'
+    BASE_API_URL = 'https://www.universe.com/api'
+    USER_INFO_URL = BASE_API_URL + '/v2/current_user'
     ACCESS_TOKEN_METHOD = 'POST'
+    STATE_PARAMETER = True
+    REDIRECT_STATE = True
+    EXTRA_DATA = [
+        ('id', 'id'),
+        ('slug', 'slug'),
+        ('created_at', 'created_at'),
+        ('updated_at', 'updated_at'),
+    ]
 
     def get_user_id(self, details, response):
-        # Sometimes Instagram returns 'user', sometimes 'data', but API docs
-        # says 'data' http://instagram.com/developer/endpoints/users/#get_users
-        user = response.get('user') or response.get('data') or {}
-        return user.get('id')
+        return response['current_user'][self.ID_KEY]
 
     def get_user_details(self, response):
-        """Return user details from Instagram account"""
-        # Sometimes Instagram returns 'user', sometimes 'data', but API docs
-        # says 'data' http://instagram.com/developer/endpoints/users/#get_users
-        user = response.get('user') or response.get('data') or {}
-        username = user['username']
-        email = user.get('email', '')
-        fullname, first_name, last_name = self.get_user_names(
-            user.get('full_name', '')
-        )
-        return {'username': username,
-                'fullname': fullname,
-                'first_name': first_name,
-                'last_name': last_name,
-                'email': email}
+        """Return user details from a Universe account"""
+        # Start with the user data as it was returned
+        user_details = response['current_user']
+        user_details['username'] = user_details['email']
+        return user_details
 
     def user_data(self, access_token, *args, **kwargs):
         """Loads user data from service"""
-        key, secret = self.get_key_and_secret()
-        params = {'access_token': access_token}
-        sig = self._generate_sig("/users/self", params, secret)
-        params['sig'] = sig
-        return self.get_json('https://api.instagram.com/v1/users/self',
-                             params=params)
-
-    def _generate_sig(self, endpoint, params, secret):
-        sig = endpoint
-        for key in sorted(params.keys()):
-            sig += '|%s=%s' % (key, params[key])
-        return hmac.new(secret.encode(), sig.encode(), sha256).hexdigest()
+        return self.get_json(self.USER_INFO_URL, headers={
+            'Authorization': 'Bearer {}'.format(access_token)
+        })

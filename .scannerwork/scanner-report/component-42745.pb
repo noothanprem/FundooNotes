@@ -1,1 +1,1 @@
-ùÍ3venv/lib64/python3.6/site-packages/keyring/backends :øÍúÍûÍüÍıÍşÍÿÍ€Î‹Î
+ùÍ9venv/lib64/python3.6/site-packages/keyring/credentials.py 2pyX=h

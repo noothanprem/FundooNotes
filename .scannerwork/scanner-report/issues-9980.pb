@@ -1,25 +1,14 @@
-h
-pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 211 k
-pythonS100ORename method "tearDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2@@ h
-pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2pp k
-pythonS100ORename method "tearDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2~~ x
-pythonS100ZRename method "test_sendClose_none" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-îî ~
-pythonS100`Rename method "test_sendClose_str_reason" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ûû !Ç
-pythonS100dRename method "test_sendClose_unicode_reason" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-®® %{
-pythonS100]Rename method "test_sendClose_toolong" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-≤≤ á
-pythonS100iRename method "test_sendClose_reason_with_no_code" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ΩΩ *Ö
-pythonS100gRename method "test_sendClose_invalid_code_type" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-   (Ü
-pythonS100hRename method "test_sendClose_invalid_code_value" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-◊◊ )j
+K
+pythonS1313.Make this IP "127.0.0.9" address configurable. 2CC9 DM
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2
+ÜÜG RM
+pythonS1313.Make this IP "127.0.0.1" address configurable. 2
+≈≈G Rj
 pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÎÎ m
+ÅÅ m
 pythonS100ORename method "tearDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-˚˚ x
-pythonS100ZRename method "test_loseConnection" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-ÖÖ 
+ãã j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¿¿ m
+pythonS100ORename method "tearDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+   

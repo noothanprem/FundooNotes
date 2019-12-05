@@ -1,1 +1,0 @@
-æ/venv/lib/python3.6/site-packages/celery/loaders :åçèé

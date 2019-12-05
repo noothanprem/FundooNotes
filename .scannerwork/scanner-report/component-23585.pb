@@ -1,1 +1,1 @@
-¡¸Jvenv/lib/python3.6/site-packages/social_core/tests/backends/test_fitbit.py 2pyX4h
+¡¸Hvenv/lib/python3.6/site-packages/social_core/tests/backends/test_lyft.py 2pyXh

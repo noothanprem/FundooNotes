@@ -1,307 +1,96 @@
 #
-# The Python Imaging Library
+# The Python Imaging Library.
 # $Id$
 #
-# Adobe PSD 2.5/3.0 file handling
+# XBM File handling
 #
 # History:
-# 1995-09-01 fl   Created
-# 1997-01-03 fl   Read most PSD images
-# 1997-01-18 fl   Fixed P and CMYK support
-# 2001-10-21 fl   Added seek/tell support (for layers)
+# 1995-09-08 fl   Created
+# 1996-11-01 fl   Added save support
+# 1997-07-07 fl   Made header parser more tolerant
+# 1997-07-22 fl   Fixed yet another parser bug
+# 2001-02-17 fl   Use 're' instead of 'regex' (Python 2.1) (0.4)
+# 2001-05-13 fl   Added hotspot handling (based on code from Bernhard Herzog)
+# 2004-02-24 fl   Allow some whitespace before first #define
 #
-# Copyright (c) 1997-2001 by Secret Labs AB.
-# Copyright (c) 1995-2001 by Fredrik Lundh
+# Copyright (c) 1997-2004 by Secret Labs AB
+# Copyright (c) 1996-1997 by Fredrik Lundh
 #
 # See the README file for information on usage and redistribution.
 #
 
-__version__ = "0.4"
+import re
+from . import Image, ImageFile
 
-from . import Image, ImageFile, ImagePalette
-from ._binary import i8, i16be as i16, i32be as i32
+__version__ = "0.6"
 
-MODES = {
-    # (photoshop mode, bits) -> (pil mode, required channels)
-    (0, 1): ("1", 1),
-    (0, 8): ("L", 1),
-    (1, 8): ("L", 1),
-    (2, 8): ("P", 1),
-    (3, 8): ("RGB", 3),
-    (4, 8): ("CMYK", 4),
-    (7, 8): ("L", 1),  # FIXME: multilayer
-    (8, 8): ("L", 1),  # duotone
-    (9, 8): ("LAB", 3)
-}
+# XBM header
+xbm_head = re.compile(
+    br"\s*#define[ \t]+.*_width[ \t]+(?P<width>[0-9]+)[\r\n]+"
+    b"#define[ \t]+.*_height[ \t]+(?P<height>[0-9]+)[\r\n]+"
+    b"(?P<hotspot>"
+    b"#define[ \t]+[^_]*_x_hot[ \t]+(?P<xhot>[0-9]+)[\r\n]+"
+    b"#define[ \t]+[^_]*_y_hot[ \t]+(?P<yhot>[0-9]+)[\r\n]+"
+    b")?"
+    b"[\\000-\\377]*_bits\\[\\]"
+)
 
-
-# --------------------------------------------------------------------.
-# read PSD images
 
 def _accept(prefix):
-    return prefix[:4] == b"8BPS"
+    return prefix.lstrip()[:7] == b"#define"
 
 
 ##
-# Image plugin for Photoshop images.
+# Image plugin for X11 bitmaps.
 
-class PsdImageFile(ImageFile.ImageFile):
+class XbmImageFile(ImageFile.ImageFile):
 
-    format = "PSD"
-    format_description = "Adobe Photoshop"
+    format = "XBM"
+    format_description = "X11 Bitmap"
 
     def _open(self):
 
-        read = self.fp.read
+        m = xbm_head.match(self.fp.read(512))
 
-        #
-        # header
+        if m:
 
-        s = read(26)
-        if s[:4] != b"8BPS" or i16(s[4:]) != 1:
-            raise SyntaxError("not a PSD file")
+            xsize = int(m.group("width"))
+            ysize = int(m.group("height"))
 
-        psd_bits = i16(s[22:])
-        psd_channels = i16(s[12:])
-        psd_mode = i16(s[24:])
+            if m.group("hotspot"):
+                self.info["hotspot"] = (
+                    int(m.group("xhot")), int(m.group("yhot"))
+                    )
 
-        mode, channels = MODES[(psd_mode, psd_bits)]
+            self.mode = "1"
+            self.size = xsize, ysize
 
-        if channels > psd_channels:
-            raise IOError("not enough channels")
-
-        self.mode = mode
-        self.size = i32(s[18:]), i32(s[14:])
-
-        #
-        # color mode data
-
-        size = i32(read(4))
-        if size:
-            data = read(size)
-            if mode == "P" and size == 768:
-                self.palette = ImagePalette.raw("RGB;L", data)
-
-        #
-        # image resources
-
-        self.resources = []
-
-        size = i32(read(4))
-        if size:
-            # load resources
-            end = self.fp.tell() + size
-            while self.fp.tell() < end:
-                signature = read(4)
-                id = i16(read(2))
-                name = read(i8(read(1)))
-                if not (len(name) & 1):
-                    read(1)  # padding
-                data = read(i32(read(4)))
-                if (len(data) & 1):
-                    read(1)  # padding
-                self.resources.append((id, name, data))
-                if id == 1039:  # ICC profile
-                    self.info["icc_profile"] = data
-
-        #
-        # layer and mask information
-
-        self.layers = []
-
-        size = i32(read(4))
-        if size:
-            end = self.fp.tell() + size
-            size = i32(read(4))
-            if size:
-                self.layers = _layerinfo(self.fp)
-            self.fp.seek(end)
-
-        #
-        # image descriptor
-
-        self.tile = _maketile(self.fp, mode, (0, 0) + self.size, channels)
-
-        # keep the file open
-        self._fp = self.fp
-        self.frame = 1
-        self._min_frame = 1
-
-    @property
-    def n_frames(self):
-        return len(self.layers)
-
-    @property
-    def is_animated(self):
-        return len(self.layers) > 1
-
-    def seek(self, layer):
-        if not self._seek_check(layer):
-            return
-
-        # seek to given layer (1..max)
-        try:
-            name, mode, bbox, tile = self.layers[layer-1]
-            self.mode = mode
-            self.tile = tile
-            self.frame = layer
-            self.fp = self._fp
-            return name, bbox
-        except IndexError:
-            raise EOFError("no such layer")
-
-    def tell(self):
-        # return layer number (0=image, 1..max=layers)
-        return self.frame
-
-    def load_prepare(self):
-        # create image memory if necessary
-        if not self.im or\
-           self.im.mode != self.mode or self.im.size != self.size:
-            self.im = Image.core.fill(self.mode, self.size, 0)
-        # create palette (optional)
-        if self.mode == "P":
-            Image.Image.load(self)
+            self.tile = [("xbm", (0, 0)+self.size, m.end(), None)]
 
 
-def _layerinfo(file):
-    # read layerinfo block
-    layers = []
-    read = file.read
-    for i in range(abs(i16(read(2)))):
+def _save(im, fp, filename):
 
-        # bounding box
-        y0 = i32(read(4))
-        x0 = i32(read(4))
-        y1 = i32(read(4))
-        x1 = i32(read(4))
+    if im.mode != "1":
+        raise IOError("cannot write mode %s as XBM" % im.mode)
 
-        # image info
-        info = []
-        mode = []
-        types = list(range(i16(read(2))))
-        if len(types) > 4:
-            continue
+    fp.write(("#define im_width %d\n" % im.size[0]).encode('ascii'))
+    fp.write(("#define im_height %d\n" % im.size[1]).encode('ascii'))
 
-        for i in types:
-            type = i16(read(2))
+    hotspot = im.encoderinfo.get("hotspot")
+    if hotspot:
+        fp.write(("#define im_x_hot %d\n" % hotspot[0]).encode('ascii'))
+        fp.write(("#define im_y_hot %d\n" % hotspot[1]).encode('ascii'))
 
-            if type == 65535:
-                m = "A"
-            else:
-                m = "RGBA"[type]
+    fp.write(b"static char im_bits[] = {\n")
 
-            mode.append(m)
-            size = i32(read(4))
-            info.append((m, size))
+    ImageFile._save(im, fp, [("xbm", (0, 0)+im.size, 0, None)])
 
-        # figure out the image mode
-        mode.sort()
-        if mode == ["R"]:
-            mode = "L"
-        elif mode == ["B", "G", "R"]:
-            mode = "RGB"
-        elif mode == ["A", "B", "G", "R"]:
-            mode = "RGBA"
-        else:
-            mode = None  # unknown
-
-        # skip over blend flags and extra information
-        filler = read(12)
-        name = ""
-        size = i32(read(4))
-        combined = 0
-        if size:
-            length = i32(read(4))
-            if length:
-                mask_y = i32(read(4))
-                mask_x = i32(read(4))
-                mask_h = i32(read(4)) - mask_y
-                mask_w = i32(read(4)) - mask_x
-                file.seek(length - 16, 1)
-            combined += length + 4
-
-            length = i32(read(4))
-            if length:
-                file.seek(length, 1)
-            combined += length + 4
-
-            length = i8(read(1))
-            if length:
-                # Don't know the proper encoding,
-                # Latin-1 should be a good guess
-                name = read(length).decode('latin-1', 'replace')
-            combined += length + 1
-
-        file.seek(size - combined, 1)
-        layers.append((name, mode, (x0, y0, x1, y1)))
-
-    # get tiles
-    i = 0
-    for name, mode, bbox in layers:
-        tile = []
-        for m in mode:
-            t = _maketile(file, m, bbox, 1)
-            if t:
-                tile.extend(t)
-        layers[i] = name, mode, bbox, tile
-        i += 1
-
-    return layers
+    fp.write(b"};\n")
 
 
-def _maketile(file, mode, bbox, channels):
+Image.register_open(XbmImageFile.format, XbmImageFile, _accept)
+Image.register_save(XbmImageFile.format, _save)
 
-    tile = None
-    read = file.read
+Image.register_extension(XbmImageFile.format, ".xbm")
 
-    compression = i16(read(2))
-
-    xsize = bbox[2] - bbox[0]
-    ysize = bbox[3] - bbox[1]
-
-    offset = file.tell()
-
-    if compression == 0:
-        #
-        # raw compression
-        tile = []
-        for channel in range(channels):
-            layer = mode[channel]
-            if mode == "CMYK":
-                layer += ";I"
-            tile.append(("raw", bbox, offset, layer))
-            offset = offset + xsize*ysize
-
-    elif compression == 1:
-        #
-        # packbits compression
-        i = 0
-        tile = []
-        bytecount = read(channels * ysize * 2)
-        offset = file.tell()
-        for channel in range(channels):
-            layer = mode[channel]
-            if mode == "CMYK":
-                layer += ";I"
-            tile.append(
-                ("packbits", bbox, offset, layer)
-                )
-            for y in range(ysize):
-                offset = offset + i16(bytecount[i:i+2])
-                i += 2
-
-    file.seek(offset)
-
-    if offset & 1:
-        read(1)  # padding
-
-    return tile
-
-# --------------------------------------------------------------------
-# registry
-
-
-Image.register_open(PsdImageFile.format, PsdImageFile, _accept)
-
-Image.register_extension(PsdImageFile.format, ".psd")
+Image.register_mime(XbmImageFile.format, "image/xbm")

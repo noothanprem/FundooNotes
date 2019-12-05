@@ -1,1 +1,1 @@
-анAvenv/lib64/python3.6/site-packages/django/contrib/auth/migrations :$янбнвнгндненжнзнинйнцнщн
+анAvenv/lib64/python3.6/site-packages/django/contrib/auth/migrations :$янбнвнгндненжнзнинйнчншн

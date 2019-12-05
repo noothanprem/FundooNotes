@@ -1,1 +1,1 @@
-ö‰9venv/lib/python3.6/site-packages/elasticsearch/connection :õ‰÷‰ø‰ù‰ú‰
+ö‰9venv/lib/python3.6/site-packages/elasticsearch/connection :ô‰÷‰ø‰ù‰ú‰

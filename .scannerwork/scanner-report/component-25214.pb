@@ -1,1 +1,1 @@
-şÄWvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_internal/req/constructors.py 2pyXÔh
+şÄXvenv/lib/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_internal/req/req_uninstall.py 2pyXÕh

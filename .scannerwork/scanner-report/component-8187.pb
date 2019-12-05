@@ -1,1 +1,1 @@
-û?Jvenv/lib/python3.6/site-packages/django/core/serializers/xml_serializer.py 2pyX¥h
+û?@venv/lib/python3.6/site-packages/django/core/serializers/json.py 2pyXih

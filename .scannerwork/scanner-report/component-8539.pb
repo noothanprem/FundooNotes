@@ -1,1 +1,1 @@
-ÛBAvenv/lib/python3.6/site-packages/django/conf/locale/fi/formats.py 2pyX(h
+ÛBBvenv/lib/python3.6/site-packages/django/conf/locale/fi/__init__.py 2pyXh

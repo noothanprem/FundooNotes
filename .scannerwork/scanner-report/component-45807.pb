@@ -1,1 +1,0 @@
-пе-venv/lib64/python3.6/site-packages/past/utils :ое

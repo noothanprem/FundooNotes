@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-# $Id: sv.py 8006 2016-12-22 23:02:44Z milde $
-# Author: Adam Chodorowski <chodorowski@users.sourceforge.net>
+# $Id: lv.py 7975 2016-10-20 20:00:19Z milde $
 # Copyright: This module has been placed in the public domain.
 
 # New language mappings are welcome.  Before doing a new translation, please
@@ -9,51 +8,52 @@
 # docutils/parsers/rst/languages.
 
 """
-Swedish language mappings for language-dependent features of Docutils.
+Latvian-language mappings for language-dependent features of Docutils.
 """
 
 __docformat__ = 'reStructuredText'
 
 labels = {
-    'author':       'Författare',
-    'authors':      'Författare',
-    'organization': 'Organisation',
-    'address':      'Adress',
-    'contact':      'Kontakt',
-    'version':      'Version',
-    'revision':     'Revision',
-    'status':       'Status',
-    'date':         'Datum',
-    'copyright':    'Copyright',
-    'dedication':   'Dedikation',
-    'abstract':     'Sammanfattning',
-    'attention':    'Observera!',
-    'caution':      'Akta!', # 'Varning' already used for 'warning'
-    'danger':       'FARA!',
-    'error':        'Fel',
-    'hint':         'Vink',
-    'important':    'Viktigt',
-    'note':         'Notera',
-    'tip':          'Tips',
-    'warning':      'Varning',
-    'contents':     'Innehåll' }
+      # fixed: language-dependent
+      'author': 'Autors',
+      'authors': 'Autori',
+      'organization': 'Organizācija',
+      'address': 'Adrese',
+      'contact': 'Kontakti',
+      'version': 'Versija',
+      'revision': 'Revīzija',
+      'status': 'Statuss',
+      'date': 'Datums',
+      'copyright': 'Copyright',
+      'dedication': 'Veltījums',
+      'abstract': 'Atreferējums',
+      'attention': 'Uzmanību!',
+      'caution': 'Piesardzību!',
+      'danger': '!BĪSTAMI!',
+      'error': 'Kļūda',
+      'hint': 'Ieteikums',
+      'important': 'Svarīgi',
+      'note': 'Piezīme',
+      'tip': 'Padoms',
+      'warning': 'Brīdinājums',
+      'contents': 'Saturs'}
 """Mapping of node class name to label text."""
 
 bibliographic_fields = {
-    # 'Author' and 'Authors' identical in Swedish; assume the plural:
-    'författare': 'authors',
-    ' n/a':            'author',
-    'organisation':    'organization',
-    'adress':          'address',
-    'kontakt':         'contact',
-    'version':         'version',
-    'revision':        'revision',
-    'status':          'status',
-    'datum':           'date',
-    'copyright':       'copyright',
-    'dedikation':      'dedication', 
-    'sammanfattning':  'abstract' }
-"""Swedish (lowcased) to canonical name mapping for bibliographic fields."""
+      # language-dependent: fixed
+      'autors': 'author',
+      'autori': 'authors',
+      'organizācija': 'organization',
+      'adrese': 'address',
+      'kontakti': 'contact',
+      'versija': 'version',
+      'revīzija': 'revision',
+      'statuss': 'status',
+      'datums': 'date',
+      'copyright': 'copyright',
+      'veltījums': 'dedication',
+      'atreferējums': 'abstract'}
+"""English (lowcased) to canonical name mapping for bibliographic fields."""
 
 author_separators = [';', ',']
 """List of separator strings for the 'Authors' bibliographic field. Tried in

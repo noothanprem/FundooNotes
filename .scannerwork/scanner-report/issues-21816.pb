@@ -1,54 +1,87 @@
-m
-pythonS100QRename method "filterWith" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2&& k
-pythonS100ORename method "twoMinus" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2KK j
-pythonS100NRename method "twoPlus" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ZZ i
-pythonS100MRename method "notTwo" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2ii e
-pythonS100IRename method "no" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2xx Å
-pythonS100cRename method "test_shouldLogEventNoFilters" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-•• $Ä
-pythonS100bRename method "test_shouldLogEventNoFilter" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¨¨ #Ö
-pythonS100gRename method "test_shouldLogEventOtherObserver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-≥≥ (Å
-pythonS100cRename method "test_shouldLogEventYesFilter" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-∫∫ $É
-pythonS100eRename method "test_shouldLogEventYesNoFilter" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¡¡ &Ü
-pythonS100hRename method "test_shouldLogEventYesYesNoFilter" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-»» )ä
-pythonS100lRename method "test_shouldLogEventBadPredicateResult" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-”” -y
-pythonS100[Rename method "test_defaultLogLevel" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-òò u
-pythonS100WRename method "test_setLogLevel" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-¨¨ |
-pythonS100^Rename method "test_setInvalidLogLevel" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-–– x
-pythonS100ZRename method "test_clearLogLevels" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‚‚ y
-pythonS117[Rename this local variable "eventsSeen" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-êê |
-pythonS117^Rename this local variable "eventsNotSeen" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ëë 
-pythonS117aRename this local variable "trackingObserver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-íí Ä
-pythonS117bRename this local variable "filteringObserver" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-óó s
-pythonS117URename this local variable "oYes" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÙÙ r
-pythonS117TRename this local variable "oNo" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ıı t
-pythonS117VRename this local variable "oTest" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÉÉ x
-pythonS117ZRename this local variable "yesFilter" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ÖÖ w
-pythonS117YRename this local variable "noFilter" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-ââ x
-pythonS117ZRename this parameter "expectedResult" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
-çç- ;
-pythonS1542`Rename function "callWithPredicateResult" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-‡‡ #t
-pythonS1542URename function "testObserver" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-˜˜ v
-pythonS1542WRename function "checkPredicate" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
-çç 
+q
+pythonS100URename method "savedEventJSON" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 288 v
+pythonS100ZRename method "test_simpleSaveLoad" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2EE p
+pythonS100TRename method "test_saveLoad" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2LL y
+pythonS100]Rename method "test_saveUnPersistable" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2YY t
+pythonS100XRename method "test_saveNonASCII" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2dd q
+pythonS100URename method "test_saveBytes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2pp Ö
+pythonS100gRename method "test_saveUnPersistableThenFormat" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ää (Ç
+pythonS100dRename method "test_extractingFieldsPostLoad" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+†† %É
+pythonS100eRename method "test_failureStructurePreserved" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¥¥ &w
+pythonS100YRename method "test_saveLoadLevel" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÀÀ ~
+pythonS100`Rename method "test_saveLoadUnknownLevel" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+’’ !}
+pythonS100_Rename method "assertObserverWritesJSON" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÙÙ  ç
+pythonS100oRename method "test_observeWritesDefaultRecordSeparator" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+åå 0ã
+pythonS100mRename method "test_observeWritesEmptyRecordSeparator" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ïï .{
+pythonS100]Rename method "test_failureFormatting" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ûû j
+pythonS100LRename method "setUp" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ƒƒ m
+pythonS100ORename method "tearDown" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+”” p
+pythonS100RRename method "_readEvents" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+◊◊ ã
+pythonS100mRename method "test_readEventsAutoWithRecordSeparator" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÁÁ .å
+pythonS100nRename method "test_readEventsAutoEmptyRecordSeparator" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÙÙ /ã
+pythonS100mRename method "test_readEventsExplicitRecordSeparator" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ÅÅ .Å
+pythonS100cRename method "test_readEventsPartialBuffer" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+èè $w
+pythonS100YRename method "test_readTruncated" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+úú u
+pythonS100WRename method "test_readUnicode" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+≤≤ w
+pythonS100YRename method "test_readUTF8Bytes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+¿¿ Ä
+pythonS100bRename method "test_readTruncatedUTF8Bytes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+œœ #~
+pythonS100`Rename method "test_readInvalidUTF8Bytes" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ﬂﬂ !y
+pythonS100[Rename method "test_readInvalidJSON" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+˙˙ y
+pythonS100[Rename method "test_readUnseparated" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+êê s
+pythonS100URename method "test_roundTrip" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+®® p
+pythonS117TRename this parameter "testCase" to match the regular expression ^[_a-z][a-z0-9_]*$. 2  q
+pythonS117URename this parameter "savedJSON" to match the regular expression ^[_a-z][a-z0-9_]*$. 2" +w
+pythonS117[Rename this local variable "inputEvent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2{{ y
+pythonS117[Rename this local variable "inputEvent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+òò z
+pythonS117\Rename this local variable "outputEvent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+úú y
+pythonS117[Rename this local variable "inputEvent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+©© z
+pythonS117\Rename this local variable "loadedEvent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+™™ y
+pythonS117[Rename this local variable "inputEvent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+–– z
+pythonS117\Rename this local variable "loadedEvent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+—— z
+pythonS117\Rename this local variable "loadedEvent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+⁄⁄ ~
+pythonS117`Rename this local variable "recordSeparator" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ÄÄ s
+pythonS117URename this parameter "logEvents" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+ØØ !{
+pythonS117]Rename this local variable "failureEvent" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+±± |
+pythonS117^Rename this local variable "failureObject" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+≥≥ ~
+pythonS117`Rename this local variable "tracebackObject" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+µµ t
+pythonS117VRename this parameter "fileHandle" to match the regular expression ^[_a-z][a-z0-9_]*$. 2
+◊◊ $y
+pythonS1542\Rename function "savedJSONInvariants" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2 s
+pythonS1542TRename function "checkEvents" to match the regular expression ^[a-z_][a-z0-9_]{2,}$. 2
+ØØ 

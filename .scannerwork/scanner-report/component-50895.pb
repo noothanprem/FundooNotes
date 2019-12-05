@@ -1,1 +1,1 @@
-ÏKvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet :uÎĞÑÒÓÔÕÖ×ÛÜİŞßàáâãäåæçèéêëìíîï–—˜™š›œ
+ÏXvenv/lib64/python3.6/site-packages/pip-19.0.3-py3.6.egg/pip/_vendor/chardet/euckrfreq.py 2pyXÄh

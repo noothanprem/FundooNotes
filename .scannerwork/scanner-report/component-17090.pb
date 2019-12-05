@@ -1,1 +1,2 @@
-Â…Mvenv/lib/python3.6/site-packages/google/protobuf/internal/wire_format_test.py 2pyX‚h
+Â…Mvenv/lib/python3.6/site-packages/google/protobuf/internal/text_format_test.py 2pyXÐ
+h

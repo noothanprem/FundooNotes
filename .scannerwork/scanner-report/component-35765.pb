@@ -1,1 +1,1 @@
-µ—Tvenv/lib64/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/AuthTicketRequest.py 2pyXh
+µ—Nvenv/lib64/python3.6/site-packages/autobahn/wamp/gen/wamp/proto/ClientRoles.py 2pyXGh

@@ -1,1 +1,1 @@
-©°8venv/lib/python3.6/site-packages/lazr/restfulclient/docs :«°
+©°8venv/lib/python3.6/site-packages/lazr/restfulclient/docs :®°
