@@ -284,7 +284,7 @@ class CreateLabel(GenericAPIView):
         """
         response = labelobject.create_label(request)
         print("response : ",response)
-        if response['success'] == False:
+        if not response['success']:
             return HttpResponse(json.dumps(response),status = 404)
         else:
             return HttpResponse(json.dumps(response),status = 200)

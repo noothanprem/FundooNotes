@@ -28,6 +28,7 @@ class Note(models.Model):
     image=models.ImageField(blank=True)
     is_archieve=models.BooleanField(default=False)
     is_trash=models.BooleanField(default=False)
+    color = RGBColorField(colors=['#FF0000', '#00FF00', '#0000FF'],blank=True,null=True)
     reminder = models.DateTimeField(blank=True,null=True)
     pin=models.BooleanField(default=False)
     url=models.URLField(blank=True)

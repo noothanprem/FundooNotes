@@ -51,12 +51,14 @@ INSTALLED_APPS = [
     'social_django',
     'colorful',
     'django_social_share',
+    'django_elasticsearch_dsl',
+    'django_elasticsearch_dsl_drf',
     'bootstrap3',
     'notes',
 ]
 
 
-formatter= logging.Formatter('[%(asctime)s] %(message)s %(levelname)-p%(process)s {%(pathname)s:%(lineno)d} % ','%m-%d %H:%M:%S')
+formatter= logging.Formatter('[%(asctime)s] - %(name)s - %(levelname)- %(message)s - p%(process)s {%(pathname)s:%(lineno)d} % ','%m-%d %H:%M:%S')
 file_handler = logging.FileHandler('fundoo.log')
 file_handler.setFormatter(formatter)
 DJANGO_SHORT_URL_REDIRECT_URL = ''
@@ -69,6 +71,10 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.BasicAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
+'DEFAULT_PAGINATION_CLASS':
+        'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 100,
+    'ORDERING_PARAM': 'ordering',
     'DEFAULT_SCHEMA_CLASS': 'rest_framework.schemas.coreapi.AutoSchema'
 }
 

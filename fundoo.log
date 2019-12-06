@@ -846,3 +846,4 @@
 [12-05 12:29:05] p27210 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
 [12-05 12:29:05] p27210 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
 [12-05 12:29:05] p27210 {/home/admin1/PycharmProjects/fundoo/notes/views.py:128} ERROR - Exception occured
+[12-06 04:12:01] p9678 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
