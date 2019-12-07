@@ -18,7 +18,11 @@ class NotesDocument(Document):
         model = Note # The model associated with this Document
 
         # The fields of the model you want to be indexed in Elasticsearch
-
+        fields = [
+            'title',
+            'note',
+            'reminder',
+        ]
 
         # Ignore auto updating of Elasticsearch when a model is saved
         # or deleted:

@@ -58,7 +58,7 @@ INSTALLED_APPS = [
 ]
 
 
-formatter= logging.Formatter('[%(asctime)s] - %(name)s - %(levelname)- %(message)s - p%(process)s {%(pathname)s:%(lineno)d} % ','%m-%d %H:%M:%S')
+formatter= logging.Formatter('[%(asctime)s] p%(process)s {%(pathname)s:%(lineno)d} %(levelname)s - %(message)s','%m-%d %H:%M:%S')
 file_handler = logging.FileHandler('fundoo.log')
 file_handler.setFormatter(formatter)
 DJANGO_SHORT_URL_REDIRECT_URL = ''

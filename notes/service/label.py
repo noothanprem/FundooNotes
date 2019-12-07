@@ -14,6 +14,7 @@ redis = redisobject.r
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.addHandler(file_handler)
+print(file_handler,"file")
 
 
 class LabelOperations:
