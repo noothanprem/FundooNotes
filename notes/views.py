@@ -52,6 +52,7 @@ from django.contrib.auth import get_user_model
 #from django.utils import timezone
 from datetime import datetime
 # from notes.tasks import send_feedback_email_task
+from .documents import NotesDocument
 
 
 redisobject = RedisOperation()
@@ -498,4 +499,13 @@ class CeleryTasks(GenericAPIView):
                 send_mail(subject, message, sender, [reciever])
 
         return HttpResponse("success")
+
+def search(request):
+    q=request.GET.get('q')
+    if q:
+        notes = NotesDocument.search().query("match",title=q)
+    else:
+        notes = ''
+    return render(request,'search.html',{'notes':notes})
+
 

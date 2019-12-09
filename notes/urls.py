@@ -14,5 +14,6 @@ urlpatterns=[
     path('notes_archieve',views.Archieve.as_view(), name="archieveview"),
     path('notes_reminder',views.Reminder.as_view(), name="reminderview"),
     path('lazy_loading',views.LazyLoadng.as_view(),name='lazyloading'),
-    path('celery',views.CeleryTasks.as_view(),name='celeryview')
+    path('celery',views.CeleryTasks.as_view(),name='celeryview'),
+    path('search',views.search,name='searchview')
 ]
