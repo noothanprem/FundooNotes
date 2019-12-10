@@ -1,28 +1,36 @@
-from django_elasticsearch_dsl import Document
+from django_elasticsearch_dsl import Index,fields,Document
 from django_elasticsearch_dsl.registries import registry
 from .models import Note
+from elasticsearch_dsl import analyzer, tokenizer
 
 
 @registry.register_document
 class NotesDocument(Document):
 
+    title = fields.StringField()
+    note = fields.StringField()
+    reminder = fields.DateField()
+    color = fields.StringField()
+    label = fields.ObjectField(
+        properties = {
+            'name':fields.StringField(),
+        }
+    )
 
     class Index:
-        # Name of the Elasticsearch index
+        #Name of the Elasticsearch index
         name = 'notes'
-        # See Elasticsearch Indices API reference for available settings
+        #See Elasticsearch Indices API reference for available settings
         settings = {'number_of_shards': 1,
-                    'number_of_replicas': 0}
+        'number_of_replicas': 0}
+
+
 
     class Django:
-        model = Note # The model associated with this Document
+        model = Note
 
-        # The fields of the model you want to be indexed in Elasticsearch
-        fields = [
-            'title',
-            'note',
-            'reminder',
-        ]
+        #The fields of the model you want to be indexed in Elasticsearch
+
 
         # Ignore auto updating of Elasticsearch when a model is saved
         # or deleted:

@@ -42,6 +42,11 @@ ELASTICSEARCH_DSL={
     },
 }
 
+# Name of the Elasticsearch index
+ELASTICSEARCH_INDEX_NAMES = {
+    'search_indexes.documents.address': 'address',
+}
+
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
 
