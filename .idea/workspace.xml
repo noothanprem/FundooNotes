@@ -3,19 +3,10 @@
   <component name="ChangeListManager">
     <list default="true" id="0c22738c-0fa1-42c9-b082-236c5c184589" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fundoo/setting/development.py" beforeDir="false" afterPath="$PROJECT_DIR$/fundoo/setting/development.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/notes/documents.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/documents.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/client/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/client/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/client/cluster.py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/client/cluster.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/client/indices.py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/client/indices.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/client/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/client/utils.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/client/xpack/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/client/xpack/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/compat.py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/compat.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/connection/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/connection/base.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/connection_pool.py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/connection_pool.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/exceptions.py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/exceptions.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/transport.py" beforeDir="false" afterPath="$PROJECT_DIR$/venv/lib/python3.6/site-packages/elasticsearch/transport.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/notes/serializers.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/serializers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/notes/urls.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/urls.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/notes/views.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/views.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -182,6 +173,7 @@
       <workItem from="1575688136003" duration="11689000" />
       <workItem from="1575861777802" duration="11605000" />
       <workItem from="1575947340159" duration="15110000" />
+      <workItem from="1576034255377" duration="17067000" />
     </task>
     <servers />
   </component>

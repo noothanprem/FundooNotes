@@ -3,23 +3,27 @@ from django_elasticsearch_dsl.registries import registry
 from .models import Note
 from elasticsearch_dsl import analyzer, tokenizer
 
+html_strip = analyzer('html_strip',
+    tokenizer="standard",
+    filter=["lowercase", "stop", "snowball"]
+)
 
 @registry.register_document
 class NotesDocument(Document):
 
-    title = fields.StringField()
-    note = fields.StringField()
+    title = fields.TextField(analyzer=html_strip)
+    note = fields.TextField(analyzer=html_strip)
     reminder = fields.DateField()
-    color = fields.StringField()
+    color = fields.TextField(analyzer=html_strip)
     label = fields.ObjectField(
         properties = {
-            'name':fields.StringField(),
+            'name':fields.TextField(analyzer=html_strip)
         }
     )
 
     class Index:
         #Name of the Elasticsearch index
-        name = 'notes'
+        name = 'note_index'
         #See Elasticsearch Indices API reference for available settings
         settings = {'number_of_shards': 1,
         'number_of_replicas': 0}

@@ -24,3 +24,7 @@ class LabelSerializer(serializers.ModelSerializer):
     class Meta:
         model = Label
         fields = ['id', 'name']
+class NotesSearchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Note
+        fields = ['note']

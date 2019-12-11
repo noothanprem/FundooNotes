@@ -31,7 +31,7 @@ from django.template.loader import render_to_string
 import boto3
 
 from fundoo.settings import file_handler
-from .serializers import UploadImageSerializer, NoteShareSerializer, NoteSerializer, LabelSerializer
+from .serializers import UploadImageSerializer, NoteShareSerializer, NoteSerializer, LabelSerializer,NotesSearchSerializer
 from .lib.amazon_s3_file import UploadImage
 from .models import Note, Label
 from .service.label import LabelOperations
@@ -53,6 +53,9 @@ from django.contrib.auth import get_user_model
 from datetime import datetime
 # from notes.tasks import send_feedback_email_task
 from .documents import NotesDocument
+from .documents import NotesDocument
+from elasticsearch_dsl import Q
+from elasticsearch_dsl.query import MultiMatch
 
 
 redisobject = RedisOperation()
@@ -500,12 +503,38 @@ class CeleryTasks(GenericAPIView):
 
         return HttpResponse("success")
 
-def search(request):
-    q=request.GET.get('q')
-    if q:
-        notes = NotesDocument.search().query("match",title=q)
-    else:
-        notes = ''
-    return render(request,'search.html',{'notes':notes})
+class NotesSearch(GenericAPIView):
+
+    serializer_class = NotesSearchSerializer
+    def post(self,request):
+
+        search = NotesDocument.search()
+        note=request.data['note']
+        #note_data=search.filter('multi_match', note = note)
+        #note_data=MultiMatch(query=note, fields=['title', 'note','label'])
+        #note_data = Q("multi_match", query=note, fields=['title', 'note'])
+        #q = Q("multi_match", query=note, fields=['title', 'note'])
+        #note_data = search.query(q)
+        note_data = search.query("multi_match", query=note, fields=['title', 'note'])
+        # note_data = search.query(
+        #     {
+        #         "bool": {
+        #             "must": [
+        #                 {"multi_match": {
+        #                     "query": note,
+        #                     "fields": ["label", 'title', 'note','color']
+        #                 }},
+        #             ]
+        #         }
+        #     }
+        # )
+        new_note_data = NotesSearchSerializer(note_data.to_queryset(), many=True)
+        print("note data : ",new_note_data)
+
+
+        return HttpResponse(json.dumps(str(new_note_data)))
+
+
+
 
 
