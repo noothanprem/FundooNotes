@@ -56,6 +56,10 @@ from .documents import NotesDocument
 from .documents import NotesDocument
 from elasticsearch_dsl import Q
 from elasticsearch_dsl.query import MultiMatch
+from elasticsearch import Elasticsearch
+from elasticsearch_dsl import Search
+
+
 
 
 redisobject = RedisOperation()
@@ -508,26 +512,33 @@ class NotesSearch(GenericAPIView):
     serializer_class = NotesSearchSerializer
     def post(self,request):
 
+        client = Elasticsearch()
         search = NotesDocument.search()
-        note=request.data['note']
+        title=request.data['title']
+
         #note_data=search.filter('multi_match', note = note)
         #note_data=MultiMatch(query=note, fields=['title', 'note','label'])
         #note_data = Q("multi_match", query=note, fields=['title', 'note'])
-        #q = Q("multi_match", query=note, fields=['title', 'note'])
-        #note_data = search.query(q)
-        note_data = search.query("multi_match", query=note, fields=['title', 'note'])
         # note_data = search.query(
         #     {
-        #         "bool": {
-        #             "must": [
-        #                 {"multi_match": {
-        #                     "query": note,
-        #                     "fields": ["label", 'title', 'note','color']
-        #                 }},
-        #             ]
-        #         }
-        #     }
+        #                 "bool": {
+        #                     "must": [
+        #                         {"multi_match": {
+        #                             "query": title,
+        #                             "fields": ["label.name", 'title', 'note', 'reminder', 'color']
+        #                         }},
+        #                     ],
+        #                     "filter": [
+        #                         {"term": {"user.username": str(request.user)}}
+        #                     ]
+        #                 }
+        #             }
         # )
+
+
+        query_result = Q("multi_match", query=title, fields=['title', 'note','label.name','reminder','color'])
+        note_data = search.query(query_result)
+
         new_note_data = NotesSearchSerializer(note_data.to_queryset(), many=True)
         print("note data : ",new_note_data)
 

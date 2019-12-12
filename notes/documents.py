@@ -4,7 +4,7 @@ from .models import Note
 from elasticsearch_dsl import analyzer, tokenizer
 
 html_strip = analyzer('html_strip',
-    tokenizer="standard",
+    tokenizer="edge_ngram",
     filter=["lowercase", "stop", "snowball"]
 )
 
@@ -13,7 +13,7 @@ class NotesDocument(Document):
 
     title = fields.TextField(analyzer=html_strip)
     note = fields.TextField(analyzer=html_strip)
-    reminder = fields.DateField()
+    reminder = fields.TextField()
     color = fields.TextField(analyzer=html_strip)
     label = fields.ObjectField(
         properties = {

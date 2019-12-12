@@ -27,4 +27,4 @@ class LabelSerializer(serializers.ModelSerializer):
 class NotesSearchSerializer(serializers.ModelSerializer):
     class Meta:
         model = Note
-        fields = ['note']
+        fields = ['title']
