@@ -2,11 +2,8 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="0c22738c-0fa1-42c9-b082-236c5c184589" name="Default Changelist" comment="">
+      <change afterPath="$PROJECT_DIR$/ng.conf" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/notes/documents.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/documents.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/notes/serializers.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/serializers.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/notes/views.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/views.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -174,7 +171,9 @@
       <workItem from="1575861777802" duration="11605000" />
       <workItem from="1575947340159" duration="15110000" />
       <workItem from="1576034255377" duration="17067000" />
-      <workItem from="1576120307614" duration="12123000" />
+      <workItem from="1576120307614" duration="13584000" />
+      <workItem from="1576206991380" duration="3914000" />
+      <workItem from="1576293565788" duration="7689000" />
     </task>
     <servers />
   </component>
