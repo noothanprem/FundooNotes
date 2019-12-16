@@ -507,6 +507,7 @@ class CeleryTasks(GenericAPIView):
 
         return HttpResponse("success")
 
+
 class NotesSearch(GenericAPIView):
 
     serializer_class = NotesSearchSerializer

@@ -32,8 +32,10 @@ class Note(models.Model):
     reminder = models.DateTimeField(blank=True,null=True)
     pin=models.BooleanField(default=False)
     url=models.URLField(blank=True)
+
     def __str__(self):
         return self.title
+
     class Meta:
         verbose_name = 'note'
         verbose_name_plural = 'notes'

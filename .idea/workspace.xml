@@ -2,8 +2,13 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="0c22738c-0fa1-42c9-b082-236c5c184589" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/ng.conf" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ng.conf" beforeDir="false" afterPath="$PROJECT_DIR$/ng.conf" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/notes/lib/redis_function.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/lib/redis_function.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/notes/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/notes/service/label.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/service/label.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/notes/service/note.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/service/note.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/notes/views.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/views.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -174,6 +179,7 @@
       <workItem from="1576120307614" duration="13584000" />
       <workItem from="1576206991380" duration="3914000" />
       <workItem from="1576293565788" duration="7689000" />
+      <workItem from="1576465405613" duration="9632000" />
     </task>
     <servers />
   </component>
@@ -192,6 +198,12 @@
         </entry>
       </map>
     </option>
+  </component>
+  <component name="WindowStateProjectService">
+    <state x="378" y="202" width="666" height="397" key="#com.intellij.fileTypes.FileTypeChooser" timestamp="1576503065776">
+      <screen x="67" y="27" width="1299" height="741" />
+    </state>
+    <state x="378" y="202" width="666" height="397" key="#com.intellij.fileTypes.FileTypeChooser/67.27.1299.741@67.27.1299.741" timestamp="1576503065776" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/fundoo$Test__notes_tests_NoteTest.coverage" NAME="Test: notes.tests.NoteTest Coverage Results" MODIFIED="1575118681041" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="" />
