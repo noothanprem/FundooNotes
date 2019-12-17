@@ -8,12 +8,11 @@ import redis
 from django.core.mail import send_mail
 from celery.task.schedules import crontab
 from celery.decorators import periodic_task
-
+from fundoo.setting.development import REMINDER_URL
 from celery import Celery
 from notes.lib.redis_function import RedisOperation
 import requests
-ro=RedisOperation()
-redis = ro.r
+#redisobject=RedisOperation()
 logger = get_task_logger(__name__)
 
 
@@ -22,7 +21,7 @@ logger = get_task_logger(__name__)
                ignore_result = True)
 def reminder_notification_task():
 
-    requests.get("http://localhost:8000/api/celery")
+    requests.get(REMINDER_URL)
     # smd_response = {
     #     'success':False,
     #     'message':"",

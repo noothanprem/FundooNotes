@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from .lib.redis_function import RedisOperation
 
 redisobject=RedisOperation()
-redis=redisobject.r
+
 
 
 def login_decorator(function):

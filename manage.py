@@ -3,6 +3,19 @@
 import os
 import sys
 
+from dotenv import load_dotenv, find_dotenv
+from pathlib import *
+load_dotenv(find_dotenv())
+env_path = Path('.') / '../.env'
+
+try:
+    ENVIRONMENT = os.getenv('ENVIRONMENT')
+    if ENVIRONMENT is None:
+        raise Exception('ENVIRONMENT is not set')
+except Exception as e:
+    print(e)
+    ENVIRONMENT = 'development'
+
 
 def main():
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'fundoo.setting.production')

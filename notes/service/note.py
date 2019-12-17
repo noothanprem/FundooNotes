@@ -18,12 +18,10 @@ logger.setLevel(logging.DEBUG)
 logger.addHandler(file_handler)
 
 redisobject = RedisOperation()
-
+redisobject.__connect__()
 
 
 class NoteOperations:
-
-    redisobject.__connect__()
 
     response = {"success": False,
                 "message": "",
@@ -43,6 +41,7 @@ class NoteOperations:
         :param request: passes the note datas
         :return: creates note
         """
+
         try:
             # getting the data from request
             # spdb.set_trace()
@@ -59,6 +58,7 @@ class NoteOperations:
                     raise Label.DoesNotExist
                 label_id = labelobject.values()[0]['id']
                 label_list.append(label_id)
+                print("label list  : ",label_list)
             #replaces the 'label' in data with the new label_list
             data['label'] = label_list
         except Label.DoesNotExist:
@@ -71,7 +71,7 @@ class NoteOperations:
             return self.response
 
         try:
-            collaborators = data['collab']
+            collaborators = data['collaborator']
             #getting the collaborators with the given email
             collaborator_object = User.objects.filter(email__in=collaborators)
 
@@ -81,13 +81,15 @@ class NoteOperations:
             collaborator_id_list=[]
             for collab in collaborator_object:
                 collaborator_id_list.append(collab.id)
+                print("collaborator id list : ",collaborator_id_list)
             #adding all the ids to the list
             for collaborator_id in collaborator_id_list:
                 collab_list.append(collaborator_id)
+                print("collaborator list : ",collab_list)
 
             #replaces in the data with the new list
-            data['collab'] = collab_list
-
+            data['collaborator'] = collab_list
+            print("data : ",data)
 
         except User.DoesNotExist:
 
@@ -101,13 +103,10 @@ class NoteOperations:
 
         serializer = NoteSerializer(data=data, partial=True)
         if serializer.is_valid():
-            print ("Inside srializeeeerrrrr")
+            print("Serializer valid ")
             create_note = serializer.save(user=user)
-            print (create_note.id,"create note idddddddd")
 
             string_user_id=str(user.id)
-            #redis.set(create_note.id, str(json.dumps(serializer.data)))
-            #sets=redis.hset("Notes",create_note.id,str(json.dumps(serializer.data)))
             redisobject.hmset(string_user_id + "note",{create_note.id: str(json.dumps(serializer.data))})
 
             logger.info("note created successfully")
@@ -123,7 +122,6 @@ class NoteOperations:
 
     def get_note(self, request, note_id):
         """
-
         :param request: to get the note
         :param note_id: id of the note
         :return: returns the note
@@ -134,14 +132,7 @@ class NoteOperations:
 
             user = request.user
             string_user_id=str(user.id)
-            print (note_id,"note iddddddd")
-            """
-            getting note from redis with the given id
-            """
-            #redis_data = redis.get(str(note_id)).decode('utf-8')
             redis_data=redisobject.hvals(string_user_id+"note")
-
-            #getting the data from the database if redis reading fails
             str_note_data=str(redis_data)
 
             if redis_data is None:
@@ -177,11 +168,9 @@ class NoteOperations:
 
     def update_note(self, request, note_id):
         """
-
         :param request: to update a note
         :param note_id: id of the note
         :return: updates the note with the new data
-
         """
 
 
@@ -245,7 +234,7 @@ class NoteOperations:
             try:
 
                 #getting the given collaborators
-                collaborators = request_data['collab']
+                collaborators = request_data['collaborator']
                 print (collaborators, "collaborators")
                 #Iterates through the collaborators
                 for collaborator in collaborators:
@@ -291,11 +280,9 @@ class NoteOperations:
 
     def delete_note(self, request, note_id):
         """
-
         :param request: for deleting note
         :param note_id: id of the note
         :return: makes is_trash to True
-
         """
 
         #pdb.set_trace()

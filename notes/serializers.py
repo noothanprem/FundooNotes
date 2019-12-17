@@ -17,7 +17,7 @@ class NoteShareSerializer(serializers.ModelSerializer):
 class NoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Note
-        fields = ['title', 'note', 'label', 'collab', 'image', 'is_archieve', 'is_trash', 'reminder', 'pin', 'url']
+        fields = ['title', 'note', 'label', 'collaborator', 'image', 'is_archieve', 'is_trash', 'reminder', 'is_pin', 'url']
 
 
 class LabelSerializer(serializers.ModelSerializer):

@@ -24,7 +24,7 @@ from rest_framework_simplejwt.views import (
 )
 from rest_framework_simplejwt import views as jwt_views
 
-schema_view = get_swagger_view(title='Pastebin API')
+schema_view = get_swagger_view(title='FundooNotes API')
 urlpatterns = [
     path('admin/', admin.site.urls),
     # path('hello/', views.Login, name='hello'),

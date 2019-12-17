@@ -29,7 +29,7 @@ DATABASES = {
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/',  # need to replace with .env credentials stored for db
+        'LOCATION': config('REDIS_CACHE_LOCATION'),  # need to replace with .env credentials stored for db
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
         }
@@ -38,7 +38,7 @@ CACHES = {
 
 ELASTICSEARCH_DSL={
     'default': {
-        'hosts': 'localhost:9200'
+        'hosts': config('ELASTIC_SEARCH_HOST')
     },
 }
 
@@ -92,10 +92,12 @@ STATIC_ROOT = os.path.join(BASE_DIR, "static/")
 
 # For RabbitMQ
 #BROKER_URL = 'amqp://[ipaddress]'
-CELERY_BROKER_URL = 'amqp://guest:guest@rabbit:5672/%2F'
-CELERY_RESULT_BACKEND = 'amqp://[ipaddress]'
+CELERY_BROKER_URL = config('CELERY_BROKER_URL')
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND')
 # Celery Data Format
 CELERY_ACCEPT_CONTENT = ['application/json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Asia/Kolkata'
+
+REMINDER_URL = config('REMINDER_URL')

@@ -847,3 +847,16 @@
 [12-05 12:29:05] p27210 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:314} ERROR - Exception occured while accessing Label
 [12-05 12:29:05] p27210 {/home/admin1/PycharmProjects/fundoo/notes/views.py:128} ERROR - Exception occured
 [12-06 04:12:01] p9678 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:113} INFO - labels where fetched from redis
+[12-17 05:46:01] p15368 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:89} INFO - labels where fetched from redis
+[12-17 05:55:51] p15746 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:89} INFO - labels where fetched from redis
+[12-17 05:55:57] p15746 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:89} INFO - labels where fetched from redis
+[12-17 05:56:10] p15746 {/home/admin1/PycharmProjects/fundoo/notes/views.py:258} WARNING - got error for getting note for user <class 'django.core.paginator.PageNotAnInteger'>
+[12-17 05:56:10] p15746 {/home/admin1/PycharmProjects/fundoo/notes/views.py:263} INFO - all the notes are rendered to html page
+[12-17 05:56:23] p15746 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:156} INFO - Data accessed from redis
+[12-17 10:02:27] p23223 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:112} ERROR - note creation failed
+[12-17 10:08:04] p23223 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:112} ERROR - note creation failed
+[12-17 10:33:58] p25185 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:112} INFO - note created successfully
+[12-17 10:38:39] p25888 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:112} INFO - note created successfully
+[12-17 10:58:36] p29077 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:117} ERROR - note creation failed
+[12-17 11:00:45] p29077 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:112} INFO - note created successfully
+[12-17 16:51:36] p31340 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:112} INFO - note created successfully

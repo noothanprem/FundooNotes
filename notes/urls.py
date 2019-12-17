@@ -1,6 +1,7 @@
 from django.urls import path,include
 from django.conf.urls import url
 from . import views
+from .background_tasks import hello
 
 
 urlpatterns=[
@@ -13,7 +14,10 @@ urlpatterns=[
     path('notes_trash',views.Trash.as_view(),name='trashview'),
     path('notes_archieve',views.Archieve.as_view(), name="archieveview"),
     path('notes_reminder',views.Reminder.as_view(), name="reminderview"),
-    path('lazy_loading',views.LazyLoadng.as_view(),name='lazyloading'),
-    path('celery',views.CeleryTasks.as_view(),name='celeryview'),
-    path('search',views.NotesSearch.as_view(),name='searchview')
+    path('image_loading',views.ImageLoading.as_view(),name='imageloading'),
+    path('reminder_notification',views.ReminderNotification.as_view(),name='remindernotification'),
+    path('search/<query_data>',views.NotesSearch.as_view(),name='searchview'),
+    path('background_task',views.BackgroundTasks.as_view(),name='background_task_view')
 ]
+
+hello(repeat=5,repeat_until=None)

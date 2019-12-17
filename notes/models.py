@@ -24,13 +24,13 @@ class Note(models.Model):
     title=models.CharField(max_length=50)
     note=models.TextField()
     label=models.ManyToManyField(Label,blank=True,related_name='label')
-    collab=models.ManyToManyField(User,blank=True,related_name='collab')
+    collaborator=models.ManyToManyField(User,blank=True,related_name='collaborator')
     image=models.ImageField(blank=True)
     is_archieve=models.BooleanField(default=False)
     is_trash=models.BooleanField(default=False)
     color = RGBColorField(colors=['#FF0000', '#00FF00', '#0000FF'],blank=True,null=True)
     reminder = models.DateTimeField(blank=True,null=True)
-    pin=models.BooleanField(default=False)
+    is_pin=models.BooleanField(default=False)
     url=models.URLField(blank=True)
 
     def __str__(self):

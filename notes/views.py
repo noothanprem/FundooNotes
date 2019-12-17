@@ -1,69 +1,36 @@
 from __future__ import unicode_literals
 
-import os
-
-from django.shortcuts import render
-
-import logging
-import pdb
-from random import randint
-
-from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
-from requests import Response
-from rest_framework.generics import GenericAPIView
-from rest_framework.permissions import IsAuthenticated
-from django.conf import settings
-from django.shortcuts import render, redirect
-from django.contrib.auth.models import User
-from .models import Note
-from django.contrib import auth
-from django.contrib import messages
-from django.http import HttpResponse
-from django.core.mail import send_mail
-import jwt
-from django.core.exceptions import ObjectDoesNotExist
-from django.contrib.sites.shortcuts import get_current_site
-from smtplib import SMTPException
-from django.utils.safestring import mark_safe
 import json
-from django.core.mail import EmailMessage
-from django.template.loader import render_to_string
-import boto3
+import logging
+import os
+import pdb
 
-from fundoo.settings import file_handler
-from .serializers import UploadImageSerializer, NoteShareSerializer, NoteSerializer, LabelSerializer,NotesSearchSerializer
-from .lib.amazon_s3_file import UploadImage
-from .models import Note, Label
-from .service.label import LabelOperations
-from .service.note import NoteOperations
-from .lib.redis_function import RedisOperation
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.mail import send_mail
+from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
+from django.http import HttpResponse
+from django.shortcuts import render
+from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.decorators import method_decorator
+from elasticsearch import Elasticsearch
+from elasticsearch_dsl import Q
+from rest_framework.generics import GenericAPIView
+from django.utils import timezone
+from fundoo.settings import file_handler
 from .decorators import login_decorator
-
-from django.shortcuts import render
-from django.views.decorators.http import require_http_methods
-from django.core.mail import send_mail
-
-from django.conf import settings
-from .tasks import reminder_notification_task
-from django.contrib.auth import get_user_model
-#from django.utils import timezone
-from datetime import datetime
+# from django.utils import timezone
 # from notes.tasks import send_feedback_email_task
 from .documents import NotesDocument
-from .documents import NotesDocument
-from elasticsearch_dsl import Q
-from elasticsearch_dsl.query import MultiMatch
-from elasticsearch import Elasticsearch
-from elasticsearch_dsl import Search
-
-
-
+from .lib.amazon_s3_file import UploadImage
+from .lib.redis_function import RedisOperation
+from .models import Note
+from .serializers import UploadImageSerializer, NoteShareSerializer, NoteSerializer, LabelSerializer, \
+    NotesSearchSerializer
+from .service.label import LabelOperations
+from .service.note import NoteOperations
 
 redisobject = RedisOperation()
-redis = redisobject.r
+
 
 uploadclassobject = UploadImage()
 labelobject = LabelOperations()
@@ -72,29 +39,18 @@ noteobject = NoteOperations()
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.addHandler(file_handler)
-
-"""
-API for uploading image
-"""
-
-
+from .background_tasks import hello
 class UploadImage(GenericAPIView):
     serializer_class = UploadImageSerializer
 
     def post(self, request):
 
         """
-
         :param request: gives the image for upload
         :return: uplads the images into s3 bucket
-
         """
         try:
             image = request.FILES.get('imgs')
-
-            """
-            calls the upload_file() method inside lib file
-            """
             response = uploadclassobject.upload_file(image)
             # returns the responses
 
@@ -105,7 +61,9 @@ class UploadImage(GenericAPIView):
 
 
 # API for sharing of notes
+@method_decorator(login_decorator, name='dispatch')
 class NoteShare(GenericAPIView):
+    serializer_class = NoteShareSerializer
     response = {"success": False,
                 "message": "",
                 "data": []}
@@ -114,20 +72,11 @@ class NoteShare(GenericAPIView):
         self.response['message'] = message
         self.response['data'] = data
         return self.response
-    """
-    setting the serializer class
-    """
-    serializer_class = NoteShareSerializer
 
     def post(self, request):
         """
-
         :param request: to share the note to social media
         :return: shares to social media
-        """
-        """
-
-        getting the title and note from notes_upload.html
         """
         try:
             title = request.data['title']
@@ -136,16 +85,13 @@ class NoteShare(GenericAPIView):
             logger.error("Exception occured")
             response = self.smd_response(False,"Exception occured",[])
             return HttpResponse(status=404)
-        """
-        prompts the user if any of the field is empty
-        """
         if title == "" or note == "":
             response = self.smd_response(False, 'Please fill the fields', '')
             return HttpResponse(json.dumps(response))
         return render(request, 'notes_upload.html', {'title': title, 'note': note})
 
 
-# @method_decorator(login_decorator, name='dispatch')
+@method_decorator(login_decorator, name='dispatch')
 class Trash(GenericAPIView):
     response = {"success": False,
                 "message": "",
@@ -153,7 +99,6 @@ class Trash(GenericAPIView):
 
     def get(self, request):
         """
-
         :param request: requests for the notes in the trash
         :return: returns the notes in the trash
         """
@@ -172,19 +117,17 @@ class Trash(GenericAPIView):
         return HttpResponse(json.dumps(self.response))
 
 
-# @method_decorator(login_decorator, name='dispatch')
+@method_decorator(login_decorator, name='dispatch')
 class Archieve(GenericAPIView):
 
     def get(self, request):
         """
-
         :param request: requests for the archieved note
         :return: returns the archieved notes
         """
 
         try:
             user = request.user
-            print(user, "archieve useeeeerrrrr")
             user_id = user.id
             print(user_id)
             noteobject = Note.objects.filter(user_id=user_id, is_archieve=True)
@@ -194,8 +137,7 @@ class Archieve(GenericAPIView):
             return HttpResponse(json.dumps(self.response))
         return HttpResponse(json.dumps(string_note))
 
-
-# @method_decorator(login_decorator, name='dispatch')
+@method_decorator(login_decorator, name='dispatch')
 class Reminder(GenericAPIView):
     response = {"success": False,
                 "message": "",
@@ -203,7 +145,6 @@ class Reminder(GenericAPIView):
 
     def get(self, request):
         """
-
         :param request: to get the reminders
         :return: returns the reminders lists
         """
@@ -213,18 +154,12 @@ class Reminder(GenericAPIView):
 
             user_id = user.id
 
-            """
-            gets the note
-            """
             noteobjects = Note.objects.filter(user_id=user_id)
 
             remaining_list = []
             completed_list = []
             for noteobject in noteobjects:
 
-                """
-                gives the value of the specified attribute of the object
-                """
                 if getattr(noteobject, 'reminder') > timezone.now():
                     remaining_list.append(noteobject.reminder)
                 else:
@@ -245,51 +180,28 @@ class Reminder(GenericAPIView):
         return HttpResponse(json.dumps(self.response))
 
 
-# API for Label operations
-# @method_decorator(login_decorator, name='dispatch')
+@method_decorator(login_decorator, name='dispatch')
 class CreateLabel(GenericAPIView):
     serializer_class = LabelSerializer
 
-    """
-    gets the required label
-    """
-
     def get(self, request):
         """
-
         :param request: requests for label
         :return: returns the label data
-
         """
-        print("user : ",request.user)
-        """
-        calling the get_label() method
-        """
-        print("Inside get")
         response = labelobject.get_label(request)
-        print("response",response)
 
         if response['success'] == False:
             return HttpResponse(json.dumps(response),status = 404)
         else:
             return HttpResponse(json.dumps(response),status = 200)
 
-    """
-    creates label
-    """
-
     def post(self, request):
         """
-
         :param request: requests to create a label
         :return: creates a label and returns the new label data
+        """
 
-        """
-        # import pdb
-        # pdb.set_trace()
-        """
-        calls the create_label function
-        """
         response = labelobject.create_label(request)
         print("response : ",response)
         if not response['success']:
@@ -298,29 +210,17 @@ class CreateLabel(GenericAPIView):
             return HttpResponse(json.dumps(response),status = 200)
 
 
-"""
-API which performs update and delete label
-"""
 
-
-# @method_decorator(login_decorator, name='dispatch')
+@method_decorator(login_decorator, name='dispatch')
 class UpdateLabel(GenericAPIView):
     serializer_class = LabelSerializer
 
     def put(self, request, label_id):
         """
-
         :param request: requests to update a particular label
         :param label_id: id of the label to update
         :return: updates the label and returns the new label data
-
         """
-
-        """
-        calls the update_label function
-        """
-
-        print("Inside putttttttt")
         response = labelobject.update_label(request, label_id)
         if response['success'] == False:
             return HttpResponse(json.dumps(response), status=400)
@@ -330,15 +230,9 @@ class UpdateLabel(GenericAPIView):
     def delete(self, request, label_id):
 
         """
-
         :param request: requests to delete a particular label
         :param label_id: id of the label to delete
         :return: deletes the label
-
-        """
-
-        """
-        calls the delete_label function
         """
         response = labelobject.delete_label(request, label_id)
         if response['success'] == False:
@@ -346,17 +240,16 @@ class UpdateLabel(GenericAPIView):
         else:
             return HttpResponse(json.dumps(response),status=200)
 
-
-"""
-API for creating note
-"""
-
-
-# @method_decorator(login_decorator, name='dispatch')
+@method_decorator(login_decorator, name='dispatch')
 class CreateNote(GenericAPIView):
     serializer_class = NoteSerializer
 
     def get(self, request):
+        """
+        :param request: requests to get a note
+        :return: returns the new note data
+        """
+
         all_notes = Note.objects.all()
         page = request.GET.get('page')
         paginator = Paginator(all_notes, 2)
@@ -375,53 +268,30 @@ class CreateNote(GenericAPIView):
 
     def post(self, request):
         """
-
         :param request: requests to create a note with the given data
         :return: returns the new note data
-
         """
-
-        """
-        calls the create_note() method
-        """
-
         response = noteobject.create_note(request)
-        print(response, "After response from create note post")
         if response['success'] == False:
 
             return HttpResponse(json.dumps(response), status=400)
         else:
             return HttpResponse(json.dumps(response), status=200)
 
-
-"""
-API for reading,updating and deleting notes
-"""
-
-
-# @method_decorator(login_decorator, name='dispatch')
+@method_decorator(login_decorator, name='dispatch')
 class UpdateNote(GenericAPIView):
     serializer_class = NoteSerializer
 
     def get(self, request, note_id):
 
         """
-
         :param request: requests for a particular note data
         :param note_id: id of the note
         :return: returns the requested note datas
-
-        """
-
-        """
-        calls the get_note() method
         """
         response = noteobject.get_note(request, note_id)
-        print(response, "responseee")
 
-        """
-        'default=str' converts everything it doesn't know to strings.
-        """
+        #'default=str' converts everything it doesn't know to strings.
         if (response['success'] == False):
             return HttpResponse(json.dumps(response), status=400)
         else:
@@ -430,20 +300,12 @@ class UpdateNote(GenericAPIView):
     def put(self, request, note_id):
 
         """
-
         :param request: requests to update a particular note
         :param note_id: id of the note to update
         :return: updates the note and returns the updated data
-
         """
-
-        """
-        calls the update_note() method
-        """
-        print(request, "requesttttttttttttt")
 
         response = noteobject.update_note(request, note_id)
-        print(response, "responseeeeeee")
         if (response['success'] == False):
             return HttpResponse(json.dumps(response), status=400)
         else:
@@ -452,17 +314,10 @@ class UpdateNote(GenericAPIView):
     def delete(self, request, note_id):
 
         """
-
         :param request: requests to delete a particular note
         :param note_id: id of the note to delete
         :return: deletes the note
-
         """
-
-        """
-        calls the delete_note method
-        """
-
         response = noteobject.delete_note(request, note_id)
 
         if (response['success'] == False):
@@ -473,49 +328,42 @@ class UpdateNote(GenericAPIView):
             return HttpResponse(json.dumps(response))
 
 
-class LazyLoadng(GenericAPIView):
+class ImageLoading(GenericAPIView):
     def get(self, request):
         return render(request, 'lazy_loading.html')
 
 
 
 
-class CeleryTasks(GenericAPIView):
+class ReminderNotification(GenericAPIView):
 
     def get(self,request):
-
         notes_set = Note.objects.filter(reminder__isnull=False)
+        print("notes set : ",notes_set)
         reminder_list = []
-        initial_time  = timezone.now()
+        initial_time  = timezone.localtime(timezone.now())
         end_time = timezone.now() + timezone.timedelta(minutes = 1)
-        print(initial_time,"initial")
-        print(end_time,"end time")
+
         for i in range(len(notes_set)):
             print(notes_set.values()[i]['reminder'])
             if initial_time < notes_set.values()[i]['reminder'] < end_time:
                 subject = "Note Reminder"
-                print("Before rendering")
                 message = render_to_string('note_reminder_email.html')
-                print("After rendering")
                 sender = os.getenv('EMAIL_HOST_USER')
                 reciever = os.getenv('EMAILID')
 
-                """
-                sending the mail
-                """
                 send_mail(subject, message, sender, [reciever])
 
         return HttpResponse("success")
 
-
+@method_decorator(login_decorator, name='dispatch')
 class NotesSearch(GenericAPIView):
 
     serializer_class = NotesSearchSerializer
-    def post(self,request):
+    def get(self,request,query_data):
 
         client = Elasticsearch()
         search = NotesDocument.search()
-        title=request.data['title']
 
         #note_data=search.filter('multi_match', note = note)
         #note_data=MultiMatch(query=note, fields=['title', 'note','label'])
@@ -537,16 +385,21 @@ class NotesSearch(GenericAPIView):
         # )
 
 
-        query_result = Q("multi_match", query=title, fields=['title', 'note','label.name','reminder','color'])
+        query_result = Q("multi_match", query=query_data, fields=['title', 'note','label.name','reminder','color'])
         note_data = search.query(query_result)
-
+        #pdb.set_trace()
         new_note_data = NotesSearchSerializer(note_data.to_queryset(), many=True)
         print("note data : ",new_note_data)
 
 
-        return HttpResponse(json.dumps(str(new_note_data)))
+        return HttpResponse(json.loads(json.dumps(new_note_data.data)))
 
-
+class BackgroundTasks(GenericAPIView):
+    serializer_class = NoteSerializer
+    def get(self,request):
+        hello()
+        print("Hellooooooo")
+        return HttpResponse("Hello world !")
 
 
 

@@ -29,7 +29,7 @@ from django_short_url.views import get_surl
 from django_short_url.models import ShortURL
 from .decorators import token_required
 import redis
-from .lib.redis_function import RedisOperations
+from .lib.redis_function import RedisOperation
 from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
 from django.http import HttpResponseRedirect
 from user.service import user
@@ -45,7 +45,6 @@ class Register(GenericAPIView):
     def post(self, request):
         # calling the register_user method in user.py
         response = userclassobject.register_user(request)
-        print (response, "returned to viewsssssssssssssssss")
         if response['success'] == False:
             return HttpResponse(json.dumps(response),status=400)
         else:

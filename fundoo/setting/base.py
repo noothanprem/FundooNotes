@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'django_elasticsearch_dsl_drf',
     'bootstrap3',
     'notes',
+    'background_task',
 ]
 
 
@@ -176,10 +177,12 @@ SIMPLE_JWT = {
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'
 
 USE_I18N = True
 
 USE_L10N = True
 
 USE_TZ = True
+
+
