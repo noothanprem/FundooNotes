@@ -1,3 +1,5 @@
+import json
+
 import jwt
 # import settings
 from django.conf import settings
@@ -17,15 +19,23 @@ def smd_response(self, success, message, data):
     return self.response
 
 
-# class Response:
 
-# def __init__(self):
-# Headers modification
-# pass
+class Response:
 
-# def json_response(self, json):
-# JSON Response
-# pass
+    def smd_response(self,success,message,data):
+        response = {"success": False,
+                    "message": "",
+                    "data": []}
+
+        response['success'] = success
+        response['message'] = message
+        response['data'].append(data)
+        return response
+
+    def json_response(self,response_data):
+
+        data_in_json = json.dumps(response_data)
+        return data_in_json
 
 
 class Crypto:

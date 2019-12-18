@@ -28,10 +28,11 @@ from .serializers import UploadImageSerializer, NoteShareSerializer, NoteSeriali
     NotesSearchSerializer
 from .service.label import LabelOperations
 from .service.note import NoteOperations
+from utility import Response
 
 redisobject = RedisOperation()
 
-
+response_class_object = Response()
 uploadclassobject = UploadImage()
 labelobject = LabelOperations()
 noteobject = NoteOperations()
@@ -43,6 +44,7 @@ from .background_tasks import hello
 class UploadImage(GenericAPIView):
     serializer_class = UploadImageSerializer
 
+
     def post(self, request):
 
         """
@@ -52,26 +54,19 @@ class UploadImage(GenericAPIView):
         try:
             image = request.FILES.get('imgs')
             response = uploadclassobject.upload_file(image)
-            # returns the responses
-
-            return HttpResponse(json.dumps(response))
+            final_response = response_class_object.json_response(response)
+            return HttpResponse(final_response)
         except Exception:
-            response = self.smd_response(False, 'Upload unsuccessful', '')
-            return HttpResponse(json.dumps(response))
+            response = response_class_object.smd_response(False, 'Upload unsuccessful', '')
+            final_response = response_class_object.json_response(response)
+            return HttpResponse(final_response)
 
 
 # API for sharing of notes
 @method_decorator(login_decorator, name='dispatch')
 class NoteShare(GenericAPIView):
     serializer_class = NoteShareSerializer
-    response = {"success": False,
-                "message": "",
-                "data": []}
-    def smd_response(self,success,message,data):
-        self.response['success'] = success
-        self.response['message'] = message
-        self.response['data'] = data
-        return self.response
+
 
     def post(self, request):
         """
@@ -83,20 +78,19 @@ class NoteShare(GenericAPIView):
             note = request.data['note']
         except Exception:
             logger.error("Exception occured")
-            response = self.smd_response(False,"Exception occured",[])
-            return HttpResponse(status=404)
+            response = response_class_object.smd_response(False,"Exception occured",'')
+            final_response = response_class_object.json_response(response)
+            return HttpResponse(final_response,status=404)
         if title == "" or note == "":
-            response = self.smd_response(False, 'Please fill the fields', '')
-            return HttpResponse(json.dumps(response))
+            response = response_class_object.smd_response(False, 'Please fill the fields', '')
+            final_response = response_class_object.json_response(response)
+            return HttpResponse(final_response)
         return render(request, 'notes_upload.html', {'title': title, 'note': note})
 
 
 @method_decorator(login_decorator, name='dispatch')
 class Trash(GenericAPIView):
-    response = {"success": False,
-                "message": "",
-                "data": []}
-
+    serializer_class = NoteSerializer
     def get(self, request):
         """
         :param request: requests for the notes in the trash
@@ -109,17 +103,17 @@ class Trash(GenericAPIView):
             noteobject = Note.objects.filter(user_id=user_id, is_trash=True)
             notevalues_str = str(noteobject.values())
         except Note.DoesNotExist:
-            self.response['message'] = "Exception occured while accessing note"
-            return HttpResponse(json.dumps(self.response), status=400)
-        self.response['success'] = True
-        self.response['message'] = "Trash Get operation successful"
-        self.response['data'].append(notevalues_str)
-        return HttpResponse(json.dumps(self.response))
+            response = response_class_object.smd_response(False, "Exception occured while accessing note", '')
+            final_response = response_class_object.json_response(response)
+            return HttpResponse(final_response, status=400)
+        response = response_class_object.smd_response(True, "Trash Get operation successful",notevalues_str)
+        final_response = response_class_object.json_response(response)
+        return HttpResponse(final_response)
 
 
 @method_decorator(login_decorator, name='dispatch')
 class Archieve(GenericAPIView):
-
+    serializer_class = NoteSerializer
     def get(self, request):
         """
         :param request: requests for the archieved note
@@ -132,16 +126,20 @@ class Archieve(GenericAPIView):
             print(user_id)
             noteobject = Note.objects.filter(user_id=user_id, is_archieve=True)
             string_note = str(noteobject.values())
+
         except Note.DoesNotExist:
             self.response['message'] = "Exception occured while accessing note"
-            return HttpResponse(json.dumps(self.response))
-        return HttpResponse(json.dumps(string_note))
+            response = response_class_object.smd_response(False, "Exception occured while accessing note", '')
+            final_response = response_class_object.json_response(response)
+            return HttpResponse(final_response)
+
+        response = response_class_object.smd_response(False, "Trash Get operation successful", string_note)
+        final_response = response_class_object.json_response(response)
+        return HttpResponse(final_response)
 
 @method_decorator(login_decorator, name='dispatch')
 class Reminder(GenericAPIView):
-    response = {"success": False,
-                "message": "",
-                "data": []}
+
 
     def get(self, request):
         """
@@ -170,31 +168,31 @@ class Reminder(GenericAPIView):
             }
             reminder_string = str(reminders)
 
-            self.response['success'] = True
-            self.response['message'] = "Reminder operation successful"
-            self.response['data'].append(reminder_string)
-
+            response = response_class_object.smd_response(True, "Reminder operation successful", reminder_string)
         except Note.DoesNotExist:
-            self.response['message'] = "Exception occured while accessing the note"
-            return HttpResponse(json.dumps(self.response))
-        return HttpResponse(json.dumps(self.response))
+            response = response_class_object.smd_response(False, "Exception occured while accessing the note", '')
+            final_response = response_class_object.json_response(response)
+            return HttpResponse(final_response)
+        final_response = response_class_object.json_response(response)
+        return HttpResponse(final_response)
 
 
 @method_decorator(login_decorator, name='dispatch')
 class CreateLabel(GenericAPIView):
     serializer_class = LabelSerializer
 
+
     def get(self, request):
         """
         :param request: requests for label
         :return: returns the label data
         """
-        response = labelobject.get_label(request)
-
-        if response['success'] == False:
-            return HttpResponse(json.dumps(response),status = 404)
+        response_from_get_label = labelobject.get_label(request)
+        final_response = response_class_object.json_response(response_from_get_label)
+        if response_from_get_label['success'] == False:
+            return HttpResponse(final_response,status = 404)
         else:
-            return HttpResponse(json.dumps(response),status = 200)
+            return HttpResponse(final_response,status = 200)
 
     def post(self, request):
         """
@@ -202,18 +200,19 @@ class CreateLabel(GenericAPIView):
         :return: creates a label and returns the new label data
         """
 
-        response = labelobject.create_label(request)
-        print("response : ",response)
-        if not response['success']:
-            return HttpResponse(json.dumps(response),status = 404)
+        response_from_create_label = labelobject.create_label(request)
+        final_response = response_class_object.json_response(response_from_create_label)
+        if not response_from_create_label['success']:
+            return HttpResponse(final_response,status = 404)
         else:
-            return HttpResponse(json.dumps(response),status = 200)
+            return HttpResponse(final_response,status = 200)
 
 
 
 @method_decorator(login_decorator, name='dispatch')
 class UpdateLabel(GenericAPIView):
     serializer_class = LabelSerializer
+
 
     def put(self, request, label_id):
         """
@@ -222,10 +221,11 @@ class UpdateLabel(GenericAPIView):
         :return: updates the label and returns the new label data
         """
         response = labelobject.update_label(request, label_id)
+        final_response = response_class_object.json_response(response)
         if response['success'] == False:
-            return HttpResponse(json.dumps(response), status=400)
+            return HttpResponse(final_response, status=400)
         else:
-            return HttpResponse(json.dumps(response), status=200)
+            return HttpResponse(final_response, status=200)
 
     def delete(self, request, label_id):
 
@@ -235,14 +235,16 @@ class UpdateLabel(GenericAPIView):
         :return: deletes the label
         """
         response = labelobject.delete_label(request, label_id)
+        final_response = response_class_object.json_response(response)
         if response['success'] == False:
-            return HttpResponse(json.dumps(response),status=404)
+            return HttpResponse(final_response,status=404)
         else:
-            return HttpResponse(json.dumps(response),status=200)
+            return HttpResponse(final_response,status=200)
 
 @method_decorator(login_decorator, name='dispatch')
 class CreateNote(GenericAPIView):
     serializer_class = NoteSerializer
+
 
     def get(self, request):
         """
@@ -272,15 +274,17 @@ class CreateNote(GenericAPIView):
         :return: returns the new note data
         """
         response = noteobject.create_note(request)
+        final_response = response_class_object.json_response(response)
         if response['success'] == False:
 
-            return HttpResponse(json.dumps(response), status=400)
+            return HttpResponse(final_response, status=400)
         else:
-            return HttpResponse(json.dumps(response), status=200)
+            return HttpResponse(final_response, status=200)
 
 @method_decorator(login_decorator, name='dispatch')
 class UpdateNote(GenericAPIView):
     serializer_class = NoteSerializer
+
 
     def get(self, request, note_id):
 
@@ -290,12 +294,11 @@ class UpdateNote(GenericAPIView):
         :return: returns the requested note datas
         """
         response = noteobject.get_note(request, note_id)
-
-        #'default=str' converts everything it doesn't know to strings.
+        final_response = response_class_object.json_response(response)
         if (response['success'] == False):
-            return HttpResponse(json.dumps(response), status=400)
+            return HttpResponse(final_response, status=400)
         else:
-            return HttpResponse(json.dumps(response), status=200)
+            return HttpResponse(final_response, status=200)
 
     def put(self, request, note_id):
 
@@ -306,10 +309,11 @@ class UpdateNote(GenericAPIView):
         """
 
         response = noteobject.update_note(request, note_id)
+        final_response = response_class_object.json_response(response)
         if (response['success'] == False):
-            return HttpResponse(json.dumps(response), status=400)
+            return HttpResponse(final_response, status=400)
         else:
-            return HttpResponse(json.dumps(response))
+            return HttpResponse(final_response)
 
     def delete(self, request, note_id):
 
@@ -319,13 +323,13 @@ class UpdateNote(GenericAPIView):
         :return: deletes the note
         """
         response = noteobject.delete_note(request, note_id)
-
+        final_response = response_class_object.json_response(response)
         if (response['success'] == False):
 
-            return HttpResponse(json.dumps(response), status=400)
+            return HttpResponse(final_response, status=400)
         else:
 
-            return HttpResponse(json.dumps(response))
+            return HttpResponse(final_response)
 
 
 class ImageLoading(GenericAPIView):
@@ -336,6 +340,7 @@ class ImageLoading(GenericAPIView):
 
 
 class ReminderNotification(GenericAPIView):
+    serializer_class = NoteSerializer
 
     def get(self,request):
         notes_set = Note.objects.filter(reminder__isnull=False)
@@ -353,13 +358,15 @@ class ReminderNotification(GenericAPIView):
                 reciever = os.getenv('EMAILID')
 
                 send_mail(subject, message, sender, [reciever])
-
-        return HttpResponse("success")
+        response = response_class_object.smd_response(True,"Success",'')
+        final_response = response_class_object.json_response(response)
+        return HttpResponse(final_response)
 
 @method_decorator(login_decorator, name='dispatch')
 class NotesSearch(GenericAPIView):
 
     serializer_class = NotesSearchSerializer
+
     def get(self,request,query_data):
 
         client = Elasticsearch()
@@ -390,16 +397,19 @@ class NotesSearch(GenericAPIView):
         #pdb.set_trace()
         new_note_data = NotesSearchSerializer(note_data.to_queryset(), many=True)
         print("note data : ",new_note_data)
-
-
-        return HttpResponse(json.loads(json.dumps(new_note_data.data)))
+        response = response_class_object.smd_response(True,"Successfully fetched notes",new_note_data.data)
+        final_response = response_class_object.json_response(response)
+        return HttpResponse(json.loads(final_response))
 
 class BackgroundTasks(GenericAPIView):
     serializer_class = NoteSerializer
+
+
     def get(self,request):
         hello()
-        print("Hellooooooo")
-        return HttpResponse("Hello world !")
+        response = response_class_object.smd_response(True, "Successfully fetched notes", '')
+        final_response = response_class_object.json_response(response)
+        return HttpResponse(final_response)
 
 
 

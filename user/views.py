@@ -33,88 +33,91 @@ from .lib.redis_function import RedisOperation
 from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
 from django.http import HttpResponseRedirect
 from user.service import user
+from utility import Response
 
 userclassobject = user.UserOperations()
+response_class_object = Response()
 
 
 # API for registering the user
 class Register(GenericAPIView):
-    # setting the serializer class
-    serializer_class = UserSerializer
+
+    serializer_class = UserSerializer # setting the serializer class
 
     def post(self, request):
-        # calling the register_user method in user.py
-        response = userclassobject.register_user(request)
+
+        response = userclassobject.register_user(request) # calling the register_user method in user.py
+        final_response = response_class_object.json_response(response)
         if response['success'] == False:
-            return HttpResponse(json.dumps(response),status=400)
+            return HttpResponse(final_response,status=400)
         else:
-            # string_user_registration=str(user_registration)
-            return HttpResponse(json.dumps(response),status=200)
+
+            return HttpResponse(final_response,status=200) # string_user_registration=str(user_registration)
 
 
 # API for login
 class Login(GenericAPIView):
-    # setting the serializer class
-    serializer_class = LoginSerializer
+
+    serializer_class = LoginSerializer # setting the serializer class
 
     def post(self, request):
         response = userclassobject.login_user(request)
+        final_response = response_class_object.json_response(response)
         if response['success'] == False:
-            return HttpResponse(json.dumps(response),status=400)
+            return HttpResponse(final_response,status=400)
         else:
-            return HttpResponse(json.dumps(response),status=200)
+            return HttpResponse(final_response,status=200)
 
 
 # API for Forgot Password
 class ForgotPassword(GenericAPIView):
-    # Setting the serializer class
-    serializer_class = ForgotPasswordSerializer
+
+    serializer_class = ForgotPasswordSerializer # Setting the serializer class
 
     def post(self, request):
         response = userclassobject.forgot_password(request)
+        final_response  = response_class_object.json_response(response)
         if response['success'] == False:
-            return HttpResponse(json.dumps(response),status=400)
+            return HttpResponse(final_response,status=400)
         else:
-            return HttpResponse(json.dumps(response),status=200)
+            return HttpResponse(final_response,status=200)
 
 
 # API for Reset password
 class ResetPassword(GenericAPIView):
-    # setting the serializer class
-    serializer_class = ResetPasswordSerializer
+    serializer_class = ResetPasswordSerializer # setting the serializer class
 
     def post(self, request, **kwargs):
         # getting the token
         token = kwargs['token']
-        # calling the reset_password method inside service
-        response = userclassobject.reset_password(request, token)
-        print (response)
+        response = userclassobject.reset_password(request, token)  # calling the reset_password method inside service
+        final_response = response_class_object.json_response(response)
         if response['success'] == False:
-            return HttpResponse(json.dumps(response),status=400)
+            return HttpResponse(final_response,status=400)
         else:
-            return HttpResponse(json.dumps(response),status=200)
+            return HttpResponse(final_response,status=200)
 
 
 # API for logout
 class Logout(GenericAPIView):
-    # setting the serializer class
-    serializer_class = LogoutSerializer
+
+    serializer_class = LogoutSerializer # setting the serializer class
 
     # using 'token_required' decorator
     @token_required
     def post(self, request):
-        # calling the logout method inside service
-        logout = userclassobject.logout(request)
-        print (logout, "returned to viewsssssssssss")
-        return HttpResponse(json.dumps(logout))
+
+        response = userclassobject.logout(request) # calling the logout method inside service
+        final_response = response_class_object.json_response(response)
+        return HttpResponse(final_response)
 
 
 # method for activating the user
 def activate(request, token):
     # calling the activate method inside service
-    activate = userclassobject.activate(request, token)
-
-    return HttpResponse(json.dumps(activate))
+    response = userclassobject.activate(request, token)
+    final_response = response_class_object.json_response(response)
+    return HttpResponse(final_response)
 
 
 def sociallogin(request):

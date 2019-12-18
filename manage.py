@@ -8,13 +8,13 @@ from pathlib import *
 load_dotenv(find_dotenv())
 env_path = Path('.') / '../.env'
 
-try:
-    ENVIRONMENT = os.getenv('ENVIRONMENT')
-    if ENVIRONMENT is None:
-        raise Exception('ENVIRONMENT is not set')
-except Exception as e:
-    print(e)
-    ENVIRONMENT = 'development'
+# try:
+#     ENVIRONMENT = os.getenv('ENVIRONMENT')
+#     if ENVIRONMENT is None:
+#         raise Exception('ENVIRONMENT is not set')
+# except Exception as e:
+#     print(e)
+#     ENVIRONMENT = 'development'
 
 
 def main():

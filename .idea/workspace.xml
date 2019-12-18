@@ -2,26 +2,14 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="0c22738c-0fa1-42c9-b082-236c5c184589" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/notes/background_tasks.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/utility.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/fundoo.log" beforeDir="false" afterPath="$PROJECT_DIR$/fundoo.log" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fundoo/setting/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/fundoo/setting/base.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fundoo/setting/development.py" beforeDir="false" afterPath="$PROJECT_DIR$/fundoo/setting/development.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fundoo/urls.py" beforeDir="false" afterPath="$PROJECT_DIR$/fundoo/urls.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/manage.py" beforeDir="false" afterPath="$PROJECT_DIR$/manage.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/notes/decorators.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/decorators.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/notes/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/notes/serializers.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/serializers.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/notes/service/note.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/service/note.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/notes/tasks.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/tasks.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/notes/urls.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/urls.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/notes/service/label.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/service/label.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/notes/views.py" beforeDir="false" afterPath="$PROJECT_DIR$/notes/views.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/user/decorators.py" beforeDir="false" afterPath="$PROJECT_DIR$/user/decorators.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/user/lib/redis_function.py" beforeDir="false" afterPath="$PROJECT_DIR$/user/lib/redis_function.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/user/service/user.py" beforeDir="false" afterPath="$PROJECT_DIR$/user/service/user.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/user/views.py" beforeDir="false" afterPath="$PROJECT_DIR$/user/views.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utility.py" beforeDir="false" afterPath="$PROJECT_DIR$/utility.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -194,6 +182,7 @@
       <workItem from="1576293565788" duration="7689000" />
       <workItem from="1576465405613" duration="9632000" />
       <workItem from="1576552365748" duration="30628000" />
+      <workItem from="1576638800988" duration="10901000" />
     </task>
     <servers />
   </component>

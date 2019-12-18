@@ -7,7 +7,9 @@ import json
 import logging
 from fundoo.settings import file_handler
 from notes.lib.redis_function import RedisOperation
+from utility import Response
 
+response_class_object = Response()
 redisobject = RedisOperation()
 
 
@@ -19,15 +21,7 @@ print(file_handler,"file")
 
 class LabelOperations:
     redisobject.__connect__()
-    response = {"success": False,
-                "message": "",
-                "data": []}
-    def smd_response(self,success,message,data):
-        self.response['success'] = success
-        self.response['message'] = message
-        self.response['data'] = []
-        return self.response
-    #function to create label
+
 
     def create_label(self, request):
         """
@@ -47,7 +41,7 @@ class LabelOperations:
 
             if Label.objects.filter(user_id=user_id, name=name).exists():
 
-                response = self.smd_response(False, "Label already exists", [])
+                response = self.smd_response(False, "Label already exists", '')
                 return response
             labelobject = Label.objects.create(name=name, user=userobject)
 
@@ -55,12 +49,11 @@ class LabelOperations:
             redisobject.hmset(string_userid + "label", {labelobject.id: name})
             logger.info("note is created")
 
-            response = self.smd_response(True,"Label created successfully",[name])
+            response = response_class_object.smd_response(True,"Label created successfully",'')
             logger.info("Label created successfully")
         except Label.DoesNotExist:
             logger.info("Exception occured while accessing the user")
-
-            response = self.smd_response(False, "Exception occured while accessing the Label", [])
+            response = response_class_object.smd_response(False, "Exception occured while accessing the Label", '')
 
         return response
 
@@ -85,14 +78,11 @@ class LabelOperations:
                 labels = Label.objects.filter(user_id=user.id)
                 userlabelsstring = [i.name for i in labels]
                 logger.info("labels where fetched from database for user :%s", request.user)
-
             logger.info("labels where fetched from redis")
-
-            response = self.smd_response(True, "Read Operation Successfull", [userlabelsstring])
+            response = response_class_object.smd_response(True, "Read Operation Successfull", userlabelsstring)
         except Label.DoesNotExist:
             logger.info("Exception occured while getting the Label")
-            self.response['message'] = "Exception occured while getting the Label"
-            response = self.smd_response(False, "Exception occured while getting the Label", [])
+            response = response_class_object.smd_response(False, "Exception occured while getting the Label", '')
         return response
 
     def update_label(self, request, label_id):
@@ -122,21 +112,17 @@ class LabelOperations:
             redisobject.hmset(string_user_id + "label", {label_object.id: label_id})
 
             logger.info("Label Updated Successfully")
-            self.response['success'] = True
-            self.response['message'] = "Label Updated Successfully"
-
+            response = response_class_object.smd_response(True, "Label Updated Successfully", '')
 
         except Label.DoesNotExist:
             logger.error("Exception occured while getting the Label object")
-
-            self.response['message'] = "Exception occured while getting the Label object"
+            response = response_class_object.smd_response(False, "Exception occured while getting the Label object", '')
 
         except Exception:
             logger.error("Exception occured")
+            response = response_class_object.smd_response(False, "Exception", '')
 
-            self.response['message'] = "Exception occured while getting the Label object"
-
-        return self.response
+        return response
 
     def delete_label(self, request, label_id):
         """
@@ -158,16 +144,11 @@ class LabelOperations:
             string_user_id = str(user_id)
             redisobject.hdel(string_user_id + "label", label_id)
             logger.info("Label Deleted Successfully")
-            self.response['success'] = True
-            self.response['message'] = "Label Deleted Successfully"
-
-
+            response = response_class_object.smd_response(True, "Label Deleted Successfully", '')
         except Label.DoesNotExist:
             logger.error("Exception occured while getting the Label object")
-
-            self.response['message'] = "Exception occured while getting the Label object"
+            response = response_class_object.smd_response(False, "Exception occured while getting the Label object", '')
         except Exception:
             logger.error("Exception Occured")
-            self.response['message'] = "Exception Occured"
-
-        return self.response
+            response = response_class_object.smd_response(False, "Exception occured", '')
+        return response

@@ -860,3 +860,8 @@
 [12-17 10:58:36] p29077 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:117} ERROR - note creation failed
 [12-17 11:00:45] p29077 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:112} INFO - note created successfully
 [12-17 16:51:36] p31340 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:112} INFO - note created successfully
+[12-18 10:45:07] p12538 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:56} INFO - note is created
+[12-18 10:45:07] p12538 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:59} INFO - Label created successfully
+[12-18 10:45:17] p12538 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:89} INFO - labels where fetched from redis
+[12-18 10:45:51] p12538 {/home/admin1/PycharmProjects/fundoo/notes/service/note.py:161} INFO - Data accessed from redis
+[12-18 11:07:47] p13546 {/home/admin1/PycharmProjects/fundoo/notes/service/label.py:81} INFO - labels where fetched from redis

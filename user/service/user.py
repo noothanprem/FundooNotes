@@ -35,8 +35,9 @@ from jwt.exceptions import DecodeError
 from redis.exceptions import ConnectionError, AuthenticationError
 from user.lib.event_emitter import ee
 from validate_email import validate_email
-from utility import Crypto
+from utility import Crypto,Response
 
+response_class_object = Response()
 token_generation_object = GenerateToken()
 redis_object = RedisOperation()
 redis_object.__connect__()
@@ -44,17 +45,6 @@ redis_object.__connect__()
 jwt_class_object = Crypto()
 class UserOperations:
 
-
-    def smd_response(self, success, message, data):
-        response = {
-            "success": "",
-            "message": "",
-            "data": ""
-        }
-        response['success'] = success
-        response['message'] = message
-        response['data'] = data
-        return response
 
     def register_user(self, request):
         """
@@ -70,18 +60,18 @@ class UserOperations:
 
             is_valid=validate_email(email)
             if is_valid == False:
-                response=self.smd_response(False, 'Email is Invalid',[])
+                response=self.smd_response(False, 'Email is Invalid','')
             else:
 
 
                 if ((User.objects.filter(username=username).exists()) or (User.objects.filter(email=email).exists())):
 
-                    response = self.smd_response(False, 'Username or email alredy exists', [])
+                    response = response_class_object.smd_response(False, 'Username or email alredy exists', '')
                     return response
 
                 elif username == "" or password == '' or email == '':
 
-                    response = self.smd_response(False, 'Username or email is empty', [])
+                    response = response_class_object.smd_response(False, 'Username or email is empty', '')
                     return response
                 else:
 
@@ -114,14 +104,14 @@ class UserOperations:
                     #email = EmailMessage(mail_subject, mail_message, to=[recipient_email])
 
                     #email.send()
-                    response = self.smd_response(True, 'Please check your mail for activating', [])
+                    response = response_class_object.smd_response(True, 'Please check your mail for activating', '')
                     return response
         except SMTPException:
-            response = self.smd_response(False, 'Exception while sending mail', [])
+            response = response_class_object.smd_response(False, 'Exception while sending mail', '')
         except User.DoesNotExist:
-            response = self.smd_response(False, 'Exception while getting the user using filter', [])
+            response = response_class_object.smd_response(False, 'Exception while getting the user using filter', '')
         except DecodeError:
-            response = self.smd_response(False, 'Exception while generating the token', [])
+            response = response_class_object.smd_response(False, 'Exception while generating the token', '')
 
         return response
 
@@ -138,7 +128,7 @@ class UserOperations:
             password = request.data['password']
 
             if username == "" or password == '':
-                response = self.smd_response(False, 'Username or Password is empty', [])
+                response = response_class_object.smd_response(False, 'Username or Password is empty', '')
                 return response
 
             user = auth.authenticate(username=username, password=password)
@@ -162,25 +152,25 @@ class UserOperations:
                 #redis_object.set("loginuser",user_id)
                 redis_object.set(token,user_id)
 
-                response = self.smd_response(True, 'Login Success', [token])
+                response = response_class_object.smd_response(True, 'Login Success', token)
 
                 return response
             else:
 
-                response = self.smd_response(False, 'Login Failed', [])
+                response = response_class_object.smd_response(False, 'Login Failed', '')
 
                 return response
         except DecodeError:
-            response = self.smd_response(False, 'Exception while generating token', [])
+            response = response_class_object.smd_response(False, 'Exception while generating token', '')
 
         except PermissionDenied:
-            response = self.smd_response(False, 'Exception while authenticating user', [])
+            response = response_class_object.smd_response(False, 'Exception while authenticating user', '')
 
         except ConnectionError:
-            response = self.smd_response(False, 'Exception in redis operation-ConnectionError', [])
+            response = response_class_object.smd_response(False, 'Exception in redis operation-ConnectionError', '')
 
         except AuthenticationError:
-            response = self.smd_response(False, 'Exception in redis operation-AuthenticationError', [])
+            response = response_class_object.smd_response(False, 'Exception in redis operation-AuthenticationError', '')
 
 
         return response
@@ -197,7 +187,7 @@ class UserOperations:
             emailid = request.data['email']
 
             if emailid == '':
-                response = self.smd_response(False, 'email is empty', [])
+                response = response_class_object.smd_response(False, 'email is empty', '')
                 return response
 
             user = User.objects.get(email=emailid)
@@ -216,7 +206,7 @@ class UserOperations:
                 subject = "Link to Reset the password"
 
                 message = render_to_string('forgotpassword.html', {
-                    'domain': "http://127.0.0.1:8000",
+                    'domain': get_current_site(request).domain,
                     'token': token
                 })
                 sender = os.getenv('EMAIL_HOST_USER')
@@ -225,19 +215,19 @@ class UserOperations:
 
                 send_mail(subject, message, sender, [reciever])
 
-                response = self.smd_response(True, 'Check your mail for the link', [])
+                response = response_class_object.smd_response(True, 'Check your mail for the link', '')
                 return response
 
             else:
 
-                response = self.smd_response(False, 'Invalid Email id.. Try Once again', [])
+                response = response_class_object.smd_response(False, 'Invalid Email id.. Try Once again', '')
                 return response
         except SMTPException:
-            response = self.smd_response(False, 'Exception occured while sending email', [])
+            response = response_class_object.smd_response(False, 'Exception occured while sending email', '')
         except DecodeError:
-            response = self.smd_response(False, 'Exception occured while generating token', [])
+            response = response_class_object.smd_response(False, 'Exception occured while generating token', '')
         except User.DoesNotExist:
-            response = self.smd_response(False, 'Exception occured while getting the user object', [])
+            response = response_class_object.smd_response(False, 'Exception occured while getting the user object', '')
         return response
 
     def reset_password(self, request, token):
@@ -256,7 +246,7 @@ class UserOperations:
             if userobject is not None:
                 password = request.data['password']
             else:
-                response = self.smd_response(False, 'Invalid User', [])
+                response = response_class_object.smd_response(False, 'Invalid User', '')
                 return response
 
             user = User.objects.get(username=user_name)
@@ -264,19 +254,19 @@ class UserOperations:
                 user.set_password(password)
 
                 user.save()
-                response = self.smd_response(True, 'Passsword Changed Successfully', [])
+                response = response_class_object.smd_response(True, 'Passsword Changed Successfully', '')
 
                 return response
 
             else:
 
-                response = self.smd_response(False, 'Both the Passwords doesnt match', [])
+                response = response_class_object.smd_response(False, 'Both the Passwords doesnt match', '')
 
                 return response
         except User.DoesNotExist:
-            response = self.smd_response(False, 'Exception occured while accessing the user object', [])
+            response = response_class_object.smd_response(False, 'Exception occured while accessing the user object', [])
         except DecodeError:
-            response = self.smd_response(False, 'Exception occured while generating the token', [])
+            response = response_class_object.smd_response(False, 'Exception occured while generating the token', [])
         return response
 
     def logout(self, request):
@@ -289,12 +279,12 @@ class UserOperations:
 
             redis_object.delete(token)
 
-            response = self.smd_response(True, 'Logout Successful', [])
+            response = response_class_object.smd_response(True, 'Logout Successful', [])
             return response
         except ConnectionError:
-            response = self.smd_response(False, 'Exception occured while accessing redis-ConnectionError', [])
+            response = response_class_object.smd_response(False, 'Exception occured while accessing redis-ConnectionError', [])
         except AuthenticationError:
-            response = self.smd_response(False, 'Exception occured while accessing redis-AuthenticationError', [])
+            response = response_class_object.smd_response(False, 'Exception occured while accessing redis-AuthenticationError', [])
         return response
 
     def activate(self, request, token):
@@ -312,15 +302,15 @@ class UserOperations:
             if user is not None:
                 user.is_active = True
                 user.save()
-                response = self.smd_response(True, 'Registration Successful', [])
+                response = response_class_object.smd_response(True, 'Registration Successful', [])
                 return response
 
             else:
-                response = self.smd_response(False, 'Registration Failed', [])
+                response = response_class_object.smd_response(False, 'Registration Failed', [])
 
                 return response
         except User.DoesNotExist:
-            response = self.smd_response(False, 'Exception occurred while getting the user object', [])
+            response = response_class_object.smd_response(False, 'Exception occurred while getting the user object', [])
         except DecodeError:
-            response = self.smd_response(False, 'Exception occurred while decoding the token', [])
+            response = response_class_object.smd_response(False, 'Exception occurred while decoding the token', [])
         return response
