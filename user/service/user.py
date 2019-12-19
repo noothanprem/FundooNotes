@@ -98,7 +98,7 @@ class UserOperations:
                         'token': splittedshortedtokenstr[2],
                     })
 
-                    recipient_email = os.getenv('EMAILID')
+                    recipient_email = email
 
                     ee.emit('send_mail',recipient_email,mail_message)
                     #email = EmailMessage(mail_subject, mail_message, to=[recipient_email])
