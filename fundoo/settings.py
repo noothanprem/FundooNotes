@@ -131,9 +131,9 @@ WSGI_APPLICATION = 'fundoo.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'noothan',
-        'USER': 'noothan',
-        'PASSWORD': 'noothan',
+        'NAME': 'test',
+        'USER': 'test',
+        'PASSWORD': 'test',
         'HOST': 'localhost',
         'PORT': '3306',
     }
